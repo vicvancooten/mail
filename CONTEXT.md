@@ -11,8 +11,18 @@ A person signed in to a self-hosted instance. Owns one or more Mail Accounts.
 _Avoid_: account (unqualified)
 
 **Mail Account**:
-A connection to an external mail server (credentials + settings) owned by a User.
+A connection to an external mail server (credentials + settings) owned by exactly one User. Two Users following the same mailbox each own a separate Mail Account.
 _Avoid_: mailbox, inbox, account (unqualified)
+
+**Needs Reauth**:
+The state of a Mail Account whose stored credentials the mail server has rejected: syncing stops until the User supplies new credentials, and pending Optimistic Actions wait rather than fail.
+
+**Owner**:
+The User who set up the instance: the only role that can invite other Users and change instance settings.
+_Avoid_: admin, superuser
+
+**Member**:
+A User who is not the Owner: full control of their own Mail Accounts, no say over the instance.
 
 ### System parts
 
@@ -23,6 +33,10 @@ _Avoid_: proxy, bridge, API server
 **Client**:
 Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, never to a mail server directly.
 
+**System Mailer**:
+Optional sending credentials the operator configures so the instance can send mail *as itself* (account recovery). Belongs to no User and is never synced or shown as a mailbox.
+_Avoid_: system account, admin mailbox
+
 ### Mail concepts
 
 **Thread**:
@@ -31,6 +45,14 @@ _Avoid_: conversation
 
 **Triage**:
 Processing the message list: archive, trash, pin, snooze, label, approve/block senders.
+
+**Protocol Feature**:
+Triage state stored as a real IMAP flag or folder operation, visible to any other IMAP client against the same Mail Account. Reserved for the rare case where a clean, near-universal mapping exists across the PoC's target providers — currently just read/unread (`\Seen`) and starred (`\Flagged`).
+_Avoid_: IMAP-native
+
+**App Feature**:
+Triage state stored only in the Sync Backend, with no IMAP-side trace — the default for new state. Pin, Label, Snooze, and Gatekeeper verdicts are App Features.
+_Avoid_: backend-only, local-only
 
 **Optimistic Action**:
 Any Triage action whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure.
@@ -41,19 +63,27 @@ After archiving or deleting, automatically opening the next thread or returning 
 **Snooze**:
 Hiding a thread until a chosen time, after which it returns as new.
 
+**Star**:
+Marking a Thread as important using the mail server's own `\Flagged` state. A Protocol Feature, so it round-trips to every other IMAP client — the User's existing stars are there on first sync.
+_Avoid_: flag, favourite, bookmark
+
 **Pin**:
-Keeping a thread prominently visible regardless of its age.
+Keeping a thread prominently visible regardless of its age. An App Feature, and deliberately not the same thing as a Star: a Star says "this matters", a Pin says "keep this in front of me".
+
+**Label**:
+A user-defined tag a User applies to a Thread for organization. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels).
+_Avoid_: tag, IMAP keyword
 
 ### Gatekeeper
 
 **Gatekeeper**:
-The screening feature: mail from Unscreened Senders is held in a dedicated space and highlighted until the User decides.
+The screening feature: mail from Unscreened Senders is held in a dedicated space and highlighted until the User decides. Verdicts are scoped to a single Mail Account, so they never cross Users.
 
 **Unscreened Sender**:
 A sender the User has not yet approved or blocked.
 
 **Approved Sender**:
-A sender the User has let through; their mail lands normally.
+A sender the User has let through: their mail lands normally, and their remote images load without asking.
 _Avoid_: whitelisted
 
 **Blocked Sender**:
@@ -63,4 +93,8 @@ _Avoid_: blacklisted
 ### Sending
 
 **Undo Send**:
-A configurable delay between pressing send and actual submission, during which the send can be cancelled.
+A configurable per-User delay between pressing send and actual submission, during which the send can be cancelled.
+
+**Pending Send**:
+A send the Sync Backend holds from the moment it is accepted until it is submitted or cancelled. Owned by the backend, not the Client, so it survives the Client closing and is visible on every device the User has open.
+_Avoid_: outbox, queued mail

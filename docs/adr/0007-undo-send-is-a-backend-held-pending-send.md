@@ -1,0 +1,19 @@
+# Undo Send is a backend-held Pending Send
+
+Pressing send in the Client immediately creates a **Pending Send** row in the Sync Backend's Postgres store carrying an absolute `submit_after` timestamp; a sweeper submits it over the Mail Account's SMTP when due, and Undo is a cancel call against that row. The Client never holds the delay timer: a client-side wait loses the send outright when the tab closes, the laptop sleeps, or the network drops — with the Client having already told the User it sent. Backend ownership survives all three, makes the pending send visible and cancellable from every device the User has open, and generalises to scheduled send without a second mechanism.
+
+## Considered Options
+
+- **Client-held timer** (Client waits N seconds locally, then POSTs; Undo simply never fires the request): rejected — zero backend state, but the send exists nowhere durable during the window, so an interrupted Client silently destroys mail the User believes is on its way, and no other device can see or cancel it. This contradicts the server-owns-state model the API is built on.
+- **`APPEND` to the IMAP Sent folder at press time**, deleting on cancel: rejected — puts mail that was never sent into Sent and adds a cleanup path for the cancel case, buying visibility for other IMAP clients during a window measured in seconds. Nothing touches IMAP until submission succeeds.
+- **A navigable Outbox view**: rejected for the PoC — a whole navigational surface for a queue that is empty almost always. The pending state is shown on the message in its thread instead. Worth revisiting if scheduled send lands.
+- **Delay `off` as a synchronous bypass** (no Pending Send row at all): rejected — retry, Needs Reauth holds, and failure-to-Draft would each need a second implementation on the path least likely to be exercised in testing. `off` is `N = 0`: the row is always created.
+
+## Consequences
+
+- State machine is `pending → submitting → sent | failed | cancelled`. The transition to `submitting` is an atomic claim taken before the message is handed to Nodemailer: a cancel arriving after the claim loses and is reported to the User as too late. Submission, not timer expiry, is the point of no return.
+- The row stores structured composition (recipients, subject, body, attachment references), not pre-built MIME, so cancelling is a status change on the same content rather than a re-parse. It therefore shares attachment storage with Drafts, whose placement is still undecided.
+- Cancelling restores a Draft and reopens the composer on whichever device cancelled. A Pending Send is never editable in place — that would race the claim, and cancel-to-Draft already covers the need.
+- `submit_after` being absolute means a boot-time sweep submits everything due, however long the backend was down. Overdue mail goes out late rather than being held for confirmation.
+- Submission failure splits three ways: transient errors retry with backoff inside `submitting`; permanent rejections fail the send and restore it as a Draft with the server's rejection text; a Mail Account in Needs Reauth holds its Pending Sends indefinitely, consistent with the existing rule that queued Optimistic Actions wait rather than fail. A failed send must reach the User with no Client open, which is a requirement on the notification mechanism, not on this design.
+- The delay is measured from server receipt, never from the Client's clock.
