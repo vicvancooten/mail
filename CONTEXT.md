@@ -37,6 +37,14 @@ Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, n
 The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering.
 _Avoid_: local store, local database, replica, offline store
 
+**Notifier**:
+The part of the Sync Backend that decides whether a change is worth interrupting a User for, and delivers it to their devices. Deliberately separate from syncing: knowing that mail arrived and judging that someone should be told are different jobs.
+_Avoid_: push service, notification service
+
+**Sync Hint**:
+A message telling a Client that something it holds has changed, carrying no mail state of its own. A Client that receives one pulls the actual changes; a Client that misses one finds them on its next poll, so a hint is always an accelerator and never the only route.
+_Avoid_: push event, change event, notification (when the User is not being told anything)
+
 **System Mailer**:
 Optional sending credentials the operator configures so the instance can send mail *as itself* (account recovery). Belongs to no User and is never synced or shown as a mailbox.
 _Avoid_: system account, admin mailbox
@@ -57,6 +65,10 @@ _Avoid_: IMAP-native
 **App Feature**:
 Triage state stored only in the Sync Backend, with no IMAP-side trace — the default for new state. Pin, Label, Snooze, and Gatekeeper verdicts are App Features.
 _Avoid_: backend-only, local-only
+
+**Snippet**:
+The short plain-text opening of a message, with quoted and forwarded history stripped, used wherever a message is previewed rather than read. Derived once when the message is first stored, so every surface that previews it shows the same words.
+_Avoid_: preview, excerpt, teaser
 
 **Optimistic Action**:
 Any Triage action whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.

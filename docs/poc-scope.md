@@ -83,6 +83,11 @@ Push rules:
 - Blocked and Unscreened mail never pushes otherwise.
 - One on/off toggle per Mail Account, nothing finer.
 
+Mechanism and the full notification catalogue (failed sends, `Needs Reauth`, burst collapsing, badge
+counts, notification actions) are settled in
+[ADR-0015](./adr/0015-realtime-is-sse-hints-plus-web-push.md), from
+[#17](https://github.com/vicvancooten/mail/issues/17).
+
 ### Preferences
 
 Theme (dark / light / system), list density, layout switching, auto-advance on/off and direction,
