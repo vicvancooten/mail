@@ -1,17 +1,26 @@
-import type { ClaimRequest, LoginRequest, User } from "@mail/shared";
+import type { ClaimRequest, LoginRequest, LoginResponse, User } from "@mail/shared";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import * as authApi from "../api/auth.js";
+import * as passkeysApi from "../api/passkeys.js";
 
 export type AuthState =
   | { kind: "loading" }
   | { kind: "unclaimed" }
   | { kind: "login-required" }
+  /** A `PrimaryAuthMethod` succeeded but the confirmed TOTP enrollment still gates login (#32). */
+  | { kind: "totp-required"; challengeToken: string }
   | { kind: "authenticated"; user: User };
 
 interface AuthContextValue {
   state: AuthState;
   claim: (input: ClaimRequest) => Promise<void>;
   login: (input: LoginRequest) => Promise<void>;
+  /** Same login, via a resident passkey instead of a username/password — usernameless (#32). */
+  loginWithPasskey: () => Promise<void>;
+  /** Redeems the challenge from `state.kind === "totp-required"` with the current code. */
+  completeTotpLogin: (code: string) => Promise<void>;
+  /** Backs out of the TOTP prompt to the plain login form; the challenge just expires server-side. */
+  cancelTotpLogin: () => void;
   logout: () => Promise<void>;
   /**
    * The client half of the session seam: any future feature's fetch calls
@@ -61,9 +70,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ kind: "authenticated", user });
   }, []);
 
-  const login = useCallback(async (input: LoginRequest) => {
-    const { user } = await authApi.login(input);
-    setState({ kind: "authenticated", user });
+  const applyLoginResponse = useCallback((response: LoginResponse) => {
+    if ("totpRequired" in response) {
+      setState({ kind: "totp-required", challengeToken: response.challengeToken });
+    } else {
+      setState({ kind: "authenticated", user: response.user });
+    }
+  }, []);
+
+  const login = useCallback(
+    async (input: LoginRequest) => {
+      applyLoginResponse(await authApi.login(input));
+    },
+    [applyLoginResponse],
+  );
+
+  const loginWithPasskey = useCallback(async () => {
+    applyLoginResponse(await passkeysApi.loginWithPasskey());
+  }, [applyLoginResponse]);
+
+  const completeTotpLogin = useCallback(
+    async (code: string) => {
+      if (state.kind !== "totp-required") {
+        throw new Error("completeTotpLogin called outside the totp-required state");
+      }
+      const { user } = await authApi.completeTotpLogin({
+        challengeToken: state.challengeToken,
+        code,
+      });
+      setState({ kind: "authenticated", user });
+    },
+    [state],
+  );
+
+  const cancelTotpLogin = useCallback(() => {
+    setState({ kind: "login-required" });
   }, []);
 
   const logout = useCallback(async () => {
@@ -76,7 +117,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ state, claim, login, logout, handleUnauthorized }}>
+    <AuthContext.Provider
+      value={{
+        state,
+        claim,
+        login,
+        loginWithPasskey,
+        completeTotpLogin,
+        cancelTotpLogin,
+        logout,
+        handleUnauthorized,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

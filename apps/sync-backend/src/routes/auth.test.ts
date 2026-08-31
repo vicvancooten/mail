@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { generate } from "otplib";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
@@ -195,5 +196,178 @@ describe("GET /auth/session", () => {
   it("requires a session", async () => {
     const response = await app.inject({ method: "GET", url: "/auth/session" });
     expect(response.statusCode).toBe(401);
+  });
+});
+
+describe("TOTP-gated login (#32)", () => {
+  /**
+   * A code for one otplib time step past `secret`'s current one — distinct
+   * from whatever `generate({ secret })` just produced (e.g. to confirm
+   * enrollment), yet still inside `verifyTotpCode`'s ±30s tolerance. Without
+   * this, two codes generated microseconds apart in a test would usually
+   * land in the very same time step and collide with the replay guard.
+   */
+  function nextStepCode(secret: string): Promise<string> {
+    return generate({ secret, epoch: Math.floor(Date.now() / 1000) + 30 });
+  }
+
+  async function claimOwner(): Promise<string> {
+    const token = await mintAndCaptureToken(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/claim",
+      payload: { token, username: "vic", password: "a-long-enough-password" },
+    });
+    return extractCookie(response.headers["set-cookie"]);
+  }
+
+  /** Enrolls and confirms TOTP for the already-signed-in owner, returning the secret. */
+  async function enableTotp(sessionCookie: string): Promise<string> {
+    const enroll = await app.inject({
+      method: "POST",
+      url: "/auth/totp/enroll",
+      headers: { cookie: sessionCookie },
+    });
+    const { secret } = enroll.json();
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: "/auth/totp/confirm",
+      headers: { cookie: sessionCookie },
+      payload: { code: await generate({ secret }) },
+    });
+    expect(confirm.statusCode).toBe(200);
+
+    return secret;
+  }
+
+  it("password login untouched when TOTP isn't enrolled", async () => {
+    await claimOwner();
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toMatchObject({ user: { username: "vic" } });
+    expect(login.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("asks for a TOTP code once enrolled, and no session cookie is set yet", async () => {
+    const sessionCookie = await claimOwner();
+    await enableTotp(sessionCookie);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toMatchObject({ totpRequired: true });
+    expect(login.json().challengeToken).toEqual(expect.any(String));
+    expect(login.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("completes login with the right code", async () => {
+    const sessionCookie = await claimOwner();
+    const secret = await enableTotp(sessionCookie);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+    const { challengeToken } = login.json();
+
+    const totpLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login/totp",
+      payload: { challengeToken, code: await nextStepCode(secret) },
+    });
+    expect(totpLogin.statusCode).toBe(200);
+    expect(totpLogin.json()).toMatchObject({ user: { username: "vic" } });
+
+    const cookie = extractCookie(totpLogin.headers["set-cookie"]);
+    const session = await app.inject({ method: "GET", url: "/auth/session", headers: { cookie } });
+    expect(session.statusCode).toBe(200);
+  });
+
+  it("rejects a wrong code without minting a session", async () => {
+    const sessionCookie = await claimOwner();
+    await enableTotp(sessionCookie);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+    const { challengeToken } = login.json();
+
+    const totpLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login/totp",
+      payload: { challengeToken, code: "000000" },
+    });
+    expect(totpLogin.statusCode).toBe(401);
+  });
+
+  it("can't reuse a challenge token twice", async () => {
+    const sessionCookie = await claimOwner();
+    const secret = await enableTotp(sessionCookie);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+    const { challengeToken } = login.json();
+    const code = await generate({ secret });
+
+    await app.inject({
+      method: "POST",
+      url: "/auth/login/totp",
+      payload: { challengeToken, code },
+    });
+    const replay = await app.inject({
+      method: "POST",
+      url: "/auth/login/totp",
+      payload: { challengeToken, code },
+    });
+    expect(replay.statusCode).toBe(401);
+  });
+
+  it("can't reuse the same code across two separate login challenges", async () => {
+    const sessionCookie = await claimOwner();
+    const secret = await enableTotp(sessionCookie);
+    // A step past enableTotp's own confirmation code, which already spent its step.
+    const code = await nextStepCode(secret);
+
+    const loginA = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+    const loginB = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "vic", password: "a-long-enough-password" },
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/auth/login/totp",
+      payload: { challengeToken: loginA.json().challengeToken, code },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Same code, a still-fresh (unused) challenge — this isolates the
+    // TOTP replay guard from the challenge's own single-use consumption.
+    const second = await app.inject({
+      method: "POST",
+      url: "/auth/login/totp",
+      payload: { challengeToken: loginB.json().challengeToken, code },
+    });
+    expect(second.statusCode).toBe(401);
   });
 });

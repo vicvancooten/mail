@@ -8,6 +8,13 @@
       "when": 1788208599732,
       "tag": "0000_safe_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788210549726,
+      "tag": "0001_bumpy_rage",
+      "breakpoints": true
     }
   ]
 }

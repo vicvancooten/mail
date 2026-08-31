@@ -6,6 +6,8 @@ import authPlugin from "./auth/plugin.js";
 import type { Db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
 import { healthRoutes } from "./routes/health.js";
+import { passkeyRoutes } from "./routes/passkeys.js";
+import { totpRoutes } from "./routes/totp.js";
 
 // Populated by the Docker build (ADR-0009: one image, Client bundle and API
 // ship together so a fresh load can never skew). Absent in local dev, where
@@ -29,6 +31,8 @@ export function buildApp({ db, publicUrl }: BuildAppOptions) {
   app.register(authPlugin, { db, publicUrl });
   app.register(healthRoutes);
   app.register(authRoutes, { db, publicUrl });
+  app.register(totpRoutes, { db });
+  app.register(passkeyRoutes, { db, publicUrl });
 
   if (existsSync(publicDir)) {
     app.register(fastifyStatic, { root: publicDir });
