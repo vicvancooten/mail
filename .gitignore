@@ -28,3 +28,6 @@ logs/
 
 # Test / coverage
 coverage/
+
+# corpus-bench run output (regenerate with `pnpm --filter @mail/corpus-bench bench:all`)
+apps/corpus-bench/results/

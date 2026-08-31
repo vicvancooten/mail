@@ -95,6 +95,14 @@ The one table that exists (`scaffold_probe`) is a placeholder proving `generate`
 real Postgres end-to-end; it has no product meaning and should be deleted once real tables (User,
 Mail Account, Thread, Message, ...) land.
 
+## Benchmarking
+
+`apps/corpus-bench` generates a seeded synthetic corpus at the PoC's scale bar (250k messages /
+80k threads / 2 Mail Accounts, `docs/poc-scope.md`) and loads it into `compose.dev.yaml`'s Postgres
+and GreenMail. It's a dev tool, not a product package — no `build` script, `pnpm -r build` skips it.
+See `apps/corpus-bench/README.md` for commands; baseline search-latency numbers are in
+[`docs/research/0007-250k-message-corpus-benchmark.md`](research/0007-250k-message-corpus-benchmark.md).
+
 ## Config
 
 `apps/sync-backend/src/env.ts` — fail-closed per ADR-0009: `PUBLIC_URL` and `MAIL_CREDENTIAL_KEY`
