@@ -8,6 +8,23 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Auth's session/claim tests run as integration tests against a real
+    # Postgres (docs/dev-setup.md), not mocks — same DATABASE_URL default
+    # apps/sync-backend/src/test-support/db.ts falls back to.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mail
+          POSTGRES_PASSWORD: mail
+          POSTGRES_DB: mail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U mail"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
 
