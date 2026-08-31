@@ -1,0 +1,35 @@
+# Production stack (ADR-0009). Pulls published images — never builds. The
+# operator brings their own reverse proxy and TLS; this stack only needs
+# `pgdata` and `.env` backed up.
+#
+#   docker compose pull && docker compose up -d
+#
+# Upgrade ritual: pg_dump the running `postgres` service, `pull`, `up -d`.
+# Migrations are forward-only and run in the app's own boot path.
+
+services:
+  app:
+    image: ghcr.io/vicvancooten/mail:${MAIL_VERSION:-edge}
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL is required}
+      MAIL_CREDENTIAL_KEY: ${MAIL_CREDENTIAL_KEY:?MAIL_CREDENTIAL_KEY is required}
+      MAIL_BIND: ${MAIL_BIND:-127.0.0.1:3000}
+      DATABASE_URL: postgres://${POSTGRES_USER:-mail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-mail}
+    ports:
+      - "${MAIL_BIND:-127.0.0.1:3000}:3000"
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-mail}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

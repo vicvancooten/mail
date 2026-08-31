@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+.git
+.github
+.claude
+.agents
+docs
+*.md
+.env
+.env.*
