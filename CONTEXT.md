@@ -142,6 +142,19 @@ _Avoid_: outbox, queued mail
 An address the User has actually exchanged mail with on a Mail Account, derived from message history and never hand-edited. The source of recipient suggestions while composing.
 _Avoid_: contact (reserved for the address-book entries a User manages), recipient
 
+### Search
+
+**Search Index**:
+The Sync Backend's searchable projection of every message — subject, participants, body text and attachment filenames — kept beside the messages themselves and rebuilt in the background whenever the way text is analysed changes. Search runs against it, never against a full index in the Client.
+_Avoid_: FTS table, tsvector
+
+**Candidate Window**:
+The slice of newest matching messages a search actually ranks, rather than ranking every match across the whole history. Bounding it is what keeps search fast on a fifteen-year mailbox, and it is why an old, strong match can sit behind a recent, weaker one until the User asks for older results.
+
+**Index Watermark**:
+How far back a Mail Account's message bodies have been fetched and indexed. Headers are searchable from the first sync; bodies fill in behind a background sweep that runs once and then stops, and the watermark is what the Client shows so partial coverage is stated rather than silently returning too few results.
+_Avoid_: backfill progress
+
 ### Preferences
 
 **Device Preference**:

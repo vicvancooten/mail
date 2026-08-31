@@ -47,6 +47,7 @@ pnpm --filter @mail/corpus-bench generate           # sanity-print corpus shape,
 
 pnpm --filter @mail/corpus-bench load:postgres -- --reset   # loads corpus_bench.messages (throwaway schema)
 pnpm --filter @mail/corpus-bench bench:postgres              # FTS query latency, p50/p95/p99
+pnpm --filter @mail/corpus-bench bench:shapes                # ranked + thread-deduped shapes (ADR-0016)
 
 pnpm --filter @mail/corpus-bench bench:client                 # MiniSearch build time, memory, query latency
 
@@ -70,3 +71,22 @@ Config is env vars (`src/env.ts`), all defaulted to the PoC scale bar:
 stand-in for the real Message/Thread tables, not a preview of that design. `--reset` drops it first;
 omit it to load additively. `results/latest.json` (gitignored) is `bench:all`'s full report; the
 baseline numbers as of this ticket's resolution are recorded in the ticket's resolution comment.
+
+## `bench:shapes` — the shape search actually runs
+
+`bench:postgres` measures match-and-limit-50: no relevance ranking, no Thread deduplication. That
+was the right question for this ticket (does a client-side index survive the corpus?), but it is not
+the query [ADR-0016](../../docs/adr/0016-search-runs-in-the-sync-backend-over-a-bounded-candidate-window.md)
+went on to specify, and the difference decides the design. `bench:shapes` builds the ADR's Search
+Index shape over the already-loaded corpus — `simple` + `unaccent`, no stemming, with participants
+and split address parts at their own weights — as both a generated column on `corpus_bench.messages`
+and a narrow `corpus_bench.message_search` side table, then compares:
+
+- ranking every match vs. ranking only within a 500-message **Candidate Window**
+- the wide table vs. the narrow side table
+- ordinary terms vs. the pathological ones (a two-character prefix; a term matching most of the
+  corpus, standing in for what happens when a stopword-free configuration meets a common word)
+- with and without `ts_headline` fragments over the result page
+
+It requires `load:postgres` to have run. Like the rest of the harness it writes to the throwaway
+`corpus_bench` schema and never touches product tables.

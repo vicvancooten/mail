@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import postgres from "postgres";
 import { benchPostgresSearch } from "./bench-postgres.js";
+import { benchSearchShapes } from "./bench-shapes.js";
 import { benchClientIndex } from "./client-index.js";
 import { loadBenchEnv } from "./env.js";
 import { defaultConfig, generateCorpus } from "./generate.js";
@@ -69,6 +70,17 @@ async function cmdBenchPostgres(databaseUrl: string) {
   }
 }
 
+async function cmdBenchShapes(databaseUrl: string) {
+  const sql = postgres(databaseUrl);
+  try {
+    const result = await benchSearchShapes(sql);
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  } finally {
+    await sql.end();
+  }
+}
+
 async function cmdBenchClient(config: CorpusConfig) {
   const result = await benchClientIndex(config);
   console.log(JSON.stringify(result, null, 2));
@@ -95,6 +107,9 @@ async function cmdBenchAll(config: CorpusConfig, env: ReturnType<typeof loadBenc
   console.log("\n== Postgres full-text search benchmark ==");
   const pgBench = await cmdBenchPostgres(env.DATABASE_URL);
 
+  console.log("\n== Ranked / deduped query shapes (ADR-0016) ==");
+  const shapeBench = await cmdBenchShapes(env.DATABASE_URL);
+
   console.log("\n== Client-side index (MiniSearch) benchmark ==");
   const clientBench = await cmdBenchClient(config);
 
@@ -102,7 +117,7 @@ async function cmdBenchAll(config: CorpusConfig, env: ReturnType<typeof loadBenc
     generatedAt: new Date().toISOString(),
     config,
     corpus,
-    postgres: { load: pgLoad, search: pgBench },
+    postgres: { load: pgLoad, search: pgBench, shapes: shapeBench },
     clientIndex: clientBench,
   };
   await mkdir(new URL("../results/", import.meta.url), { recursive: true });
@@ -134,13 +149,15 @@ async function main() {
       return void (await cmdBenchPostgres(env.DATABASE_URL));
     case "load:imap":
       return void (await cmdLoadImap(config, env));
+    case "bench:shapes":
+      return void (await cmdBenchShapes(env.DATABASE_URL));
     case "bench:client":
       return void (await cmdBenchClient(config));
     case "bench:all":
       return cmdBenchAll(config, env);
     default:
       console.error(
-        "Usage: tsx src/run.ts <generate|load:postgres|bench:postgres|load:imap|bench:client|bench:all>",
+        "Usage: tsx src/run.ts <generate|load:postgres|bench:postgres|bench:shapes|load:imap|bench:client|bench:all>",
       );
       process.exit(1);
   }

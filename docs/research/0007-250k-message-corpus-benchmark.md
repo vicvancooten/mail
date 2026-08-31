@@ -106,3 +106,44 @@ magnitude of headroom at a 33MB index. A viable client-side story likely means b
 indexed client-side (matching the Local Cache's own bounded-working-set model) rather than a full
 15-year, 250k-message index — or leaning on server-side search with the client only caching recent
 results. That trade-off is #11's to make.
+
+## Correction: what these Postgres numbers do and do not cover (added by [#11](https://github.com/vicvancooten/mail/issues/11))
+
+The Postgres table above measures **match-and-limit-50**: `WHERE search_doc @@ query … LIMIT 50`, with
+no relevance ranking and no thread deduplication. That was the right shape for the question this
+ticket asked (does full-history search need to run in the Client?), and the answer stands. But it is
+narrower than the query [Search architecture](https://github.com/vicvancooten/mail/issues/11) went on
+to specify — ranked by `ts_rank_cd` with a recency blend, deduplicated to one row per Thread — and the
+difference is not small. Re-measured on this same corpus, same machine, `simple` configuration:
+
+| Query shape (ranked + thread-deduped, top 50) | p50 | p95 |
+|---|---:|---:|
+| `quarterly` (~3.4% selectivity), **no candidate cap** | 30.1ms | 37.1ms |
+| type-ahead prefix `quarte:*`, no cap | 30.5ms | 32.6ms |
+| address local part `kowalski0`, no cap | 957.4ms | 1001.0ms |
+| `quarterly`, **capped to the newest 500 matches** | 8.7ms | 14.9ms |
+| `quarte:*`, capped | 9.4ms | 10.1ms |
+| `kowalski0`, capped | 143.9ms | 156.7ms |
+| `kowalski0`, capped, on a **narrow side table** | 117.0ms | 131.9ms |
+| two-char prefix `qu:*`, capped / capped on side table | 155.5 / 129.1ms | 166.7 / 167.1ms |
+| a term matching ~82% of the corpus, capped / side table | 145.4 / 118.9ms | 155.1 / 123.6ms |
+| `ts_headline` fragments over the 50 result rows | +1–3ms | +1–3ms |
+
+Ad-hoc runs of the uncapped shape on a colder table measured considerably worse than the table above
+(p99 216ms for `quarterly`, 224ms for `quarte:*`, 642ms for the 82% term, and **2.4s** for a
+two-character prefix), which is why `qu:*` and the 82% term are only benchmarked capped — uncapped
+they are slow enough to make the run tedious. Either way the shape of the finding is the same, and
+the capped numbers are the ones the design depends on.
+
+Ranking a whole match set is unbounded work; the `LIMIT 50` in the original benchmark stops the scan
+early precisely because nothing has to be ordered. So the 200ms bar **is** binding on the real query
+shape, and the fix is bounding the candidate set rather than a different search engine — see
+[ADR-0016](../adr/0016-search-runs-in-the-sync-backend-over-a-bounded-candidate-window.md). Two
+incidental findings from the same pass: `ts_headline` snippets are essentially free at page size, and
+`to_tsvector('simple', …)` treats an email address as one atomic token, so address parts have to be
+split at index time or sender search silently fails.
+
+Numbers above are from `pnpm --filter @mail/corpus-bench bench:shapes` (20 iterations/query, warm
+cache, same corpus and machine as the tables higher up; the side table is 450MB and builds from the
+loaded corpus in 7.7s). Absolute values move with hardware and cache warmth — the ratios are the
+finding.
