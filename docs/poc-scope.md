@@ -2,8 +2,8 @@
 
 Resolution of wayfinder ticket [#2](https://github.com/vicvancooten/mail/issues/2). This is the scope
 contract for the PoC: what gets built before Vic dogfoods, what waits. The full PoC *spec* is
-[#14](https://github.com/vicvancooten/mail/issues/14) and folds this in; where the two disagree, this
-document is the older one.
+[`poc-spec.md`](poc-spec.md) (from [#14](https://github.com/vicvancooten/mail/issues/14)) and folds
+this in; where the two disagree, this document is the older one.
 
 ## What the PoC is
 
