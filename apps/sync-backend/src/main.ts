@@ -18,7 +18,7 @@ if (!host || Number.isNaN(port)) {
   throw new Error(`MAIL_BIND must be "host:port", got "${env.MAIL_BIND}"`);
 }
 
-const app = buildApp({ db, publicUrl: env.PUBLIC_URL });
+const app = buildApp({ db, publicUrl: env.PUBLIC_URL, mailCredentialKey: env.MAIL_CREDENTIAL_KEY });
 
 // One-time first-run claim token, printed to the logs (ADR-0009 deployment).
 // A no-op once an Owner already exists.

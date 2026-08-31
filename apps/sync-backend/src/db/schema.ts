@@ -1,4 +1,5 @@
-import { boolean, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import type { MailAccountCredential } from "../mail-accounts/credential-crypto.js";
 
 /**
  * A User signed in to this instance (CONTEXT.md). Exactly one Owner is
@@ -143,3 +144,41 @@ export const webauthnChallenges = pgTable("webauthn_challenges", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+/**
+ * A connection to an external mail server, owned by exactly one User
+ * (CONTEXT.md, ADR-0004) — no join table, no sharing. `imap*`/`smtp*`
+ * columns are the provider-agnostic host/port/TLS shape both autodiscover
+ * and manual entry produce (docs/research/0004 §6); `credential` is the
+ * AEAD-sealed tagged union from ADR-0003, `jsonb` so a future `oauth`
+ * variant needs no migration of the existing `password` rows, only a new
+ * shape for new ones. `status` is the Needs Reauth state machine
+ * (CONTEXT.md): a rejected credential parks a row in `needs_reauth` until
+ * `src/mail-accounts/store.ts`'s reauth path clears it back to `active`.
+ */
+export const mailAccounts = pgTable(
+  "mail_accounts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emailAddress: text("email_address").notNull(),
+    imapHost: text("imap_host").notNull(),
+    imapPort: integer("imap_port").notNull(),
+    imapSecurity: text("imap_security", { enum: ["tls", "starttls", "none"] }).notNull(),
+    smtpHost: text("smtp_host").notNull(),
+    smtpPort: integer("smtp_port").notNull(),
+    smtpSecurity: text("smtp_security", { enum: ["tls", "starttls", "none"] }).notNull(),
+    // The IMAP/SMTP login, kept separate from `emailAddress`: not every
+    // provider's login is the mailbox address itself.
+    username: text("username").notNull(),
+    credential: jsonb("credential").$type<MailAccountCredential>().notNull(),
+    status: text("status", { enum: ["active", "needs_reauth"] })
+      .notNull()
+      .default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("mail_accounts_user_id_idx").on(table.userId)],
+);
