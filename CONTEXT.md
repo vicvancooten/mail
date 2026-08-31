@@ -110,10 +110,14 @@ The moment Gatekeeper was switched on for a Mail Account. Only mail arriving aft
 ### Sending
 
 **Composition**:
-The content of a message being written: recipients, subject, body, and its attachments. A Draft and a Pending Send are two states of one Composition, never separate things, so cancelling a send changes a status rather than copying content.
+The content of a message being written: recipients, subject, body, and its attachments. A Draft and a Pending Send are two states of one Composition, never separate things, so cancelling a send changes a status rather than copying content. Held as a structured document rather than as the HTML that will be sent, so reopening it never degrades what the User wrote.
 
 **Draft**:
 A Composition the User is still writing. An App Feature — the Sync Backend holds the authoritative copy — that is also exported to the Mail Account's IMAP `Drafts` folder so other mail clients can read and finish it.
+
+**Quoted Original**:
+The earlier message carried into a reply or forward, kept exactly as it arrived rather than re-written into the User's own formatting. Part of a Composition, but never authored by the User.
+_Avoid_: quote block, citation
 
 **Undo Send**:
 A configurable per-User delay between pressing send and actual submission, during which the send can be cancelled.
@@ -121,6 +125,10 @@ A configurable per-User delay between pressing send and actual submission, durin
 **Pending Send**:
 The state of a Composition from the moment a send is accepted until it is submitted or cancelled. Owned by the backend, not the Client, so it survives the Client closing and is visible on every device the User has open. Cancelling returns it to a Draft.
 _Avoid_: outbox, queued mail
+
+**Correspondent**:
+An address the User has actually exchanged mail with on a Mail Account, derived from message history and never hand-edited. The source of recipient suggestions while composing.
+_Avoid_: contact (reserved for the address-book entries a User manages), recipient
 
 ### Preferences
 
