@@ -8,6 +8,12 @@ the same transaction that writes the change. This upgrades the *signal* that
 polling as a fallback for; the Client still pulls its deltas from `POST /sync`, so push-then-pull is
 unchanged and polling drops to a slow safety net rather than disappearing.
 
+- **Amended in place** by [iOS badge-update mechanism for a fully-closed PWA](https://github.com/vicvancooten/mail/issues/27),
+  which reworked three consequences below rather than opening a new ADR: the badge now has a second
+  writer (the service worker's push handler, fed a count on the push payload), cross-device
+  notification-closing is stated as unreachable on a fully-closed iOS device, and the claim that a
+  denied device still badges is corrected.
+
 ## Considered options
 
 - **WebSocket instead of SSE**: rejected. Everything upstream already has a home — mutations are
@@ -102,7 +108,12 @@ preference surface, per `docs/poc-scope.md`.
   tracking would make push delivery depend on SSE bookkeeping that a dropped connection instantly
   makes wrong. Every subscribed device is pushed; you never know which one is in someone's hand.
 - **Notifications are tagged with their thread id**, so any delta marking the thread `\Seen` lets the
-  service worker close stale notifications on other devices via `getNotifications({tag})`.
+  service worker close stale notifications on other devices via `getNotifications({tag})`. This
+  reaches a device whose service worker is already running or is woken by a *legitimate* push; it
+  cannot reach a fully-closed iOS device, because waking one requires a push and every push on iOS
+  must ring (see the badge bullet below — same constraint, same resolution). A stale notification on
+  a closed iPhone stays until tapped or until the next real push. Accepted: ringing a phone to tell
+  its owner they have already read something is worse than the stale notification.
 - **Action buttons post directly to the API.** Archive on a mail notification; Approve and Block on a
   *single*-hold Gatekeeper notification. A coalesced digest carries **no** actions — it deep-links to
   the Screener, since the sender is ambiguous. The service worker `POST`s the intent with a ULID
@@ -115,12 +126,37 @@ preference surface, per `docs/poc-scope.md`.
 - **The app-icon badge is unread Inbox threads across all Mail Accounts**, set by the leader tab on
   every delta — but the count comes from a **backend-supplied counter on the sync response**, not a
   `COUNT` over the Local Cache, which would silently cap at that cache's ~500-thread floor
-  ([ADR-0009](0009-client-local-cache-is-a-disposable-indexeddb-cache.md)). **This leader-tab path
-  cannot reach the one case iOS badging exists for**: a leader tab only exists when a window is open,
-  but iOS Web Push (and badging) exist precisely because no window needs to be open. A fully-closed
-  iOS PWA gets push notifications but a badge that never moves. The service worker's own push-handler
-  path for setting the badge is an open design question — see [iOS badge-update mechanism for a
-  fully-closed PWA](https://github.com/vicvancooten/mail/issues/27).
+  ([ADR-0009](0009-client-local-cache-is-a-disposable-indexeddb-cache.md)). The leader tab is **not
+  the only writer**: a leader tab exists only when a window is open, but Web Push and badging exist
+  precisely because no window needs to be open, so the **service worker's push handler sets the badge
+  too**, on every platform, with no iOS branch (`setAppBadge` is exposed in Worker contexts and
+  WebKit explicitly blesses this). The two writers cover disjoint events — the push handler covers
+  arrivals while closed, the leader tab covers reads while open, where the count drops and no push
+  ever fires. Neither is a source of truth: the **backend counter is**, and both call the idempotent
+  `setAppBadge(n)` with the same server-computed absolute `n`. Two writers of an absolute value is
+  safe in a way two writers of a delta would never be.
+- **Every push payload carries that count**, computed at Notifier-fire time from the same counter the
+  `/sync` response uses, so the handler badges with zero network. Unconditionally on all four
+  push-worthy kinds, including the two (`Needs Reauth`, failed send) that don't change it: each push
+  is a free self-heal, and a sometimes-absent field is a handler branch for no gain. A fetch from
+  inside the handler was rejected — it puts latency in front of `showNotification` on the one
+  platform that revokes the whole subscription for being slow, and it fails exactly when push is
+  delivered on reconnect. For the same reason there is **no ordering guard**: an out-of-order late
+  push can leave the badge off by N, and persisting a monotonic stamp would cost an IndexedDB read
+  and write in the handler to fix something the next push or app open corrects anyway. Order inside
+  the handler is therefore **`showNotification` first and awaited, `setAppBadge` after, best-effort
+  in its own `try`/`catch`, both inside `event.waitUntil`** — the badge must never delay or throw
+  ahead of the notification.
+- **The badge cannot go down while the app is closed, and no push is ever sent to correct it.** Read
+  three threads on the desktop while the phone is shut and the phone's badge is stale until real mail
+  arrives (carrying a now-lower `n`, which self-heals) or the app is opened, which sets the badge
+  from the `/sync` response on visibility change. A badge-only push would have to ring, since iOS
+  permits no silent push. The contract is: exactly right whenever the app is open, eventually right
+  otherwise.
+- **Gatekeeper-held mail does not count toward the badge.** The badge is unread *Inbox* threads and
+  held mail is not in the Inbox; it already has its own non-dismissible Inbox banner keyed to unseen
+  holds. An Unscreened sender must not be able to put a number on the home screen — that is most of
+  the point of the Screener.
 - **A push-handler bug, timeout, or crash on iOS risks silently killing the whole subscription, not
   just one notification.** Unlike Chrome's `userVisibleOnly` constraint (the ADR's stated reason for
   rejecting tickle-only pushes), WebKit revokes the push subscription outright if a service worker
@@ -151,8 +187,12 @@ preference surface, per `docs/poc-scope.md`.
   control in settings, plus one inline offer after the first successful triage session, tracked by a
   `notificationOfferShown` **Device Preference** in `localStorage` (device-truth by definition, so it
   rides ADR-0011's never-synced category). Never on load — a denial is effectively permanent and
-  un-recoverable in-app. A denied device is a **fully functional Client**: SSE, toasts, and badges all
-  work without Notification permission; it simply does not ring. The settings control then shows a
+  un-recoverable in-app. A denied device is a **fully functional Client** — SSE, toasts, triage, all
+  of it — but it does not ring **and it does not badge**: Web Push requires Notification permission
+  on every platform, so the push-fed badge path does not exist at all on a denied device, leaving
+  only the leader-tab path; and on iOS not even that, since WebKit shows a badge only when
+  notifications are granted ([research](../research/0006-ios-pwa-push-badging-constraints.md#2-app-badging-navigatorsetappbadge)).
+  The settings control then shows a
   *blocked* state explaining that browser site settings are the only way back, because
   `requestPermission()` after a denial resolves instantly and silently and would otherwise look like
   our bug.

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SSE Probe</title>
+
+<!-- iOS "Add to Home Screen" standalone-mode hints (no icon — not needed to observe SSE lifetime) -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="SSE Probe" />
+<link rel="manifest" href="/manifest.webmanifest" />
+
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 12px; background: #111; color: #ddd; font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  #status { padding: 10px; border-radius: 8px; background: #1c1c1c; margin-bottom: 10px; }
+  #status.ok { border: 1px solid #2ecc71; }
+  #status.stale { border: 1px solid #e67e22; }
+  #status.down { border: 1px solid #e74c3c; }
+  .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .row b { color: #fff; }
+  button { background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; }
+  #log { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, monospace; font-size: 12px; }
+  #log li { padding: 3px 0; border-bottom: 1px solid #222; word-break: break-all; }
+  .tag-heartbeat { color: #2ecc71; }
+  .tag-lifecycle { color: #f1c40f; }
+  .tag-conn { color: #3498db; }
+  .tag-error { color: #e74c3c; }
+</style>
+</head>
+<body>
+<h1>iOS SSE Probe — wayfinder #28</h1>
+
+<div id="status">
+  <div class="row"><span>Session</span><b id="sid">–</b></div>
+  <div class="row"><span>EventSource readyState</span><b id="rs">–</b></div>
+  <div class="row"><span>Last heartbeat</span><b id="last-hb">–</b></div>
+  <div class="row"><span>Seconds since last heartbeat</span><b id="since-hb">–</b></div>
+  <div class="row"><span>Page visibility</span><b id="vis">–</b></div>
+</div>
+
+<button id="clear">Clear log</button>
+<button id="copy">Copy log</button>
+
+<ul id="log"></ul>
+
+<script>
+  const SID = Math.random().toString(36).slice(2, 8);
+  const LOG_KEY = "ios-sse-probe-log";
+  const logEl = document.getElementById("log");
+  const statusEl = document.getElementById("status");
+
+  document.getElementById("sid").textContent = SID;
+
+  // --- persistent log (survives an iOS-triggered page reload while backgrounded) ---
+  function loadEntries() {
+    try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch { return []; }
+  }
+  function saveEntries(entries) {
+    // keep last 500 to avoid unbounded growth on long soak tests
+    localStorage.setItem(LOG_KEY, JSON.stringify(entries.slice(-500)));
+  }
+  function render() {
+    const entries = loadEntries();
+    logEl.innerHTML = entries
+      .slice()
+      .reverse()
+      .map((e) => `<li class="tag-${e.tag}">[${e.t}] ${e.msg}</li>`)
+      .join("");
+  }
+  function record(tag, msg) {
+    const entries = loadEntries();
+    entries.push({ t: new Date().toISOString().slice(11, 23), tag, msg });
+    saveEntries(entries);
+    render();
+  }
+
+  document.getElementById("clear").onclick = () => { localStorage.removeItem(LOG_KEY); render(); };
+  document.getElementById("copy").onclick = () => {
+    navigator.clipboard?.writeText(JSON.stringify(loadEntries(), null, 2)).catch(() => {});
+  };
+
+  record("lifecycle", `page (re)loaded, session=${SID}`);
+
+  // --- lifecycle observability: this is what tells us whether iOS reloaded us ---
+  document.addEventListener("visibilitychange", () => {
+    document.getElementById("vis").textContent = document.visibilityState;
+    record("lifecycle", `visibilitychange -> ${document.visibilityState}`);
+  });
+  window.addEventListener("pagehide", (e) => record("lifecycle", `pagehide (persisted=${e.persisted})`));
+  window.addEventListener("pageshow", (e) => record("lifecycle", `pageshow (persisted=${e.persisted})`));
+  window.addEventListener("freeze", () => record("lifecycle", "freeze"));
+  window.addEventListener("resume", () => record("lifecycle", "resume"));
+  document.getElementById("vis").textContent = document.visibilityState;
+
+  // --- SSE connection ---
+  let lastHeartbeatAt = null;
+
+  function connect() {
+    record("conn", "opening EventSource");
+    const es = new EventSource("/events");
+
+    es.onopen = () => { record("conn", "open"); updateStatus(); };
+    es.onerror = () => { record("error", `error, readyState=${es.readyState}`); updateStatus(); };
+
+    es.addEventListener("hello", (ev) => {
+      const data = JSON.parse(ev.data);
+      record("conn", `hello from server clientId=${data.clientId} serverTime=${data.serverTime}`);
+    });
+
+    es.addEventListener("heartbeat", (ev) => {
+      const data = JSON.parse(ev.data);
+      lastHeartbeatAt = Date.now();
+      record("heartbeat", `#${data.seq} serverTime=${data.serverTime}`);
+      updateStatus();
+    });
+
+    window.__es = es;
+  }
+
+  function updateStatus() {
+    const es = window.__es;
+    document.getElementById("rs").textContent = es
+      ? ["CONNECTING", "OPEN", "CLOSED"][es.readyState]
+      : "–";
+    document.getElementById("last-hb").textContent = lastHeartbeatAt
+      ? new Date(lastHeartbeatAt).toISOString()
+      : "never";
+
+    const secs = lastHeartbeatAt ? Math.round((Date.now() - lastHeartbeatAt) / 1000) : null;
+    document.getElementById("since-hb").textContent = secs === null ? "–" : `${secs}s`;
+
+    statusEl.className = secs === null ? "" : secs < 40 ? "ok" : secs < 120 ? "stale" : "down";
+  }
+
+  setInterval(updateStatus, 1000);
+  connect();
+  render();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
+</script>
+</body>
+</html>
