@@ -31,11 +31,13 @@
     "nodemailer": "^9.0.6",
     "otplib": "^13.5.0",
     "postgres": "^3.4.9",
+    "sanitize-html": "^2.17.7",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@types/nodemailer": "^8.0.1",
+    "@types/sanitize-html": "^2.16.1",
     "drizzle-kit": "^0.31.10",
     "nid-webauthn-emulator": "^0.2.15",
     "tsx": "^4.23.13",

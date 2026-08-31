@@ -95,9 +95,8 @@ container never race the schema — this is the "programmatic at boot + advisory
 calls it before the server starts listening, so the app fails closed on a bad migration rather than
 serving traffic against a stale schema.
 
-The one table that exists (`scaffold_probe`) is a placeholder proving `generate` → `migrate` →
-real Postgres end-to-end; it has no product meaning and should be deleted once real tables (User,
-Mail Account, Thread, Message, ...) land.
+The scaffold's placeholder `scaffold_probe` table is gone: User, Mail Account, Folder, Thread and
+Message are all real tables now (`apps/sync-backend/src/db/schema.ts`).
 
 ## Benchmarking
 
