@@ -1,7 +1,15 @@
 import { fileURLToPath } from "node:url";
 import { createDb, type Db } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
-import { claimTokens, sessions, users } from "../db/schema.js";
+import {
+  claimTokens,
+  loginChallenges,
+  passkeyCredentials,
+  sessions,
+  totpCredentials,
+  users,
+  webauthnChallenges,
+} from "../db/schema.js";
 
 /**
  * Matches `.env.example` / `compose.dev.yaml` — tests run against the same
@@ -32,5 +40,9 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(sessions);
   await db.delete(claimTokens);
+  await db.delete(loginChallenges);
+  await db.delete(webauthnChallenges);
+  await db.delete(totpCredentials);
+  await db.delete(passkeyCredentials);
   await db.delete(users);
 }

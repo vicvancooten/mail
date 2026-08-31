@@ -3,6 +3,9 @@ import {
   authStatusResponseSchema,
   type ClaimRequest,
   type LoginRequest,
+  type LoginResponse,
+  type LoginTotpRequest,
+  loginResponseSchema,
   type SessionResponse,
   sessionResponseSchema,
 } from "@mail/shared";
@@ -19,7 +22,7 @@ export class ApiError extends Error {
   }
 }
 
-async function errorCode(response: Response): Promise<string> {
+export async function errorCode(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: string };
     return body.error ?? `http_${response.status}`;
@@ -28,7 +31,11 @@ async function errorCode(response: Response): Promise<string> {
   }
 }
 
-async function postJson<T>(url: string, body: unknown, parse: (data: unknown) => T): Promise<T> {
+export async function postJson<T>(
+  url: string,
+  body: unknown,
+  parse: (data: unknown) => T,
+): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
     credentials: "include",
@@ -39,6 +46,35 @@ async function postJson<T>(url: string, body: unknown, parse: (data: unknown) =>
     throw new ApiError(response.status, await errorCode(response));
   }
   return parse(await response.json());
+}
+
+/** Shared by `api/totp.ts` and `api/passkeys.ts` for their own GET/DELETE calls. */
+export async function getJson<T>(url: string, parse: (data: unknown) => T): Promise<T> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorCode(response));
+  }
+  return parse(await response.json());
+}
+
+export async function deleteRequest(url: string): Promise<void> {
+  const response = await fetch(url, { method: "DELETE", credentials: "include" });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorCode(response));
+  }
+}
+
+/** Like `postJson`, but for endpoints that reply with no body (204/201 `send()`) to parse. */
+export async function postNoContent(url: string, body: unknown): Promise<void> {
+  const response = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorCode(response));
+  }
 }
 
 export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
@@ -65,8 +101,17 @@ export function claim(input: ClaimRequest): Promise<SessionResponse> {
   return postJson("/auth/claim", input, (data) => sessionResponseSchema.parse(data));
 }
 
-export function login(input: LoginRequest): Promise<SessionResponse> {
-  return postJson("/auth/login", input, (data) => sessionResponseSchema.parse(data));
+/**
+ * `LoginResponse` is a union (#32): a plain `{ user }` when no second factor
+ * is enrolled — password login untouched — or `{ totpRequired, challengeToken }`
+ * when it is, for `completeTotpLogin` to redeem.
+ */
+export function login(input: LoginRequest): Promise<LoginResponse> {
+  return postJson("/auth/login", input, (data) => loginResponseSchema.parse(data));
+}
+
+export function completeTotpLogin(input: LoginTotpRequest): Promise<SessionResponse> {
+  return postJson("/auth/login/totp", input, (data) => sessionResponseSchema.parse(data));
 }
 
 export async function logout(): Promise<void> {

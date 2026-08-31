@@ -1,6 +1,7 @@
 import type { User } from "@mail/shared";
 import { useState } from "react";
 import { useAuth } from "./AuthContext.js";
+import { AuthMethodsSection } from "./AuthMethodsSection.js";
 
 /**
  * The authenticated shell. Real triage UI lands on top of this per the
@@ -29,6 +30,7 @@ export function AppShell({ user }: { user: User }) {
       <button type="button" onClick={handleLogout} disabled={signingOut}>
         Log out
       </button>
+      <AuthMethodsSection />
     </div>
   );
 }
