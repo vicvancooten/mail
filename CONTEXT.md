@@ -77,7 +77,10 @@ _Avoid_: tag, IMAP keyword
 ### Gatekeeper
 
 **Gatekeeper**:
-The screening feature: mail from Unscreened Senders is held in a dedicated space and highlighted until the User decides. Verdicts are scoped to a single Mail Account, so they never cross Users.
+The screening feature: mail from Unscreened Senders is held in the Screener until the User decides. A triage control, not a security control — spam and forgery remain the mail server's job. Opt-in per Mail Account, and Verdicts are scoped to a single Mail Account, so they never cross Users or a User's other accounts.
+
+**Verdict**:
+Where a sender stands with Gatekeeper on one Mail Account: Unscreened, Approved, or Blocked. Keyed to a sender's address, or to a whole domain.
 
 **Unscreened Sender**:
 A sender the User has not yet approved or blocked.
@@ -87,8 +90,18 @@ A sender the User has let through: their mail lands normally, and their remote i
 _Avoid_: whitelisted
 
 **Blocked Sender**:
-A sender the User has denied; their mail is kept out of sight.
+A sender the User has denied for good: the Sync Backend moves their incoming mail straight to Trash on arrival.
 _Avoid_: blacklisted
+
+**Screener**:
+The separate screen where held mail waits, listing Unscreened Senders rather than individual messages — one decision per stranger, not per message.
+
+**Screening Hold**:
+The state of mail waiting in the Screener. An App Feature, with no IMAP-side trace.
+_Avoid_: quarantine
+
+**Gatekeeper Cutoff**:
+The moment Gatekeeper was switched on for a Mail Account. Only mail arriving after it is ever screened; everything already in the mailbox is grandfathered.
 
 ### Sending
 
