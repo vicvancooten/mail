@@ -79,8 +79,12 @@ this scaffold — `node:22-bookworm-slim` plus the full workspace `node_modules`
 once the real dependency set is closer to final.
 
 Root `compose.yaml` is the production stack from ADR-0009 — pulls `ghcr.io/vicvancooten/mail`, never
-builds. It is not exercised by this scaffold (no published image exists yet); `compose.dev.yaml` is
-what's actually been run.
+builds; `compose.dev.yaml` is what's actually run day to day. The release pipeline
+([#57](https://github.com/vicvancooten/mail/issues/57)) publishes `:edge` and `:sha-<short>` to GHCR
+on every merge to `main` and exercises the pulled image end to end in CI: boot against Postgres,
+migrate under the advisory lock, `/healthz`, the client bundle, and the `pg_dump` → `pull` → `up -d`
+upgrade ritual once per run. See [`README.md`](../README.md#deploying) for the operator-facing
+version of that ritual.
 
 ## Migrations
 

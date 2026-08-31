@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
   pull_request:
 
 jobs:
@@ -31,12 +32,127 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      # Only a push to main or a version tag publishes (never a PR, so
+      # forked PRs never need registry credentials). ADR-0009 / poc-scope:
+      # GHCR is the release target, `:edge` on main plus an immutable
+      # `:sha-<short>` always, version tags additionally on a `v*.*.*` push.
+      published: ${{ steps.gate.outputs.published }}
+      sha_tag: sha-${{ steps.short-sha.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
+      - id: short-sha
+        run: echo "value=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - id: gate
+        run: echo "published=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
+
+      - if: steps.gate.outputs.published == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha,format=short,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
+          push: ${{ steps.gate.outputs.published == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # Boots the just-*published* image (never builds) via the root compose.yaml
+  # — the same pull path an operator runs — and proves it serves traffic.
+  # Only runs after a real publish: pulling requires a real registry image.
+  verify-pull-path:
+    runs-on: ubuntu-latest
+    needs: docker
+    if: needs.docker.outputs.published == 'true'
+    permissions:
+      contents: read
+      packages: read
+    env:
+      MAIL_VERSION: ${{ needs.docker.outputs.sha_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: cp .env.example .env
+
+      - name: Fail-closed still holds in the published image (ADR-0009)
+        run: |
+          echo "MAIL_CREDENTIAL_KEY=too-short" >> .env
+          docker compose up -d
+          # restart: unless-stopped crash-loops the app rather than exiting
+          # for good, so wait for a boot attempt to land in the logs instead
+          # of polling for a terminal container state.
+          sleep 10
+          docker compose logs app | grep -qi "Refusing to boot" || {
+            echo "expected the app to refuse to boot on a short MAIL_CREDENTIAL_KEY"
+            docker compose logs app
+            exit 1
+          }
+          docker compose down -v
+
+      - name: Pull the published image and boot against Postgres
+        run: |
+          cp .env.example .env
+          docker compose pull
+          docker compose up -d
+
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+
+      - name: Serves the client bundle
+        run: curl -fsS http://127.0.0.1:3000/ | grep -qi "<!doctype html>"
+
+      - name: Exercise the pg_dump -> pull -> up -d upgrade ritual once
+        run: |
+          docker compose exec -T postgres pg_dump -U mail mail > /tmp/pre-upgrade.dump
+          test -s /tmp/pre-upgrade.dump
+          docker compose pull
+          docker compose up -d
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Exercise rollback (re-pin the immutable sha tag)
+        run: |
+          docker compose up -d
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+
+      - if: always()
+        run: docker compose down -v
