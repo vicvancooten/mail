@@ -36,6 +36,24 @@ export interface ImapConnectionOptions {
   credentialKey: Buffer;
   /** Surfaces ImapFlow's protocol chatter while debugging; silent by default. */
   logger?: ConstructorParameters<typeof ImapFlow>[0]["logger"];
+  /**
+   * Enables QRESYNC (#35): EXPUNGE notifications carry UID instead of
+   * sequence number, and a `mailboxOpen`/`getMailboxLock` call that also
+   * passes `changedSince`+`uidValidity` can resync across a reconnect
+   * instead of re-scanning the whole folder. False by default — the bounded
+   * one-shot ingest (#34) never resyncs, so asking for it there would only
+   * change what the server reports on SELECT for no benefit. The resident
+   * sync loop (`sync/live-session.ts`) is the one caller that sets it.
+   */
+  qresync?: boolean;
+  /**
+   * ImapFlow only starts IDLE after the connection has sat inactive this
+   * long (default 15s — tuned for a client that issues occasional commands,
+   * not a resident loop whose entire job is to be idling). The resident sync
+   * loop (#35) passes something far shorter so it starts watching INBOX
+   * moments after it finishes the baseline sync, not 15 seconds later.
+   */
+  autoIdleDelay?: number;
 }
 
 /**
@@ -50,7 +68,7 @@ export interface ImapConnectionOptions {
 export async function connectMailAccount(
   db: Db,
   account: MailAccountRow,
-  { credentialKey, logger = false }: ImapConnectionOptions,
+  { credentialKey, logger = false, qresync = false, autoIdleDelay }: ImapConnectionOptions,
 ): Promise<ImapFlow> {
   const password = unsealPasswordCredential(account.credential, account.id, credentialKey);
   const client = new ImapFlow({
@@ -64,9 +82,8 @@ export async function connectMailAccount(
     auth: { user: account.username, pass: password },
     logger,
     socketTimeout: SOCKET_TIMEOUT_MS,
-    // QRESYNC is #35's; asking for it here would change what the server
-    // reports on SELECT before anything is ready to apply those deltas.
-    qresync: false,
+    qresync,
+    ...(autoIdleDelay !== undefined ? { autoIdleDelay } : {}),
   });
 
   try {

@@ -25,6 +25,33 @@ export const mailAccountStatusSchema = z.enum(["active", "needs_reauth"]);
 export type MailAccountStatus = z.infer<typeof mailAccountStatusSchema>;
 
 /**
+ * Where the resident sync loop (#35, `sync/live-session.ts`) is, distinct
+ * from `status` (the credential verdict): `stopped` before it has ever run
+ * or after `Needs Reauth` parks it, `connecting`/`syncing` while it opens the
+ * connection and catches the folder up, `idle` once it is holding IDLE (or
+ * waiting on its next poll), `error` between a drop and its self-restart.
+ * This is the groundwork for ADR-0015's two-tier liveness — a per-account
+ * staleness banner reads `lastProgressAt` against this, not `status`.
+ */
+export const mailAccountSyncStateSchema = z.enum([
+  "stopped",
+  "connecting",
+  "syncing",
+  "idle",
+  "error",
+]);
+export type MailAccountSyncState = z.infer<typeof mailAccountSyncStateSchema>;
+
+export const mailAccountSyncSchema = z.object({
+  state: mailAccountSyncStateSchema,
+  /** Stamped on every IDLE keepalive or completed poll — null before the first one. */
+  lastProgressAt: z.iso.datetime().nullable(),
+  /** The last error's message, kept only while `state` is `error`; cleared on the next success. */
+  lastError: z.string().nullable(),
+});
+export type MailAccountSync = z.infer<typeof mailAccountSyncSchema>;
+
+/**
  * The wire projection of a Mail Account. Credentials are write-only across
  * the API (ADR-0003) — this shape has no field for them, ever, not even a
  * masked one; the Client shows "password set" from `status` alone.
@@ -35,6 +62,7 @@ export const mailAccountSchema = z.object({
   imap: mailAccountConnectionSchema,
   smtp: mailAccountConnectionSchema,
   status: mailAccountStatusSchema,
+  sync: mailAccountSyncSchema,
   createdAt: z.iso.datetime(),
 });
 export type MailAccount = z.infer<typeof mailAccountSchema>;

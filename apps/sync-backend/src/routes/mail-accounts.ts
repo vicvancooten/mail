@@ -19,6 +19,7 @@ import {
   toWireMailAccount,
 } from "../mail-accounts/store.js";
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
+import { noopSyncManager, type SyncManager } from "../sync/manager.js";
 
 export interface MailAccountRoutesOptions {
   db: Db;
@@ -28,6 +29,8 @@ export interface MailAccountRoutesOptions {
    * rejection needs a stub rather than a real IMAP/SMTP server. */
   verify?: typeof verifyMailAccountCredentials;
   discover?: typeof discoverMailAccount;
+  /** Starts a session on create, restarts one on reauth (#35). Defaults to a no-op — see `app.ts`. */
+  syncManager?: SyncManager;
 }
 
 export async function mailAccountRoutes(
@@ -37,6 +40,7 @@ export async function mailAccountRoutes(
     mailCredentialKey,
     verify = verifyMailAccountCredentials,
     discover = discoverMailAccount,
+    syncManager = noopSyncManager,
   }: MailAccountRoutesOptions,
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
@@ -81,6 +85,7 @@ export async function mailAccountRoutes(
       username,
       credential: sealPasswordCredential(password, id, key),
     });
+    syncManager.start(row);
     return reply
       .code(201)
       .send(mailAccountResponseSchema.parse({ mailAccount: toWireMailAccount(row) }));
@@ -116,6 +121,10 @@ export async function mailAccountRoutes(
     if (!updated) {
       throw new Error("Mail Account disappeared between reauth update and re-read.");
     }
+    // Resumes syncing (#35): a Needs-Reauth account's session has already
+    // stopped itself for good, so re-entering credentials is the only thing
+    // that starts a fresh one.
+    await syncManager.restart(id);
     return mailAccountResponseSchema.parse({ mailAccount: toWireMailAccount(updated) });
   });
 }

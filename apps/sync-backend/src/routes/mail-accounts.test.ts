@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
 import type { DiscoverMailAccountResult } from "../mail-accounts/autodiscover.js";
 import type { VerifyMailAccountResult } from "../mail-accounts/verify.js";
+import type { SyncManager } from "../sync/manager.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 
 const PUBLIC_URL = "http://localhost:3000";
@@ -22,6 +23,7 @@ function extractCookie(setCookieHeader: string | string[] | undefined): string {
 function buildTestApp(overrides: {
   verify?: () => Promise<VerifyMailAccountResult>;
   discover?: () => Promise<DiscoverMailAccountResult>;
+  syncManager?: SyncManager;
 }) {
   return buildApp({
     db,
@@ -29,6 +31,7 @@ function buildTestApp(overrides: {
     mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
     mailAccountVerify: overrides.verify,
     mailAccountDiscover: overrides.discover,
+    syncManager: overrides.syncManager,
   });
 }
 
@@ -275,5 +278,48 @@ describe("POST /mail-accounts/:id/reauth", () => {
 
     const resumed = await app.inject({ method: "GET", url: "/mail-accounts", headers: { cookie } });
     expect(resumed.json().mailAccounts[0]).toMatchObject({ status: "active" });
+  });
+});
+
+describe("SyncManager wiring (#35)", () => {
+  it("starts a session for a newly created Mail Account", async () => {
+    const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };
+    const app = buildTestApp({ verify: async () => ({ ok: true }), syncManager });
+    const cookie = await claimOwner(app);
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/mail-accounts",
+      headers: { cookie },
+      payload: VALID_ACCOUNT_PAYLOAD,
+    });
+
+    expect(syncManager.start).toHaveBeenCalledOnce();
+    expect(syncManager.start).toHaveBeenCalledWith(
+      expect.objectContaining({ id: create.json().mailAccount.id }),
+    );
+  });
+
+  it("restarts the session on a successful reauth", async () => {
+    const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };
+    const app = buildTestApp({ verify: async () => ({ ok: true }), syncManager });
+    const cookie = await claimOwner(app);
+    const create = await app.inject({
+      method: "POST",
+      url: "/mail-accounts",
+      headers: { cookie },
+      payload: VALID_ACCOUNT_PAYLOAD,
+    });
+    const id = create.json().mailAccount.id;
+
+    await app.inject({
+      method: "POST",
+      url: `/mail-accounts/${id}/reauth`,
+      headers: { cookie },
+      payload: { username: "vic@example.com", password: "new-password" },
+    });
+
+    expect(syncManager.restart).toHaveBeenCalledOnce();
+    expect(syncManager.restart).toHaveBeenCalledWith(id);
   });
 });

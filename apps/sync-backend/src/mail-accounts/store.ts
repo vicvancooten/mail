@@ -14,6 +14,11 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
     imap: { host: row.imapHost, port: row.imapPort, security: row.imapSecurity },
     smtp: { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity },
     status: row.status,
+    sync: {
+      state: row.syncState,
+      lastProgressAt: row.lastProgressAt?.toISOString() ?? null,
+      lastError: row.lastSyncError,
+    },
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -74,6 +79,21 @@ export async function getMailAccountForUser(
 }
 
 /**
+ * Unscoped by User — for the sync engine (#35), which runs per Mail Account
+ * regardless of who owns it, and needs the freshest credential/status row on
+ * every reconnect rather than whatever was in memory when the loop started.
+ */
+export async function getMailAccountById(db: Db, id: string): Promise<MailAccountRow | null> {
+  const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, id)).limit(1);
+  return row ?? null;
+}
+
+/** Every Mail Account on the instance — what boot uses to start a sync loop per account (#35). */
+export async function listAllMailAccounts(db: Db): Promise<MailAccountRow[]> {
+  return db.select().from(mailAccounts);
+}
+
+/**
  * The seam a sync engine (#9) calls when the mail server rejects the stored
  * credential: stops syncing and holds queued Optimistic Actions by parking
  * the account in Needs Reauth (CONTEXT.md). Nothing in this ticket's own
@@ -84,6 +104,29 @@ export async function markNeedsReauth(db: Db, id: string): Promise<void> {
   await db
     .update(mailAccounts)
     .set({ status: "needs_reauth", updatedAt: new Date() })
+    .where(eq(mailAccounts.id, id));
+}
+
+/**
+ * The resident sync loop's (#35) only write path onto the liveness columns.
+ * `lastProgressAt` is left untouched unless `touchProgress` is set — a
+ * transition into `connecting` or `error` is not progress, but a completed
+ * IDLE keepalive or poll is. `lastSyncError` is cleared on every non-`error`
+ * transition so a stale message never outlives the failure it described.
+ */
+export async function setSyncStatus(
+  db: Db,
+  id: string,
+  update: { state: MailAccountRow["syncState"]; error?: string; touchProgress?: boolean },
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({
+      syncState: update.state,
+      lastSyncError: update.state === "error" ? (update.error ?? null) : null,
+      ...(update.touchProgress ? { lastProgressAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(mailAccounts.id, id));
 }
 

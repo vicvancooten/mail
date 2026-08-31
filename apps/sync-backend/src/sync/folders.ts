@@ -169,3 +169,12 @@ export async function findFolderByRole(
     .limit(1);
   return row ?? null;
 }
+
+/** Every live, selectable folder for a Mail Account, in `ROLE_PRIORITY` order — what the resident sync loop (#35) polls. */
+export async function listSelectableFolders(db: Db, mailAccountId: string): Promise<FolderRow[]> {
+  const rows = await db
+    .select()
+    .from(folders)
+    .where(and(eq(folders.mailAccountId, mailAccountId), eq(folders.selectable, true)));
+  return sortByPriority(rows);
+}
