@@ -27,11 +27,15 @@ A User who is not the Owner: full control of their own Mail Accounts, no say ove
 ### System parts
 
 **Sync Backend**:
-The self-hosted server component that syncs Mail Accounts with their mail servers, holds the fast local store, and serves all Clients.
+The self-hosted server component that syncs Mail Accounts with their mail servers, holds the authoritative store of all mail and Triage state, and serves all Clients.
 _Avoid_: proxy, bridge, API server
 
 **Client**:
 Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, never to a mail server directly.
+
+**Local Cache**:
+The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering.
+_Avoid_: local store, local database, replica, offline store
 
 **System Mailer**:
 Optional sending credentials the operator configures so the instance can send mail *as itself* (account recovery). Belongs to no User and is never synced or shown as a mailbox.
@@ -55,7 +59,7 @@ Triage state stored only in the Sync Backend, with no IMAP-side trace — the de
 _Avoid_: backend-only, local-only
 
 **Optimistic Action**:
-Any Triage action whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure.
+Any Triage action whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.
 
 **Auto-advance**:
 After archiving or deleting, automatically opening the next thread or returning to the list (User-configurable).
@@ -105,9 +109,21 @@ The moment Gatekeeper was switched on for a Mail Account. Only mail arriving aft
 
 ### Sending
 
+**Composition**:
+The content of a message being written: recipients, subject, body, and its attachments. A Draft and a Pending Send are two states of one Composition, never separate things, so cancelling a send changes a status rather than copying content.
+
+**Draft**:
+A Composition the User is still writing. An App Feature — the Sync Backend holds the authoritative copy — that is also exported to the Mail Account's IMAP `Drafts` folder so other mail clients can read and finish it.
+
 **Undo Send**:
 A configurable per-User delay between pressing send and actual submission, during which the send can be cancelled.
 
 **Pending Send**:
-A send the Sync Backend holds from the moment it is accepted until it is submitted or cancelled. Owned by the backend, not the Client, so it survives the Client closing and is visible on every device the User has open.
+The state of a Composition from the moment a send is accepted until it is submitted or cancelled. Owned by the backend, not the Client, so it survives the Client closing and is visible on every device the User has open. Cancelling returns it to a Draft.
 _Avoid_: outbox, queued mail
+
+### Preferences
+
+**Device Preference**:
+A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout and list density. Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
+_Avoid_: local setting, client setting

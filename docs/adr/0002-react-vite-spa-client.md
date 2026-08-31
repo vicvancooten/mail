@@ -5,3 +5,4 @@ The client is local-first: it boots from a local store and works offline, so ser
 ## Consequences
 
 - The remaining client-architecture decisions (local store, client↔backend sync protocol, offline mutation queue, PWA shell) are still open and tracked on the wayfinder map.
+- **Narrowed by [ADR-0010](0010-store-as-truth-with-a-pending-mutation-overlay.md)**: of the TanStack ecosystem named above, only **Router** is load-bearing. TanStack **Query is not on the mail data path** — the Client's Local Cache is the source of truth. Do not assume Query owns any mail state.
