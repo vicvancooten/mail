@@ -166,7 +166,11 @@ export async function ingestFolder(
  * is emptied and re-ingested — the storage-layer form of ADR-0011's
  * `reset: true`.
  */
-async function applyUidValidity(db: Db, folder: FolderRow, uidValidity: number): Promise<boolean> {
+export async function applyUidValidity(
+  db: Db,
+  folder: FolderRow,
+  uidValidity: number,
+): Promise<boolean> {
   if (folder.uidValidity === null || folder.uidValidity === uidValidity) return false;
 
   await db.delete(messages).where(eq(messages.folderId, folder.id));
@@ -174,7 +178,14 @@ async function applyUidValidity(db: Db, folder: FolderRow, uidValidity: number):
   return true;
 }
 
-async function storeMessage(
+/**
+ * Upserts one fetched message and resolves its Thread. Exported for
+ * `sync/delta.ts` (#35): a new UID discovered by the UID-diff fallback goes
+ * through exactly this path rather than a second copy of it, so a message
+ * ingested via a delta and one ingested via a full pass are indistinguishable
+ * rows.
+ */
+export async function storeMessage(
   db: Db,
   folder: FolderRow,
   uidValidity: number,

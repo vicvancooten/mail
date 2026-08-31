@@ -60,11 +60,21 @@ pnpm dev:client                 # separate terminal
 
 GreenMail (`greenmail/standalone:2.1.8`) accepts any `user@localhost` / any password over IMAP
 (`localhost:3143`, no TLS) and SMTP (`localhost:3025`) — point a Mail Account's autodiscover-manual
-entry at it to develop sync against real IMAP traffic without touching privateemail. **Its
-CONDSTORE/QRESYNC coverage is unverified as of this scaffold** — confirm before relying on it for
-[Backend language & sync-engine architecture](https://github.com/vicvancooten/mail/issues/9)'s
-delta-sync tests; swap the image if it's missing something, this is a dev-only tool with no
-consumers to migrate.
+entry at it to develop sync against real IMAP traffic without touching privateemail. It supports
+IDLE, so the live-sync loop's IDLE lifecycle and flag round-trips are exercised against it directly.
+
+**Capability finding (#35, confirmed against `greenmail/standalone:2.1.8`): no CONDSTORE, no
+QRESYNC.** `a1 CAPABILITY` answers `IMAP4rev1 LITERAL+ UIDPLUS SORT IDLE MOVE SASL-IR AUTH=XOAUTH2
+QUOTA` — neither extension is advertised. `sync/qresync-catchup.ts`'s SELECT-with-QRESYNC path is
+therefore unverifiable against this dev server; it degrades to `null` there
+(`qresync-catchup.greenmail.test.ts` proves the degradation), and every GreenMail-backed delta test
+in this repo is exercising `sync/delta.ts`'s UID-diff fallback, not the QRESYNC path. The QRESYNC
+path itself is covered by a mock-driven unit suite (`qresync-catchup.test.ts`, against a fake
+`ImapFlow` built from the library's documented event/response shape) plus an integration test gated
+on `IMAP_QRESYNC_TEST_HOST` (`qresync-catchup.live-server.test.ts`) that runs the real
+SELECT-with-QRESYNC exchange against a QRESYNC-capable server (e.g. Dovecot) when one is configured
+— skipped otherwise. Swap the GreenMail image if a future ticket needs to exercise QRESYNC in CI;
+this is a dev-only tool with no consumers to migrate.
 
 ## Production image
 

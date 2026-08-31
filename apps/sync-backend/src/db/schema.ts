@@ -189,6 +189,19 @@ export const mailAccounts = pgTable(
     status: text("status", { enum: ["active", "needs_reauth"] })
       .notNull()
       .default("active"),
+    // The groundwork for ADR-0015's two-tier liveness (#35): the resident
+    // sync loop (`sync/live-session.ts`) stamps `lastProgressAt` on every
+    // IDLE keepalive or completed poll and `syncState` on every transition,
+    // so a per-account staleness banner has something to read without
+    // guessing from `status` (the credential verdict, not the connection's).
+    // Nothing outside the loop writes these columns.
+    syncState: text("sync_state", {
+      enum: ["stopped", "connecting", "syncing", "idle", "error"],
+    })
+      .notNull()
+      .default("stopped"),
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true }),
+    lastSyncError: text("last_sync_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

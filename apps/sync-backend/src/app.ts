@@ -11,6 +11,7 @@ import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
 import { totpRoutes } from "./routes/totp.js";
+import { noopSyncManager, type SyncManager } from "./sync/manager.js";
 
 // Populated by the Docker build (ADR-0009: one image, Client bundle and API
 // ship together so a fresh load can never skew). Absent in local dev, where
@@ -36,6 +37,13 @@ export interface BuildAppOptions {
    */
   mailAccountVerify?: typeof verifyMailAccountCredentials;
   mailAccountDiscover?: typeof discoverMailAccount;
+  /**
+   * Starts/restarts a Mail Account's resident sync loop (#35) on create and
+   * reauth. Defaults to a no-op: opening a real IMAP connection is not
+   * something any test asks for just by calling `buildApp`, and `main.ts` is
+   * the only real caller that wires in `createSyncManager`'s live one.
+   */
+  syncManager?: SyncManager;
 }
 
 export function buildApp({
@@ -44,6 +52,7 @@ export function buildApp({
   mailCredentialKey,
   mailAccountVerify,
   mailAccountDiscover,
+  syncManager = noopSyncManager,
 }: BuildAppOptions) {
   const app = Fastify({
     // Vitest sets NODE_ENV=test; quiet request logging there so the growing
@@ -62,6 +71,7 @@ export function buildApp({
     mailCredentialKey,
     verify: mailAccountVerify,
     discover: mailAccountDiscover,
+    syncManager,
   });
 
   if (existsSync(publicDir)) {
