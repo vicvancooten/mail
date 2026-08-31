@@ -170,8 +170,26 @@ Load-bearing points:
   `POST /search` reuses ADR-0011's `Thread` projection, structured filter fields, no totals.
 - The Client runs an instant **prefilter, not a second ranker** (substring over the Local Cache),
   which *is* search when offline. Coverage is stated via the Index Watermark, never silent.
-- Query syntax, filters, and the search surface are **still open on the map**
-  ([#29](https://github.com/vicvancooten/mail/issues/29)) — the search UI ticket is blocked on it.
+
+The Client half — surface, query language, result list — is [`docs/search-ux-spec.md`](search-ux-spec.md)
+(from [Search UX](https://github.com/vicvancooten/mail/issues/29)):
+
+- Search is a **route** (`/search?q=`) that takes over the thread list **inside the current view
+  mode**, not an overlay — one list renderer, and triage-on-a-result needs no special case. Stream
+  is suppressed inside search. Live-debounced from 3 chars; `Esc` clears then leaves, and leaving
+  restores the origin view exactly.
+- **The raw query text is the source of truth**; the parser is a pure `string -> filter fields`
+  function and chips edit the string. Closed operator set: `from:` `to:` `has:attachment` `in:`
+  `before:`/`after:` `label:`, implicit AND, `-` on operators only, unknown `foo:` falls through to
+  free text. Quoted phrases deferred.
+- One **chip row** under the field is both the "interpreted as" display and the scope control; the
+  launching view **seeds a scope chip** (recomputed each open, popped with backspace, and a manual
+  touch stops the inference).
+- Results are **ranked and ungrouped**: headline fragment in place of the Snippet, folder pill,
+  `Held`/`Blocked` badges, acted-on rows staying in place. `Load older` and the Index Watermark sit
+  at the **foot** of the list, the watermark promoting into a zero-result empty state.
+- Offline and `Needs Reauth` both serve the prefilter with an explicit strip; the latter adds a
+  reconnect CTA rather than going dark.
 
 ## Notifications & realtime
 
@@ -248,14 +266,12 @@ The backlog is the **PoC implementation** grouping issue's sub-issues, blocking-
 assembly line can run them. Standing policies the edges don't express:
 
 1. **Gatekeeper is built last** — it must be cuttable without stalling the line.
-2. The **search UI** ticket stalls until
-   [Search UX](https://github.com/vicvancooten/mail/issues/29) resolves on the map; the search
-   *backend* is fully specified by ADR-0016 and does not wait.
+2. The **search UI** ticket is specified by [`docs/search-ux-spec.md`](search-ux-spec.md); the
+   search *backend* is specified by ADR-0016. Neither waits on the map any more.
 3. Every ticket is measured against the scope contract's acceptance bar; performance regressions
    against the corpus are failures, not follow-ups.
 
 ## Still open on the map
 
-- [Search UX: query syntax, filters & the search surface](https://github.com/vicvancooten/mail/issues/29) — gates the search UI ticket only.
 - [Choose project license & CLA policy](https://github.com/vicvancooten/mail/issues/16) — gates open-sourcing, not the build.
 - [Follow-up map: full feature set & native apps](https://github.com/vicvancooten/mail/issues/15) — everything the scope contract defers.
