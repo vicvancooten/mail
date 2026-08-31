@@ -49,7 +49,10 @@ that already ships in the image — auto-generating into the database would sile
 subscription on a volume-restore mismatch. Subscriptions are stored against the **User**, never the
 Session (a subscription that dies with a 60-day cookie rotation is one that stops working silently),
 are pruned on the first `404`/`410` from the push service, and are **dropped wholesale when
-`PUBLIC_URL` changes** — the service worker origin has moved, so it is a re-enrollment event exactly
+`PUBLIC_URL` changes**. On iOS, pruning is **eventual, not prompt**: Apple documents no signal — and
+`pushsubscriptionchange` does not fire reliably there — for the moment a Home Screen web app is
+uninstalled, so a dead iOS subscription is discovered only whenever the backend next attempts a push
+to it, not at uninstall time itself ([research](../research/0006-ios-pwa-push-badging-constraints.md#1-web-push-requires-home-screen-installation)) — the service worker origin has moved, so it is a re-enrollment event exactly
 as it is for passkeys.
 
 ## The Notifier
@@ -112,7 +115,24 @@ preference surface, per `docs/poc-scope.md`.
 - **The app-icon badge is unread Inbox threads across all Mail Accounts**, set by the leader tab on
   every delta — but the count comes from a **backend-supplied counter on the sync response**, not a
   `COUNT` over the Local Cache, which would silently cap at that cache's ~500-thread floor
-  ([ADR-0009](0009-client-local-cache-is-a-disposable-indexeddb-cache.md)).
+  ([ADR-0009](0009-client-local-cache-is-a-disposable-indexeddb-cache.md)). **This leader-tab path
+  cannot reach the one case iOS badging exists for**: a leader tab only exists when a window is open,
+  but iOS Web Push (and badging) exist precisely because no window needs to be open. A fully-closed
+  iOS PWA gets push notifications but a badge that never moves. The service worker's own push-handler
+  path for setting the badge is an open design question — see [iOS badge-update mechanism for a
+  fully-closed PWA](https://github.com/vicvancooten/mail/issues/27).
+- **A push-handler bug, timeout, or crash on iOS risks silently killing the whole subscription, not
+  just one notification.** Unlike Chrome's `userVisibleOnly` constraint (the ADR's stated reason for
+  rejecting tickle-only pushes), WebKit revokes the push subscription outright if a service worker
+  fails to call `showNotification` promptly on any push — bugs in the handler, not just deliberate
+  tickles, pay this price ([research](../research/0006-ios-pwa-push-badging-constraints.md#other-findings-worth-flagging-outside-the-six-questions)).
+  The Notifier's push-handler code must be unusually defensive about always calling
+  `showNotification`, including on its own error paths.
+- **SSE reliability while an iOS PWA is backgrounded (open, not closed) is unverified** — no primary
+  source gives a concrete suspension timeout for a backgrounded PWA's SSE connection, only for native
+  background execution. See [Empirically verify iOS backgrounded-PWA SSE connection
+  lifetime](https://github.com/vicvancooten/mail/issues/28); if backgrounded connections die fast in
+  practice, a backgrounded-but-open Client may need the same Web Push treatment as a closed one.
 - **SSE hints are coalesced at the emitter to at most one every ~500ms per User**, merging the
   changed-collection union, so a 40-message IDLE burst becomes one or two syncs returning everything
   at once. `NOTIFY` stays one-per-transaction because the Notifier needs each one to evaluate
