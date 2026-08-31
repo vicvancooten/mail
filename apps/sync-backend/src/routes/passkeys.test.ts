@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import { createTestDb, resetTestDb } from "../test-support/db.js";
+import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 
 const PUBLIC_URL = "http://localhost:3000";
 // The RP origin the emulator "browses" from — has to match PUBLIC_URL's
@@ -67,7 +67,7 @@ beforeEach(async () => {
   db = created.db;
   closeDb = () => created.sql.end();
   await resetTestDb(db);
-  app = buildApp({ db, publicUrl: PUBLIC_URL });
+  app = buildApp({ db, publicUrl: PUBLIC_URL, mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY });
 });
 
 afterAll(async () => {

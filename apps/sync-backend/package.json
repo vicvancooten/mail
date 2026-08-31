@@ -24,14 +24,18 @@
     "@node-rs/argon2": "^2.2.0",
     "@simplewebauthn/server": "^13.3.3",
     "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.11.1",
     "fastify": "^5.12.1",
     "fastify-plugin": "^6.0.0",
+    "imapflow": "^1.7.6",
+    "nodemailer": "^9.0.6",
     "otplib": "^13.5.0",
     "postgres": "^3.4.9",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "@types/nodemailer": "^8.0.1",
     "drizzle-kit": "^0.31.10",
     "nid-webauthn-emulator": "^0.2.15",
     "tsx": "^4.23.13",

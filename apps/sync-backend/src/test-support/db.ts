@@ -4,6 +4,7 @@ import { runMigrations } from "../db/migrate.js";
 import {
   claimTokens,
   loginChallenges,
+  mailAccounts,
   passkeyCredentials,
   sessions,
   totpCredentials,
@@ -18,6 +19,9 @@ import {
  */
 export const TEST_DATABASE_URL =
   process.env.DATABASE_URL ?? "postgres://mail:mail@localhost:5432/mail";
+
+/** Satisfies `env.ts`'s 32-byte minimum; not a real secret, only ever used in tests. */
+export const TEST_MAIL_CREDENTIAL_KEY = "test-only-mail-credential-key-not-real-32b";
 
 let migrated: Promise<void> | undefined;
 
@@ -44,5 +48,6 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(webauthnChallenges);
   await db.delete(totpCredentials);
   await db.delete(passkeyCredentials);
+  await db.delete(mailAccounts);
   await db.delete(users);
 }

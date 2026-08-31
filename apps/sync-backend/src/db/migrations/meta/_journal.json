@@ -15,6 +15,13 @@
       "when": 1788210549726,
       "tag": "0001_bumpy_rage",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788212746066,
+      "tag": "0002_lively_firebird",
+      "breakpoints": true
     }
   ]
 }
