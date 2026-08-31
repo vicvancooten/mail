@@ -51,8 +51,22 @@ _Avoid_: system account, admin mailbox
 
 ### Mail concepts
 
+**Folder**:
+One mailbox on one Mail Account's mail server, as IMAP presents it. Which folder is Trash or Sent is
+the *server's* answer (its special-use flags), recorded once at sync rather than guessed from a name,
+because it differs per provider. Distinct from a Label, which is a User's own tag and has no
+IMAP-side existence.
+_Avoid_: mailbox, directory, IMAP folder
+
+**Message**:
+One message as it exists in one Folder — IMAP's own unit, identified by its folder and UID. The same
+message present in two Folders (a Sent self-copy) is two Messages that thread into one Thread.
+_Avoid_: email, mail item
+
 **Thread**:
-A conversation: the unit the message list shows and most actions target.
+A conversation: the unit the message list shows and most actions target. Assembled from the
+`Message-ID`/`In-Reply-To`/`References` chain only — never from matching subjects, because a wrongly
+merged conversation is far harder to recover from than a split one.
 _Avoid_: conversation
 
 **Triage**:

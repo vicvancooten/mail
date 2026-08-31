@@ -3,10 +3,14 @@ import { createDb, type Db } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
 import {
   claimTokens,
+  folders,
   loginChallenges,
   mailAccounts,
+  messages,
   passkeyCredentials,
   sessions,
+  threadMessageIds,
+  threads,
   totpCredentials,
   users,
   webauthnChallenges,
@@ -40,8 +44,16 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
   return createDb({ DATABASE_URL: TEST_DATABASE_URL });
 }
 
-/** Clears every auth table. Call between tests so cases don't bleed into each other. */
+/**
+ * Clears every table. Call between tests so cases don't bleed into each
+ * other. Ordered children-first: the FKs cascade, but deleting in this order
+ * keeps the intent readable and survives a future FK losing its cascade.
+ */
 export async function resetTestDb(db: Db): Promise<void> {
+  await db.delete(messages);
+  await db.delete(threadMessageIds);
+  await db.delete(threads);
+  await db.delete(folders);
   await db.delete(sessions);
   await db.delete(claimTokens);
   await db.delete(loginChallenges);
