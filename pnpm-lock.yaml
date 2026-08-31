@@ -83,6 +83,18 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.13.3)(jsdom@30.0.1)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(tsx@4.23.13))
 
+  apps/ios-sse-probe:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.3
+        version: 24.13.3
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+
   apps/sync-backend:
     dependencies:
       '@fastify/static':
