@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
+import { createTestDb } from "./test-support/db.js";
 
 describe("GET /healthz", () => {
   it("reports ok", async () => {
-    const app = buildApp();
+    const { db, sql } = await createTestDb();
+    const app = buildApp({ db, publicUrl: "http://localhost:3000" });
     const response = await app.inject({ method: "GET", url: "/healthz" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ status: "ok" });
+    await sql.end();
   });
 });
