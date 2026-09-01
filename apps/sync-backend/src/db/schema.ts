@@ -452,6 +452,17 @@ export interface MessageAttachment {
   /** `Content-ID` with brackets stripped (RFC 2392), for resolving `cid:` references at render. */
   contentId: string | null;
   inline: boolean;
+  /**
+   * The part's own `Content-Transfer-Encoding` (lowercased), from
+   * BODYSTRUCTURE — e.g. `base64`, `quoted-printable`, `7bit`. Internal to
+   * the fetch-through download (`routes/messages.ts`), never sent on the
+   * wire: `ImapFlow#download()`'s own transfer-encoding auto-detection
+   * (a second FETCH for the part's `.MIME` headers) is unreliable for a
+   * nested, dotted part id against at least GreenMail, silently returning
+   * still-encoded bytes — decoding against this ingest-time value instead
+   * means the download never depends on that second FETCH succeeding.
+   */
+  encoding: string | null;
 }
 
 /** One `From`/`To`/`Cc` address as stored on a message. */

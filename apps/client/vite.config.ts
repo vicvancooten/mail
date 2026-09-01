@@ -40,6 +40,10 @@ export default defineConfig({
       "/auth": "http://127.0.0.1:3000",
       "/sync": "http://127.0.0.1:3000",
       "/healthz": "http://127.0.0.1:3000",
+      // #41: GET /threads/:id/messages, /messages/:id/attachments/:part,
+      // /messages/:id/image-proxy.
+      "/threads": "http://127.0.0.1:3000",
+      "/messages": "http://127.0.0.1:3000",
     },
   },
   test: {

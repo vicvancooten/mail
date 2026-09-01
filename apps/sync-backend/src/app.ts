@@ -9,6 +9,7 @@ import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
 import { authRoutes } from "./routes/auth.js";
 import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
+import { messageRoutes } from "./routes/messages.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
 import { syncRoutes } from "./routes/sync.js";
 import { totpRoutes } from "./routes/totp.js";
@@ -75,6 +76,7 @@ export function buildApp({
     syncManager,
   });
   app.register(syncRoutes, { db });
+  app.register(messageRoutes, { db, mailCredentialKey });
 
   if (existsSync(publicDir)) {
     app.register(fastifyStatic, { root: publicDir });

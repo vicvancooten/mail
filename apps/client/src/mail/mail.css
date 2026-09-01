@@ -568,6 +568,126 @@
   font-style: italic;
 }
 
+/* ---------- reading pane: message bodies & attachments (#41) ---------- */
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.message-item {
+  border-top: 1px solid var(--mail-border);
+  padding-top: 12px;
+}
+
+.message-item-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.message-item-sender {
+  font-weight: 600;
+  color: var(--mail-text);
+}
+.message-item-date {
+  color: var(--mail-text-faint);
+  white-space: nowrap;
+}
+
+.message-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-body-load-images {
+  align-self: flex-start;
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text-dim);
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.message-body-load-images:hover {
+  background: var(--mail-bg-hover);
+  color: var(--mail-text);
+}
+
+.message-body-frame {
+  display: block;
+  width: 100%;
+  border: none;
+  background: var(--mail-bg);
+  transition: height 0.15s ease-out;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.attachment-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 140px;
+  padding: 8px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+}
+
+.attachment-preview-image {
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--mail-bg);
+}
+
+.attachment-pdf-preview {
+  width: 100%;
+  max-height: 160px;
+  border: 1px solid var(--mail-border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.attachment-pdf-fallback {
+  display: block;
+  font-size: 12px;
+  color: var(--mail-text-faint);
+}
+
+.attachment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+.attachment-filename {
+  color: var(--mail-text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-size {
+  color: var(--mail-text-faint);
+}
+.attachment-download {
+  color: var(--mail-accent);
+}
+
 /* ---------- stream mode ---------- */
 
 .stream-view {

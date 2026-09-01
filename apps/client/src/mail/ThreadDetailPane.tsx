@@ -15,6 +15,8 @@ import { useEffect, useState } from "react";
 import type { CachedThread } from "../store/index.js";
 import { useLabels } from "../store/index.js";
 import { LabelPicker } from "./LabelPicker.js";
+import { MessageList } from "./reading/MessageList.js";
+import { useThreadMessages } from "./reading/useThreadMessages.js";
 import type { Triage } from "./useTriage.js";
 
 /**
@@ -24,10 +26,11 @@ import type { Triage } from "./useTriage.js";
  * four actions from the keyboard (`useTriage.ts`). Pin and Label (#43) join
  * it here too: `p` toggles Pin through the same `useTriage` scheme, and `L`
  * opens `LabelPicker` — its own binding, since which Label is a name, not a
- * boolean toggle. The sanitized, sandboxed message *body* is #41's job — the
- * wire `Thread` projection is a list-row summary, never a body, so this pane
- * shows the Snippet in its place rather than pretending to render mail
- * content that doesn't live here yet.
+ * boolean toggle. The Thread header (subject, participants, labels, actions)
+ * renders instantly from the Local Cache; the sanitized, sandboxed message
+ * bodies (#41, `reading/MessageList.js`) are a per-Thread fetch-through —
+ * the wire `Thread` projection is a list-row summary, never a body — so the
+ * Snippet shows first and the real content swaps in once it arrives.
  *
  * Shared between Split's side-by-side pane and List/Stream's full-screen
  * swap — `onBack` is present only for hosts that have a list to return to.
@@ -55,6 +58,7 @@ export function ThreadDetailPane({
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
   const unread = thread.unreadCount > 0;
   const labels = useLabels(thread.mailAccountId) ?? [];
+  const { messages } = useThreadMessages(thread.id);
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -118,11 +122,12 @@ export function ThreadDetailPane({
             ))}
           </div>
         ) : null}
-        {thread.snippet ? (
-          <p className="thread-detail-snippet">{thread.snippet}</p>
-        ) : (
-          <p className="thread-detail-snippet placeholder">No preview cached yet.</p>
-        )}
+        {messages === null &&
+          (thread.snippet ? (
+            <p className="thread-detail-snippet">{thread.snippet}</p>
+          ) : (
+            <p className="thread-detail-snippet placeholder">No preview cached yet.</p>
+          ))}
         <div className="thread-detail-actions">
           <button type="button" onClick={() => triage.archive(thread.id)} title="Archive (e)">
             <Archive size={14} /> Archive
@@ -179,6 +184,7 @@ export function ThreadDetailPane({
             ) : null}
           </div>
         </div>
+        {messages ? <MessageList messages={messages} /> : null}
       </div>
     </div>
   );
