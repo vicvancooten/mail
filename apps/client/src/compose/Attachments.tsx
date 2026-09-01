@@ -23,6 +23,14 @@ interface InFlightUpload {
   /** Set on failure — compose-spec's "retry-on-failure". */
   error: string | null;
   disposition: AttachmentDisposition;
+  /**
+   * Retained across the upload's lifetime so a failed upload's retry can
+   * re-attempt with the same bytes — a `File` handle is cheap to hold (it is
+   * a reference to the browser's own file, not a copy) and this is what
+   * makes `retryUpload` a real re-upload rather than the "re-select the
+   * file" fallback compose-spec's "retry-on-failure" would otherwise need.
+   */
+  file: File;
 }
 
 export interface UseAttachmentsResult {
@@ -128,6 +136,7 @@ export function useAttachments(
         progress: 0,
         error: null,
         disposition,
+        file,
       }));
       setUploads((current) => [...current, ...placeholders]);
       for (const [index, placeholder] of placeholders.entries()) {
@@ -137,13 +146,26 @@ export function useAttachments(
     [attachments, uploads, budgetBytes, startUpload],
   );
 
-  const retryUpload = useCallback((_localId: string) => {
-    // Retrying needs the original `File` object, which a failed upload's
-    // placeholder does not keep (it is not cloneable into component
-    // state cheaply) — surfaced as a known gap in the ticket's own report
-    // rather than silently dropped. The row stays visible with its error
-    // and the User can always remove-and-redrop.
-  }, []);
+  /**
+   * compose-spec's "retry-on-failure": re-attempts a failed upload with the
+   * same `File` its placeholder retained, through the exact same
+   * `startUpload` the initial attempt uses — resetting `progress`/`error`
+   * first so the row goes back to showing a fresh attempt rather than the
+   * old failure while the retry is in flight.
+   */
+  const retryUpload = useCallback(
+    (localId: string) => {
+      const target = uploads.find((entry) => entry.localId === localId);
+      if (!target) return;
+      setUploads((current) =>
+        current.map((entry) =>
+          entry.localId === localId ? { ...entry, error: null, progress: 0 } : entry,
+        ),
+      );
+      startUpload(localId, target.file, target.disposition);
+    },
+    [uploads, startUpload],
+  );
 
   const removeAttachment = useCallback(
     (attachmentId: string) => {
