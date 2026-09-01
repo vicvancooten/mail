@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# usage: dispatch.sh <agent-name> <issue-number> <branch> <path> <think-directive>
+# usage: dispatch.sh <agent-name> <issue-number> <branch> <path>
+# Thinking level is NOT set here — it is a real CLI control on the agent itself:
+#   herdr agent start <name> --kind claude --pane <id> -- --model sonnet --effort high
+# Valid --effort values: low|medium|high|xhigh|max.
 set -euo pipefail
-NAME=$1; NUM=$2; BRANCH=$3; WTPATH=$4; THINK=$5
+NAME=$1; NUM=$2; BRANCH=$3; WTPATH=$4
 TITLE=$(gh issue view "$NUM" --json title -q .title)
 read -r -d '' PROMPT <<EOF || true
 /implement #${NUM} — ${TITLE}: https://github.com/vicvancooten/mail/issues/${NUM}
-
-${THINK}
 
 Your worktree: ${WTPATH}, on branch \`${BRANCH}\` off \`feat/poc-build\` (the assembly-line trunk). Work only there; that path is yours alone. Run \`pnpm install\` first — it is a fresh checkout.
 
@@ -19,7 +20,7 @@ Two changes to the skill's instructions:
 
 Everything else in the skill stands, in particular: exactly ONE Conventional Commit on \`${BRANCH}\` closing #${NUM}, no self-attribution (no \`Co-Authored-By\`, no "generated with" footer, no 🤖), and no push. Squash as you go or at the end — the branch must end as a single commit on top of trunk.
 
-Before you report back: \`pnpm lint\` and \`pnpm test\` pass from the worktree root, \`pnpm typecheck\` is clean, and your work is committed to \`${BRANCH}\`.
+Before you report back: \`pnpm lint\` and \`pnpm test\` pass from the worktree root, \`pnpm typecheck\` is clean (run \`pnpm --filter @mail/shared build\` first — the apps typecheck against its dist), and your work is committed to \`${BRANCH}\`.
 
 Report back: what shipped, what you verified, what you deferred, and any question only the human can answer.
 EOF
