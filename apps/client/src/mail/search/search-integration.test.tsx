@@ -139,6 +139,27 @@ describe("search (#51)", () => {
     expect(screen.queryByText("Load older results")).toBeNull();
   });
 
+  it("Needs Reauth: the reconnect banner names the account and persists even with zero results", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1", { status: "needs_reauth" })] }),
+      { replace: false },
+    );
+    // Deliberately no seeded Thread — the banner must render even when the
+    // Local Cache prefilter itself comes back empty (search-ux-spec.md
+    // §Offline/degraded states: "a persistent strip").
+    stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
+
+    renderMail();
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    fireEvent.change(field, { target: { value: "nothing matches this" } });
+
+    expect(
+      await screen.findByText("Reconnect acct-1@example.test to search all mail"),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Reconnect" })).toBeDefined();
+  });
+
   it("Esc on an empty field leaves search and restores the origin's selection", async () => {
     await seedOneThread();
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));

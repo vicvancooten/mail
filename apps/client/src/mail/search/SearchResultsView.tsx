@@ -1,5 +1,7 @@
 import type { MailAccount } from "@mail/shared";
 import { X } from "lucide-react";
+import { useState } from "react";
+import { ReauthMailAccountForm } from "../../mail-accounts/ReauthMailAccountForm.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
 import type { Triage } from "../useTriage.js";
@@ -174,6 +176,44 @@ function EmptyState({ state }: { state: SearchState }) {
   );
 }
 
+/**
+ * The `Needs Reauth` degraded-state banner (`docs/search-ux-spec.md`
+ * §Offline/degraded states: "a banner reading 'Reconnect &lt;account&gt; to
+ * search all mail' with a reconnect button and no background retry loop").
+ * Reuses `ReauthMailAccountForm` — the same re-enter-credentials flow
+ * `MailAccountsSection` already surfaces in Settings — rather than growing a
+ * second implementation of it; there is no router in this Client to
+ * navigate to that screen, so the button reveals the same form inline
+ * instead. `state.needsReauth` flips (and this banner disappears on its
+ * own) once the Local Cache's own Mail Account row catches up, so there is
+ * nothing else for `onResumed` to do beyond collapsing the form.
+ */
+function ReauthBanner({ account }: { account: MailAccount | null }) {
+  const [reconnecting, setReconnecting] = useState(false);
+  const label = account?.emailAddress ?? "this account";
+
+  return (
+    <div className="search-reauth-banner">
+      <p>Reconnect {label} to search all mail</p>
+      {reconnecting && account ? (
+        <ReauthMailAccountForm
+          mailAccountId={account.id}
+          onResumed={() => setReconnecting(false)}
+        />
+      ) : (
+        <button
+          type="button"
+          className="search-reauth-button"
+          onClick={() => setReconnecting(true)}
+          disabled={!account}
+        >
+          Reconnect
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SearchResultsView({
   viewMode,
   state,
@@ -192,6 +232,7 @@ export function SearchResultsView({
   const selectedThread =
     state.results.find((thread) => thread.id === state.selectedThreadId) ?? null;
   const watermark = formatWatermark(state);
+  const account = accounts.find((candidate) => candidate.id === mailAccountId) ?? null;
 
   const getRowExtra = (thread: { id: string }): RowExtra | undefined => {
     const display = state.displayById.get(thread.id);
@@ -209,23 +250,33 @@ export function SearchResultsView({
     };
   };
 
+  // Persistent regardless of result count (`docs/search-ux-spec.md`
+  // §Offline/degraded states: "a persistent strip") — the Local Cache
+  // prefilter can legitimately come back empty while offline or Needs
+  // Reauth, and the banner must still say so rather than vanish.
+  const degradedBanner = state.offline ? (
+    <p className="search-offline-banner">Offline — searching recent mail only</p>
+  ) : state.needsReauth ? (
+    <ReauthBanner account={account} />
+  ) : null;
+
+  // Only the parts that make sense alongside actual rows — "load older" and
+  // the inline watermark — stay gated on `results.length`; the degraded
+  // banner itself does not.
   const footer =
     state.results.length === 0 ? null : (
       <div className="search-foot">
-        {state.offline ? (
-          <p className="search-offline-banner">Offline — searching recent mail only</p>
-        ) : state.needsReauth ? (
-          <p className="search-reauth-banner">Reconnect this account to search all mail</p>
-        ) : state.hasMore ? (
-          <button
-            type="button"
-            className="search-load-older"
-            onClick={state.loadOlder}
-            disabled={state.loadingOlder}
-          >
-            {state.loadingOlder ? "Loading…" : "Load older results"}
-          </button>
-        ) : null}
+        {degradedBanner ??
+          (state.hasMore ? (
+            <button
+              type="button"
+              className="search-load-older"
+              onClick={state.loadOlder}
+              disabled={state.loadingOlder}
+            >
+              {state.loadingOlder ? "Loading…" : "Load older results"}
+            </button>
+          ) : null)}
         {watermark && !state.offline ? <p className="search-watermark">{watermark}</p> : null}
       </div>
     );
@@ -234,7 +285,10 @@ export function SearchResultsView({
     !state.meetsFloor && state.queryText.trim().length > 0 ? (
       <p className="mail-empty">Keep typing — search starts at 3 characters.</p>
     ) : state.results.length === 0 ? (
-      <EmptyState state={state} />
+      <>
+        <EmptyState state={state} />
+        {degradedBanner ? <div className="search-foot">{degradedBanner}</div> : null}
+      </>
     ) : (
       <VirtualizedThreadList
         threads={state.results}

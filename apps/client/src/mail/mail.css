@@ -1097,6 +1097,28 @@ button.search-chip-toggle.on {
   background: color-mix(in srgb, var(--mail-accent) 10%, transparent);
   color: var(--mail-text-dim);
 }
+.search-reauth-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.search-reauth-banner p {
+  margin: 0;
+}
+.search-reauth-button {
+  padding: 6px 12px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.search-reauth-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 .search-empty {
   display: flex;
