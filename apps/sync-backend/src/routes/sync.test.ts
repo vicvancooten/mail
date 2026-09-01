@@ -392,6 +392,175 @@ describe("POST /sync", () => {
     });
   });
 
+  describe("Preference (User-scoped, #54)", () => {
+    it("bootstraps with sensible defaults, then reports an edit across a token round-trip", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Preference: null } },
+      });
+      expect(bootstrap.statusCode).toBe(200);
+      const bootstrapped = bootstrap.json().user.Preference;
+      expect(bootstrapped.created).toHaveLength(1);
+      expect(bootstrapped.created[0]).toMatchObject({
+        theme: "system",
+        autoAdvanceEnabled: true,
+        autoAdvanceDirection: "older",
+        undoSendDelaySeconds: 10,
+      });
+
+      const edited = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Preference: bootstrapped.newState,
+            mutations: [
+              { id: "01THEME", intent: { type: "setTheme", theme: "dark" } },
+              {
+                id: "01ADVANCE",
+                intent: { type: "setAutoAdvance", enabled: false, direction: "newer" },
+              },
+              {
+                id: "01DELAY",
+                intent: { type: "setUndoSendDelay", undoSendDelaySeconds: 30 },
+              },
+            ],
+          },
+        },
+      });
+      const editedBody = edited.json().user;
+      expect(editedBody.mutations).toEqual([
+        { id: "01THEME", status: "applied" },
+        { id: "01ADVANCE", status: "applied" },
+        { id: "01DELAY", status: "applied" },
+      ]);
+      expect(editedBody.Preference.updated[0]).toMatchObject({
+        theme: "dark",
+        autoAdvanceEnabled: false,
+        autoAdvanceDirection: "newer",
+        undoSendDelaySeconds: 30,
+      });
+
+      // A retried id (a dropped response over a flaky connection) replays the
+      // recorded outcome rather than re-applying — the same idempotency
+      // ledger every other mutation queue rides (ADR-0010).
+      const retried = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [{ id: "01THEME", intent: { type: "setTheme", theme: "dark" } }],
+          },
+        },
+      });
+      expect(retried.json().user.mutations).toEqual([{ id: "01THEME", status: "applied" }]);
+    });
+
+    it("is not requested unless asked", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { MailAccount: null } },
+      });
+      expect(response.json().user.Preference).toBeUndefined();
+    });
+  });
+
+  describe("Mail-Account-scoped Preferences: setSignature / setNotificationsEnabled (#54)", () => {
+    it("sets and clears the signature through the ordinary mutation queue", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const set = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                {
+                  id: "01SIG",
+                  intent: { type: "setSignature", signature: "Ada Lovelace" },
+                },
+              ],
+            },
+          },
+        },
+      });
+      expect(set.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01SIG", status: "applied" },
+      ]);
+
+      const confirm = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { MailAccount: null } },
+      });
+      expect(confirm.json().user.MailAccount.created[0]).toMatchObject({
+        id: accountId,
+        signature: "Ada Lovelace",
+      });
+    });
+
+    it("toggles the notification preference", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { MailAccount: null } },
+      });
+      expect(bootstrap.json().user.MailAccount.created[0]).toMatchObject({
+        notificationsEnabled: true,
+      });
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                {
+                  id: "01NOTIF",
+                  intent: { type: "setNotificationsEnabled", enabled: false },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const after = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { MailAccount: bootstrap.json().user.MailAccount.newState } },
+      });
+      expect(after.json().user.MailAccount.updated[0]).toMatchObject({
+        notificationsEnabled: false,
+      });
+    });
+  });
+
   describe("mutations (#39)", () => {
     it("applies queued mutations and the same response's Thread delta already reflects them", async () => {
       const app = buildTestApp();

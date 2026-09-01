@@ -221,6 +221,12 @@
      gesture recognition to honor it, not just on `.thread-row-swipe`. */
   touch-action: pan-y;
 }
+/* Compact list density (#54, Device Preference — never synced, CONTEXT.md): shrinks the row `VirtualizedThreadList` already sized to match via `rowHeight`. */
+.thread-list--compact .thread-row {
+  height: 40px;
+  padding: 0 12px;
+  font-size: 12px;
+}
 .thread-row:hover {
   background: var(--mail-bg-hover);
 }

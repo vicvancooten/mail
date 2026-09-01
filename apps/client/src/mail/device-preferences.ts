@@ -15,10 +15,15 @@
 export type ViewMode = "split" | "list";
 export const DEFAULT_VIEW_MODE: ViewMode = "split";
 
+/** The thread list's row density (#54, CONTEXT.md's Device Preference): deliberately never synced — density means something different per screen. */
+export type ListDensity = "comfortable" | "compact";
+export const DEFAULT_LIST_DENSITY: ListDensity = "comfortable";
+
 const VIEW_MODE_KEY = "mail.devicePref.viewMode";
 const STREAM_MODE_KEY = "mail.devicePref.streamMode";
 const LAST_ACCOUNT_KEY = "mail.devicePref.lastAccountId";
 const OPEN_COMPOSER_KEY = "mail.devicePref.openComposerId";
+const LIST_DENSITY_KEY = "mail.devicePref.listDensity";
 
 function readStorage(key: string): string | null {
   try {
@@ -43,6 +48,15 @@ export function readViewMode(): ViewMode {
 
 export function writeViewMode(mode: ViewMode): void {
   writeStorage(VIEW_MODE_KEY, mode);
+}
+
+export function readListDensity(): ListDensity {
+  const stored = readStorage(LIST_DENSITY_KEY);
+  return stored === "comfortable" || stored === "compact" ? stored : DEFAULT_LIST_DENSITY;
+}
+
+export function writeListDensity(density: ListDensity): void {
+  writeStorage(LIST_DENSITY_KEY, density);
 }
 
 export function readStreamMode(): boolean {

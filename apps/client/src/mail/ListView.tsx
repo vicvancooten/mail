@@ -22,6 +22,7 @@ export function ListView({
   triage,
   onReply,
   initialScrollThreadId,
+  rowHeight,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -34,6 +35,8 @@ export function ListView({
   onReply: OnReply;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
+  /** Passed straight through to `VirtualizedThreadList` — the `compact` list density (#54). */
+  rowHeight?: number;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
 
@@ -62,6 +65,7 @@ export function ListView({
       onLoadMore={onLoadMore}
       triage={triage}
       initialScrollThreadId={initialScrollThreadId}
+      rowHeight={rowHeight}
     />
   );
 }

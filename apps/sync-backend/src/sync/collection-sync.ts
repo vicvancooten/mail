@@ -4,8 +4,10 @@ import type {
   Correspondent,
   Label,
   MailAccount,
+  Preference,
   Thread,
 } from "@mail/shared";
+import { DEFAULT_UNDO_SEND_DELAY_SECONDS, UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import {
@@ -15,6 +17,7 @@ import {
   mailAccounts,
   syncTombstones,
   threads,
+  users,
 } from "../db/schema.js";
 import { toWireMailAccount } from "../mail-accounts/store.js";
 import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
@@ -152,6 +155,67 @@ export async function syncMailAccountCollection(
     cursorRev,
     needsReset,
     toPayload: toWireMailAccount,
+  });
+}
+
+function toWirePreference(row: typeof users.$inferSelect): Preference {
+  return {
+    id: row.id,
+    theme: row.theme,
+    autoAdvanceEnabled: row.autoAdvanceEnabled,
+    autoAdvanceDirection: row.autoAdvanceDirection,
+    undoSendDelaySeconds: UNDO_SEND_DELAY_OPTIONS.includes(
+      row.undoSendDelaySeconds as (typeof UNDO_SEND_DELAY_OPTIONS)[number],
+    )
+      ? (row.undoSendDelaySeconds as Preference["undoSendDelaySeconds"])
+      : DEFAULT_UNDO_SEND_DELAY_SECONDS,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * `Preference`, User-scoped (#54, ADR-0011): exactly one row — this User's
+ * own `users` row, projected down to the fields Preferences owns — so this is
+ * the "a future `Preference` collection is the same shape again" this
+ * module's own docstring promised: no windowing, no tombstones anyone will
+ * ever emit (a User's own Preference row never disappears while they exist),
+ * queried defensively the same way `MailAccount`'s is.
+ */
+export async function syncPreferenceCollection(
+  db: Db,
+  userId: string,
+  token: string | null,
+): Promise<CollectionDelta<Preference> | null> {
+  const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+  const rows = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, userId), gt(users.syncRev, cursorRev)))
+    .orderBy(asc(users.syncRev))
+    .limit(PAGE_SIZE + 1);
+
+  const tombstoneRows = needsReset
+    ? []
+    : await db
+        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+        .from(syncTombstones)
+        .where(
+          and(
+            isNull(syncTombstones.mailAccountId),
+            eq(syncTombstones.collection, "Preference"),
+            gt(syncTombstones.syncRev, cursorRev),
+          ),
+        )
+        .orderBy(asc(syncTombstones.syncRev))
+        .limit(PAGE_SIZE + 1);
+
+  return buildDelta({
+    rows,
+    tombstones: tombstoneRows,
+    cursorRev,
+    needsReset,
+    toPayload: toWirePreference,
   });
 }
 

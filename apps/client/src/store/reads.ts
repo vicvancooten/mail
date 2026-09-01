@@ -1,5 +1,11 @@
-import type { Correspondent, Label, MailAccount, Thread } from "@mail/shared";
-import { labelId } from "@mail/shared";
+import type { Correspondent, Label, MailAccount, Preference, Thread } from "@mail/shared";
+import {
+  DEFAULT_AUTO_ADVANCE_DIRECTION,
+  DEFAULT_AUTO_ADVANCE_ENABLED,
+  DEFAULT_THEME,
+  DEFAULT_UNDO_SEND_DELAY_SECONDS,
+  labelId,
+} from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   type CachedThread,
@@ -7,6 +13,7 @@ import {
   type LocalCache,
   listWindowKey,
   type PendingMutation,
+  type PendingUserMutation,
   type ViewKey,
 } from "./db.js";
 import { localCache } from "./local-cache.js";
@@ -38,9 +45,117 @@ export function useMailAccounts(): MailAccount[] | undefined {
   return useLiveQuery(() => readMailAccounts(), []);
 }
 
-/** Ordered by `createdAt` so the account switcher and "first account" are stable across reloads. */
-export function readMailAccounts(): Promise<MailAccount[]> {
-  return localCache().mailAccounts.orderBy("createdAt").toArray();
+/**
+ * Ordered by `createdAt` so the account switcher and "first account" are
+ * stable across reloads. Overlays any queued `setSignature`/
+ * `setNotificationsEnabled` Optimistic Action (#54) the same way
+ * `readThreadWindow` overlays a Thread's own queue — a signature edit shows
+ * immediately, offline included, rather than waiting on a round trip.
+ */
+export async function readMailAccounts(): Promise<MailAccount[]> {
+  const db = localCache();
+  const accounts = await db.mailAccounts.orderBy("createdAt").toArray();
+  return overlayMailAccountMutations(db, accounts);
+}
+
+async function overlayMailAccountMutations(
+  db: LocalCache,
+  accounts: MailAccount[],
+): Promise<MailAccount[]> {
+  if (accounts.length === 0) return accounts;
+
+  const relevant = await db.pendingMutations
+    .where("mailAccountId")
+    .anyOf(accounts.map((account) => account.id))
+    .filter(
+      (mutation) =>
+        mutation.intent.type === "setSignature" ||
+        mutation.intent.type === "setNotificationsEnabled",
+    )
+    .toArray();
+  if (relevant.length === 0) return accounts;
+
+  relevant.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  const byAccountId = new Map<string, PendingMutation[]>();
+  for (const mutation of relevant) {
+    const bucket = byAccountId.get(mutation.mailAccountId);
+    if (bucket) bucket.push(mutation);
+    else byAccountId.set(mutation.mailAccountId, [mutation]);
+  }
+
+  return accounts.map((account) => {
+    const mutations = byAccountId.get(account.id);
+    if (!mutations) return account;
+    let overlaid = account;
+    for (const mutation of mutations) {
+      if (mutation.intent.type === "setSignature") {
+        overlaid = { ...overlaid, signature: mutation.intent.signature };
+      } else if (mutation.intent.type === "setNotificationsEnabled") {
+        overlaid = { ...overlaid, notificationsEnabled: mutation.intent.enabled };
+      }
+    }
+    return overlaid;
+  });
+}
+
+/**
+ * The synced `Preference` row (#54), before this Client has ever synced one:
+ * the same defaults `sync/mutations.ts` seeds a new `users` row with, so a
+ * fresh install's settings screen shows sensible values from the first paint
+ * rather than a loading state — ADR-0010's "cold start reads the Local Cache,
+ * never waits on a network round trip" applied to a collection with exactly
+ * one row instead of thousands.
+ */
+function defaultPreference(): Preference {
+  return {
+    id: "",
+    theme: DEFAULT_THEME,
+    autoAdvanceEnabled: DEFAULT_AUTO_ADVANCE_ENABLED,
+    autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
+    undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
+    updatedAt: new Date(0).toISOString(),
+  };
+}
+
+export function usePreference(): Preference | undefined {
+  return useLiveQuery(() => readPreference(), []);
+}
+
+/**
+ * `base ⊕ pending` for the one-row `Preference` collection (#54): the same
+ * overlay shape every other read gets, just keyed to "the whole row" instead
+ * of a `threadId`/`mailAccountId`, because a User has exactly one.
+ */
+export async function readPreference(): Promise<Preference> {
+  const db = localCache();
+  const [rows, pending] = await Promise.all([
+    db.preferences.toArray(),
+    db.pendingUserMutations.orderBy("id").toArray(),
+  ]);
+  const base = rows[0] ?? defaultPreference();
+  return applyPreferenceOverlay(base, pending);
+}
+
+function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation[]): Preference {
+  let overlaid = base;
+  for (const { intent } of mutations) {
+    switch (intent.type) {
+      case "setTheme":
+        overlaid = { ...overlaid, theme: intent.theme };
+        break;
+      case "setAutoAdvance":
+        overlaid = {
+          ...overlaid,
+          autoAdvanceEnabled: intent.enabled,
+          autoAdvanceDirection: intent.direction,
+        };
+        break;
+      case "setUndoSendDelay":
+        overlaid = { ...overlaid, undoSendDelaySeconds: intent.undoSendDelaySeconds };
+        break;
+    }
+  }
+  return overlaid;
 }
 
 /** Every Label (#43) a Mail Account has, name-ordered — the "filter by label" picker's whole data source. */

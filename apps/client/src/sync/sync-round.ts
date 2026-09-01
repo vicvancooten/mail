@@ -2,6 +2,7 @@ import type {
   ComposeSave,
   MailAccount,
   QueuedMutation,
+  QueuedUserMutation,
   SyncRequest,
   SyncResponse,
 } from "@mail/shared";
@@ -18,6 +19,7 @@ import {
   applyCorrespondentDelta,
   applyLabelDelta,
   applyMailAccountDelta,
+  applyPreferenceDelta,
   applyThreadDelta,
   compositionTokenKey,
   correspondentTokenKey,
@@ -25,9 +27,14 @@ import {
   labelTokenKey,
   listCachedMailAccountIds,
   MAIL_ACCOUNT_TOKEN_KEY,
+  PREFERENCE_TOKEN_KEY,
   pruneOrphanedMailAccountData,
   threadTokenKey,
 } from "../store/server-writes.js";
+import {
+  listQueuedUserMutations,
+  resolveUserMutationOutcomes,
+} from "../store/user-mutation-queue.js";
 import { type PostSync, postSync } from "./sync-api.js";
 
 /**
@@ -90,6 +97,7 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
     if (pages === 1) {
       await applyMutationOutcomes(request, response);
       await applyComposeSaveOutcomes(request, response);
+      await applyUserMutationOutcomes(request, response);
     }
 
     let hasMore = false;
@@ -100,6 +108,15 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       hasMore ||= mailAccountDelta.hasMore;
       await applyMailAccountDelta(mailAccountDelta, {
         replace: startsReplay(replaysStarted, MAIL_ACCOUNT_TOKEN_KEY, mailAccountDelta.reset),
+      });
+    }
+
+    const preferenceDelta = response.user.Preference;
+    if (preferenceDelta) {
+      changed = true;
+      hasMore ||= preferenceDelta.hasMore;
+      await applyPreferenceDelta(preferenceDelta, {
+        replace: startsReplay(replaysStarted, PREFERENCE_TOKEN_KEY, preferenceDelta.reset),
       });
     }
 
@@ -170,11 +187,17 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
  */
 async function flushMutationsOnly(post: PostSync): Promise<number> {
   const request = await buildSyncRequest({ includeCollections: false, includeMutations: true });
-  if (Object.keys(request.mailAccounts ?? {}).length === 0) return 0;
+  if (
+    Object.keys(request.mailAccounts ?? {}).length === 0 &&
+    (request.user?.mutations?.length ?? 0) === 0
+  ) {
+    return 0;
+  }
 
   const response = await post(request);
   await applyMutationOutcomes(request, response);
   await applyComposeSaveOutcomes(request, response);
+  await applyUserMutationOutcomes(request, response);
   return 1;
 }
 
@@ -204,6 +227,18 @@ async function applyMutationOutcomes(request: SyncRequest, response: SyncRespons
     );
     await resolveMutationOutcomes(mailAccountId, queued, outcomes);
   }
+}
+
+/** Same shape as `applyMutationOutcomes`, for the User-scoped `Preference` queue (#54). */
+async function applyUserMutationOutcomes(
+  request: SyncRequest,
+  response: SyncResponse,
+): Promise<void> {
+  const queued = request.user?.mutations;
+  if (!queued || queued.length === 0) return;
+  const outcomes = response.user.mutations;
+  if (!outcomes || outcomes.length === 0) return;
+  await resolveUserMutationOutcomes(outcomes);
 }
 
 /** Same shape as `applyMutationOutcomes`, for Composition autosaves (ADR-0014, #45). */
@@ -274,12 +309,30 @@ async function buildSyncRequest({
     }
   }
 
+  const user: NonNullable<SyncRequest["user"]> = {};
+  if (includeCollections) {
+    user.MailAccount = await getSyncToken(MAIL_ACCOUNT_TOKEN_KEY);
+    user.Preference = await getSyncToken(PREFERENCE_TOKEN_KEY);
+  }
+  if (includeMutations) {
+    const userMutations = await userMutationsToFlush();
+    if (userMutations.length > 0) user.mutations = userMutations;
+  }
+
   return {
-    ...(includeCollections
-      ? { user: { MailAccount: await getSyncToken(MAIL_ACCOUNT_TOKEN_KEY) } }
-      : {}),
+    ...(Object.keys(user).length > 0 ? { user } : {}),
     mailAccounts,
   };
+}
+
+/**
+ * The User-scoped queue's flush (#54): unlike `mutationsToFlush`, there is no
+ * Needs Reauth to gate on — that state belongs to a Mail Account, and a
+ * Preference edit is never about one.
+ */
+async function userMutationsToFlush(): Promise<QueuedUserMutation[]> {
+  const queued = await listQueuedUserMutations();
+  return queued.map((mutation) => ({ id: mutation.id, intent: mutation.intent }));
 }
 
 /**

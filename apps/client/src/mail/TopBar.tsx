@@ -1,4 +1,4 @@
-import type { Label, MailAccount } from "@mail/shared";
+import type { AutoAdvanceDirection, Label, MailAccount } from "@mail/shared";
 import {
   ArrowDown,
   ArrowUp,
@@ -7,14 +7,14 @@ import {
   Layers,
   List as ListIcon,
   PenSquare,
+  Rows3,
   Search,
   Tag,
   X,
 } from "lucide-react";
 import { type RefObject, useState } from "react";
 import { AccountSwitcher } from "./AccountSwitcher.js";
-import type { ViewMode } from "./device-preferences.js";
-import type { AdvanceDirection } from "./triage-preferences.js";
+import type { ListDensity, ViewMode } from "./device-preferences.js";
 
 /**
  * The search field's own props (#51, `docs/search-ux-spec.md` §The
@@ -144,6 +144,8 @@ export function TopBar({
   onViewMode,
   streamMode,
   onStreamMode,
+  density,
+  onDensity,
   direction,
   onDirection,
   accounts,
@@ -159,8 +161,11 @@ export function TopBar({
   onViewMode: (mode: ViewMode) => void;
   streamMode: boolean;
   onStreamMode: (enabled: boolean) => void;
-  direction: AdvanceDirection;
-  onDirection: (direction: AdvanceDirection) => void;
+  /** The thread list's row density (#54, Device Preference — never synced). */
+  density: ListDensity;
+  onDensity: (density: ListDensity) => void;
+  direction: AutoAdvanceDirection;
+  onDirection: (direction: AutoAdvanceDirection) => void;
   accounts: MailAccount[];
   selectedAccountId: string | null;
   onSelectAccount: (id: string) => void;
@@ -203,6 +208,17 @@ export function TopBar({
         title="Opt-in: replaces Split/List with one-thread-at-a-time browsing"
       >
         <Layers size={14} /> Stream mode
+      </button>
+
+      <div className="divider" />
+
+      <button
+        type="button"
+        className={`toggle${density === "compact" ? " on" : ""}`}
+        onClick={() => onDensity(density === "compact" ? "comfortable" : "compact")}
+        title="Thread list row density — this device only"
+      >
+        <Rows3 size={14} /> {density === "compact" ? "Compact" : "Comfortable"}
       </button>
 
       <div className="divider" />

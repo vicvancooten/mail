@@ -42,6 +42,7 @@ export {
   DEFAULT_VIEW,
   type ListWindow,
   type PendingMutation,
+  type PendingUserMutation,
   type ViewKey,
 } from "./db.js";
 export {
@@ -61,6 +62,7 @@ export {
   readCorrespondents,
   readLabels,
   readMailAccounts,
+  readPreference,
   readSearchPrefilter,
   readThreadWindow,
   type SearchPrefilterFilters,
@@ -69,7 +71,13 @@ export {
   useCorrespondents,
   useLabels,
   useMailAccounts,
+  usePreference,
   useSearchPrefilter,
   useSearchResultThreads,
   useThreadWindow,
 } from "./reads.js";
+export {
+  enqueueUserMutation,
+  listQueuedUserMutations,
+  resolveUserMutationOutcomes,
+} from "./user-mutation-queue.js";

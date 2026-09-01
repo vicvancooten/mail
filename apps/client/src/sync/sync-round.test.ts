@@ -6,7 +6,7 @@ import {
   listQueuedComposeSaves,
   saveComposition,
 } from "../store/compositions.js";
-import { readThreadWindow } from "../store/index.js";
+import { readPreference, readThreadWindow } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import {
   enqueueMutation,
@@ -15,6 +15,7 @@ import {
   subscribeMutationRejections,
 } from "../store/mutation-queue.js";
 import { applyThreadDelta, getSyncToken, threadTokenKey } from "../store/server-writes.js";
+import { enqueueUserMutation, listQueuedUserMutations } from "../store/user-mutation-queue.js";
 import {
   delta,
   makeMailAccount,
@@ -68,9 +69,12 @@ describe("runSyncRound", () => {
 
     const result = await runSyncRound(post);
 
-    expect(requests[0]).toEqual({ user: { MailAccount: null }, mailAccounts: {} });
+    expect(requests[0]).toEqual({
+      user: { MailAccount: null, Preference: null },
+      mailAccounts: {},
+    });
     expect(requests[1]).toEqual({
-      user: { MailAccount: "ma-1" },
+      user: { MailAccount: "ma-1", Preference: null },
       mailAccounts: {
         "acct-1": { Thread: null, Label: null, Composition: null, Correspondent: null },
       },
@@ -212,7 +216,10 @@ describe("runSyncRound", () => {
 
     // Both tokens went with the wipe, so this is a bootstrap and not a delta
     // resumed from a cursor whose rows no longer exist locally.
-    expect(resync.requests[0]).toEqual({ user: { MailAccount: null }, mailAccounts: {} });
+    expect(resync.requests[0]).toEqual({
+      user: { MailAccount: null, Preference: null },
+      mailAccounts: {},
+    });
     expect(resync.requests[1]?.mailAccounts?.["acct-1"]).toEqual({
       Thread: null,
       Label: null,
@@ -524,6 +531,67 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
 
     expect(await listQueuedMutations("acct-1")).toEqual([]);
     expect((await readThreadWindow("acct-1")).threads[0]?.starred).toBe(true);
+  });
+});
+
+describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
+  it("sends the User-scoped queue on the round's first request only", async () => {
+    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+
+    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {} }]);
+    await runSyncRound(post);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.user?.mutations).toEqual([
+      { id, intent: { type: "setTheme", theme: "dark" } },
+    ]);
+  });
+
+  it("dequeues on `applied`, and applies the Preference delta the same round trip", async () => {
+    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+
+    await runSyncRound(
+      scriptedSync([
+        {
+          user: {
+            mutations: [{ id: id as string, status: "applied" }],
+            Preference: delta({
+              created: [
+                {
+                  id: "user-1",
+                  theme: "dark",
+                  autoAdvanceEnabled: true,
+                  autoAdvanceDirection: "older",
+                  undoSendDelaySeconds: 10,
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                },
+              ],
+              newState: "pref-1",
+            }),
+          },
+          mailAccounts: {},
+        },
+      ]).post,
+    );
+
+    expect(await listQueuedUserMutations()).toEqual([]);
+    expect(await readPreference()).toMatchObject({ theme: "dark" });
+  });
+
+  it("survives offline: a request that never gets a response leaves the queue untouched", async () => {
+    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+
+    const offline = () => Promise.reject(new Error("network error"));
+    await expect(runSyncRound(offline)).rejects.toThrow("network error");
+
+    expect((await listQueuedUserMutations()).map((mutation) => mutation.id)).toEqual([id]);
+
+    await runSyncRound(
+      scriptedSync([
+        { user: { mutations: [{ id: id as string, status: "applied" }] }, mailAccounts: {} },
+      ]).post,
+    );
+    expect(await listQueuedUserMutations()).toEqual([]);
   });
 });
 

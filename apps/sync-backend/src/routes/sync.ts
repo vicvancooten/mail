@@ -8,10 +8,11 @@ import {
   syncCorrespondentCollection,
   syncLabelCollection,
   syncMailAccountCollection,
+  syncPreferenceCollection,
   syncThreadCollection,
 } from "../sync/collection-sync.js";
 import { flushComposeSaves } from "../sync/compose-store.js";
-import { flushMutations } from "../sync/mutations.js";
+import { flushMutations, flushUserMutations } from "../sync/mutations.js";
 
 export interface SyncRoutesOptions {
   db: Db;
@@ -49,9 +50,22 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     const { user, mailAccounts: requestedMailAccounts } = body.data;
 
     const userResult: SyncResponse["user"] = {};
+    // #54's User-scoped `Preference` mutations flush before its collection
+    // delta is computed, same ordering reason as a Mail Account's own
+    // `mutations`-before-`Thread` below: the very same round trip's delta
+    // then already reflects what just changed.
+    const userMutations = user?.mutations ?? [];
+    const userMutationResults =
+      userMutations.length > 0 ? await flushUserMutations(db, userId, userMutations) : [];
+    if (userMutationResults.length > 0) userResult.mutations = userMutationResults;
+
     if (user?.MailAccount !== undefined) {
       const delta = await syncMailAccountCollection(db, userId, user.MailAccount);
       if (delta) userResult.MailAccount = delta;
+    }
+    if (user?.Preference !== undefined) {
+      const delta = await syncPreferenceCollection(db, userId, user.Preference);
+      if (delta) userResult.Preference = delta;
     }
 
     const mailAccountsResult: SyncResponse["mailAccounts"] = {};

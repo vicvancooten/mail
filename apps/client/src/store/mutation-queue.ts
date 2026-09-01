@@ -26,11 +26,14 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "applyLabel":
     case "removeLabel":
       return [intent.threadId];
-    // The Composition intents (#46) name no Thread. Empty is exactly right
-    // for both readers: nothing to exempt from Thread eviction, and nothing
-    // for the Thread overlay to match against.
+    // The Composition intents (#46) and the Mail-Account-scoped Preference
+    // intents (#54) name no Thread. Empty is exactly right for both readers:
+    // nothing to exempt from Thread eviction, and nothing for the Thread
+    // overlay to match against.
     case "sendComposition":
     case "cancelSend":
+    case "setSignature":
+    case "setNotificationsEnabled":
       return [];
   }
 }
@@ -79,6 +82,18 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "send", targetId: intent.compositionId, value: true };
     case "cancelSend":
       return { type: "send", targetId: intent.compositionId, value: false };
+    // `setNotificationsEnabled` (#54) is a genuine boolean toggle, so it
+    // coalesces the same way `setPinned` does — a Mail Account's own queue is
+    // already what `enqueueMutation` scopes candidates to, so "notifications"
+    // alone is a unique enough bucket. `setSignature` has no natural inverse
+    // (there is no "un-set to this specific string"), so its `value` is a
+    // fixed constant that never matches another entry's — two queued edits
+    // both ride the queue rather than coalescing, and FIFO order still lands
+    // on whichever the User actually typed last.
+    case "setNotificationsEnabled":
+      return { type: "setNotificationsEnabled", targetId: "notifications", value: intent.enabled };
+    case "setSignature":
+      return { type: "setSignature", targetId: "signature", value: true };
   }
 }
 

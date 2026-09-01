@@ -10,8 +10,20 @@ import {
 } from "../test-support/mail-fixtures.js";
 import { localCache, openLocalCache } from "./local-cache.js";
 import { enqueueMutation } from "./mutation-queue.js";
-import { readLabels, readMailAccounts, readThreadWindow, THREAD_PAGE_SIZE } from "./reads.js";
-import { applyLabelDelta, applyMailAccountDelta, applyThreadDelta } from "./server-writes.js";
+import {
+  readLabels,
+  readMailAccounts,
+  readPreference,
+  readThreadWindow,
+  THREAD_PAGE_SIZE,
+} from "./reads.js";
+import {
+  applyLabelDelta,
+  applyMailAccountDelta,
+  applyPreferenceDelta,
+  applyThreadDelta,
+} from "./server-writes.js";
+import { enqueueUserMutation } from "./user-mutation-queue.js";
 
 let counter = 0;
 const names: string[] = [];
@@ -301,5 +313,69 @@ describe("readMailAccounts", () => {
     );
 
     expect((await readMailAccounts()).map((account) => account.id)).toEqual(["older", "newer"]);
+  });
+
+  it("overlays a queued setSignature/setNotificationsEnabled onto the base row (#54)", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1", { signature: null })] }),
+      { replace: false },
+    );
+
+    await enqueueMutation({ type: "setSignature", signature: "Ada" }, "acct-1");
+    await enqueueMutation({ type: "setNotificationsEnabled", enabled: false }, "acct-1");
+
+    const [account] = await readMailAccounts();
+    expect(account).toMatchObject({ signature: "Ada", notificationsEnabled: false });
+  });
+});
+
+describe("readPreference — base ⊕ pending overlay (#54)", () => {
+  it("falls back to sensible defaults before this Client has ever synced one", async () => {
+    expect(await readPreference()).toMatchObject({
+      theme: "system",
+      autoAdvanceEnabled: true,
+      autoAdvanceDirection: "older",
+      undoSendDelaySeconds: 10,
+    });
+  });
+
+  it("overlays a queued edit onto the default row, offline included", async () => {
+    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+
+    expect(await readPreference()).toMatchObject({ theme: "dark" });
+  });
+
+  it("overlays setAutoAdvance's enabled and direction together, last-queued wins", async () => {
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "older" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
+
+    expect(await readPreference()).toMatchObject({
+      autoAdvanceEnabled: false,
+      autoAdvanceDirection: "newer",
+    });
+  });
+
+  it("overlays onto a base row the Sync Backend already sent", async () => {
+    await applyPreferenceDelta(
+      delta({
+        created: [
+          {
+            id: "user-1",
+            theme: "light",
+            autoAdvanceEnabled: true,
+            autoAdvanceDirection: "older",
+            undoSendDelaySeconds: 10,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      { replace: false },
+    );
+    await enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds: 30 });
+
+    expect(await readPreference()).toMatchObject({
+      theme: "light",
+      undoSendDelaySeconds: 30,
+    });
   });
 });

@@ -6,8 +6,10 @@ import type {
   Label,
   MailAccount,
   MutationIntent,
+  Preference,
   Recipient,
   Thread,
+  UserMutationIntent,
 } from "@mail/shared";
 import Dexie, { type EntityTable } from "dexie";
 
@@ -30,7 +32,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 5; // #49: a new `correspondents` table for the synced top ~500
+export const CACHE_SCHEMA_VERSION = 6; // #54: `preferences` (User-scoped) and its own `pendingUserMutations` queue
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -229,6 +231,21 @@ export interface PendingMutation {
   intent: MutationIntent;
 }
 
+/**
+ * The durable User-scoped Optimistic Action queue (#54), `PendingMutation`'s
+ * sibling for `Preference` edits: no `mailAccountId`/`referencedThreadIds`
+ * because nothing here is ever about a Thread or scoped to a Mail Account —
+ * there is exactly one of these per User, wherever they are signed in. Same
+ * survive-a-wipe rule as `pendingMutations` (`DATA_TABLES` below excludes it,
+ * `ensureCacheSchema` waits on it the same way).
+ */
+export interface PendingUserMutation {
+  /** Client-generated ULID (`store/ulid.ts`), echoed by the Sync Backend as the idempotency key. */
+  id: string;
+  createdAt: string;
+  intent: UserMutationIntent;
+}
+
 /** Cache-level bookkeeping that survives a wipe (it is what records that one happened). */
 export interface CacheMetaRow {
   key: string;
@@ -248,6 +265,9 @@ export class LocalCache extends Dexie {
   pendingMutations!: EntityTable<PendingMutation, "id">;
   compositions!: EntityTable<CachedComposition, "id">;
   pendingComposeSaves!: EntityTable<PendingComposeSave, "compositionId">;
+  /** `Preference`, User-scoped (#54): exactly one row, `id` is the signed-in User's own id. */
+  preferences!: EntityTable<Preference, "id">;
+  pendingUserMutations!: EntityTable<PendingUserMutation, "id">;
   cacheMeta!: EntityTable<CacheMetaRow, "key">;
 
   /** The value `ensureCacheSchema` compares the stored one against; overridable so tests can open the same database twice at different versions. */
@@ -272,6 +292,8 @@ export class LocalCache extends Dexie {
       pendingMutations: "id, mailAccountId, createdAt, *referencedThreadIds",
       compositions: "id, mailAccountId, status",
       pendingComposeSaves: "compositionId, mailAccountId",
+      preferences: "id",
+      pendingUserMutations: "id, createdAt",
       cacheMeta: "key",
     });
   }
@@ -297,6 +319,7 @@ const DATA_TABLES = [
   "cachePins",
   "syncState",
   "compositions",
+  "preferences",
 ] as const;
 
 export type CacheSchemaOutcome =
@@ -317,6 +340,7 @@ export type CacheSchemaOutcome =
       from: number | null;
       pendingMutations: number;
       pendingComposeSaves: number;
+      pendingUserMutations: number;
     };
 
 /**
@@ -336,8 +360,15 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
 
   const pendingMutations = await db.pendingMutations.count();
   const pendingComposeSaves = await db.pendingComposeSaves.count();
-  if (pendingMutations > 0 || pendingComposeSaves > 0) {
-    return { status: "deferred", from, pendingMutations, pendingComposeSaves };
+  const pendingUserMutations = await db.pendingUserMutations.count();
+  if (pendingMutations > 0 || pendingComposeSaves > 0 || pendingUserMutations > 0) {
+    return {
+      status: "deferred",
+      from,
+      pendingMutations,
+      pendingComposeSaves,
+      pendingUserMutations,
+    };
   }
 
   await db.transaction(

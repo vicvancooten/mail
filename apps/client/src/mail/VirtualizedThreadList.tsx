@@ -26,7 +26,10 @@ type ListItem =
   | { kind: "thread"; key: string; thread: CachedThread; index: number };
 
 const HEADER_HEIGHT = 32;
+/** The default (`comfortable`) row height — `rowHeight` overrides it for the `compact` list density (#54, Device Preference). */
 const ROW_HEIGHT = 60;
+/** `mail.css`'s `.thread-list--compact .thread-row` row height — kept as one exported constant so the two never drift apart. */
+export const COMPACT_ROW_HEIGHT = 40;
 /** How close to the bottom (in rows) triggers widening the requested page. */
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -48,6 +51,7 @@ export function VirtualizedThreadList({
   getRowExtra,
   keyboardDisabled = false,
   initialScrollThreadId = null,
+  rowHeight = ROW_HEIGHT,
 }: {
   threads: readonly CachedThread[];
   /** False once the window has been truncated at the bottom (ADR-0009). */
@@ -68,6 +72,8 @@ export function VirtualizedThreadList({
   keyboardDisabled?: boolean;
   /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. */
   initialScrollThreadId?: string | null;
+  /** The `compact` list density's row height (#54, Device Preference) — every other caller keeps the `comfortable` default. */
+  rowHeight?: number;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -100,7 +106,7 @@ export function VirtualizedThreadList({
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : ROW_HEIGHT),
+    estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : rowHeight),
     overscan: 12,
     // A real browser's ResizeObserver corrects this immediately; it only
     // matters where none exists — jsdom under `pnpm test`, which otherwise
@@ -173,7 +179,12 @@ export function VirtualizedThreadList({
   }
 
   return (
-    <div className="thread-list" ref={parentRef} role="listbox" aria-label="Threads">
+    <div
+      className={`thread-list${rowHeight !== ROW_HEIGHT ? " thread-list--compact" : ""}`}
+      ref={parentRef}
+      role="listbox"
+      aria-label="Threads"
+    >
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualItems.map((virtualItem) => {
           const item = items[virtualItem.index];

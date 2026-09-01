@@ -113,6 +113,13 @@
       "when": 1788275305214,
       "tag": "0015_colorful_wildside",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788280556871,
+      "tag": "0016_redundant_jack_power",
+      "breakpoints": true
     }
   ]
 }

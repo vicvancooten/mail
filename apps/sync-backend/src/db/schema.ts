@@ -71,8 +71,27 @@ export const users = pgTable("users", {
    * zero-length window, never a bypass of the Pending Send row.
    */
   undoSendDelaySeconds: integer("undo_send_delay_seconds").notNull().default(10),
+  /**
+   * The rest of `Preference` (#54, poc-spec.md §Preferences): theme and
+   * Auto-advance, User-scoped alongside `undoSendDelaySeconds` above. Same
+   * posture as that column — one row per User, no separate table, because a
+   * User has exactly one of each.
+   */
+  theme: text("theme", { enum: ["system", "light", "dark"] })
+    .notNull()
+    .default("system"),
+  autoAdvanceEnabled: boolean("auto_advance_enabled").notNull().default(true),
+  autoAdvanceDirection: text("auto_advance_direction", { enum: ["older", "newer"] })
+    .notNull()
+    .default("older"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // The delta sync API's (#37, #54) cursor pair for the `Preference`
+  // collection, stamped by the same `bump_sync_rev` trigger `mail_accounts`
+  // and `threads` already use (migration 0006) — see that migration's own
+  // comment for what the two columns mean.
+  syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+  syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
 });
 
 /**
@@ -231,6 +250,8 @@ export const mailAccounts = pgTable(
       .default("active"),
     /** The plain-text signature (#47, compose-spec §Signature) — null until the User sets one. */
     signature: text("signature"),
+    /** The notification on/off toggle (#54, poc-spec.md §Preferences) — the Mail-Account-scoped half of Preferences, alongside `signature`. */
+    notificationsEnabled: boolean("notifications_enabled").notNull().default(true),
     // The groundwork for ADR-0015's two-tier liveness (#35): the resident
     // sync loop (`sync/live-session.ts`) stamps `lastProgressAt` on every
     // IDLE keepalive or completed poll and `syncState` on every transition,
@@ -773,16 +794,26 @@ export const appliedMutations = pgTable(
   "applied_mutations",
   {
     id: text("id").primaryKey(),
-    mailAccountId: text("mail_account_id")
-      .notNull()
-      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    // Exactly one of `mailAccountId`/`userId` is set: a Mail-Account-scoped
+    // mutation (#39) carries the former, a User-scoped one (#54's
+    // `UserMutationIntent`) the latter. One ledger rather than two because
+    // the id-keyed lookup this table exists for (`ledgerRow` in
+    // `sync/mutations.ts`) doesn't care which scope minted the id — ULIDs
+    // are unique regardless.
+    mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
+      onDelete: "cascade",
+    }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     intentType: text("intent_type").notNull(),
     status: text("status", { enum: ["applied", "rejected"] }).notNull(),
     /** Present only when `status` is `rejected` — why, so the outcome is self-explaining on replay. */
     reason: text("reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("applied_mutations_account_idx").on(table.mailAccountId)],
+  (table) => [
+    index("applied_mutations_account_idx").on(table.mailAccountId),
+    index("applied_mutations_user_idx").on(table.userId),
+  ],
 );
 
 /**

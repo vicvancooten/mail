@@ -42,6 +42,12 @@ function describeIntent(intent: MutationIntent): string | null {
     case "sendComposition":
     case "cancelSend":
       return null;
+    // The Mail-Account-scoped Preference intents (#54) have their own
+    // surface too — the settings screen shows its own save state — so, same
+    // as the Composition intents above, nothing for this toast to say.
+    case "setSignature":
+    case "setNotificationsEnabled":
+      return null;
   }
 }
 
