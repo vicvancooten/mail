@@ -29,6 +29,26 @@ const PAGE_SIZE = 50;
  * - ordinary terms vs. the pathological cases (a two-character prefix, a
  *   term matching most of the corpus — `simple` ships no stopword list)
  * - with and without `ts_headline` fragments over the result page
+ *
+ * TODO(close-out review, 2026-09): "the query shape search *actually* runs"
+ * above overstates it — every query here is hand-rolled SQL against this
+ * package's own `corpus_bench.messages`/`message_search` tables, never a
+ * call into `apps/sync-backend/src/sync/search-query.ts`'s shipped
+ * `runSearch`. The "capped, side table [+ ts_headline]" cases track that
+ * function's CTE shape closely but are not it — no `folders`/`labels`/
+ * `threads` join, no cursor pagination, no `from`/`to`/`has:attachment`
+ * join, a `folder text` column standing in for the real `folder_id` FK. So
+ * #50's acceptance line ("bench:shapes bars hold on the real
+ * implementation") is unverified by this file. Wiring this bench to call
+ * `runSearch` directly would mean this package depending on
+ * `@mail/sync-backend`'s Drizzle schema/migrations and regenerating the
+ * 250k-message corpus to conform to the real product tables (uuid
+ * mail_account_id, folders with roles, threads with label_ids, jsonb
+ * address fields) in a database isolated from real dev data — this package
+ * currently shares none of that (own `postgres` client, own schema, no
+ * `@mail/sync-backend` dependency at all). That is a harness rearchitecture,
+ * not a scoped fix; recommend it become its own #58 (performance
+ * acceptance ticket) task rather than attempting it inside this fix batch.
  */
 export interface ShapeQueryResult {
   label: string;
