@@ -35,6 +35,8 @@ export interface DisplayResult {
   headline: string | null;
   folder: SearchResult["folder"] | null;
   matchedMessageId: string;
+  /** The Held/Blocked badge (#56, `docs/search-ux-spec.md` §The row) — `SearchResult["gatekeeper"]`'s own doc comment explains why it rides the result, not the Thread. */
+  gatekeeper: SearchResult["gatekeeper"];
 }
 
 function buildFilters(parsed: ParsedSearchQuery, folder?: string, label?: string) {
@@ -199,6 +201,7 @@ export function useSearchState(
         headline: result.headline,
         folder: usingServerResults ? result.folder : null,
         matchedMessageId: result.matchedMessageId,
+        gatekeeper: result.gatekeeper,
       });
     }
     return map;

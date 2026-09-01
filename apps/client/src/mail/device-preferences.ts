@@ -156,3 +156,26 @@ export function writeNotificationOfferShown(): void {
 }
 
 const NOTIFICATION_OFFER_SHOWN_KEY = "mail.devicePref.notificationOfferShown";
+
+/**
+ * The Gatekeeper banner's "unseen" cursor (#56, poc-spec.md: "a
+ * non-dismissible Inbox banner keys to *unseen* holds"). Per Mail Account,
+ * per device — a fresh device (or a cleared one) has never viewed the
+ * Screener, so the epoch default means "every current hold is unseen",
+ * exactly the fresh-install behavior the banner should have.
+ *
+ * Not dismissible on its own: the only way to advance this cursor is
+ * `writeScreenerViewed`, called when the Screener actually opens. A hold
+ * that arrives after that instant (`ScreenerSenderGroup.heldSince` compares
+ * later) makes the banner reappear — "unseen", not "ever seen".
+ */
+const SCREENER_SEEN_KEY_PREFIX = "mail.devicePref.screenerSeenUntil.";
+const EPOCH = new Date(0).toISOString();
+
+export function readScreenerSeenUntil(mailAccountId: string): string {
+  return readStorage(SCREENER_SEEN_KEY_PREFIX + mailAccountId) ?? EPOCH;
+}
+
+export function writeScreenerViewed(mailAccountId: string): void {
+  writeStorage(SCREENER_SEEN_KEY_PREFIX + mailAccountId, new Date().toISOString());
+}

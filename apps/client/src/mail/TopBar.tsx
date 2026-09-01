@@ -9,6 +9,7 @@ import {
   PenSquare,
   Rows3,
   Search,
+  ShieldAlert,
   Tag,
   X,
 } from "lucide-react";
@@ -155,6 +156,7 @@ export function TopBar({
   labelFilter,
   onLabelFilter,
   onCompose,
+  screener,
   search,
 }: {
   viewMode: ViewMode;
@@ -176,6 +178,8 @@ export function TopBar({
   onLabelFilter: (labelId: string | null) => void;
   /** Opens a new composer (#45; `c` is the same action's keyboard shortcut). */
   onCompose: () => void;
+  /** The Screener entry point (#56): hidden while there is nothing held, same "hidden until it has something to show" as the label picker above. */
+  screener: { count: number; onOpen: () => void };
   search: TopBarSearch;
 }) {
   return (
@@ -251,6 +255,15 @@ export function TopBar({
               ))}
             </select>
           </label>
+        </>
+      ) : null}
+
+      {screener.count > 0 ? (
+        <>
+          <div className="divider" />
+          <button type="button" className="toggle screener-entry" onClick={screener.onOpen}>
+            <ShieldAlert size={14} /> Screener ({screener.count})
+          </button>
         </>
       ) : null}
 

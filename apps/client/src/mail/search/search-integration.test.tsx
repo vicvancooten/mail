@@ -218,4 +218,41 @@ describe("search (#51)", () => {
     await waitFor(() => expect(screen.queryByText("Removed")).toBeNull());
     expect(screen.getAllByText("Remote result").length).toBeGreaterThan(0);
   });
+
+  it("badges Held and Blocked results (#56, poc-spec.md: 'search returns held and blocked mail badged')", async () => {
+    await seedOneThread();
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-held", "acct-1", { subject: "Held result" }),
+          matchedMessageId: "t-held-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: "held",
+        },
+        {
+          thread: makeThread("t-blocked", "acct-1", { subject: "Blocked result" }),
+          matchedMessageId: "t-blocked-msg",
+          headline: null,
+          folder: { id: "f2", name: "Trash", role: "trash" },
+          gatekeeper: "blocked",
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderMail();
+    await screen.findByText("Origin thread");
+
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    fireEvent.change(field, { target: { value: "result" } });
+
+    const heldRow = (await screen.findByText("Held result")).closest(".thread-row");
+    const blockedRow = (await screen.findByText("Blocked result")).closest(".thread-row");
+    expect(heldRow?.querySelector(".gatekeeper-badge-held")?.textContent).toBe("Held");
+    expect(blockedRow?.querySelector(".gatekeeper-badge-blocked")?.textContent).toBe("Blocked");
+  });
 });

@@ -49,6 +49,7 @@ export function ThreadRow({
   headline = null,
   folderPill = null,
   actionBadge = null,
+  gatekeeperBadge = null,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -63,6 +64,8 @@ export function ThreadRow({
   folderPill?: string | null;
   /** "The row stays in place, visibly changed" (search-ux-spec.md §Acting on a result) once a triage action has been taken on a result row that isn't in the Inbox any more. */
   actionBadge?: string | null;
+  /** Held/Blocked (#56, poc-spec.md: "search returns held and blocked mail badged") — search results only. */
+  gatekeeperBadge?: "held" | "blocked" | null;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -125,6 +128,11 @@ export function ThreadRow({
       </span>
       {folderPill ? <span className="folder-pill">{folderPill}</span> : null}
       {actionBadge ? <span className="action-badge">{actionBadge}</span> : null}
+      {gatekeeperBadge ? (
+        <span className={`gatekeeper-badge gatekeeper-badge-${gatekeeperBadge}`}>
+          {gatekeeperBadge === "held" ? "Held" : "Blocked"}
+        </span>
+      ) : null}
       {thread.pinned ? <Pin size={13} className="pin" fill="currentColor" /> : null}
       {thread.starred ? <Star size={13} className="star" fill="currentColor" /> : null}
       <span className="time">{formatRowTime(thread.lastMessageAt)}</span>

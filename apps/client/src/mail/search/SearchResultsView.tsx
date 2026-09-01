@@ -205,6 +205,7 @@ export function SearchResultsView({
           : null,
       actionBadge:
         state.actedOnThreadIds.has(thread.id) && overlaid && !overlaid.inInbox ? "Removed" : null,
+      gatekeeperBadge: display.gatekeeper,
     };
   };
 

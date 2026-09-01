@@ -1,10 +1,19 @@
-import type { Correspondent, Label, MailAccount, Preference, Thread } from "@mail/shared";
+import type {
+  Correspondent,
+  GatekeeperSender,
+  Label,
+  MailAccount,
+  Preference,
+  Thread,
+} from "@mail/shared";
 import {
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
   DEFAULT_THEME,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   labelId,
+  normalizeSenderAddress,
+  senderDomain,
 } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -195,6 +204,122 @@ export async function readCorrespondents(mailAccountId: string): Promise<Corresp
   return rows.sort((left, right) => right.score - left.score);
 }
 
+/**
+ * One row of the Screener (#56, poc-spec.md §Gatekeeper v1): "the Screener
+ * lists held *senders* ... one decision per stranger, not per message." Built
+ * entirely from the Local Cache's own `threads` table — every held Thread
+ * already carries `heldSender` (#55), so there is nothing here to fetch from
+ * the Sync Backend, and the grouping is reactive the same way every other
+ * Screen is.
+ */
+export interface ScreenerSenderGroup {
+  /** The normalized `From` address holding these Threads — what an Approve/Deny/Block decision targets. */
+  address: string;
+  /** The best display name across the held Threads, or `null` if none carried one. */
+  name: string | null;
+  threadIds: string[];
+  threadCount: number;
+  messageCount: number;
+  /** The most recently arrived held Thread's subject — the message peek's headline. */
+  subject: string;
+  /** The most recently arrived held Thread's Snippet — the message peek's body. */
+  snippet: string | null;
+  /**
+   * The earliest `lastMessageAt` among this sender's held Threads — the wire
+   * `Thread` carries no Screening-Hold timestamp of its own (`heldAt` is
+   * backend-only bookkeeping), so this is the Client's own proxy for "how
+   * long has this stranger been waiting", and what the Screener and the
+   * Inbox banner (#56) both order/gate on.
+   */
+  heldSince: string;
+}
+
+/** Whether `sender` (an Optimistic Action in flight) targets `heldAddress` — an exact match for `address` scope, a domain suffix match for `domain` scope (the overflow convenience, poc-spec.md). */
+function matchesGatekeeperSender(heldAddress: string, sender: GatekeeperSender): boolean {
+  const value = normalizeSenderAddress(sender.value);
+  return sender.scope === "address" ? heldAddress === value : senderDomain(heldAddress) === value;
+}
+
+/**
+ * Senders a Screener decision is already queued for (#56): `approveSender`/
+ * `denySender`/`blockSender` name no Thread (`mutation-queue.ts`'s own doc
+ * comment — "the Screener's own optimistic feel comes from the row leaving
+ * the Screener list"), so this is the overlay that makes a decision hide its
+ * row immediately, before the Sync Backend has answered.
+ */
+async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<GatekeeperSender[]> {
+  const pending = await db.pendingMutations.where("mailAccountId").equals(mailAccountId).toArray();
+  return pending.flatMap((mutation) =>
+    mutation.intent.type === "approveSender" ||
+    mutation.intent.type === "denySender" ||
+    mutation.intent.type === "blockSender"
+      ? [mutation.intent.sender]
+      : [],
+  );
+}
+
+export async function readScreenerSenders(mailAccountId: string): Promise<ScreenerSenderGroup[]> {
+  const db = localCache();
+  const held = await db.threads
+    .where("mailAccountId")
+    .equals(mailAccountId)
+    .filter((thread) => thread.heldSender !== null)
+    .toArray();
+  if (held.length === 0) return [];
+
+  const decided = await decidedSenders(db, mailAccountId);
+  const bySender = new Map<string, CachedThread[]>();
+  for (const thread of held) {
+    const address = thread.heldSender;
+    if (!address || decided.some((sender) => matchesGatekeeperSender(address, sender))) continue;
+    const bucket = bySender.get(address);
+    if (bucket) bucket.push(thread);
+    else bySender.set(address, [thread]);
+  }
+
+  const groups: ScreenerSenderGroup[] = [];
+  for (const [address, threads] of bySender) {
+    // Newest first, so the peek shows what this sender most recently said.
+    threads.sort((left, right) =>
+      (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+    );
+    const peek = threads[0];
+    if (!peek) continue;
+    const name =
+      threads
+        .flatMap((thread) => thread.participants)
+        .find((participant) => participant.address.toLowerCase() === address && participant.name)
+        ?.name ?? null;
+    const heldSince = threads.reduce(
+      (earliest, thread) =>
+        thread.lastMessageAt && thread.lastMessageAt < earliest ? thread.lastMessageAt : earliest,
+      peek.lastMessageAt ?? "",
+    );
+    groups.push({
+      address,
+      name,
+      threadIds: threads.map((thread) => thread.id),
+      threadCount: threads.length,
+      messageCount: threads.reduce((sum, thread) => sum + thread.messageCount, 0),
+      subject: peek.subject,
+      snippet: peek.snippet,
+      heldSince,
+    });
+  }
+
+  // Oldest hold first (poc-spec.md's Screener is a queue to work through, not a ranked list).
+  return groups.sort((left, right) => left.heldSince.localeCompare(right.heldSince));
+}
+
+export function useScreenerSenders(
+  mailAccountId: string | null,
+): ScreenerSenderGroup[] | undefined {
+  return useLiveQuery(
+    () => (mailAccountId === null ? Promise.resolve([]) : readScreenerSenders(mailAccountId)),
+    [mailAccountId],
+  );
+}
+
 export interface ThreadWindowPage {
   /** Newest first. */
   threads: CachedThread[];
@@ -247,8 +372,11 @@ export async function readThreadWindow(
   // the overlay so an archive/trash still queued hides its Thread at the
   // same instant as one the Sync Backend already confirmed — no flicker
   // between "optimistically hidden" and "actually gone" as the mutation
-  // dequeues.
-  const inInbox = overlaid.filter((thread) => thread.inInbox);
+  // dequeues. A Screening Hold (#56, ADR-0008) filters the same way: held
+  // mail keeps `inInbox: true` (it hasn't been archived or trashed, just not
+  // shown yet) so it must be excluded here explicitly — the Screener is
+  // where it renders instead.
+  const inInbox = overlaid.filter((thread) => thread.inInbox && !thread.heldSender);
   const filtered =
     view === "all" ? inInbox : inInbox.filter((t) => t.labelIds.includes(view.labelId));
 
