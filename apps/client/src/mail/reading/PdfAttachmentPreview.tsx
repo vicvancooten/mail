@@ -8,7 +8,10 @@ import { generateNonce } from "./nonce.js";
  * first page, in its own sandboxed iframe — never the browser's native PDF
  * viewer (`docs/research/0005` §7: pdf.js is Firefox's own viewer, past
  * [CVE-2024-4367](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq)
- * at the pinned version, with `isEvalSupported: false` set explicitly).
+ * at the pinned version, with `enableScripting: false` set explicitly — the
+ * option that actually disables a PDF's embedded JavaScript at this
+ * version; `isEvalSupported` was removed from pdf.js before the pinned
+ * `pdfjs-dist@6.3.289` and is not what CVE-2024-4367's fix relies on).
  *
  * The PDF's bytes are fetched *by the parent* (an authenticated same-origin
  * request, `api/messages.ts`) and handed in via `postMessage` with the
@@ -136,7 +139,7 @@ window.addEventListener("message", async (event) => {
   const data = event.data;
   if (!data || data.type !== "render-pdf") return;
   try {
-    const pdf = await pdfjsLib.getDocument({ data: data.bytes, isEvalSupported: false }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: data.bytes, enableScripting: false }).promise;
     const page = await pdf.getPage(1);
     const viewport = page.getViewport({ scale: 1.5 });
     const canvas = document.getElementById("page");
