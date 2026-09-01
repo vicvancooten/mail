@@ -1,5 +1,7 @@
 import type { Correspondent } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { RecipientField } from "./RecipientField.js";
@@ -86,6 +88,44 @@ describe("RecipientField", () => {
     fireEvent.click(await screen.findByText("Ann Chen <ann@example.com>"));
 
     expect(onChange).toHaveBeenCalledWith([{ name: "Ann Chen", address: "ann@example.com" }]);
+  });
+
+  it("selecting a suggestion by real mouse click never leaves a bogus extra chip from the raced blur", async () => {
+    // A real click moves focus off the input *before* the click fires
+    // (mousedown → blur → mouseup → click), racing the input's own
+    // `onBlur`-driven `commitDraft()` — which would otherwise chip whatever
+    // partial text is still in the input (`parseRecipients` accepts
+    // anything, no validity check) as a second, bogus recipient alongside
+    // the real one `selectSuggestion` commits. `userEvent`, unlike
+    // `fireEvent`, reproduces that real focus/blur sequence.
+    await localCache().correspondents.bulkPut([
+      correspondent({ address: "ann@example.com", name: "Ann Chen", score: 20 }),
+    ]);
+
+    function Controlled() {
+      const [recipients, setRecipients] = useState<{ name: string | null; address: string }[]>([]);
+      return (
+        <RecipientField
+          label="To"
+          mailAccountId={MAIL_ACCOUNT_ID}
+          recipients={recipients}
+          onChange={setRecipients}
+        />
+      );
+    }
+
+    const user = userEvent.setup();
+    const { container } = render(<Controlled />);
+
+    const input = screen.getByLabelText("To recipients");
+    await user.type(input, "ann");
+    const suggestion = await screen.findByText("Ann Chen <ann@example.com>");
+    await user.click(suggestion);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".recipient-chip")).toHaveLength(1);
+    });
+    expect(container.querySelector(".recipient-chip")?.textContent).toContain("Ann Chen");
   });
 
   it("Enter with a suggestion highlighted selects it instead of committing the raw draft", async () => {

@@ -111,6 +111,21 @@ describe("acceptSend", () => {
     expect((await row(id)).status).toBe("draft");
   });
 
+  it("rejects a Composition whose only recipients are syntactically invalid, not just an empty list", async () => {
+    // Non-empty, but garbage — e.g. a partial chip a client-side race left
+    // behind (#4). `recipientCount` alone would let this through; validity
+    // must be checked instead.
+    const id = await insertDraft({
+      toAddresses: [{ name: null, address: "jo" }],
+      ccAddresses: [{ name: null, address: "not-an-address" }],
+    });
+    expect(await acceptSend(db, account.id, id, 10)).toEqual({
+      status: "rejected",
+      reason: "no_recipients",
+    });
+    expect((await row(id)).status).toBe("draft");
+  });
+
   it("rejects a Composition that is not a Draft — a Pending Send is never re-armed in place", async () => {
     const id = await insertDraft({ status: "pending", submitAfter: new Date() });
     expect(await acceptSend(db, account.id, id, 10)).toEqual({

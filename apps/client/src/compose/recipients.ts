@@ -1,17 +1,20 @@
 import type { Correspondent, Recipient } from "@mail/shared";
-import { normalizeCorrespondentAddress } from "@mail/shared";
+import { isSyntacticallyValidAddress, normalizeCorrespondentAddress } from "@mail/shared";
 
 /**
  * Recipient field parsing (compose-spec §Recipients): "pasting into a
  * recipient field splits on comma / semicolon / newline and parses
  * `Name <addr>`, chipping each." Address validation is **syntactic only** —
  * no MX probe, no SMTP callout (compose-spec: "the send is the
- * verification and the bounce is the answer").
+ * verification and the bounce is the answer") — and lives in `@mail/shared`
+ * (`isSyntacticallyValidAddress`, re-exported below) so the Sync Backend's
+ * own send-time re-check can never disagree with this field about what
+ * counts as a recipient.
  */
 
 const NAME_ADDRESS = /^(.*)<([^<>]+)>$/;
-/** Deliberately loose — just "looks like an address", not an RFC 5322 parser. */
-const SYNTACTICALLY_VALID_ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export { isSyntacticallyValidAddress };
 
 export function parseRecipients(input: string): Recipient[] {
   return input
@@ -29,10 +32,6 @@ function parseOneRecipient(raw: string): Recipient {
     return { name: name.length > 0 ? name : null, address };
   }
   return { name: null, address: raw };
-}
-
-export function isSyntacticallyValidAddress(address: string): boolean {
-  return SYNTACTICALLY_VALID_ADDRESS.test(address);
 }
 
 /** How a chip renders: the display name if one is known, else the bare address. */

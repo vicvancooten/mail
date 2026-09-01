@@ -98,6 +98,22 @@ export const recipientSchema = z.object({
 });
 export type Recipient = z.infer<typeof recipientSchema>;
 
+/** Deliberately loose — just "looks like an address", not an RFC 5322 parser. */
+const SYNTACTICALLY_VALID_ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Syntactic-only recipient validity (compose-spec §Send-time validation: "no
+ * MX probe, no SMTP callout. The send is the verification and the bounce is
+ * the answer."). Shared between the Client's own composer checks
+ * (`apps/client/src/compose/recipients.ts` re-exports this) and the Sync
+ * Backend's send-time re-check (`apps/sync-backend/src/compose/pending-send.ts`),
+ * so the two can never disagree about what counts as a recipient worth
+ * sending to.
+ */
+export function isSyntacticallyValidAddress(address: string): boolean {
+  return SYNTACTICALLY_VALID_ADDRESS.test(address);
+}
+
 /**
  * One autosave of a Composition, as it rides `POST /sync` (ADR-0014). This
  * is deliberately **not** a `MutationIntent`: intents are additive and FIFO

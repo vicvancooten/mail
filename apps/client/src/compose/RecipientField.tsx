@@ -51,6 +51,14 @@ export function RecipientField({
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [remoteMatches, setRemoteMatches] = useState<Correspondent[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set on a suggestion's `onMouseDown` — which fires before this field's
+  // own `onBlur` — so the blur handler below can tell a suggestion click is
+  // in flight and skip `commitDraft()`'s partial-text chipping, letting
+  // `selectSuggestion` be the only thing that commits. Without this, a
+  // mouse-selected suggestion raced `onBlur`'s synchronous `commitDraft()`,
+  // which chips whatever partial text was still in the input (`parseRecipients`
+  // accepts anything) as a second, bogus recipient alongside the real one.
+  const suggestionClickPendingRef = useRef(false);
 
   const correspondents = useCorrespondents(mailAccountId);
 
@@ -205,7 +213,16 @@ export function RecipientField({
             onBlur={() => {
               // Deferred so a suggestion's own `onClick` still fires — a
               // plain blur would close the list before the click lands.
-              setTimeout(() => setSuggestionsOpen(false), 100);
+              // The pending-click flag is reset in the same deferred
+              // window, regardless of whether a click actually landed, so
+              // it can never get stuck (e.g. a mousedown followed by a
+              // drag-away that never fires `click`).
+              const suggestionClickPending = suggestionClickPendingRef.current;
+              setTimeout(() => {
+                setSuggestionsOpen(false);
+                suggestionClickPendingRef.current = false;
+              }, 100);
+              if (suggestionClickPending) return;
               commitDraft();
             }}
             aria-label={`${label} recipients`}
@@ -224,6 +241,9 @@ export function RecipientField({
                   aria-selected={index === highlighted}
                   className={index === highlighted ? "highlighted" : undefined}
                   onMouseEnter={() => setHighlighted(index)}
+                  onMouseDown={() => {
+                    suggestionClickPendingRef.current = true;
+                  }}
                   onClick={() => selectSuggestion(correspondent)}
                 >
                   {correspondentLabel(correspondent)}

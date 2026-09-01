@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isSyntacticallyValidAddress } from "@mail/shared";
 import { and, eq, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { type CompositionRow, compositions } from "../db/schema.js";
@@ -58,11 +59,14 @@ export type AcceptSendResult =
  * implementation, which is the whole reason ADR-0007 rejected a synchronous
  * bypass.
  *
- * A Composition with no recipient at all is rejected permanently rather than
- * queued (compose-spec §Send-time validation: "blocking — no syntactically
- * valid recipient"). The Client blocks this in the composer; this is the
- * backend's own re-check, and a rejection the Client shows rather than
- * retries.
+ * A Composition with no *syntactically valid* recipient is rejected
+ * permanently rather than queued (compose-spec §Send-time validation:
+ * "blocking — no syntactically valid recipient") — a non-empty recipient
+ * list of only garbage addresses (e.g. a partially-typed chip the composer
+ * let through) is exactly as unsendable as an empty one, so this checks
+ * validity, not just presence. The Client blocks this in the composer; this
+ * is the backend's own re-check, and a rejection the Client shows rather
+ * than retries.
  */
 export async function acceptSend(
   db: Db,
@@ -77,7 +81,7 @@ export async function acceptSend(
     .where(and(eq(compositions.id, compositionId), eq(compositions.mailAccountId, mailAccountId)))
     .limit(1);
   if (!row) return { status: "rejected", reason: "not_found" };
-  if (recipientCount(row) === 0) return { status: "rejected", reason: "no_recipients" };
+  if (!hasValidRecipient(row)) return { status: "rejected", reason: "no_recipients" };
 
   const submitAfter = new Date(now.getTime() + delaySeconds * 1000);
   const updated = await db
@@ -318,6 +322,20 @@ export async function releaseForReauth(db: Db, row: CompositionRow, now: Date = 
 
 export function recipientCount(row: CompositionRow): number {
   return row.toAddresses.length + row.ccAddresses.length + row.bccAddresses.length;
+}
+
+/**
+ * Whether a Composition has at least one *syntactically valid* recipient
+ * (compose-spec §Send-time validation) — `recipientCount` above only checks
+ * presence, which a Composition holding nothing but malformed addresses
+ * (e.g. a partial chip the composer's own race let through, #4) would still
+ * pass, sailing into `pending`/`submitting` only to fail later as an SMTP
+ * rejection instead of being caught here.
+ */
+export function hasValidRecipient(row: CompositionRow): boolean {
+  return [...row.toAddresses, ...row.ccAddresses, ...row.bccAddresses].some((recipient) =>
+    isSyntacticallyValidAddress(recipient.address),
+  );
 }
 
 /**
