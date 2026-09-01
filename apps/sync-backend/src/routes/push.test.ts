@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
+import { createSession } from "../auth/sessions.js";
 import type { Db } from "../db/client.js";
 import { folders, messages, threads, users } from "../db/schema.js";
 import { listPushSubscriptionsForUser } from "../notifier/subscriptions.js";
@@ -88,6 +89,19 @@ async function ownerUserId(): Promise<string> {
   const [owner] = await db.select({ id: users.id }).from(users).limit(1);
   if (!owner) throw new Error("expected an Owner to exist");
   return owner.id;
+}
+
+/** A second, unrelated User with a valid session cookie — for cross-User ownership checks. */
+async function createOtherUserWithCookie(): Promise<string> {
+  const userId = randomUUID();
+  await db.insert(users).values({
+    id: userId,
+    username: `other-${userId}`,
+    passwordHash: "not-a-real-hash",
+    role: "member",
+  });
+  const { token } = await createSession(db, userId);
+  return `mail_session=${token}`;
 }
 
 /** A Thread with one Inbox Message, plus the Archive folder `archive`/`trash`'s target-folder lookup needs to actually apply. */
@@ -206,6 +220,31 @@ describe("POST/DELETE /push/subscriptions", () => {
       payload: { endpoint },
     });
     expect(response.statusCode).toBe(204);
+  });
+
+  it("does not let a User delete another User's subscription", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const endpoint = "https://push.example.test/owned-by-owner";
+    await app.inject({
+      method: "POST",
+      url: "/push/subscriptions",
+      headers: { cookie },
+      payload: { endpoint, keys: { p256dh: "p256dh-value", auth: "auth-value" } },
+    });
+
+    const otherCookie = await createOtherUserWithCookie();
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/push/subscriptions",
+      headers: { cookie: otherCookie },
+      payload: { endpoint },
+    });
+    expect(response.statusCode).toBe(204);
+
+    const ownerId = await ownerUserId();
+    const subscriptions = await listPushSubscriptionsForUser(db, ownerId);
+    expect(subscriptions.map((row) => row.endpoint)).toEqual([endpoint]);
   });
 
   it("rejects an invalid endpoint", async () => {

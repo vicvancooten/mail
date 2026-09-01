@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { type PushSubscriptionRow, pushSubscriptions } from "../db/schema.js";
 
@@ -36,9 +36,20 @@ export async function upsertPushSubscription(
     });
 }
 
-/** The explicit "disable on this device" path (`DELETE /push/subscriptions`) — a no-op if the endpoint is already gone. */
-export async function deletePushSubscriptionByEndpoint(db: Db, endpoint: string): Promise<void> {
-  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+/**
+ * The explicit "disable on this device" path (`DELETE /push/subscriptions`) —
+ * a no-op if the endpoint is already gone, or if it belongs to a different
+ * User (scoped by `userId` so one User can never unsubscribe another's
+ * device by guessing/observing its endpoint).
+ */
+export async function deletePushSubscriptionByEndpoint(
+  db: Db,
+  userId: string,
+  endpoint: string,
+): Promise<void> {
+  await db
+    .delete(pushSubscriptions)
+    .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, userId)));
 }
 
 /** Every device subscribed for a User — "every subscribed device is pushed; you never know which one is in someone's hand" (ADR-0015). */

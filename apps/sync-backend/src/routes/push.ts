@@ -55,7 +55,7 @@ export async function pushRoutes(app: FastifyInstance, { db, vapidPublicKey }: P
     if (!body.success) {
       return reply.code(400).send({ error: "invalid_request", issues: body.error.issues });
     }
-    await deletePushSubscriptionByEndpoint(db, body.data.endpoint);
+    await deletePushSubscriptionByEndpoint(db, requireUser(request).id, body.data.endpoint);
     return reply.code(204).send();
   });
 
