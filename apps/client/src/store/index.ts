@@ -54,11 +54,13 @@ export {
   subscribeMutationRejections,
 } from "./mutation-queue.js";
 export {
+  readCorrespondents,
   readLabels,
   readMailAccounts,
   readThreadWindow,
   THREAD_PAGE_SIZE,
   type ThreadWindowPage,
+  useCorrespondents,
   useLabels,
   useMailAccounts,
   useThreadWindow,

@@ -126,6 +126,47 @@ export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
 export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 
 /**
+ * A Correspondent (#49, CONTEXT.md, compose-spec §Recipient autocomplete):
+ * an address the User has actually exchanged mail with on this Mail
+ * Account, never hand-edited. `score` is the ranking `sync/correspondents.ts`
+ * computed at its last write — sent-weight far above received-weight, with
+ * recency decay baked in — and is what the Client sorts its local top ~500
+ * by; it is a snapshot, not something a Client ever recomputes itself. Only
+ * the top ~500 by score for a Mail Account exist as rows at all
+ * (`sync/correspondents.ts#capCorrespondents`), which is what lets this ride
+ * the ordinary full-collection sync every Label does rather than needing its
+ * own top-K windowing protocol.
+ */
+export const correspondentSchema = z.object({
+  id: z.string(),
+  mailAccountId: z.string(),
+  address: z.string(),
+  /** The best-known display name, or null if this Correspondent has never been seen with one. */
+  name: z.string().nullable(),
+  sentCount: z.int(),
+  receivedCount: z.int(),
+  lastSeenAt: z.iso.datetime(),
+  score: z.number(),
+  updatedAt: z.iso.datetime(),
+});
+export type Correspondent = z.infer<typeof correspondentSchema>;
+
+export const correspondentDeltaSchema = collectionDeltaSchema(correspondentSchema);
+export type CorrespondentDelta = z.infer<typeof correspondentDeltaSchema>;
+
+/**
+ * `GET /correspondents/search`'s response (compose-spec: "queries the
+ * backend in parallel for the long tail") — the Client's synced top ~500 is
+ * `Correspondent` above; this is the plain fetch-through read over every
+ * Correspondent this Mail Account has ever had, for a query the local set
+ * misses.
+ */
+export const correspondentSearchResponseSchema = z.object({
+  correspondents: z.array(correspondentSchema),
+});
+export type CorrespondentSearchResponse = z.infer<typeof correspondentSearchResponseSchema>;
+
+/**
  * `Composition` (#46, ADR-0007): Drafts and Pending Sends, per Mail Account.
  * The collection exists so a Pending Send's countdown is "visible and
  * cancellable from every device the User has open" — see
@@ -239,6 +280,7 @@ export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
   Label: requestedTokenSchema.optional(),
   Composition: requestedTokenSchema.optional(),
+  Correspondent: requestedTokenSchema.optional(),
   /** This account's queue to flush, oldest first. Omitted (never `[]`) when there is nothing queued for it. */
   mutations: z.array(queuedMutationSchema).optional(),
   /**
@@ -279,6 +321,7 @@ export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
   Label: labelDeltaSchema.optional(),
   Composition: compositionDeltaSchema.optional(),
+  Correspondent: correspondentDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
   /** Outcomes in the same order as the request's `composeSaves` array. */

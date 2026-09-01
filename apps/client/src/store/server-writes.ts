@@ -1,4 +1,11 @@
-import type { CollectionDelta, Composition, Label, MailAccount, Thread } from "@mail/shared";
+import type {
+  CollectionDelta,
+  Composition,
+  Correspondent,
+  Label,
+  MailAccount,
+  Thread,
+} from "@mail/shared";
 import Dexie from "dexie";
 import {
   type CachedComposition,
@@ -47,6 +54,10 @@ export function compositionTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Composition`;
 }
 
+export function correspondentTokenKey(mailAccountId: string): string {
+  return `account:${mailAccountId}:Correspondent`;
+}
+
 export async function getSyncToken(key: string): Promise<string | null> {
   const row = await localCache().syncState.get(key);
   return row?.token ?? null;
@@ -79,6 +90,7 @@ export async function applyMailAccountDelta(
       db.mailAccounts,
       db.threads,
       db.labels,
+      db.correspondents,
       db.compositions,
       db.listWindows,
       db.cachePins,
@@ -169,6 +181,29 @@ export async function applyLabelDelta(
     if (upserts.length > 0) await db.labels.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.labels.bulkDelete(delta.destroyed);
     await db.syncState.put({ key: labelTokenKey(mailAccountId), token: delta.newState });
+  });
+}
+
+/**
+ * `Correspondent`, scoped to one Mail Account (#49, compose-spec §Recipient
+ * autocomplete). No windowing, the same as `Label`: the Sync Backend never
+ * hands this Client more than the top ~500 by score in the first place
+ * (`sync/correspondents.ts#capCorrespondents`), so "hold everything this
+ * collection sends" already *is* "hold the top ~500" — there is nothing left
+ * for the Client to trim.
+ */
+export async function applyCorrespondentDelta(
+  mailAccountId: string,
+  delta: CollectionDelta<Correspondent>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.correspondents, db.syncState], async () => {
+    if (replace) await db.correspondents.where("mailAccountId").equals(mailAccountId).delete();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.correspondents.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.correspondents.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: correspondentTokenKey(mailAccountId), token: delta.newState });
   });
 }
 
@@ -278,6 +313,7 @@ export async function pruneOrphanedMailAccountData(): Promise<void> {
       db.mailAccounts,
       db.threads,
       db.labels,
+      db.correspondents,
       db.compositions,
       db.listWindows,
       db.cachePins,
@@ -301,12 +337,14 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   await db.mailAccounts.bulkDelete(mailAccountIds);
   await db.threads.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.labels.where("mailAccountId").anyOf(mailAccountIds).delete();
+  await db.correspondents.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.compositions.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.listWindows.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.cachePins.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.syncState.bulkDelete([
     ...mailAccountIds.map(threadTokenKey),
     ...mailAccountIds.map(labelTokenKey),
+    ...mailAccountIds.map(correspondentTokenKey),
     ...mailAccountIds.map(compositionTokenKey),
   ]);
 }

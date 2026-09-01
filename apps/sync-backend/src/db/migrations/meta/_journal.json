@@ -99,6 +99,13 @@
       "when": 1788270662299,
       "tag": "0013_spooky_silvermane",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788273118498,
+      "tag": "0014_lame_grandmaster",
+      "breakpoints": true
     }
   ]
 }

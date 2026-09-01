@@ -5,6 +5,11 @@ import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, mailAccounts, messages } from "../db/schema.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { hasRealAttachments, readBodyParts } from "./body-structure.js";
+import {
+  activityForMessage,
+  capCorrespondents,
+  recordCorrespondentActivity,
+} from "./correspondents.js";
 import type { FolderRow } from "./folders.js";
 import { extractReferencesHeader, normalizeMessageId, threadingIdsFor } from "./message-ids.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -194,6 +199,13 @@ export async function fetchAndStoreSequenceBatch(
     batch.map((message) => message.threadId),
   );
 
+  // The Correspondent aggregate's prune (#49) runs once per batch rather
+  // than once per message — see `correspondents.ts#capCorrespondents`'s own
+  // doc comment for why that's cheap even so.
+  if (batch.some((message) => message.created)) {
+    await capCorrespondents(db, folder.mailAccountId);
+  }
+
   return batch;
 }
 
@@ -305,6 +317,26 @@ export async function storeMessage(
 
   if (!row) {
     throw new Error(`Upsert of message uid ${fetched.uid} in ${folder.path} returned no row`);
+  }
+
+  // Correspondent activity (#49) is recorded exactly once per message ever
+  // stored — see `correspondents.ts`'s own doc comment for why gating on
+  // `created` (never on the update branch, which only means a re-ingest
+  // refreshed flags/headers) is what makes this exactly-once with no ledger.
+  if (row.created) {
+    await recordCorrespondentActivity(
+      db,
+      folder.mailAccountId,
+      activityForMessage(folder.role, {
+        fromAddress: values.fromAddress
+          ? { name: values.fromName, address: values.fromAddress }
+          : null,
+        toAddresses: values.toAddresses,
+        ccAddresses: values.ccAddresses,
+        sentAt: values.sentAt,
+        receivedAt: values.receivedAt,
+      }),
+    );
   }
 
   return { id: row.id, threadId, uid: fetched.uid, receivedAt, created: row.created };

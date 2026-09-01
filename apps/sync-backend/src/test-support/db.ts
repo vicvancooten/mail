@@ -7,6 +7,7 @@ import {
   claimTokens,
   composeSaveLedger,
   compositions,
+  correspondents,
   folders,
   labels,
   loginChallenges,
@@ -65,6 +66,7 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(messages);
   await db.delete(threadMessageIds);
   await db.delete(syncTombstones);
+  await db.delete(correspondents);
   await db.delete(labels);
   await db.delete(threads);
   await db.delete(folders);

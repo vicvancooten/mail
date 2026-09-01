@@ -77,6 +77,7 @@
   gap: 6px;
   padding: 4px 12px;
   border-bottom: 1px solid var(--mail-border);
+  position: relative;
 }
 .recipient-field:last-child {
   border-bottom: none;
@@ -121,6 +122,7 @@
 .recipient-input {
   flex: 1;
   min-width: 80px;
+  position: relative;
 }
 .recipient-input input {
   border: none;
@@ -130,6 +132,37 @@
   font-size: 13px;
   width: 100%;
   padding: 4px 0;
+}
+
+.recipient-suggestions {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.recipient-suggestions button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--mail-text);
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.recipient-suggestions button.highlighted,
+.recipient-suggestions button:hover {
+  background: var(--mail-bg-selected);
 }
 
 .composer-subject {

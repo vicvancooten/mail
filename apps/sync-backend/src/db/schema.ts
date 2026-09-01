@@ -4,6 +4,7 @@ import {
   bigint,
   boolean,
   customType,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -468,6 +469,75 @@ export const labels = pgTable(
   ],
 );
 export type LabelRow = typeof labels.$inferSelect;
+
+/**
+ * A Correspondent (#49, CONTEXT.md, compose-spec §Recipient autocomplete):
+ * an address this Mail Account has actually exchanged mail with, derived
+ * from message history and never hand-edited. `id` is deterministic
+ * (`correspondentId` in `packages/shared/src/correspondents.ts`, scoped to
+ * `(mailAccountId, normalizedAddress)`) so re-ingesting the same address
+ * upserts one row rather than duplicating it.
+ *
+ * Built and maintained entirely by `sync/correspondents.ts`, hooked off
+ * `sync/ingest.ts#storeMessage`'s "genuinely new row" branch — see that
+ * module's own doc comment for why counting happens there and only there
+ * (it is the single point every message this account will ever hold passes
+ * through exactly once, backfill, delta and a just-sent message's own Sent
+ * `APPEND` alike, so there is nowhere else that could double- or
+ * under-count).
+ *
+ * `sentCount`/`receivedCount` are raw, monotonic counters; `score` is the
+ * ranking compose-spec asks for — sent-weight far above received-weight,
+ * with recency decay — evaluated against "now" at the moment of the write
+ * that produced it (`sync/correspondents.ts#computeScore`). It is therefore
+ * a snapshot that only moves when this Correspondent is mailed again, not a
+ * value that passively decays between messages; acceptable for a synced
+ * ranking snapshot, and the same tradeoff `threads.snippet` already makes
+ * ("derived once", CONTEXT.md) rather than recomputed on every read.
+ *
+ * Only the top ~500 rows by `score` per Mail Account are ever kept
+ * (`sync/correspondents.ts#capCorrespondents`) — compose-spec's "top ~500
+ * synced ... for a <50ms first keystroke" is therefore satisfied by simply
+ * syncing the *whole* collection, the same full-collection shape `labels`
+ * already has, rather than a second top-K sync protocol.
+ */
+export const correspondents = pgTable(
+  "correspondents",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    /** Lowercased, trimmed (`normalizeCorrespondentAddress`) — the natural key half of `id`. */
+    normalizedAddress: text("normalized_address").notNull(),
+    /** The address as best-cased/observed, for display and for the composed `To:` header. */
+    address: text("address").notNull(),
+    /** The best-known display name — the longest one ever seen, on the assumption a fuller name is a better one. */
+    name: text("name"),
+    sentCount: integer("sent_count").notNull().default(0),
+    receivedCount: integer("received_count").notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    score: doublePrecision("score").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `threads`/`labels` — see
+    // `mailAccounts.syncRev`'s doc comment.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("correspondents_account_address_key").on(
+      table.mailAccountId,
+      table.normalizedAddress,
+    ),
+    // `capCorrespondents`'s own query: the account's correspondents, worst
+    // score first, so trimming past the top ~500 is an indexed scan rather
+    // than a sort of the whole table.
+    index("correspondents_account_score_idx").on(table.mailAccountId, table.score),
+    index("correspondents_sync_rev_idx").on(table.mailAccountId, table.syncRev),
+  ],
+);
+export type CorrespondentRow = typeof correspondents.$inferSelect;
 
 /** One attachment as summarized from BODYSTRUCTURE at ingest; bytes are never stored (fetch-through). */
 export interface MessageAttachment {

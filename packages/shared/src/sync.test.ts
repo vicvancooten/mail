@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  correspondentSchema,
+  correspondentSearchResponseSchema,
   labelDeltaSchema,
   labelSchema,
   mailAccountDeltaSchema,
@@ -72,6 +74,44 @@ describe("labelSchema", () => {
   it("rejects a Label missing a name", () => {
     const { name, ...withoutName } = VALID_LABEL;
     expect(labelSchema.safeParse(withoutName).success).toBe(false);
+  });
+});
+
+const VALID_CORRESPONDENT = {
+  id: "account-1:ann@example.com",
+  mailAccountId: "account-1",
+  address: "ann@example.com",
+  name: "Ann",
+  sentCount: 3,
+  receivedCount: 1,
+  lastSeenAt: "2026-01-02T00:00:00.000Z",
+  score: 12.5,
+  updatedAt: "2026-01-02T00:00:00.000Z",
+};
+
+describe("correspondentSchema", () => {
+  it("accepts a well-formed Correspondent", () => {
+    expect(correspondentSchema.safeParse(VALID_CORRESPONDENT).success).toBe(true);
+  });
+
+  it("allows a null display name", () => {
+    expect(correspondentSchema.safeParse({ ...VALID_CORRESPONDENT, name: null }).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects a non-integer sentCount", () => {
+    const result = correspondentSchema.safeParse({ ...VALID_CORRESPONDENT, sentCount: 1.5 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("correspondentSearchResponseSchema", () => {
+  it("accepts a list of matches", () => {
+    const result = correspondentSearchResponseSchema.safeParse({
+      correspondents: [VALID_CORRESPONDENT],
+    });
+    expect(result.success).toBe(true);
   });
 });
 

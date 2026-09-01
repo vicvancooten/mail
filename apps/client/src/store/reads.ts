@@ -1,4 +1,4 @@
-import type { Label, MailAccount } from "@mail/shared";
+import type { Correspondent, Label, MailAccount } from "@mail/shared";
 import { labelId } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -53,6 +53,30 @@ export function useLabels(mailAccountId: string | null): Label[] | undefined {
 export async function readLabels(mailAccountId: string): Promise<Label[]> {
   const rows = await localCache().labels.where("mailAccountId").equals(mailAccountId).toArray();
   return rows.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * A Mail Account's synced top ~500 Correspondents (#49, compose-spec
+ * §Recipient autocomplete), score-descending — already the whole ranked set
+ * a recipient field needs, so the composer filters this in memory rather
+ * than querying Dexie again per keystroke. This is the entire mechanism
+ * behind "the first keystroke suggests from the Local Cache in <50ms": the
+ * set is loaded once (reactively) and every keystroke after that is a plain
+ * in-memory `Array#filter` over at most ~500 rows.
+ */
+export function useCorrespondents(mailAccountId: string | null): Correspondent[] | undefined {
+  return useLiveQuery(
+    () => (mailAccountId === null ? Promise.resolve([]) : readCorrespondents(mailAccountId)),
+    [mailAccountId],
+  );
+}
+
+export async function readCorrespondents(mailAccountId: string): Promise<Correspondent[]> {
+  const rows = await localCache()
+    .correspondents.where("mailAccountId")
+    .equals(mailAccountId)
+    .toArray();
+  return rows.sort((left, right) => right.score - left.score);
 }
 
 export interface ThreadWindowPage {

@@ -9,6 +9,7 @@ import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
+import { correspondentRoutes } from "./routes/correspondents.js";
 import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
@@ -93,6 +94,7 @@ export function buildApp({
     syncManager,
   });
   app.register(syncRoutes, { db });
+  app.register(correspondentRoutes, { db });
   app.register(sendSettingsRoutes, { db });
   app.register(messageRoutes, { db, mailCredentialKey });
   app.register(composeConfigRoutes, { attachmentBudgetBytes });

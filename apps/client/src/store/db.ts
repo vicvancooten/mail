@@ -2,6 +2,7 @@ import type {
   AttachmentMeta,
   ComposeDocument,
   CompositionStatus,
+  Correspondent,
   Label,
   MailAccount,
   MutationIntent,
@@ -29,7 +30,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 4; // #46: `compositions` gains a `status` index for the Pending Send queries
+export const CACHE_SCHEMA_VERSION = 5; // #49: a new `correspondents` table for the synced top ~500
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -240,6 +241,7 @@ export class LocalCache extends Dexie {
   mailAccounts!: EntityTable<MailAccount, "id">;
   threads!: EntityTable<CachedThread, "id">;
   labels!: EntityTable<Label, "id">;
+  correspondents!: EntityTable<Correspondent, "id">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
   syncState!: EntityTable<SyncStateRow, "key">;
@@ -258,6 +260,12 @@ export class LocalCache extends Dexie {
       mailAccounts: "id, createdAt",
       threads: "id, mailAccountId, [mailAccountId+sortKey]",
       labels: "id, mailAccountId",
+      // Sorted by score descending at read time (`reads.ts#readCorrespondents`)
+      // — the `[mailAccountId+score]` index is what makes that a fast
+      // reverse range scan rather than a table scan of a Mail Account's
+      // whole (bounded, ~500-row) top-500, which is the first-keystroke
+      // <50ms budget's real headroom.
+      correspondents: "id, mailAccountId, [mailAccountId+score]",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -284,6 +292,7 @@ const DATA_TABLES = [
   "mailAccounts",
   "threads",
   "labels",
+  "correspondents",
   "listWindows",
   "cachePins",
   "syncState",

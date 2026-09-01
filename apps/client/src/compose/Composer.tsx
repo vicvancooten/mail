@@ -340,7 +340,7 @@ export function Composer({
       </div>
 
       <div className="composer-recipients">
-        <RecipientField label="To" recipients={to} onChange={setTo} />
+        <RecipientField label="To" mailAccountId={mailAccountId} recipients={to} onChange={setTo} />
         {!showCcBcc && (
           <button type="button" className="composer-show-ccbcc" onClick={() => setShowCcBcc(true)}>
             Cc/Bcc
@@ -348,8 +348,18 @@ export function Composer({
         )}
         {showCcBcc && (
           <>
-            <RecipientField label="Cc" recipients={cc} onChange={setCc} />
-            <RecipientField label="Bcc" recipients={bcc} onChange={setBcc} />
+            <RecipientField
+              label="Cc"
+              mailAccountId={mailAccountId}
+              recipients={cc}
+              onChange={setCc}
+            />
+            <RecipientField
+              label="Bcc"
+              mailAccountId={mailAccountId}
+              recipients={bcc}
+              onChange={setBcc}
+            />
           </>
         )}
       </div>
