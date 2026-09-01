@@ -318,7 +318,15 @@ describe("POST /sync", () => {
         payload: { mailAccounts: { [accountId]: { Label: null } } },
       });
       expect(bootstrap.statusCode).toBe(200);
-      expect(bootstrap.json().mailAccounts).toEqual({});
+      // A bootstrap (#41) still carries a delta even with zero Labels: the
+      // Client needs a `newState` to persist for this collection, or it can
+      // never tell "bootstrapped, got nothing" from "haven't asked yet".
+      expect(bootstrap.json().mailAccounts[accountId].Label).toMatchObject({
+        created: [],
+        updated: [],
+        destroyed: [],
+        hasMore: false,
+      });
 
       const applied = await app.inject({
         method: "POST",

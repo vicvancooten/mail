@@ -54,9 +54,18 @@ type MergedItem<Row> =
 /**
  * Merges a page of changed rows with a page of tombstones — both already
  * ordered ascending by the shared `sync_rev` sequence — into one
- * `CollectionDelta`. `null` means "nothing changed for this token": the
- * caller omits the collection from the response entirely rather than
- * sending an empty-but-present result.
+ * `CollectionDelta`. `null` means "nothing changed since a token this Client
+ * has already persisted a `newState` for": the caller omits the collection
+ * from the response entirely rather than sending an empty-but-present
+ * result.
+ *
+ * A **bootstrap** (`token === null`) with zero rows is not that case, even
+ * though it also has `!needsReset && items.length === 0` — the Client has no
+ * prior `newState` for this collection yet (a User with no Mail Accounts, a
+ * fresh Mail Account with no Threads), so it must still receive a delta
+ * object carrying `newState` to persist, or it can never tell "I bootstrapped
+ * and got nothing" from "I haven't asked yet". `token` is threaded through
+ * only to draw that line; every other branch below is unchanged by it.
  *
  * Fetching `PAGE_SIZE + 1` from each side (both callers below) before this
  * runs is what makes the merge correct: the true globally-smallest
@@ -69,6 +78,8 @@ function buildDelta<Row extends SyncRevRow, Payload>(args: {
   tombstones: { entityId: string; syncRev: number }[];
   cursorRev: number;
   needsReset: boolean;
+  /** The Client-supplied token this round answers, `null` on a bootstrap. */
+  token: string | null;
   epoch?: number;
   toPayload: (row: Row) => Payload;
 }): CollectionDelta<Payload> | null {
@@ -83,7 +94,8 @@ function buildDelta<Row extends SyncRevRow, Payload>(args: {
     ),
   ].sort((left, right) => left.rev - right.rev);
 
-  if (!args.needsReset && items.length === 0) return null;
+  const isBootstrap = args.token === null;
+  if (!args.needsReset && !isBootstrap && items.length === 0) return null;
 
   const page = items.slice(0, PAGE_SIZE);
   const hasMore = items.length > PAGE_SIZE;
@@ -154,6 +166,7 @@ export async function syncMailAccountCollection(
     tombstones: tombstoneRows,
     cursorRev,
     needsReset,
+    token,
     toPayload: toWireMailAccount,
   });
 }
@@ -215,6 +228,7 @@ export async function syncPreferenceCollection(
     tombstones: tombstoneRows,
     cursorRev,
     needsReset,
+    token,
     toPayload: toWirePreference,
   });
 }
@@ -262,6 +276,7 @@ export async function syncThreadCollection(
     tombstones: tombstoneRows,
     cursorRev,
     needsReset,
+    token,
     epoch: currentEpoch,
     toPayload: toWireThread,
   });
@@ -309,6 +324,7 @@ export async function syncLabelCollection(
     tombstones: tombstoneRows,
     cursorRev,
     needsReset,
+    token,
     toPayload: toWireLabel,
   });
 }
@@ -355,6 +371,7 @@ export async function syncCorrespondentCollection(
     tombstones: tombstoneRows,
     cursorRev,
     needsReset,
+    token,
     toPayload: toWireCorrespondent,
   });
 }
@@ -405,6 +422,7 @@ export async function syncCompositionCollection(
     tombstones: tombstoneRows,
     cursorRev,
     needsReset,
+    token,
     toPayload: toWireComposition,
   });
 }
