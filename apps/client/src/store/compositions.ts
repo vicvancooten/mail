@@ -165,13 +165,19 @@ export async function toWireComposeSave(pending: PendingComposeSave): Promise<Co
  * overwrote it mid-flight, and *that* save is what gets sent next, never
  * this stale outcome's.
  *
- * A `conflict` additionally **re-queues** the Composition's current content
- * (freshly re-read, so it reflects anything typed since) against the
- * now-corrected version — ADR-0012's "the Client reports that the draft
- * changed on another device" is a real state (`subscribeComposeConflicts`
- * below), but at this ticket's scope, with no cross-device content pull yet,
- * the Client's own unsaved edit is never destroyed and is simply retried
- * rather than left to require a manual resolution nothing here can offer.
+ * A `conflict` does **not** re-queue the stale content it was rejected
+ * against: ADR-0012's "Silently overwriting typed text is the one failure
+ * worth code to prevent" ruled out an automatic retry, since a retry against
+ * the now-corrected version is *guaranteed* to succeed and would silently
+ * clobber whatever the other device wrote — the exact failure that line
+ * names. Instead this notifies `subscribeComposeConflicts` below with the
+ * corrected version, so the composer can show it and let the User choose:
+ * "Keep mine" is an explicit, User-initiated `saveComposition` against the
+ * now-correct version (ADR-0014's real "the draft changed on another
+ * device" state), and "Use theirs" leaves nothing queued, which is what lets
+ * the very next ordinary sync round's `applyCompositionDelta`
+ * (`server-writes.ts`) adopt the server's content — its own merge rule
+ * already takes the wire copy whenever no unflushed edit is queued.
  */
 export async function resolveComposeSaveOutcomes(
   mailAccountId: string,
@@ -191,32 +197,13 @@ export async function resolveComposeSaveOutcomes(
       const stillQueued = await db.pendingComposeSaves.get(outcome.id);
       if (!stillQueued || stillQueued.saveId !== outcome.saveId) return; // superseded mid-flight; leave it queued
       await db.pendingComposeSaves.delete(outcome.id);
-
-      if (outcome.status === "conflict") {
-        const composition = await db.compositions.get(outcome.id);
-        if (composition) {
-          await enqueueSave(
-            db,
-            outcome.id,
-            mailAccountId,
-            {
-              subject: composition.subject,
-              document: composition.document,
-              to: composition.to,
-              cc: composition.cc,
-              bcc: composition.bcc,
-              inReplyTo: composition.inReplyTo,
-              references: composition.references,
-            },
-            new Date().toISOString(),
-          );
-        }
-      }
     });
 
     if (outcome.status === "conflict") {
       const save = byId.get(outcome.id);
-      if (save) notifyConflict({ mailAccountId, compositionId: outcome.id });
+      if (save) {
+        notifyConflict({ mailAccountId, compositionId: outcome.id, version: outcome.version });
+      }
     }
   }
 }
@@ -272,11 +259,19 @@ function isNodeEmpty(node: ComposeNode): boolean {
 export interface ComposeSaveConflict {
   mailAccountId: string;
   compositionId: string;
+  /** The server's corrected version, already written to the local Composition row by the time this fires. */
+  version: number;
 }
 
 const conflictListeners = new Set<(conflict: ComposeSaveConflict) => void>();
 
-/** Seam for a future "this draft changed on another device" UI (ADR-0014). Nothing subscribes yet. */
+/**
+ * ADR-0014's "the draft changed on another device" state: `Composer.tsx`
+ * subscribes to show its "Keep mine / Use theirs" banner. `saveComposition`
+ * — called with the composer's live content when the User picks "Keep
+ * mine" — is the ordinary write path, nothing conflict-specific about it;
+ * this seam exists only to *raise* the conflict, not to resolve it.
+ */
 export function subscribeComposeConflicts(
   listener: (conflict: ComposeSaveConflict) => void,
 ): () => void {

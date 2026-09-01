@@ -1,16 +1,18 @@
 import type { ComposeDocument, MailAccount, Recipient } from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
-import type { JSONContent } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { AlertTriangle, Maximize2, Minimize2, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl } from "../api/attachments.js";
 import { clearOpenComposerId, writeOpenComposerId } from "../mail/device-preferences.js";
 import {
+  type CachedComposition,
   type ComposeContent,
   saveComposition,
   sendComposition,
+  subscribeComposeConflicts,
   useComposition,
 } from "../store/index.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
@@ -99,6 +101,18 @@ export function Composer({
     writeOpenComposerId(compositionId);
   }, [compositionId]);
 
+  /** Shared by the initial hydration below and the "Use theirs" conflict resolution further down — same six fields, same editor write. */
+  const hydrateFrom = useCallback((row: CachedComposition, targetEditor: Editor) => {
+    setSubject(row.subject);
+    setTo(row.to);
+    setCc(row.cc);
+    setBcc(row.bcc);
+    setInReplyTo(row.inReplyTo);
+    setReferences(row.references);
+    if (row.cc.length > 0 || row.bcc.length > 0) setShowCcBcc(true);
+    targetEditor.commands.setContent(row.document as JSONContent, { emitUpdate: false });
+  }, []);
+
   // Reopening an existing Composition (a reload picking `readOpenComposerId`
   // back up) hydrates every field once from its Local Cache row. A brand
   // new composer has no row yet — `existing` simply never resolves to one,
@@ -106,15 +120,37 @@ export function Composer({
   useEffect(() => {
     if (hydratedRef.current || !existing || !editor) return;
     hydratedRef.current = true;
-    setSubject(existing.subject);
-    setTo(existing.to);
-    setCc(existing.cc);
-    setBcc(existing.bcc);
-    setInReplyTo(existing.inReplyTo);
-    setReferences(existing.references);
-    if (existing.cc.length > 0 || existing.bcc.length > 0) setShowCcBcc(true);
-    editor.commands.setContent(existing.document as JSONContent, { emitUpdate: false });
-  }, [existing, editor]);
+    hydrateFrom(existing, editor);
+  }, [existing, editor, hydrateFrom]);
+
+  // The version-conflict banner (finding #1, ADR-0012/ADR-0014's "the draft
+  // changed on another device" state): `resolveComposeSaveOutcomes`
+  // (`store/compositions.ts`) already keeps this Client's own edit intact
+  // and never auto-retries it — this is only what *shows* the choice.
+  // Filtered to this composer's own `compositionId`; "one composer at a
+  // time" means that is always the only one open, but a stale listener from
+  // an already-closed composer must never fire into this one's state.
+  const [conflictVersion, setConflictVersion] = useState<number | null>(null);
+  // Non-null while "Use theirs" is waiting for the next sync round to bring
+  // the other device's content down — the value is the row's own
+  // `updatedAt` *before* that round, so the effect below can tell "still the
+  // stale local copy" apart from "the server's copy just landed" without
+  // guessing at timing.
+  const [waitingForTheirsSince, setWaitingForTheirsSince] = useState<string | null>(null);
+
+  useEffect(() => {
+    return subscribeComposeConflicts((conflict) => {
+      if (conflict.compositionId !== compositionId) return;
+      setConflictVersion(conflict.version);
+    });
+  }, [compositionId]);
+
+  useEffect(() => {
+    if (waitingForTheirsSince === null || !existing || !editor) return;
+    if (existing.updatedAt === waitingForTheirsSince) return; // the sync round hasn't landed yet
+    hydrateFrom(existing, editor);
+    setWaitingForTheirsSince(null);
+  }, [waitingForTheirsSince, existing, editor, hydrateFrom]);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -231,6 +267,12 @@ export function Composer({
     };
   }, [editor, scheduleAutosave]);
 
+  // True from the moment a conflict banner appears until the User's choice
+  // (or, for "Use theirs", until the server's content has actually landed) —
+  // the one window where `currentContent()` is not safe to write, since it
+  // may still be the stale copy the conflict was rejected for.
+  const hasUnresolvedConflict = conflictVersion !== null || waitingForTheirsSince !== null;
+
   const verdict = useMemo(() => {
     const base = validateSend({ to, cc, bcc, subject, bodyIsEmpty: editor?.isEmpty ?? true });
     // compose-spec: "send is disabled while an upload is in flight" — a
@@ -241,8 +283,11 @@ export function Composer({
     if (base.kind !== "blocked" && uploading) {
       return { kind: "blocked" as const, reason: "Uploading…" };
     }
+    if (base.kind !== "blocked" && hasUnresolvedConflict) {
+      return { kind: "blocked" as const, reason: "Resolve the conflict above before sending" };
+    }
     return base;
-  }, [to, cc, bcc, subject, editor?.isEmpty, uploading]);
+  }, [to, cc, bcc, subject, editor?.isEmpty, uploading, hasUnresolvedConflict]);
 
   /**
    * Send: one final content write, one `sendComposition` intent, and the
@@ -275,11 +320,47 @@ export function Composer({
     }
     // The final, un-debounced write: `Esc` never discards, so whatever was
     // typed in the last `AUTOSAVE_DEBOUNCE_MS` must not be lost to the
-    // unmount racing the pending timer.
-    void saveComposition(compositionId, mailAccountId, currentContent());
+    // unmount racing the pending timer. Skipped while a conflict is
+    // unresolved — `currentContent()` may still be the very copy the
+    // conflict was rejected for, and Esc must not become a silent third way
+    // to pick a side.
+    if (!hasUnresolvedConflict) {
+      void saveComposition(compositionId, mailAccountId, currentContent());
+    }
     clearOpenComposerId();
     onClose();
-  }, [compositionId, mailAccountId, currentContent, onClose]);
+  }, [compositionId, mailAccountId, currentContent, onClose, hasUnresolvedConflict]);
+
+  /** "Keep mine" (finding #1): an explicit, User-chosen re-save against the now-corrected version. */
+  const keepMine = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    void saveComposition(compositionId, mailAccountId, currentContent());
+    setConflictVersion(null);
+  }, [compositionId, mailAccountId, currentContent]);
+
+  /**
+   * "Use theirs" (finding #1): discards nothing directly — there is no
+   * server copy to fetch here, since a save outcome carries only the
+   * corrected `version` (`store/compositions.ts#ComposeSaveOutcome`). What
+   * it does instead is get out of the way: cancel the pending debounce so
+   * this Client's stale content is never written again, then ask for a sync
+   * round now. `store/server-writes.ts#mergeComposition`'s own merge rule
+   * already adopts the wire copy the moment no unflushed edit is queued —
+   * true the instant this runs — so the round that comes back is what the
+   * effect above (`waitingForTheirsSince`) is watching for.
+   */
+  const useTheirs = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    setConflictVersion(null);
+    setWaitingForTheirsSince(existing?.updatedAt ?? null);
+    requestSyncNow();
+  }, [existing?.updatedAt]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -338,6 +419,21 @@ export function Composer({
           </button>
         </div>
       </div>
+
+      {conflictVersion !== null && (
+        <div className="composer-conflict-banner" role="alert">
+          <AlertTriangle size={14} />
+          <span>This draft changed on another device.</span>
+          <div className="composer-conflict-actions">
+            <button type="button" onClick={keepMine}>
+              Keep mine
+            </button>
+            <button type="button" onClick={useTheirs}>
+              Use theirs
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="composer-recipients">
         <RecipientField label="To" mailAccountId={mailAccountId} recipients={to} onChange={setTo} />

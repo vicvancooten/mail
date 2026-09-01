@@ -382,6 +382,45 @@
 }
 
 /*
+ * The version-conflict banner (finding #1, ADR-0012/ADR-0014): a minimal
+ * "the User picks a side" prompt, not a diff view — two buttons, no more.
+ */
+.composer-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: light-dark(#fff8e6, #332a12);
+  color: var(--mail-text);
+  font-size: 13px;
+  border-bottom: 1px solid var(--mail-border);
+}
+
+.composer-conflict-banner span {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-conflict-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.composer-conflict-actions button {
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--mail-text);
+}
+.composer-conflict-actions button:hover {
+  background: var(--mail-bg-hover);
+}
+
+/*
  * The persistent send-failure banner (compose-spec): not dismissible, and it
  * shows the SMTP rejection verbatim in a monospace run so `550 5.7.1 relay
  * denied` is readable as the server's own words.

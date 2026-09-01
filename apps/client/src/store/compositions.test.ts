@@ -203,7 +203,7 @@ describe("resolveComposeSaveOutcomes", () => {
     expect(queued[0]?.subject).toBe("v2");
   });
 
-  it("on conflict, keeps the local edit and re-queues it against the corrected version — never a silent overwrite", async () => {
+  it("on conflict, keeps the local edit, notifies with the corrected version, and never auto-retries", async () => {
     const save = await flushOnce("my unsaved edit");
 
     const seen: unknown[] = [];
@@ -215,16 +215,17 @@ describe("resolveComposeSaveOutcomes", () => {
     );
     unsubscribe();
 
-    expect(seen).toEqual([{ mailAccountId: ACCOUNT, compositionId: "comp-1" }]);
+    expect(seen).toEqual([{ mailAccountId: ACCOUNT, compositionId: "comp-1", version: 5 }]);
 
     const row = await localCache().compositions.get("comp-1");
     expect(row?.subject).toBe("my unsaved edit"); // never destroyed
     expect(row?.version).toBe(5); // the corrected version this Client now knows
 
-    const requeued = await listQueuedComposeSaves(ACCOUNT);
-    expect(requeued).toHaveLength(1);
-    expect(requeued[0]?.subject).toBe("my unsaved edit");
-    expect((await toWireComposeSave(defined(requeued[0]))).version).toBe(5);
+    // No automatic retry: a guaranteed-to-succeed re-save against the
+    // corrected version would silently clobber the other device's write —
+    // the one failure ADR-0012 says is worth code to prevent. Nothing is
+    // queued until the User explicitly picks "Keep mine" or "Use theirs".
+    expect(await listQueuedComposeSaves(ACCOUNT)).toEqual([]);
   });
 
   it("does not bump the local version on a rejected outcome", async () => {

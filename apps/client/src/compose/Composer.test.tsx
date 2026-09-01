@@ -2,7 +2,12 @@ import type { AttachmentMeta, MailAccount } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { saveComposition } from "../store/compositions.js";
+import {
+  listQueuedComposeSaves,
+  resolveComposeSaveOutcomes,
+  saveComposition,
+  toWireComposeSave,
+} from "../store/compositions.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations } from "../store/mutation-queue.js";
 import { Composer } from "./Composer.js";
@@ -178,6 +183,115 @@ describe("Composer", () => {
       expect((screen.getByRole("button", { name: /send/i }) as HTMLButtonElement).disabled).toBe(
         false,
       );
+    });
+  });
+
+  /**
+   * The version-conflict banner (finding #1, ADR-0012/ADR-0014): a rejected
+   * save must never auto-retry with stale content, and the composer is what
+   * turns `subscribeComposeConflicts` into a real choice. `resolveComposeSaveOutcomes`
+   * itself is `compositions.test.ts`'s; this is only the UI wiring.
+   */
+  describe("version conflict", () => {
+    async function typeAndConflict(subject: string, version: number) {
+      const toInput = screen.getByLabelText("To recipients");
+      fireEvent.change(toInput, { target: { value: "ada@example.test" } });
+      fireEvent.keyDown(toInput, { key: "Enter" });
+      fireEvent.change(screen.getByPlaceholderText("Subject"), { target: { value: subject } });
+      await waitFor(async () => {
+        expect((await localCache().compositions.get("comp-1"))?.subject).toBe(subject);
+      });
+
+      const [queued] = await listQueuedComposeSaves("acct-1");
+      if (!queued) throw new Error("expected a queued save");
+      const save = await toWireComposeSave(queued);
+      await resolveComposeSaveOutcomes(
+        "acct-1",
+        [save],
+        [{ id: save.id, saveId: save.saveId, status: "conflict", version }],
+      );
+      await screen.findByText("This draft changed on another device.");
+    }
+
+    it("shows the banner on a rejected save and blocks Send until resolved", async () => {
+      render(
+        <Composer
+          compositionId="comp-1"
+          mailAccounts={[ACCOUNT]}
+          defaultMailAccountId="acct-1"
+          onClose={vi.fn()}
+        />,
+      );
+
+      await typeAndConflict("my unsaved edit", 5);
+
+      const sendButton = screen.getByRole("button", { name: /Send/ }) as HTMLButtonElement;
+      expect(sendButton.disabled).toBe(true);
+      expect(sendButton.title).toBe("Resolve the conflict above before sending");
+    });
+
+    it("'Keep mine' saves the local edit against the corrected version and dismisses the banner", async () => {
+      render(
+        <Composer
+          compositionId="comp-1"
+          mailAccounts={[ACCOUNT]}
+          defaultMailAccountId="acct-1"
+          onClose={vi.fn()}
+        />,
+      );
+
+      await typeAndConflict("my unsaved edit", 5);
+      fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+
+      expect(screen.queryByText("This draft changed on another device.")).toBeNull();
+      await waitFor(async () => {
+        const [requeued] = await listQueuedComposeSaves("acct-1");
+        if (!requeued) throw new Error("expected the explicit re-save to be queued");
+        expect(requeued.subject).toBe("my unsaved edit");
+        expect((await toWireComposeSave(requeued)).version).toBe(5);
+      });
+    });
+
+    it("'Use theirs' stops writing the local edit and adopts the server's content once it lands", async () => {
+      render(
+        <Composer
+          compositionId="comp-1"
+          mailAccounts={[ACCOUNT]}
+          defaultMailAccountId="acct-1"
+          onClose={vi.fn()}
+        />,
+      );
+
+      await typeAndConflict("my unsaved edit", 5);
+      fireEvent.click(screen.getByRole("button", { name: "Use theirs" }));
+
+      expect(screen.queryByText("This draft changed on another device.")).toBeNull();
+      // Nothing is re-queued behind "Use theirs" — the point is to stop
+      // writing the stale content, not to write it differently.
+      expect(await listQueuedComposeSaves("acct-1")).toEqual([]);
+      // The composer's own subject field still shows the local edit — no
+      // server content has actually arrived yet.
+      expect((screen.getByPlaceholderText("Subject") as HTMLInputElement).value).toBe(
+        "my unsaved edit",
+      );
+
+      // Simulates the next ordinary sync round landing the other device's
+      // content (`server-writes.ts#mergeComposition` adopts the wire copy
+      // once no unflushed edit is queued, which is already true here) — a
+      // fresh `updatedAt` is what the composer's own effect watches for.
+      const row = await localCache().compositions.get("comp-1");
+      if (!row) throw new Error("expected the row to still exist");
+      await localCache().compositions.put({
+        ...row,
+        subject: "their subject",
+        updatedAt: "2099-01-01T00:00:00.000Z",
+      });
+
+      await waitFor(() => {
+        expect((screen.getByPlaceholderText("Subject") as HTMLInputElement).value).toBe(
+          "their subject",
+        );
+      });
     });
   });
 

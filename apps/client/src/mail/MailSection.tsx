@@ -113,12 +113,30 @@ export function MailSection() {
   // across a reload reopens itself rather than the offline-durable draft
   // sitting unreachable in the Local Cache.
   const [composeId, setComposeId] = useState<string | null>(readOpenComposerId);
-  const openCompose = useCallback(() => setComposeId(newCompositionId()), []);
+  // "One composer at a time" (compose-spec §Composer surface & keys) is
+  // enforced right here, not just at the keyboard shortcut: every path that
+  // wants to point `composeId` at a (possibly different) Composition — the
+  // Compose button's mouse click included — goes through this no-op-while-
+  // open guard, so swapping `composeId` can never unmount a live `Composer`
+  // out from under unsaved typing (a `key={composeId}` change unmounts it
+  // with no synchronous flush of whatever's still sitting in the debounce).
+  // `useComposeShortcut`'s own `disabled` guard below is now redundant with
+  // this, but harmless — it just means `c` never re-mints an id it would
+  // throw away.
+  const openComposer = useCallback((id: string) => {
+    setComposeId((current) => current ?? id);
+  }, []);
+  const openCompose = useCallback(() => openComposer(newCompositionId()), [openComposer]);
   const closeCompose = useCallback(() => setComposeId(null), []);
   // Reopening an *existing* Composition: a cancelled send (ADR-0007 reopens
   // the composer on whichever device cancelled) and the "Open draft" button
-  // on a failed send both land here.
-  const reopenCompose = useCallback((compositionId: string) => setComposeId(compositionId), []);
+  // on a failed send both land here — and both share the same guard above,
+  // since swapping away from an *open* composer to reopen a different one is
+  // exactly the same drops-unsaved-typing hazard the Compose button has.
+  const reopenCompose = useCallback(
+    (compositionId: string) => openComposer(compositionId),
+    [openComposer],
+  );
   useComposeShortcut(openCompose, composeId !== null);
 
   // Reply/reply-all/forward (#47): seeds a freshly-minted Composition

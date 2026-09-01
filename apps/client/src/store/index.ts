@@ -22,6 +22,7 @@ export {
 } from "./cache-pins.js";
 export {
   type ComposeContent,
+  type ComposeSaveConflict,
   EMPTY_COMPOSE_CONTENT,
   newCompositionId,
   recordAttachmentRemoved,
@@ -29,6 +30,7 @@ export {
   requestCancelSend,
   saveComposition,
   sendComposition,
+  subscribeComposeConflicts,
   undoSecondsRemaining,
   useComposition,
   useFailedSends,

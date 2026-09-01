@@ -22,6 +22,16 @@ import {
 import { jsonResponse } from "../test-support/mock-fetch.js";
 import { MailSection } from "./MailSection.js";
 
+/** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
+vi.mock("../api/attachments.js", () => ({
+  fetchComposeConfig: vi.fn(async () => ({ attachmentBudgetEncodedBytes: 25 * 1024 * 1024 })),
+  uploadAttachment: vi.fn(() => new Promise(() => {})),
+  deleteAttachment: vi.fn(async () => {}),
+  attachmentUrl: (compositionId: string, attachmentId: string) =>
+    `/compositions/${compositionId}/attachments/${attachmentId}`,
+  AttachmentBudgetExceededError: class AttachmentBudgetExceededError extends Error {},
+}));
+
 /**
  * The read path end to end: the Local Cache is what the UI renders from, and
  * `POST /sync` only fills it (ADR-0010). Nothing here should ever wait on the
@@ -475,5 +485,30 @@ describe("MailSection", () => {
     await waitFor(() =>
       expect(within(reopenedDetail).queryByText("Work", { selector: ".label-chip" })).toBeNull(),
     );
+  });
+
+  /**
+   * "One composer at a time" (compose-spec §Composer surface & keys): a
+   * second Compose click while a composer is already open must not swap
+   * `composeId` out from under it — that would unmount the live `Composer`
+   * with no synchronous flush of whatever's still sitting in its autosave
+   * debounce.
+   */
+  it("does not drop unsaved typing when Compose is clicked again while a composer is already open", async () => {
+    await seedCachedMail();
+    stubFetch(never);
+    renderMail();
+
+    const composeButton = await screen.findByTitle("Compose (c)");
+    fireEvent.click(composeButton);
+
+    const subject = await screen.findByPlaceholderText("Subject");
+    fireEvent.change(subject, { target: { value: "Do not lose this" } });
+
+    fireEvent.click(composeButton);
+
+    const stillOpen = await screen.findByPlaceholderText("Subject");
+    expect(stillOpen).toBe(subject); // the same input — the composer was never unmounted
+    expect((stillOpen as HTMLInputElement).value).toBe("Do not lose this");
   });
 });
