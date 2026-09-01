@@ -1,5 +1,5 @@
 import type { SyncResponse } from "@mail/shared";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
@@ -51,6 +51,10 @@ beforeEach(async () => {
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  // View mode / Stream mode / last account are Device Preferences stored in
+  // `localStorage` (device-preferences.ts) — never leak one test's choice
+  // into the next.
+  localStorage.clear();
 });
 
 afterEach(async () => {
@@ -70,7 +74,7 @@ async function seedCachedMail(): Promise<void> {
 }
 
 function renderMail() {
-  render(
+  return render(
     <AuthProvider>
       <MailSection />
     </AuthProvider>,
@@ -139,5 +143,100 @@ describe("MailSection", () => {
     renderMail();
 
     expect(await screen.findByText("Older mail needs a connection.")).toBeDefined();
+  });
+
+  it("opens a Thread into the reading pane straight from the cache, no network wait", async () => {
+    await seedCachedMail();
+    stubFetch(never);
+
+    renderMail();
+
+    const row = await screen.findByText("Last state");
+    fireEvent.click(row);
+
+    // The detail pane's own copy of the Thread (the Snippet, since #41
+    // owns the real body) appears instantly — `stubFetch(never)` means
+    // nothing here can have come from a network round trip. Scoped to
+    // `.thread-detail` because the row itself also shows the Snippet.
+    const detail = await screen.findByText("Last state", { selector: ".thread-detail-card h1" });
+    expect(detail.closest(".thread-detail")?.textContent).toContain("Snippet t1");
+  });
+
+  it("switches between Split and List view, and remembers the choice across a remount", async () => {
+    await seedCachedMail();
+    stubFetch(never);
+
+    const { unmount } = renderMail();
+    expect(await screen.findByText("Last state")).toBeDefined();
+
+    // Split view: list and reading pane both present at once.
+    expect(document.querySelector(".split-view")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    expect(document.querySelector(".split-view")).toBeNull();
+
+    // List view: opening a Thread swaps the list for a full-screen detail,
+    // with a way back rather than sitting beside it.
+    fireEvent.click(screen.getByText("Last state"));
+    expect(await screen.findByText("Back to list")).toBeDefined();
+    fireEvent.click(screen.getByText("Back to list"));
+    expect(await screen.findByText("Last state")).toBeDefined();
+
+    unmount();
+    cleanup();
+    renderMail();
+
+    await screen.findByText("Last state");
+    expect(document.querySelector(".split-view")).toBeNull();
+  });
+
+  it("Stream mode replaces whichever of Split/List is showing, independent of that choice", async () => {
+    await seedCachedMail();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Last state");
+
+    fireEvent.click(screen.getByRole("button", { name: /Stream mode/ }));
+
+    // No list at all in Stream mode — straight to the one-thread card.
+    expect(document.querySelector(".split-view")).toBeNull();
+    expect(document.querySelector(".stream-view")).not.toBeNull();
+    expect(await screen.findByText("Snippet t1")).toBeDefined();
+  });
+
+  it("switching accounts switches inboxes", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Account two thread" })] }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+
+    expect(await screen.findByText("Account one thread")).toBeDefined();
+    expect(screen.queryByText("Account two thread")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Mail account"), {
+      target: { value: "acct-2" },
+    });
+
+    expect(await screen.findByText("Account two thread")).toBeDefined();
+    expect(screen.queryByText("Account one thread")).toBeNull();
   });
 });

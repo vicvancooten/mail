@@ -6,9 +6,8 @@ import { useAuth } from "./AuthContext.js";
 import { AuthMethodsSection } from "./AuthMethodsSection.js";
 
 /**
- * The authenticated shell. Real triage UI lands on top of this per the
- * `prototype/triage-loop-ui` branch (#40); for now it's the logged-in
- * placeholder that proves the session round-trip end to end.
+ * The authenticated shell: session controls plus the real triage UI
+ * (`MailSection`, #40) and the account/auth settings sections below it.
  */
 export function AppShell({ user }: { user: User }) {
   const { logout } = useAuth();

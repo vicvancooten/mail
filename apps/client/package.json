@@ -13,8 +13,10 @@
   "dependencies": {
     "@mail/shared": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
+    "@tanstack/react-virtual": "^3.14.10",
     "dexie": "^4.4.5",
     "dexie-react-hooks": "^4.4.0",
+    "lucide-react": "^1.38.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

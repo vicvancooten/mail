@@ -21,6 +21,6 @@ export default defineConfig({
     globals: false,
     // jsdom has no IndexedDB; the Local Cache's suites need one before any
     // module-level Dexie handle is constructed.
-    setupFiles: ["./src/test-support/indexeddb.ts"],
+    setupFiles: ["./src/test-support/indexeddb.ts", "./src/test-support/virtualization.ts"],
   },
 });
