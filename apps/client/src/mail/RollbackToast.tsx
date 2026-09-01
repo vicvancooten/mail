@@ -19,7 +19,7 @@ import { subscribeMutationRejections } from "../store/index.js";
 
 const DEFAULT_AUTO_DISMISS_MS = 5_000;
 
-function describeIntent(intent: MutationIntent): string {
+function describeIntent(intent: MutationIntent): string | null {
   switch (intent.type) {
     case "archive":
       return "Couldn't archive — restored to the list.";
@@ -35,6 +35,13 @@ function describeIntent(intent: MutationIntent): string {
       return `Couldn't apply "${intent.name}" — undone.`;
     case "removeLabel":
       return `Couldn't remove "${intent.name}" — undone.`;
+    // The Composition intents (#46) have their own, better-placed surfaces —
+    // the Undo Send bar says "too late to undo", the send-failure banner
+    // carries the SMTP rejection verbatim — and both outlive a 5s toast on
+    // purpose. Nothing to say here.
+    case "sendComposition":
+    case "cancelSend":
+      return null;
   }
 }
 
@@ -48,7 +55,10 @@ export function RollbackToast({
 
   useEffect(() => {
     return subscribeMutationRejections((rejection) => {
-      setMessage(describeIntent(rejection.intent));
+      // An intent with nothing to say here (the Composition ones) must not
+      // clear a toast a real rollback is still showing.
+      const described = describeIntent(rejection.intent);
+      if (described) setMessage(described);
     });
   }, []);
 

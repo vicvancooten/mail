@@ -1,20 +1,20 @@
-import type { CollectionDelta, Label, MailAccount, Thread } from "@mail/shared";
+import type { CollectionDelta, Composition, Label, MailAccount, Thread } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { labels, mailAccounts, syncTombstones, threads } from "../db/schema.js";
+import { compositions, labels, mailAccounts, syncTombstones, threads } from "../db/schema.js";
 import { toWireMailAccount } from "../mail-accounts/store.js";
 import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
-import { toWireLabel, toWireThread } from "./thread-projection.js";
+import { toWireComposition, toWireLabel, toWireThread } from "./thread-projection.js";
 
 /**
  * Computes one collection's answer for `POST /sync` (#37, ADR-0011): the
  * page of upserts/destroys since a state token, bucketed into
  * `created`/`updated`/`destroyed`, plus the next token to resume from.
  *
- * `syncMailAccountCollection` (User-scoped) and `syncThreadCollection` (per
- * Mail Account) are today's two collections; each is a thin query dressed
- * around the shared `buildDelta` merge below, so a future Label/Preference
- * collection is the same shape again, not a new mechanism.
+ * `syncMailAccountCollection` is User-scoped; `Thread`, `Label` and
+ * `Composition` are per Mail Account. Each is a thin query dressed around the
+ * shared `buildDelta` merge below, so a future `Preference` collection is the
+ * same shape again, not a new mechanism.
  */
 
 /** Entity cap per response (ADR-0011): generous enough an ordinary 30s poll never pages, bounded enough a first bootstrap can't return an 80k-thread account in one round trip. */
@@ -227,5 +227,55 @@ export async function syncLabelCollection(
     cursorRev,
     needsReset,
     toPayload: toWireLabel,
+  });
+}
+
+/**
+ * `Composition`, scoped to one Mail Account (#46, ADR-0011). This is what
+ * makes a Pending Send "visible and cancellable from every device the User
+ * has open" (ADR-0007) — without it the countdown would be a fact only the
+ * sending tab knew.
+ *
+ * Unlike `Thread`, there is no rebuild-epoch and no bounded window: a User
+ * has a handful of Drafts, not eighty thousand, so every one of them is
+ * always in every Client. Tombstones are real here rather than defensive —
+ * `compose/pending-send.ts#pruneSentCompositions` writes one for every
+ * Composition it retires after a successful send.
+ */
+export async function syncCompositionCollection(
+  db: Db,
+  mailAccountId: string,
+  token: string | null,
+): Promise<CollectionDelta<Composition> | null> {
+  const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+  const rows = await db
+    .select()
+    .from(compositions)
+    .where(and(eq(compositions.mailAccountId, mailAccountId), gt(compositions.syncRev, cursorRev)))
+    .orderBy(asc(compositions.syncRev))
+    .limit(PAGE_SIZE + 1);
+
+  const tombstoneRows = needsReset
+    ? []
+    : await db
+        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+        .from(syncTombstones)
+        .where(
+          and(
+            eq(syncTombstones.mailAccountId, mailAccountId),
+            eq(syncTombstones.collection, "Composition"),
+            gt(syncTombstones.syncRev, cursorRev),
+          ),
+        )
+        .orderBy(asc(syncTombstones.syncRev))
+        .limit(PAGE_SIZE + 1);
+
+  return buildDelta({
+    rows,
+    tombstones: tombstoneRows,
+    cursorRev,
+    needsReset,
+    toPayload: toWireComposition,
   });
 }

@@ -8,14 +8,17 @@ import type {
 import {
   listQueuedComposeSaves,
   resolveComposeSaveOutcomes,
+  resolveSendOutcomes,
   toWireComposeSave,
 } from "../store/compositions.js";
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
+  applyCompositionDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
+  compositionTokenKey,
   getSyncToken,
   labelTokenKey,
   listCachedMailAccountIds,
@@ -116,6 +119,19 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
           replace: startsReplay(replaysStarted, labelTokenKey(mailAccountId), labelDelta.reset),
         });
       }
+
+      const compositionDelta = collections.Composition;
+      if (compositionDelta) {
+        changed = true;
+        hasMore ||= compositionDelta.hasMore;
+        await applyCompositionDelta(mailAccountId, compositionDelta, {
+          replace: startsReplay(
+            replaysStarted,
+            compositionTokenKey(mailAccountId),
+            compositionDelta.reset,
+          ),
+        });
+      }
     }
 
     // A first-ever boot learns its Mail Accounts from the round it is in the
@@ -159,6 +175,18 @@ async function applyMutationOutcomes(request: SyncRequest, response: SyncRespons
     // being dequeued on a guess.
     const outcomes = response.mailAccounts?.[mailAccountId]?.mutations;
     if (!outcomes || outcomes.length === 0) continue;
+
+    // The Composition intents (#46) need their *intent* to interpret the
+    // outcome — "which Composition, and was this the cancel that lost the
+    // race" — so they are paired up here, before `resolveMutationOutcomes`
+    // dequeues and forgets them.
+    const byId = new Map(queued.map((mutation) => [mutation.id, mutation.intent]));
+    await resolveSendOutcomes(
+      outcomes.flatMap((outcome) => {
+        const intent = byId.get(outcome.id);
+        return intent ? [{ intent, status: outcome.status, reason: outcome.reason }] : [];
+      }),
+    );
     await resolveMutationOutcomes(mailAccountId, queued, outcomes);
   }
 }
@@ -210,6 +238,7 @@ async function buildSyncRequest({
     if (includeCollections) {
       entry.Thread = await getSyncToken(threadTokenKey(account.id));
       entry.Label = await getSyncToken(labelTokenKey(account.id));
+      entry.Composition = await getSyncToken(compositionTokenKey(account.id));
     }
     if (includeMutations) {
       const mutations = await mutationsToFlush(account);
@@ -220,6 +249,7 @@ async function buildSyncRequest({
     if (
       entry.Thread !== undefined ||
       entry.Label !== undefined ||
+      entry.Composition !== undefined ||
       entry.mutations !== undefined ||
       entry.composeSaves !== undefined
     ) {

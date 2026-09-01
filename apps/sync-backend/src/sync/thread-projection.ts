@@ -1,5 +1,5 @@
-import type { Label, Thread } from "@mail/shared";
-import type { LabelRow } from "../db/schema.js";
+import type { Composition, Label, Thread } from "@mail/shared";
+import type { CompositionRow, LabelRow } from "../db/schema.js";
 import type { ThreadRow } from "./threading.js";
 
 /** Maps a stored Thread row to ADR-0011's wire projection — the list row, never a Message body. */
@@ -30,6 +30,34 @@ export function toWireLabel(row: LabelRow): Label {
     id: row.id,
     mailAccountId: row.mailAccountId,
     name: row.name,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * Maps a stored Composition row (#46) to ADR-0011's wire projection. The
+ * whole document rides it — see `@mail/shared`'s `compositionSchema` for why
+ * a Pending Send visible on another device needs the content, not just the
+ * countdown. The IMAP-push bookkeeping columns (`imapDraftUid`,
+ * `pushedContentHash`) and the retry columns (`sendAttempts`,
+ * `nextAttemptAt`) deliberately do not: they are the Sync Backend's own
+ * business, and nothing a Client renders depends on them.
+ */
+export function toWireComposition(row: CompositionRow): Composition {
+  return {
+    id: row.id,
+    mailAccountId: row.mailAccountId,
+    status: row.status,
+    subject: row.subject,
+    document: row.document,
+    to: row.toAddresses,
+    cc: row.ccAddresses,
+    bcc: row.bccAddresses,
+    version: row.version,
+    submitAfter: row.submitAfter?.toISOString() ?? null,
+    sendError: row.sendError,
+    messageId: row.messageId,
+    sentAt: row.sentAt?.toISOString() ?? null,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

@@ -20,8 +20,13 @@ export {
   type ComposeContent,
   EMPTY_COMPOSE_CONTENT,
   newCompositionId,
+  requestCancelSend,
   saveComposition,
+  sendComposition,
+  undoSecondsRemaining,
   useComposition,
+  useFailedSends,
+  usePendingSends,
 } from "./compositions.js";
 export {
   CACHE_SCHEMA_VERSION,

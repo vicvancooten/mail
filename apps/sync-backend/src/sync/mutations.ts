@@ -1,8 +1,23 @@
 import type { MutationIntent, MutationOutcome, QueuedMutation } from "@mail/shared";
-import { isValidLabelName, labelId, normalizeLabelName } from "@mail/shared";
+import {
+  DEFAULT_UNDO_SEND_DELAY_SECONDS,
+  isValidLabelName,
+  labelId,
+  normalizeLabelName,
+  UNDO_SEND_DELAY_OPTIONS,
+} from "@mail/shared";
 import { and, eq, sql } from "drizzle-orm";
+import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import type { Db } from "../db/client.js";
-import { appliedMutations, folders, labels, messages, threads } from "../db/schema.js";
+import {
+  appliedMutations,
+  folders,
+  labels,
+  mailAccounts,
+  messages,
+  threads,
+  users,
+} from "../db/schema.js";
 import { findFolderByRole } from "./folders.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -88,6 +103,12 @@ async function applyIntent(
   mailAccountId: string,
   intent: MutationIntent,
 ): Promise<IntentResult> {
+  // The two Composition intents (#46) name no Thread, so they are dispatched
+  // ahead of the Thread lookup every other intent starts from.
+  if (intent.type === "sendComposition" || intent.type === "cancelSend") {
+    return applyCompositionIntent(db, mailAccountId, intent);
+  }
+
   const [thread] = await db
     .select({ id: threads.id, labelIds: threads.labelIds })
     .from(threads)
@@ -183,6 +204,57 @@ async function applyIntent(
       return { ok: true };
     }
   }
+}
+
+/**
+ * `sendComposition`/`cancelSend` (#46, ADR-0007). Both are thin wrappers over
+ * `compose/pending-send.ts`'s conditional transitions — the whole point of
+ * routing them through this queue rather than a dedicated route is that they
+ * inherit its idempotency ledger, so a resent `sendComposition` id replays
+ * its recorded outcome instead of arming a second Pending Send.
+ *
+ * The delay is read from the sending User's own preference here, not taken
+ * from the intent: ADR-0007 measures it "from server receipt, never from the
+ * Client's clock", which makes `submit_after` this server's to compute.
+ *
+ * A `too_late` cancel is a `rejected` outcome, which is what the Client turns
+ * into ADR-0007's "reported to the User as too late" — the one rejection in
+ * this whole union that is an ordinary, expected result rather than a bug or
+ * a stale Client.
+ */
+async function applyCompositionIntent(
+  db: Db,
+  mailAccountId: string,
+  intent: Extract<MutationIntent, { compositionId: string }>,
+): Promise<IntentResult> {
+  if (intent.type === "cancelSend") {
+    const result = await cancelSend(db, mailAccountId, intent.compositionId);
+    return result.status === "cancelled" ? { ok: true } : { ok: false, reason: result.reason };
+  }
+
+  const delaySeconds = await undoSendDelayForAccount(db, mailAccountId);
+  const result = await acceptSend(db, mailAccountId, intent.compositionId, delaySeconds);
+  return result.status === "accepted" ? { ok: true } : { ok: false, reason: result.reason };
+}
+
+/**
+ * The owning User's Undo Send delay, clamped to the values the wire contract
+ * allows (`@mail/shared`'s `UNDO_SEND_DELAY_OPTIONS`). A row written before
+ * the column existed, or an out-of-range value from a future/older build,
+ * falls back to the default rather than producing a delay nothing in the UI
+ * can describe.
+ */
+async function undoSendDelayForAccount(db: Db, mailAccountId: string): Promise<number> {
+  const [row] = await db
+    .select({ delay: users.undoSendDelaySeconds })
+    .from(mailAccounts)
+    .innerJoin(users, eq(mailAccounts.userId, users.id))
+    .where(eq(mailAccounts.id, mailAccountId))
+    .limit(1);
+  const delay = row?.delay ?? DEFAULT_UNDO_SEND_DELAY_SECONDS;
+  return UNDO_SEND_DELAY_OPTIONS.includes(delay as (typeof UNDO_SEND_DELAY_OPTIONS)[number])
+    ? delay
+    : DEFAULT_UNDO_SEND_DELAY_SECONDS;
 }
 
 function threadIs(threadId: string) {

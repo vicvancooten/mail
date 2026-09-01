@@ -2,19 +2,23 @@ import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   delta,
+  makeComposition,
   makeLabel,
   makeMailAccount,
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
 import { pinThreadIntoCache } from "./cache-pins.js";
+import { EMPTY_COMPOSE_CONTENT, saveComposition, sendComposition } from "./compositions.js";
 import { listWindowKey } from "./db.js";
 import { localCache, openLocalCache } from "./local-cache.js";
 import { readLabels, readThreadWindow } from "./reads.js";
 import {
+  applyCompositionDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
+  compositionTokenKey,
   getSyncToken,
   labelTokenKey,
   listCachedMailAccountIds,
@@ -306,5 +310,92 @@ describe("pruneOrphanedMailAccountData", () => {
 
     // An empty `mailAccounts` table means "not synced yet", not "no accounts".
     expect(await localCache().threads.count()).toBe(2);
+  });
+});
+
+/**
+ * `Composition` (#46): the one delta whose rows the Client also writes, so
+ * the only one with a merge rule. See `applyCompositionDelta`'s own doc
+ * comment — send state is always the server's, content is the Client's while
+ * an autosave is still queued.
+ */
+describe("applyCompositionDelta", () => {
+  it("adopts a Composition wholesale when this Client has nothing queued for it", async () => {
+    await applyCompositionDelta(
+      ACCOUNT,
+      delta({ created: [makeComposition("comp-1", ACCOUNT, { subject: "From another device" })] }),
+      { replace: false },
+    );
+
+    const row = await localCache().compositions.get("comp-1");
+    expect(row?.subject).toBe("From another device");
+    expect(row?.status).toBe("draft");
+    expect(await getSyncToken(compositionTokenKey(ACCOUNT))).toBe("state-1");
+  });
+
+  it("takes the server's send state onto a row this Client is still editing, but never its content", async () => {
+    await saveComposition("comp-1", ACCOUNT, {
+      ...EMPTY_COMPOSE_CONTENT,
+      subject: "typed here, not yet flushed",
+    });
+
+    await applyCompositionDelta(
+      ACCOUNT,
+      delta({
+        updated: [
+          makeComposition("comp-1", ACCOUNT, {
+            subject: "the server's older copy",
+            status: "pending",
+            submitAfter: "2026-06-01T12:00:10.000Z",
+            version: 4,
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const row = await localCache().compositions.get("comp-1");
+    // ADR-0012's rule: text the server has not seen is never overwritten.
+    expect(row?.subject).toBe("typed here, not yet flushed");
+    // The countdown, though, is the server's — that is what makes a Pending
+    // Send visible on this device (ADR-0007).
+    expect(row?.status).toBe("pending");
+    expect(row?.submitAfter).toBe("2026-06-01T12:00:10.000Z");
+    expect(row?.version).toBe(4);
+  });
+
+  it("adopts the server's content once the queued save has flushed — the cancel-on-another-device path", async () => {
+    await saveComposition("comp-1", ACCOUNT, { ...EMPTY_COMPOSE_CONTENT, subject: "local" });
+    await localCache().pendingComposeSaves.delete("comp-1"); // flushed
+
+    await applyCompositionDelta(
+      ACCOUNT,
+      delta({ updated: [makeComposition("comp-1", ACCOUNT, { subject: "cancelled elsewhere" })] }),
+      { replace: false },
+    );
+
+    expect((await localCache().compositions.get("comp-1"))?.subject).toBe("cancelled elsewhere");
+  });
+
+  it("clears a stale local send marker once the server's status is terminal", async () => {
+    await saveComposition("comp-1", ACCOUNT, { ...EMPTY_COMPOSE_CONTENT, subject: "s" });
+    await sendComposition("comp-1", ACCOUNT, { ...EMPTY_COMPOSE_CONTENT, subject: "s" });
+    expect((await localCache().compositions.get("comp-1"))?.sendState).toBe("queued");
+
+    await applyCompositionDelta(
+      ACCOUNT,
+      delta({ updated: [makeComposition("comp-1", ACCOUNT, { status: "sent" })] }),
+      { replace: false },
+    );
+    expect((await localCache().compositions.get("comp-1"))?.sendState).toBeNull();
+  });
+
+  it("drops a retired Composition and anything still queued against it", async () => {
+    await saveComposition("comp-1", ACCOUNT, { ...EMPTY_COMPOSE_CONTENT, subject: "s" });
+
+    await applyCompositionDelta(ACCOUNT, delta({ destroyed: ["comp-1"] }), { replace: false });
+
+    expect(await localCache().compositions.get("comp-1")).toBeUndefined();
+    expect(await localCache().pendingComposeSaves.get("comp-1")).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { ensureClaimToken } from "./auth/claim.js";
+import { startSendLoop } from "./compose/send-loop.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
@@ -55,12 +56,26 @@ const draftPushLoop = startDraftPushLoop(db, {
   logger: app.log,
 });
 
+// The Pending Send sweeper (#46, ADR-0007). Its first tick runs immediately
+// rather than after the interval: `submit_after` is absolute, so this boot is
+// also the boot-time sweep that submits everything that came due while the
+// process was down.
+const sendLoop = startSendLoop(db, {
+  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+  logger: app.log,
+});
+
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
 // describes: stop every resident session (a polite IMAP LOGOUT, then close)
 // before the process actually exits, rather than yanking the sockets shut.
 process.on("SIGTERM", () => {
-  void Promise.all([syncManager.stopAll(), protocolWriteLoop.stop(), draftPushLoop.stop()])
+  void Promise.all([
+    syncManager.stopAll(),
+    protocolWriteLoop.stop(),
+    draftPushLoop.stop(),
+    sendLoop.stop(),
+  ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))
     .finally(() => process.exit(0));
 });

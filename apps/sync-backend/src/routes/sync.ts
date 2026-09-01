@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import {
+  syncCompositionCollection,
   syncLabelCollection,
   syncMailAccountCollection,
   syncThreadCollection,
@@ -27,6 +28,15 @@ export interface SyncRoutesOptions {
  * carries deltas too": applying the queue first means the very same round
  * trip's Thread delta already reflects what those mutations just changed,
  * with no second poll needed to see it confirmed.
+ *
+ * `composeSaves` are flushed **before** `mutations`, and that order is
+ * load-bearing rather than incidental: a `sendComposition` intent (#46) sends
+ * whatever content the Composition row holds at the moment it is applied, and
+ * the Client enqueues the send in the same round as the composer's final
+ * autosave. Draining the saves first is what makes "send" mean "send what I
+ * was looking at" instead of "send the last thing that happened to have
+ * reached the server". The two arrays otherwise touch disjoint tables, so
+ * nothing else depends on which goes first.
  */
 export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions) {
   app.post("/sync", { preHandler: app.requireAuth }, async (request, reply) => {
@@ -47,9 +57,16 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {
       const wantsThread = requested.Thread !== undefined;
       const wantsLabel = requested.Label !== undefined;
+      const wantsComposition = requested.Composition !== undefined;
       const queued = requested.mutations ?? [];
       const queuedComposeSaves = requested.composeSaves ?? [];
-      if (!wantsThread && !wantsLabel && queued.length === 0 && queuedComposeSaves.length === 0) {
+      if (
+        !wantsThread &&
+        !wantsLabel &&
+        !wantsComposition &&
+        queued.length === 0 &&
+        queuedComposeSaves.length === 0
+      ) {
         continue;
       }
 
@@ -93,12 +110,12 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         continue;
       }
 
-      const mutationResults =
-        queued.length > 0 ? await flushMutations(db, mailAccountId, queued) : [];
       const composeSaveResults =
         queuedComposeSaves.length > 0
           ? await flushComposeSaves(db, mailAccountId, queuedComposeSaves)
           : [];
+      const mutationResults =
+        queued.length > 0 ? await flushMutations(db, mailAccountId, queued) : [];
 
       const threadDelta = wantsThread
         ? await syncThreadCollection(
@@ -113,15 +130,21 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         ? await syncLabelCollection(db, mailAccountId, requested.Label ?? null)
         : null;
 
+      const compositionDelta = wantsComposition
+        ? await syncCompositionCollection(db, mailAccountId, requested.Composition ?? null)
+        : null;
+
       if (
         threadDelta ||
         labelDelta ||
+        compositionDelta ||
         mutationResults.length > 0 ||
         composeSaveResults.length > 0
       ) {
         mailAccountsResult[mailAccountId] = {
           ...(threadDelta ? { Thread: threadDelta } : {}),
           ...(labelDelta ? { Label: labelDelta } : {}),
+          ...(compositionDelta ? { Composition: compositionDelta } : {}),
           ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),
           ...(composeSaveResults.length > 0 ? { composeSaves: composeSaveResults } : {}),
         };

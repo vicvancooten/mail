@@ -247,3 +247,156 @@
   border: 1px solid var(--mail-border);
   padding: 4px 8px;
 }
+
+/*
+ * The send control (#46): the button, its warn-once label, and the Undo Send
+ * window picker, pinned to the bottom of the composer.
+ */
+.composer-send {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--mail-border);
+  background: var(--mail-bg-elevated);
+}
+
+.composer-send-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--mail-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.composer-send-button:disabled {
+  background: var(--mail-border);
+  color: var(--mail-text-faint);
+  cursor: not-allowed;
+}
+
+.composer-send-delay {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--mail-text-dim);
+}
+
+.composer-send-delay select {
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 4px;
+  color: var(--mail-text-dim);
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+/*
+ * The Undo Send countdown (ADR-0007). Bottom-left rather than bottom-right:
+ * it must stay readable and clickable while the composer is docked, and it
+ * outlives the composer by design.
+ */
+.pending-send-bar {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+
+.pending-send {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  color: var(--mail-text);
+}
+
+.pending-send-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-send-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/*
+ * The persistent send-failure banner (compose-spec): not dismissible, and it
+ * shows the SMTP rejection verbatim in a monospace run so `550 5.7.1 relay
+ * denied` is readable as the server's own words.
+ */
+.send-failure-banner {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--mail-border);
+}
+
+.send-failure {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: light-dark(#fff4f4, #2a1a1c);
+  color: var(--mail-text);
+  font-size: 13px;
+}
+
+.send-failure-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.send-failure-subject,
+.send-failure-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.send-failure-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--mail-text-dim);
+}
+
+.send-failure-open {
+  flex: none;
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-accent);
+  font-size: 12px;
+  cursor: pointer;
+}

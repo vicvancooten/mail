@@ -147,3 +147,103 @@ export const composeSaveOutcomeSchema = z.object({
   reason: z.string().optional(),
 });
 export type ComposeSaveOutcome = z.infer<typeof composeSaveOutcomeSchema>;
+
+/**
+ * The per-User Undo Send delay (ADR-0007, poc-spec.md §Compose & sending):
+ * `off/5/10/20/30` seconds, default 10. **`off` is `N = 0`, not a bypass** —
+ * ADR-0007 rejected "delay `off` as a synchronous bypass" outright, because
+ * retry, the Needs Reauth hold and failure-to-Draft would each need a second
+ * implementation on the path least likely to be exercised in testing. A
+ * zero-delay send still creates the Pending Send row; the sweeper simply
+ * finds it already due.
+ *
+ * Held per User in the Sync Backend rather than sent up with the send
+ * itself, because ADR-0007's "the delay is measured from server receipt,
+ * never from the Client's clock" makes `submit_after` the server's to
+ * compute. #54 (Preferences) migrates this into the general User-scoped
+ * preference collection; this is the inline default it will read from.
+ */
+export const UNDO_SEND_DELAY_OPTIONS = [0, 5, 10, 20, 30] as const;
+export const DEFAULT_UNDO_SEND_DELAY_SECONDS = 10;
+
+export const undoSendDelaySchema = z.union([
+  z.literal(0),
+  z.literal(5),
+  z.literal(10),
+  z.literal(20),
+  z.literal(30),
+]);
+export type UndoSendDelaySeconds = z.infer<typeof undoSendDelaySchema>;
+
+export const sendSettingsSchema = z.object({
+  undoSendDelaySeconds: undoSendDelaySchema,
+});
+export type SendSettings = z.infer<typeof sendSettingsSchema>;
+
+/**
+ * A Composition's status (ADR-0012: "one entity, two states"), which
+ * ADR-0007's state machine `pending → submitting → sent | failed |
+ * cancelled` is expressed over.
+ *
+ * Two of those five ADR-0007 words are not statuses here, and deliberately:
+ *
+ * - **`cancelled` is `draft`.** ADR-0007's own consequence is "cancelling
+ *   restores a Draft", and ADR-0012 amends the design to a single row whose
+ *   status spans both, so a cancel is literally a status change back to
+ *   `draft` — there is no third state to be in.
+ * - **A permanent rejection is also `draft`,** badged. ADR-0007: "permanent
+ *   rejections fail the send and restore it as a Draft with the server's
+ *   rejection text." The badge is `sendError` below, not the status: keeping
+ *   exactly one status that means "editable" is what lets autosave
+ *   (`sync/compose-store.ts`), the Drafts view and the IMAP draft push all
+ *   keep one code path instead of each learning a second draft-like state.
+ *   `failed` therefore stays reserved in the enum ADR-0012 names, for a
+ *   future terminal failure that is *not* returned to the User to edit.
+ */
+export const compositionStatusSchema = z.enum(["draft", "pending", "submitting", "sent", "failed"]);
+export type CompositionStatus = z.infer<typeof compositionStatusSchema>;
+
+/** Statuses a Pending Send occupies — the countdown is live, and autosave has nothing left to write into. */
+export const IN_FLIGHT_COMPOSITION_STATUSES: readonly CompositionStatus[] = [
+  "pending",
+  "submitting",
+];
+
+/**
+ * The wire projection of a Composition (#46): the `Composition` collection
+ * ADR-0011's `/sync` serves per Mail Account, which is what makes a Pending
+ * Send "visible and cancellable from every device the User has open"
+ * (ADR-0007) rather than a countdown only the sending tab knows about.
+ *
+ * The whole document rides it, not just the send state: cancelling "restores
+ * a Draft and reopens the composer on whichever device cancelled"
+ * (ADR-0007), and a device that never typed the mail can only do that if it
+ * holds the content. Compositions are a handful of rows per account, so this
+ * is nothing like the bounded-window problem `Thread` has.
+ *
+ * `submitAfter` is the absolute instant the sweeper may claim this row —
+ * absolute so "a boot-time sweep submits everything due, however long the
+ * backend was down" (ADR-0007) needs no separate bookkeeping. `sendError` is
+ * the SMTP rejection **verbatim** (compose-spec: "`550 5.7.1 relay denied`
+ * is actionable, 'something went wrong' is not"), non-null exactly while a
+ * Draft carries the "Send failed" badge. `messageId` is the id the Sync
+ * Backend minted at claim time (compose-spec §Threading headers), sent up so
+ * a Client can match its Composition to the Message that lands in `Sent`.
+ */
+export const compositionSchema = z.object({
+  id: z.string(),
+  mailAccountId: z.string(),
+  status: compositionStatusSchema,
+  subject: z.string(),
+  document: composeDocumentSchema,
+  to: z.array(recipientSchema),
+  cc: z.array(recipientSchema),
+  bcc: z.array(recipientSchema),
+  version: z.number().int().nonnegative(),
+  submitAfter: z.iso.datetime().nullable(),
+  sendError: z.string().nullable(),
+  messageId: z.string().nullable(),
+  sentAt: z.iso.datetime().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+export type Composition = z.infer<typeof compositionSchema>;

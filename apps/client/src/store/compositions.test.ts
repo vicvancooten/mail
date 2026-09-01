@@ -5,12 +5,17 @@ import {
   EMPTY_COMPOSE_CONTENT,
   isComposeContentEmpty,
   listQueuedComposeSaves,
+  requestCancelSend,
   resolveComposeSaveOutcomes,
+  resolveSendOutcomes,
   saveComposition,
+  sendComposition,
   subscribeComposeConflicts,
   toWireComposeSave,
+  undoSecondsRemaining,
 } from "./compositions.js";
 import { localCache, openLocalCache } from "./local-cache.js";
+import { listQueuedMutations, resolveMutationOutcomes } from "./mutation-queue.js";
 
 /** `expect(x).toBeDefined()` narrows in an `if`, not through the assertion itself — this does both in one line. */
 function defined<T>(value: T | undefined): T {
@@ -231,5 +236,129 @@ describe("resolveComposeSaveOutcomes", () => {
     );
     expect((await localCache().compositions.get("comp-1"))?.version).toBe(0);
     expect(await listQueuedComposeSaves(ACCOUNT)).toEqual([]);
+  });
+});
+
+/**
+ * The send path's Client side (#46, ADR-0007/ADR-0014): a send is a durable
+ * queued intent plus a final autosave, the countdown is only ever the
+ * server's, and a cancel that arrives while the send is still queued locally
+ * never reaches the Sync Backend at all.
+ */
+describe("sendComposition", () => {
+  const CONTENT = {
+    ...EMPTY_COMPOSE_CONTENT,
+    subject: "Lunch",
+    to: [{ name: null, address: "ada@example.test" }],
+  };
+
+  it("writes the final content, queues the intent, and marks the send in flight", async () => {
+    await sendComposition("comp-1", ACCOUNT, CONTENT);
+
+    // Both halves of a Send press ride the same round trip.
+    const save = defined(await localCache().pendingComposeSaves.get("comp-1"));
+    expect(save.subject).toBe("Lunch");
+    const queued = await listQueuedMutations(ACCOUNT);
+    expect(queued.map((mutation) => mutation.intent)).toEqual([
+      { type: "sendComposition", compositionId: "comp-1" },
+    ]);
+
+    const row = defined(await localCache().compositions.get("comp-1"));
+    expect(row.sendState).toBe("queued");
+    // Never a locally-invented deadline: ADR-0014's countdown starts only
+    // when the Sync Backend accepts the send.
+    expect(row.submitAfter).toBeNull();
+    expect(row.status).toBe("draft");
+  });
+
+  it("clears the in-flight marker once the send is applied", async () => {
+    await sendComposition("comp-1", ACCOUNT, CONTENT);
+    await resolveSendOutcomes([
+      { intent: { type: "sendComposition", compositionId: "comp-1" }, status: "applied" },
+    ]);
+    expect((await localCache().compositions.get("comp-1"))?.sendState).toBeNull();
+  });
+});
+
+describe("requestCancelSend", () => {
+  const CONTENT = {
+    ...EMPTY_COMPOSE_CONTENT,
+    subject: "Lunch",
+    to: [{ name: null, address: "ada@example.test" }],
+  };
+
+  it("coalesces away a send still sitting in the queue — the Sync Backend never hears about it", async () => {
+    await sendComposition("comp-1", ACCOUNT, CONTENT);
+    await requestCancelSend("comp-1", ACCOUNT);
+
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+    const row = defined(await localCache().compositions.get("comp-1"));
+    expect(row.sendState).toBeNull();
+    expect(row.status).toBe("draft");
+    expect(row.subject).toBe("Lunch"); // the Draft is intact, ready to reopen
+  });
+
+  it("queues a real cancel once the send has already flushed", async () => {
+    await sendComposition("comp-1", ACCOUNT, CONTENT);
+    await resolveMutationOutcomes(
+      ACCOUNT,
+      (await listQueuedMutations(ACCOUNT)).map((mutation) => ({
+        id: mutation.id,
+        intent: mutation.intent,
+      })),
+      [{ id: defined((await listQueuedMutations(ACCOUNT))[0]).id, status: "applied" }],
+    );
+
+    await requestCancelSend("comp-1", ACCOUNT);
+    expect((await listQueuedMutations(ACCOUNT)).map((mutation) => mutation.intent)).toEqual([
+      { type: "cancelSend", compositionId: "comp-1" },
+    ]);
+    expect((await localCache().compositions.get("comp-1"))?.sendState).toBe("cancelling");
+  });
+
+  it("records a cancel that lost the race, so 'too late' is on the screen rather than in a toast", async () => {
+    await sendComposition("comp-1", ACCOUNT, CONTENT);
+    await resolveSendOutcomes([
+      {
+        intent: { type: "cancelSend", compositionId: "comp-1" },
+        status: "rejected",
+        reason: "too_late",
+      },
+    ]);
+    expect((await localCache().compositions.get("comp-1"))?.sendState).toBe("too_late");
+  });
+});
+
+describe("undoSecondsRemaining", () => {
+  const base = {
+    id: "comp-1",
+    mailAccountId: ACCOUNT,
+    status: "pending" as const,
+    subject: "Lunch",
+    document: EMPTY_COMPOSE_CONTENT.document,
+    to: [],
+    cc: [],
+    bcc: [],
+    version: 1,
+    sendError: null,
+    sentAt: null,
+    sendState: null,
+    createdAt: "2026-06-01T12:00:00.000Z",
+    updatedAt: "2026-06-01T12:00:00.000Z",
+  };
+
+  it("counts down from the server's absolute deadline, rounding up so the last second is shown", () => {
+    const row = { ...base, submitAfter: "2026-06-01T12:00:10.000Z" };
+    expect(undoSecondsRemaining(row, Date.parse("2026-06-01T12:00:00.000Z"))).toBe(10);
+    expect(undoSecondsRemaining(row, Date.parse("2026-06-01T12:00:09.400Z"))).toBe(1);
+  });
+
+  it("never goes negative once the deadline has passed", () => {
+    const row = { ...base, submitAfter: "2026-06-01T12:00:10.000Z" };
+    expect(undoSecondsRemaining(row, Date.parse("2026-06-01T12:00:30.000Z"))).toBe(0);
+  });
+
+  it("is null with no server-issued deadline — an offline send has nothing honest to count", () => {
+    expect(undoSecondsRemaining({ ...base, submitAfter: null })).toBeNull();
   });
 });

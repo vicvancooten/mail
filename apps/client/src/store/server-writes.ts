@@ -1,6 +1,7 @@
-import type { CollectionDelta, Label, MailAccount, Thread } from "@mail/shared";
+import type { CollectionDelta, Composition, Label, MailAccount, Thread } from "@mail/shared";
 import Dexie from "dexie";
 import {
+  type CachedComposition,
   type CachedThread,
   DEFAULT_VIEW,
   type ListWindow,
@@ -42,6 +43,10 @@ export function labelTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Label`;
 }
 
+export function compositionTokenKey(mailAccountId: string): string {
+  return `account:${mailAccountId}:Composition`;
+}
+
 export async function getSyncToken(key: string): Promise<string | null> {
   const row = await localCache().syncState.get(key);
   return row?.token ?? null;
@@ -70,7 +75,15 @@ export async function applyMailAccountDelta(
   const db = localCache();
   await db.transaction(
     "rw",
-    [db.mailAccounts, db.threads, db.labels, db.listWindows, db.cachePins, db.syncState],
+    [
+      db.mailAccounts,
+      db.threads,
+      db.labels,
+      db.compositions,
+      db.listWindows,
+      db.cachePins,
+      db.syncState,
+    ],
     async () => {
       if (replace) await db.mailAccounts.clear();
       await db.mailAccounts.bulkPut([...delta.created, ...delta.updated]);
@@ -160,6 +173,81 @@ export async function applyLabelDelta(
 }
 
 /**
+ * `Composition`, scoped to one Mail Account (#46). The only delta whose rows
+ * this Client also writes itself, so it is the only one with a merge rule:
+ *
+ * - **Send state is always the server's.** `status`, `submitAfter`,
+ *   `sendError` and `sentAt` are overwritten unconditionally — that is the
+ *   whole mechanism by which a Pending Send started on one device shows its
+ *   countdown on another (ADR-0007).
+ * - **Content is the Client's while a save is still queued.** A Composition
+ *   with an unflushed `pendingComposeSaves` row holds text the server has not
+ *   seen; taking the server's older copy would destroy exactly what ADR-0012
+ *   says is worth code to prevent. Once the save lands there is no queued row
+ *   and the server's copy is simply adopted, which is also how a cancel on
+ *   another device hands this one the content to reopen the composer with.
+ * - **`sendState` is cleared by any terminal server status,** so a marker
+ *   left behind by a round trip this tab never saw the answer to cannot
+ *   outlive the send it described.
+ */
+export async function applyCompositionDelta(
+  mailAccountId: string,
+  delta: CollectionDelta<Composition>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.compositions, db.pendingComposeSaves, db.syncState], async () => {
+    if (replace) await db.compositions.where("mailAccountId").equals(mailAccountId).delete();
+
+    for (const wire of [...delta.created, ...delta.updated]) {
+      const local = await db.compositions.get(wire.id);
+      const hasUnflushedEdit = (await db.pendingComposeSaves.get(wire.id)) !== undefined;
+      await db.compositions.put(mergeComposition(wire, local, hasUnflushedEdit));
+    }
+
+    if (delta.destroyed.length > 0) {
+      await db.compositions.bulkDelete(delta.destroyed);
+      await db.pendingComposeSaves.bulkDelete(delta.destroyed);
+    }
+    await db.syncState.put({
+      key: compositionTokenKey(mailAccountId),
+      token: delta.newState,
+    });
+  });
+}
+
+function mergeComposition(
+  wire: Composition,
+  local: CachedComposition | undefined,
+  hasUnflushedEdit: boolean,
+): CachedComposition {
+  const content =
+    local && hasUnflushedEdit
+      ? {
+          subject: local.subject,
+          document: local.document,
+          to: local.to,
+          cc: local.cc,
+          bcc: local.bcc,
+        }
+      : { subject: wire.subject, document: wire.document, to: wire.to, cc: wire.cc, bcc: wire.bcc };
+  return {
+    id: wire.id,
+    mailAccountId: wire.mailAccountId,
+    status: wire.status,
+    ...content,
+    version: wire.version,
+    submitAfter: wire.submitAfter,
+    sendError: wire.sendError,
+    sentAt: wire.sentAt,
+    sendState:
+      wire.status === "draft" || wire.status === "sent" ? null : (local?.sendState ?? null),
+    createdAt: local?.createdAt ?? wire.updatedAt,
+    updatedAt: wire.updatedAt,
+  };
+}
+
+/**
  * Drops everything keyed to a Mail Account the User no longer has. Runs at
  * the end of a sync round rather than on the delta, because a `reset: true`
  * MailAccount replay only reveals what is gone once its last page lands.
@@ -172,7 +260,15 @@ export async function pruneOrphanedMailAccountData(): Promise<void> {
 
   await db.transaction(
     "rw",
-    [db.mailAccounts, db.threads, db.labels, db.listWindows, db.cachePins, db.syncState],
+    [
+      db.mailAccounts,
+      db.threads,
+      db.labels,
+      db.compositions,
+      db.listWindows,
+      db.cachePins,
+      db.syncState,
+    ],
     async () => {
       const live = new Set(await db.mailAccounts.toCollection().primaryKeys());
       const held = new Set<string>();
@@ -191,11 +287,13 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   await db.mailAccounts.bulkDelete(mailAccountIds);
   await db.threads.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.labels.where("mailAccountId").anyOf(mailAccountIds).delete();
+  await db.compositions.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.listWindows.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.cachePins.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.syncState.bulkDelete([
     ...mailAccountIds.map(threadTokenKey),
     ...mailAccountIds.map(labelTokenKey),
+    ...mailAccountIds.map(compositionTokenKey),
   ]);
 }
 
