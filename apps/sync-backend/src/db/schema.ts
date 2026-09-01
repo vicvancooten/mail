@@ -202,6 +202,15 @@ export const mailAccounts = pgTable(
       .default("stopped"),
     lastProgressAt: timestamp("last_progress_at", { withTimezone: true }),
     lastSyncError: text("last_sync_error"),
+    // The Index Watermark (CONTEXT.md, #36): everything with `receivedAt` at
+    // or after this instant is guaranteed to have had its body swept, across
+    // every folder. Null until the sweep has completed at least one batch.
+    // `bodySweepComplete` is the "runs once and then stops" terminus — once
+    // true the sweep is caught up account-wide and `bodyWatermark` stops
+    // meaning anything (search/reading treat the account as fully indexed).
+    // Only `sync/body-sweep.ts` writes either column.
+    bodyWatermark: timestamp("body_watermark", { withTimezone: true }),
+    bodySweepComplete: boolean("body_sweep_complete").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -245,6 +254,18 @@ export const folders = pgTable(
     uidNext: bigint("uid_next", { mode: "number" }),
     highestModseq: bigint("highest_modseq", { mode: "bigint" }),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    // Full-history backfill (#36), resumable across a process restart: the
+    // next batch fetches sequence numbers ending at this cursor and working
+    // downwards, newest-first. Set once — to the folder's `exists` count —
+    // the first time this folder is ever established or rebuilt
+    // (`sync/backfill.ts#establishFolderBaseline`), and decremented by every
+    // completed batch. `null` means backfill has not started; `0` (with
+    // `backfillComplete: true`) means every message down to sequence 1 has
+    // its header stored. Sequence numbers, not UIDs, because the cursor
+    // tracks "how much of the mailbox as it stood at connect time is left",
+    // and appends after that point never renumber what came before.
+    backfillCursorSeq: integer("backfill_cursor_seq"),
+    backfillComplete: boolean("backfill_complete").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

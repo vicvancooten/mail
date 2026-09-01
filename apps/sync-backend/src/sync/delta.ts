@@ -124,8 +124,17 @@ export async function applyFolderDelta(
 
   // Newest first (ADR-0005's ingest order), for consistency with #34 even
   // though a live delta is normally at most a handful of messages.
+  //
+  // Scoped to `uid >= previousUidNext` (RFC 3501 §2.3.1.1's uidNext
+  // contract), the same boundary `qresync-catchup.ts` uses — not simply
+  // "present live but not stored". A UID below that which isn't stored yet
+  // is still-pending historical backfill (#36's bounded, resumable walker,
+  // `sync/backfill.ts`), not a delta: treating it as "new" here would fetch
+  // the whole remaining backlog unbounded in one shot the next time this
+  // runs, undoing backfill's own batching.
+  const previousUidNext = folder.uidNext ?? 1;
   const newUids = [...liveByUid.keys()]
-    .filter((uid) => !storedByUid.has(uid))
+    .filter((uid) => uid >= previousUidNext && !storedByUid.has(uid))
     .sort((left, right) => right - left);
   if (newUids.length > 0) {
     const fetched = await client.fetchAll(

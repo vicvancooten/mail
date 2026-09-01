@@ -108,55 +108,93 @@ export async function ingestFolder(
       .where(eq(folders.id, folder.id));
 
     const total = mailbox.exists;
-    if (total === 0) return result;
-
-    const wanted = options.limit ?? total;
     let high = total;
 
-    while (high >= 1 && result.ingested < wanted) {
-      const remaining = wanted - result.ingested;
-      const low = Math.max(1, high - Math.min(batchSize, remaining) + 1);
+    if (total > 0) {
+      const wanted = options.limit ?? total;
 
-      const fetched = await client.fetchAll(`${low}:${high}`, {
-        uid: true,
-        flags: true,
-        envelope: true,
-        internalDate: true,
-        size: true,
-        bodyStructure: true,
-        // The envelope carries `In-Reply-To` but not `References`, and
-        // threading needs the whole chain (`message-ids.ts`).
-        headers: ["references"],
-      });
+      while (high >= 1 && result.ingested < wanted) {
+        const remaining = wanted - result.ingested;
+        const low = Math.max(1, high - Math.min(batchSize, remaining) + 1);
 
-      // `fetchAll` answers in ascending sequence order; the newest message in
-      // the batch is the last one, and newest-first is the contract.
-      const newestFirst = fetched.reverse();
-      const batch: IngestedMessage[] = [];
-      for (const message of newestFirst) {
-        const stored = await storeMessage(db, folder, uidValidity, message);
-        batch.push(stored);
-        result.ingested += 1;
-        if (stored.created) result.created += 1;
+        const batch = await fetchAndStoreSequenceBatch(db, client, folder, uidValidity, {
+          low,
+          high,
+          fetchBodies: options.fetchBodies,
+        });
+        result.ingested += batch.length;
+        result.created += batch.filter((message) => message.created).length;
+        await options.onBatch?.(batch);
+
+        high = low - 1;
       }
-
-      if (options.fetchBodies) {
-        await fetchBodiesFor(db, client, newestFirst, batch);
-      }
-
-      await refreshThreadRollups(
-        db,
-        batch.map((message) => message.threadId),
-      );
-      await options.onBatch?.(batch);
-
-      high = low - 1;
     }
+
+    // `high` only reaches 0 once every sequence number down to 1 has been
+    // walked — an `options.limit` narrower than the folder leaves `high`
+    // positive, and that's the resume point a later call (or #36's bounded
+    // walker, `sync/backfill.ts`) picks up from. Nothing currently passes
+    // `limit` in production; every real caller finishes the whole folder.
+    await db
+      .update(folders)
+      .set({
+        backfillCursorSeq: Math.max(0, high),
+        backfillComplete: high <= 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(folders.id, folder.id));
 
     return result;
   } finally {
     lock.release();
   }
+}
+
+/**
+ * Fetches and stores one sequence-number range, newest message first —
+ * `ingestFolder`'s own per-batch step, factored out so #36's resumable
+ * backfill walker (`sync/backfill.ts`) can drive the exact same fetch shape
+ * and storage path one bounded batch at a time instead of the unbounded loop
+ * above.
+ */
+export async function fetchAndStoreSequenceBatch(
+  db: Db,
+  client: ImapFlow,
+  folder: FolderRow,
+  uidValidity: number,
+  range: { low: number; high: number; fetchBodies?: boolean },
+): Promise<IngestedMessage[]> {
+  const fetched = await client.fetchAll(`${range.low}:${range.high}`, {
+    uid: true,
+    flags: true,
+    envelope: true,
+    internalDate: true,
+    size: true,
+    bodyStructure: true,
+    // The envelope carries `In-Reply-To` but not `References`, and
+    // threading needs the whole chain (`message-ids.ts`).
+    headers: ["references"],
+  });
+
+  // `fetchAll` answers in ascending sequence order; the newest message in
+  // the batch is the last one, and newest-first is the contract.
+  const newestFirst = fetched.reverse();
+  const batch: IngestedMessage[] = [];
+  for (const message of newestFirst) {
+    const stored = await storeMessage(db, folder, uidValidity, message);
+    batch.push(stored);
+  }
+
+  if (range.fetchBodies) {
+    await fetchBodiesFor(db, client, newestFirst, batch);
+  }
+
+  await refreshThreadRollups(
+    db,
+    batch.map((message) => message.threadId),
+  );
+
+  return batch;
 }
 
 /**

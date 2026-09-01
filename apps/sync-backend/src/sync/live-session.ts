@@ -2,6 +2,8 @@ import type { ExistsEvent, ExpungeEvent, FlagsEvent, ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById, type MailAccountRow, setSyncStatus } from "../mail-accounts/store.js";
+import { establishFolderBaseline, runAccountBackfill } from "./backfill.js";
+import { runBodySweep } from "./body-sweep.js";
 import { applyFolderDelta, getFolderById } from "./delta.js";
 import {
   discoverFolders,
@@ -10,7 +12,6 @@ import {
   persistFolders,
 } from "./folders.js";
 import { connectMailAccount, MailAccountNeedsReauthError } from "./imap-connection.js";
-import { ingestFolder } from "./ingest.js";
 import { attemptQresyncCatchup } from "./qresync-catchup.js";
 
 /**
@@ -47,6 +48,16 @@ export interface LiveSyncSessionOptions {
   backoffMaxMs?: number;
   /** ImapFlow's own inactivity threshold before auto-IDLE arms. Default 1s — see `ImapConnectionOptions`. */
   autoIdleDelayMs?: number;
+  /** #36: messages per historical backfill FETCH. Default matches `ingest.ts`'s own 200. */
+  backfillBatchSize?: number;
+  /** #36: paused between backfill batches so IDLE/poll traffic stays responsive. Default 50ms. */
+  backfillPauseMs?: number;
+  /** #36: messages per body-sweep FETCH. Default 50 — heavier per-message than a header batch. */
+  bodySweepBatchSize?: number;
+  /** #36: paused between sweep batches while work remains. Default 50ms. */
+  bodySweepPauseMs?: number;
+  /** #36: paused between sweep checks once the account has nothing pending. Default 5s. */
+  bodySweepIdlePollMs?: number;
   /**
    * Test-only observability hook: called with each connection this session
    * opens, right after it authenticates. Production code has no use for
@@ -94,6 +105,11 @@ export function startLiveSyncSession(
   const backoffInitialMs = options.backoffInitialMs ?? DEFAULT_BACKOFF_INITIAL_MS;
   const backoffMaxMs = options.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS;
   const autoIdleDelayMs = options.autoIdleDelayMs ?? DEFAULT_AUTO_IDLE_DELAY_MS;
+  const backfillBatchSize = options.backfillBatchSize;
+  const backfillPauseMs = options.backfillPauseMs;
+  const bodySweepBatchSize = options.bodySweepBatchSize;
+  const bodySweepPauseMs = options.bodySweepPauseMs;
+  const bodySweepIdlePollMs = options.bodySweepIdlePollMs;
 
   const stop = createSignal();
   let stopped = false;
@@ -111,6 +127,11 @@ export function startLiveSyncSession(
           isStopped: () => stopped,
           onClientReady: options.onClientReady,
           autoIdleDelayMs,
+          backfillBatchSize,
+          backfillPauseMs,
+          bodySweepBatchSize,
+          bodySweepPauseMs,
+          bodySweepIdlePollMs,
         });
         // Only returns without throwing when `stop()` was requested.
         return;
@@ -156,6 +177,11 @@ interface RunSessionContext {
   isStopped: () => boolean;
   onClientReady?: (client: ImapFlow) => void;
   autoIdleDelayMs: number;
+  backfillBatchSize?: number;
+  backfillPauseMs?: number;
+  bodySweepBatchSize?: number;
+  bodySweepPauseMs?: number;
+  bodySweepIdlePollMs?: number;
 }
 
 /**
@@ -188,14 +214,30 @@ async function runSession(db: Db, accountId: string, ctx: RunSessionContext): Pr
       throw new Error(`Mail Account ${accountId} has no selectable INBOX`);
     }
 
-    // First ever sync of this folder: a full newest-first header ingest
-    // (#34) establishes the baseline a delta can resume from. Anything after
-    // that is `attemptQresyncCatchup`'s job, falling back to the UID-diff
-    // `applyFolderDelta`.
-    if (inbox.lastSyncedAt === null) {
-      await ingestFolder(db, client, inbox);
-    } else if (!(await attemptQresyncCatchup(db, client, inbox))) {
-      await applyFolderDelta(db, client, inbox);
+    // Every selectable folder gets a baseline first — a fast, message-free
+    // metadata read (#36's `establishFolderBaseline`) — before a single
+    // message is fetched. That gives the account-wide backfill walker a
+    // cursor to resume for every folder, and gives INBOX's delta/QRESYNC
+    // catch-up below a `uidNext` to diff against, all up front rather than
+    // after a full synchronous ingest the way #34/#35 did.
+    let inboxJustEstablished = false;
+    for (const folder of live) {
+      if (!folder.selectable) continue;
+      const { established } = await establishFolderBaseline(db, client, folder);
+      if (folder.id === inbox.id) inboxJustEstablished = established;
+    }
+
+    // A freshly established INBOX — first-ever connect, or a UIDVALIDITY
+    // rebuild — has nothing stored to delta against yet: every one of its
+    // messages is the background backfill's job from here (`residentLoop`),
+    // not a delta's. Anything else means INBOX was already tracked, and
+    // whatever changed since last time is a genuine gap `attemptQresyncCatchup`
+    // (falling back to the UID-diff `applyFolderDelta`) catches up on.
+    if (!inboxJustEstablished) {
+      const freshInbox = await getFolderById(db, inbox.id);
+      if (freshInbox && !(await attemptQresyncCatchup(db, client, freshInbox))) {
+        await applyFolderDelta(db, client, freshInbox);
+      }
     }
     await setSyncStatus(db, accountId, { state: "idle", touchProgress: true });
 
@@ -312,6 +354,29 @@ async function residentLoop(
   // their first pass after a fresh connect — then reschedules itself.
   void runPoll();
 
+  // #36: the account-wide historical header backfill and the body sweep run
+  // for the lifetime of this connection, right alongside IDLE and polling
+  // above — bounded batches on short pauses so neither one starves the
+  // other's turn on the one shared connection (ADR-0005). A failure in
+  // either tears the whole session down the same way a dropped IDLE would;
+  // each resumes from its own persisted cursor/watermark on the reconnect
+  // `startLiveSyncSession`'s outer loop drives.
+  const backgroundStopSignal = Promise.race([failure.promise, ctx.stopSignal]);
+  const backgroundStopped = () => ctx.isStopped() || failed !== undefined;
+  const backfillDone = runAccountBackfill(db, client, accountId, {
+    stopSignal: backgroundStopSignal,
+    isStopped: backgroundStopped,
+    batchSize: ctx.backfillBatchSize,
+    pauseMs: ctx.backfillPauseMs,
+  }).catch(fail);
+  const sweepDone = runBodySweep(db, client, accountId, {
+    stopSignal: backgroundStopSignal,
+    isStopped: backgroundStopped,
+    batchSize: ctx.bodySweepBatchSize,
+    pauseMs: ctx.bodySweepPauseMs,
+    idlePollMs: ctx.bodySweepIdlePollMs,
+  }).catch(fail);
+
   try {
     await Promise.race([failure.promise, ctx.stopSignal]);
   } finally {
@@ -322,6 +387,11 @@ async function residentLoop(
     client.off("expunge", onExpunge);
     client.off("close", onClose);
     client.off("error", onError);
+    // Both loops check `backgroundStopped()` between (bounded) awaits, so
+    // this settles promptly rather than blocking shutdown on a whole
+    // backfill/sweep pass — but it has to be awaited before returning, or
+    // `runSession`'s `client.close()` races an in-flight FETCH on them.
+    await Promise.allSettled([backfillDone, sweepDone]);
   }
 
   if (failed !== undefined && !ctx.isStopped()) {

@@ -19,6 +19,10 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
       lastProgressAt: row.lastProgressAt?.toISOString() ?? null,
       lastError: row.lastSyncError,
     },
+    indexWatermark: {
+      coveredSince: row.bodyWatermark?.toISOString() ?? null,
+      complete: row.bodySweepComplete,
+    },
     createdAt: row.createdAt.toISOString(),
   };
 }
