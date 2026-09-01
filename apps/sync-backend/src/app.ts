@@ -10,6 +10,7 @@ import { authRoutes } from "./routes/auth.js";
 import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
+import { syncRoutes } from "./routes/sync.js";
 import { totpRoutes } from "./routes/totp.js";
 import { noopSyncManager, type SyncManager } from "./sync/manager.js";
 
@@ -73,6 +74,7 @@ export function buildApp({
     discover: mailAccountDiscover,
     syncManager,
   });
+  app.register(syncRoutes, { db });
 
   if (existsSync(publicDir)) {
     app.register(fastifyStatic, { root: publicDir });

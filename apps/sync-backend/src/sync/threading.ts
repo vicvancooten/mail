@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { messages, threadMessageIds, threads } from "../db/schema.js";
 import { baseSubject } from "./subject.js";
+import { recordTombstones } from "./tombstones.js";
 
 /**
  * Thread assembly (#34). Reference-based, order-independent, and merging.
@@ -103,8 +104,8 @@ async function createThread(db: Db, input: ResolveThreadInput): Promise<string> 
  * replies to, so keeping its id keeps the identity a Client may already have
  * cached pointing at the right conversation. The losers' messages and id
  * registrations are reassigned and the empty rows deleted; ADR-0011's
- * `destroyed` list is how #37 will tell Clients about the ones that went
- * away.
+ * `destroyed` list (#37, `sync/collection-sync.ts`) is how Clients learn the
+ * losing ids are gone.
  */
 async function mergeThreads(
   db: Db,
@@ -141,6 +142,7 @@ async function mergeThreads(
     .set({ threadId: survivor.id })
     .where(inArray(threadMessageIds.threadId, losers));
   await db.delete(threads).where(inArray(threads.id, losers));
+  await recordTombstones(db, { mailAccountId, collection: "Thread", entityIds: losers });
 
   return survivor.id;
 }
@@ -150,6 +152,13 @@ async function mergeThreads(
  * folder is re-ingested under a new UIDVALIDITY, or a message is expunged.
  * Their `thread_message_ids` rows cascade away with them, so a Thread that
  * comes back later is genuinely rebuilt rather than resurrected half-empty.
+ *
+ * Tombstoned individually (ADR-0011's `destroyed` list, #37) even though
+ * `sync/ingest.ts#applyUidValidity`'s rebuild case also bumps the account's
+ * `threadsEpoch` and so answers with a Thread `reset: true` regardless —
+ * belt and braces costs one small table's worth of rows, and every other
+ * caller (a message vanishing via `sync/delta.ts`'s UID diff) has no reset
+ * to fall back on and needs these to make the destroyed list at all.
  */
 export async function deleteEmptyThreads(db: Db, mailAccountId: string): Promise<number> {
   const deleted = await db
@@ -161,5 +170,10 @@ export async function deleteEmptyThreads(db: Db, mailAccountId: string): Promise
       ),
     )
     .returning({ id: threads.id });
+  await recordTombstones(db, {
+    mailAccountId,
+    collection: "Thread",
+    entityIds: deleted.map((row) => row.id),
+  });
   return deleted.length;
 }
