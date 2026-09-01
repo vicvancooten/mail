@@ -204,6 +204,21 @@ describe("runSearch — structured filters", () => {
     });
     expect(outOfRange.rows).toEqual([]);
   });
+
+  it("before: is inclusive of the named calendar day", async () => {
+    const { threadId: onDay } = await seedMessage({ sentAt: new Date("2024-06-15T23:59:00Z") });
+    const { threadId: nextDay } = await seedMessage({ sentAt: new Date("2024-06-16T00:01:00Z") });
+
+    const result = await runSearch(db, {
+      mailAccountId: account.id,
+      text: "",
+      before: "2024-06-15",
+    });
+
+    const matchedThreadIds = result.rows.map((r) => r.threadId);
+    expect(matchedThreadIds).toContain(onDay);
+    expect(matchedThreadIds).not.toContain(nextDay);
+  });
 });
 
 describe("runSearch — folder scope (ADR-0016 default: every folder but Trash/Junk)", () => {

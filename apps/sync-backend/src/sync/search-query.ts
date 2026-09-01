@@ -99,7 +99,12 @@ export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQ
   }
 
   if (filters.after) conditions.push(sql`ms.sent_at >= ${filters.after}::timestamptz`);
-  if (filters.before) conditions.push(sql`ms.sent_at < ${filters.before}::timestamptz`);
+  // Inclusive on the named calendar day (search.ts's `before` doc comment,
+  // query-parser.ts's own copy of that contract, and the Client prefilter's
+  // `withinDateRange` all agree on this) — `< before + 1 day` rather than
+  // `< before`, which would exclude the named day entirely.
+  if (filters.before)
+    conditions.push(sql`ms.sent_at < (${filters.before}::timestamptz + interval '1 day')`);
 
   if (filters.cursor) {
     const cursorDate = new Date(filters.cursor);
