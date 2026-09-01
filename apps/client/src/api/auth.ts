@@ -95,6 +95,19 @@ export async function postNoContent(url: string, body: unknown): Promise<void> {
   }
 }
 
+/** `deleteRequest` with a JSON body (`api/push.ts`'s unsubscribe, which names the endpoint to remove). */
+export async function deleteNoContent(url: string, body: unknown): Promise<void> {
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorCode(response));
+  }
+}
+
 export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
   const response = await fetch("/auth/status", { credentials: "include" });
   if (!response.ok) {

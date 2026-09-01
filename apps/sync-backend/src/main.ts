@@ -4,6 +4,9 @@ import { startSendLoop } from "./compose/send-loop.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
+import type { SendPushFn } from "./notifier/deliver.js";
+import { startNotifierDeliverLoop } from "./notifier/deliver-loop.js";
+import { createWebPushSender } from "./notifier/web-push-sender.js";
 import { createSyncHintBroker } from "./realtime/sync-hints.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
@@ -34,6 +37,24 @@ if (!host || Number.isNaN(port)) {
 // unrequested IMAP connection just by calling `buildApp`.
 const syncManager = createSyncManager(db, { mailCredentialKey: env.MAIL_CREDENTIAL_KEY });
 
+// Web Push (#53, ADR-0015): optional as a pair (`env.ts` refuses to boot on
+// a mismatched pair) — an instance that never ran `generate-vapid-keys`
+// simply never offers it. `sendPush` is only ever reachable when a
+// subscription row exists, and a subscription can only ever be created
+// while `vapidPublicKey` is non-null (the Client reads it from
+// `GET /push/config` before ever calling `pushManager.subscribe`) — the
+// disabled branch below is therefore a safety net for an operator who
+// *removes* previously-configured keys, not the ordinary path.
+const vapidPublicKey = env.MAIL_VAPID_PUBLIC_KEY ?? null;
+const sendPush: SendPushFn =
+  env.MAIL_VAPID_PUBLIC_KEY && env.MAIL_VAPID_PRIVATE_KEY
+    ? createWebPushSender({
+        publicKey: env.MAIL_VAPID_PUBLIC_KEY,
+        privateKey: env.MAIL_VAPID_PRIVATE_KEY,
+        contact: env.MAIL_VAPID_CONTACT,
+      })
+    : async () => ({ ok: false, expired: false });
+
 const app = buildApp({
   db,
   publicUrl: env.PUBLIC_URL,
@@ -41,6 +62,7 @@ const app = buildApp({
   syncManager,
   attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
   syncHints,
+  vapidPublicKey,
 });
 
 // One-time first-run claim token, printed to the logs (ADR-0009 deployment).
@@ -81,6 +103,11 @@ const sendLoop = startSendLoop(db, {
 // Account or gated on its sync state.
 const searchIndexRebuildLoop = startSearchIndexRebuildLoop(db, { logger: app.log });
 
+// The Notifier's outbox delivery sweep (#53, ADR-0015). Its first tick runs
+// immediately, same reasoning as the send sweeper above: whatever the outbox
+// held when the process died is exactly what this boot-time tick resumes.
+const notifierDeliverLoop = startNotifierDeliverLoop(db, { sendPush, logger: app.log });
+
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
 // describes: stop every resident session (a polite IMAP LOGOUT, then close)
@@ -92,6 +119,7 @@ process.on("SIGTERM", () => {
     draftPushLoop.stop(),
     sendLoop.stop(),
     searchIndexRebuildLoop.stop(),
+    notifierDeliverLoop.stop(),
     syncHints.stop(),
   ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))

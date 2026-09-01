@@ -1,5 +1,6 @@
 import type { AutoAdvanceDirection } from "@mail/shared";
 import { useCallback, useEffect, useRef } from "react";
+import { notifyTriageSucceeded } from "../pwa/notification-offer.js";
 import type { CachedThread } from "../store/index.js";
 import { enqueueMutation } from "../store/index.js";
 import { neighborId } from "./thread-navigation.js";
@@ -122,7 +123,9 @@ export function useTriage({
   const archive = useCallback(
     (threadId: string) => {
       advanceSelection(threadId); // before the enqueue: `ids` here still includes `threadId`
-      if (mailAccountId) void enqueueMutation({ type: "archive", threadId }, mailAccountId);
+      if (!mailAccountId) return;
+      void enqueueMutation({ type: "archive", threadId }, mailAccountId);
+      notifyTriageSucceeded();
     },
     [advanceSelection, mailAccountId],
   );
@@ -130,7 +133,9 @@ export function useTriage({
   const trash = useCallback(
     (threadId: string) => {
       advanceSelection(threadId);
-      if (mailAccountId) void enqueueMutation({ type: "trash", threadId }, mailAccountId);
+      if (!mailAccountId) return;
+      void enqueueMutation({ type: "trash", threadId }, mailAccountId);
+      notifyTriageSucceeded();
     },
     [advanceSelection, mailAccountId],
   );
@@ -144,6 +149,7 @@ export function useTriage({
         { type: "setStarred", threadId, starred: !thread.starred },
         mailAccountId,
       );
+      notifyTriageSucceeded();
     },
     [mailAccountId],
   );
@@ -157,6 +163,7 @@ export function useTriage({
         { type: "setRead", threadId, read: thread.unreadCount > 0 },
         mailAccountId,
       );
+      notifyTriageSucceeded();
     },
     [mailAccountId],
   );

@@ -5,6 +5,7 @@ import type { Db } from "../db/client.js";
 import { messages, threads } from "../db/schema.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
+import { listUndelivered } from "../notifier/outbox.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { buildTestMessage } from "../test-support/mime.js";
@@ -133,6 +134,78 @@ describe("applyFolderDelta against GreenMail", () => {
         ),
       );
     expect(stored).toHaveLength(1);
+  });
+
+  it("records a Notifier new_mail entry for a message that arrives via delta on the Inbox (#53)", async () => {
+    const other = await connectOtherClient(account.emailAddress);
+    await syncMailAccount(db, account, {
+      mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
+      roles: ["inbox"],
+    });
+
+    await other.append(
+      "INBOX",
+      buildTestMessage({
+        from: "Dana Diaz <dana@example.test>",
+        to: account.emailAddress,
+        subject: "Locked-phone push",
+        date: at(1),
+        messageId: "delta-notify@example.test",
+        text: "Ring the phone.",
+      }),
+      [],
+      at(1),
+    );
+
+    const client = await connectMailAccount(db, account, {
+      credentialKey: deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY),
+    });
+    try {
+      await applyFolderDelta(db, client, await inboxRow());
+    } finally {
+      await client.logout().catch(() => undefined);
+      client.close();
+    }
+
+    const pending = await listUndelivered(db);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      kind: "new_mail",
+      mailAccountId: account.id,
+      userId: account.userId,
+    });
+    expect(pending[0]?.payload).toMatchObject({
+      kind: "new_mail",
+      senderName: "Dana Diaz",
+      senderAddress: "dana@example.test",
+      subject: "Locked-phone push",
+    });
+  });
+
+  it("never records a Notifier entry for mail discovered by the baseline sync (backfill, #53)", async () => {
+    const other = await connectOtherClient(account.emailAddress);
+    await other.append(
+      "INBOX",
+      buildTestMessage({
+        from: "Already Here <already@example.test>",
+        to: account.emailAddress,
+        subject: "Pre-existing mail",
+        date: at(1),
+        messageId: "delta-backfill@example.test",
+        text: "Was here before this Mail Account ever connected.",
+      }),
+      [],
+      at(1),
+    );
+
+    // The very first sync: this message is discovered by the baseline
+    // ingest, never by a delta — "backfill can never notify" (ADR-0015).
+    await syncMailAccount(db, account, {
+      mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
+      roles: ["inbox"],
+    });
+
+    expect(await listUndelivered(db)).toEqual([]);
   });
 
   it("applies a flag change made by another IMAP client", async () => {

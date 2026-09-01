@@ -171,7 +171,8 @@ describe("POST /sync", () => {
       expect(delta.reset).toBeUndefined();
 
       // Token round-trip: nothing changed since `newState`, so the
-      // collection is entirely absent from the response.
+      // collection is entirely absent from the response — `unreadInboxCount`
+      // (#53) is the one field that's never gated on "something changed".
       const second = await app.inject({
         method: "POST",
         url: "/sync",
@@ -179,7 +180,7 @@ describe("POST /sync", () => {
         payload: { user: { MailAccount: delta.newState } },
       });
       expect(second.statusCode).toBe(200);
-      expect(second.json().user).toEqual({});
+      expect(second.json().user).toEqual({ unreadInboxCount: 0 });
     });
 
     it("answers reset: true for a token the server no longer knows", async () => {

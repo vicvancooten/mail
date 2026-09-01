@@ -2,6 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { ExpungeEvent, FlagsEvent, ImapFlow, MailboxObject } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, messages } from "../db/schema.js";
+import { getMailAccountById } from "../mail-accounts/store.js";
+import { recordNewMailNotifications } from "../notifier/record.js";
 import { type FolderDeltaResult, flagsDiffer } from "./delta.js";
 import type { FolderRow } from "./folders.js";
 import { storeMessage } from "./ingest.js";
@@ -154,13 +156,22 @@ export async function attemptQresyncCatchup(
   }
 
   let created = 0;
+  const createdMessageIds: string[] = [];
   // Oldest-UID-first is fine here (unlike #34's backfill order): this is at
   // most the handful of messages that arrived while disconnected, not a
   // newest-first backfill concern.
   for (const message of newUidFetch) {
     const stored = await storeMessage(db, folder, uidValidity, message);
     affectedThreadIds.add(stored.threadId);
+    createdMessageIds.push(stored.id);
     created += 1;
+  }
+  // The Notifier hook (#53, ADR-0015) — same reasoning as `delta.ts`'s own
+  // new-UID loop: this whole function only ever runs for a live
+  // reconnect/poll catch-up, never backfill.
+  if (createdMessageIds.length > 0) {
+    const account = await getMailAccountById(db, folder.mailAccountId);
+    if (account) await recordNewMailNotifications(db, folder, account, createdMessageIds);
   }
 
   await refreshThreadRollups(db, [...affectedThreadIds]);

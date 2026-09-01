@@ -50,6 +50,7 @@ describe("passkey login (#32)", () => {
           jsonResponse({ challenge: "chal-1", rpId: "localhost", timeout: 60000 }),
         ],
         "POST /auth/passkeys/login/verify": [AUTHENTICATED_USER],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
       }),
     );
 
@@ -123,6 +124,7 @@ describe("passkey registration (#32)", () => {
         ],
         "POST /auth/passkeys/register/options": [jsonResponse({ challenge: "chal-1" })],
         "POST /auth/passkeys/register/verify": [new Response(null, { status: 201 })],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
       }),
     );
 

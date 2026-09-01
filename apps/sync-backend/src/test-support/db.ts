@@ -14,8 +14,10 @@ import {
   mailAccounts,
   messageSearch,
   messages,
+  notifierOutbox,
   passkeyCredentials,
   protocolWrites,
+  pushSubscriptions,
   sessions,
   syncTombstones,
   threadMessageIds,
@@ -59,6 +61,8 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  * keeps the intent readable and survives a future FK losing its cascade.
  */
 export async function resetTestDb(db: Db): Promise<void> {
+  await db.delete(notifierOutbox);
+  await db.delete(pushSubscriptions);
   await db.delete(appliedMutations);
   await db.delete(composeSaveLedger);
   await db.delete(attachmentBlobs);

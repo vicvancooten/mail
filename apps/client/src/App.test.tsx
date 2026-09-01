@@ -46,6 +46,7 @@ describe("App", () => {
             { status: 201 },
           ),
         ],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
       }),
     );
 
@@ -112,6 +113,7 @@ describe("App", () => {
             },
           }),
         ],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
       }),
     );
 
@@ -137,6 +139,7 @@ describe("App", () => {
           }),
         ],
         "POST /auth/logout": [new Response(null, { status: 204 })],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
       }),
     );
 
@@ -176,6 +179,7 @@ describe("TOTP-gated login (#32)", () => {
             },
           }),
         ],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
       }),
     );
 
@@ -242,6 +246,7 @@ describe("auth-methods management (#32)", () => {
       createMockFetch({
         "GET /auth/status": [jsonResponse({ claimed: true })],
         "GET /auth/session": [AUTHENTICATED_USER],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
         "GET /auth/totp/status": [jsonResponse({ enabled: false })],
         "GET /auth/passkeys": [jsonResponse({ passkeys: [] })],
       }),
@@ -263,6 +268,7 @@ describe("auth-methods management (#32)", () => {
       createMockFetch({
         "GET /auth/status": [jsonResponse({ claimed: true })],
         "GET /auth/session": [AUTHENTICATED_USER],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
         "GET /auth/totp/status": [jsonResponse({ enabled: false })],
         "GET /auth/passkeys": [jsonResponse({ passkeys: [] })],
         "POST /auth/totp/enroll": [
@@ -297,6 +303,7 @@ describe("auth-methods management (#32)", () => {
       createMockFetch({
         "GET /auth/status": [jsonResponse({ claimed: true })],
         "GET /auth/session": [AUTHENTICATED_USER],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
         "GET /auth/totp/status": [jsonResponse({ enabled: true })],
         "GET /auth/passkeys": [jsonResponse({ passkeys: [] })],
         "POST /auth/totp/disable": [new Response(null, { status: 204 })],
@@ -321,6 +328,7 @@ describe("auth-methods management (#32)", () => {
       createMockFetch({
         "GET /auth/status": [jsonResponse({ claimed: true })],
         "GET /auth/session": [AUTHENTICATED_USER],
+        "GET /push/config": [jsonResponse({ vapidPublicKey: null })],
         "GET /auth/totp/status": [jsonResponse({ enabled: false })],
         "GET /auth/passkeys": [
           jsonResponse({

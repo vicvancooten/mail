@@ -2,6 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import type { FetchMessageObject, ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, messages } from "../db/schema.js";
+import { getMailAccountById } from "../mail-accounts/store.js";
+import { recordNewMailNotifications } from "../notifier/record.js";
 import type { FolderRow } from "./folders.js";
 import { applyUidValidity, ingestFolder, storeMessage } from "./ingest.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -153,12 +155,23 @@ export async function applyFolderDelta(
     const byUid = new Map<number, FetchMessageObject>(
       fetched.map((message) => [message.uid, message]),
     );
+    const createdMessageIds: string[] = [];
     for (const uid of newUids) {
       const message = byUid.get(uid);
       if (!message) continue; // vanished between the UID listing and this fetch
       const newlyStored = await storeMessage(db, folder, uidValidity, message);
       affectedThreadIds.add(newlyStored.threadId);
+      createdMessageIds.push(newlyStored.id);
       created += 1;
+    }
+    // The Notifier hook (#53, ADR-0015): this loop is exactly "arrived via
+    // IDLE/delta on an already-live folder" — the backfill/UIDVALIDITY-rebuild
+    // branch above returns before reaching here, so nothing from that path
+    // ever notifies. Skipped entirely when nothing was created, so the
+    // ordinary no-op delta pass never pays for the account lookup below.
+    if (createdMessageIds.length > 0) {
+      const account = await getMailAccountById(db, folder.mailAccountId);
+      if (account) await recordNewMailNotifications(db, folder, account, createdMessageIds);
     }
   }
 

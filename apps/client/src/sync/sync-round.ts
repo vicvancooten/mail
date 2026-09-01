@@ -6,6 +6,7 @@ import type {
   SyncRequest,
   SyncResponse,
 } from "@mail/shared";
+import { setBadgeCount } from "../pwa/badge.js";
 import {
   listQueuedComposeSaves,
   resolveComposeSaveOutcomes,
@@ -84,6 +85,11 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
   const replaysStarted = new Set<string>();
   let pages = 0;
   let changed = false;
+  // The app-icon badge (#53, ADR-0015): read off every page's response and
+  // applied once, after the loop — not per page, which would call the
+  // Badging API redundantly on a large multi-page bootstrap for no benefit
+  // (every page of one round carries the same fresh value).
+  let unreadInboxCount: number | undefined;
 
   while (pages < MAX_PAGES_PER_ROUND) {
     const request = await buildSyncRequest({
@@ -93,6 +99,9 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
     const askedAbout = new Set(Object.keys(request.mailAccounts ?? {}));
     const response = await post(request);
     pages += 1;
+    if (response.user.unreadInboxCount !== undefined) {
+      unreadInboxCount = response.user.unreadInboxCount;
+    }
 
     if (pages === 1) {
       await applyMutationOutcomes(request, response);
@@ -174,6 +183,11 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
   }
 
   await pruneOrphanedMailAccountData();
+  // "Set by the leader tab on every delta" (ADR-0015) — this is the leader
+  // tab's own writer (the service worker's push handler is the other one,
+  // `sw.ts`); both call the same idempotent `setBadgeCount` with a
+  // server-computed absolute value, never a locally-derived delta.
+  if (unreadInboxCount !== undefined) await setBadgeCount(unreadInboxCount);
   return { deferred: false, pages, changed };
 }
 

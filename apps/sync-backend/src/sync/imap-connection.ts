@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { unsealPasswordCredential } from "../mail-accounts/credential-crypto.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
+import { recordNeedsReauthNotification } from "../notifier/record.js";
 
 /**
  * The one IMAP connection a Mail Account gets (ADR-0005: "one IMAP
@@ -91,7 +92,8 @@ export async function connectMailAccount(
   } catch (err) {
     client.close();
     if (isAuthFailure(err)) {
-      await markNeedsReauth(db, account.id);
+      const transitioned = await markNeedsReauth(db, account.id);
+      if (transitioned) await recordNeedsReauthNotification(db, transitioned);
       throw new MailAccountNeedsReauthError(account.id, err.message);
     }
     throw err;
