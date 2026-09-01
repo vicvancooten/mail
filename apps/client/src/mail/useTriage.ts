@@ -1,8 +1,8 @@
+import type { AutoAdvanceDirection } from "@mail/shared";
 import { useCallback, useEffect, useRef } from "react";
 import type { CachedThread } from "../store/index.js";
 import { enqueueMutation } from "../store/index.js";
 import { neighborId } from "./thread-navigation.js";
-import type { AdvanceDirection } from "./triage-preferences.js";
 
 /**
  * The one triage hook every view mode calls (#42, poc-spec.md §Triage &
@@ -63,7 +63,9 @@ export interface UseTriageOptions {
   ids: readonly string[];
   selectedThreadId: string | null;
   onSelect: (id: string) => void;
-  direction: AdvanceDirection;
+  direction: AutoAdvanceDirection;
+  /** Auto-advance on/off (#54, poc-spec.md §Preferences) — `false` leaves the selection where it was after archive/trash. */
+  autoAdvanceEnabled?: boolean;
   /**
    * True while the composer is open (#45, compose-spec §Composer surface &
    * keys: "the composer owns every key and the triage shortcuts are inert").
@@ -81,6 +83,7 @@ export function useTriage({
   selectedThreadId,
   onSelect,
   direction,
+  autoAdvanceEnabled = true,
   shortcutsDisabled = false,
 }: UseTriageOptions): Triage {
   const threadsRef = useRef(threads);
@@ -105,7 +108,7 @@ export function useTriage({
   /** Moves the selection off `threadId` onto its `direction`-preferred neighbor, only if it was selected. */
   const advanceSelection = useCallback(
     (threadId: string) => {
-      if (selectedThreadId !== threadId) return;
+      if (!autoAdvanceEnabled || selectedThreadId !== threadId) return;
       const idx = ids.indexOf(threadId);
       if (idx === -1) return;
       const older = ids[idx + 1] ?? null;
@@ -113,7 +116,7 @@ export function useTriage({
       const upcoming = direction === "newer" ? (newer ?? older) : (older ?? newer);
       if (upcoming) onSelect(upcoming);
     },
-    [ids, selectedThreadId, direction, onSelect],
+    [ids, selectedThreadId, direction, autoAdvanceEnabled, onSelect],
   );
 
   const archive = useCallback(

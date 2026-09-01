@@ -24,6 +24,7 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
       complete: row.bodySweepComplete,
     },
     signature: row.signature,
+    notificationsEnabled: row.notificationsEnabled,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -148,6 +149,18 @@ export async function updateMailAccountSignature(
   await db
     .update(mailAccounts)
     .set({ signature, updatedAt: new Date() })
+    .where(eq(mailAccounts.id, id));
+}
+
+/** The notification on/off toggle's write path (#54) — `setNotificationsEnabled`'s handler in `sync/mutations.ts`. */
+export async function updateMailAccountNotificationsEnabled(
+  db: Db,
+  id: string,
+  enabled: boolean,
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ notificationsEnabled: enabled, updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
 }
 

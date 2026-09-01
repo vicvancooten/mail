@@ -93,6 +93,7 @@ describe("opening the Local Cache", () => {
       from: 1,
       pendingMutations: 1,
       pendingComposeSaves: 0,
+      pendingUserMutations: 0,
     });
     // The old data stays, and stays readable: an unsent archive performed on
     // a train outranks the upgrade.
@@ -109,6 +110,7 @@ describe("opening the Local Cache", () => {
       from: 1,
       pendingMutations: 0,
       pendingComposeSaves: 1,
+      pendingUserMutations: 0,
     });
     expect(await localCache().pendingComposeSaves.count()).toBe(1);
   });
@@ -146,6 +148,7 @@ describe("opening the Local Cache", () => {
       from: 2,
       pendingMutations: 1,
       pendingComposeSaves: 0,
+      pendingUserMutations: 0,
     });
     expect(await localCache().threads.count()).toBe(1);
   });

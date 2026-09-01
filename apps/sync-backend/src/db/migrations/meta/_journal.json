@@ -120,6 +120,13 @@
       "when": 1788280324202,
       "tag": "0016_notify_sync_hint",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788280556871,
+      "tag": "0017_redundant_jack_power",
+      "breakpoints": true
     }
   ]
 }

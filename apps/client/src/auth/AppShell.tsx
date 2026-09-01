@@ -1,13 +1,13 @@
 import type { User } from "@mail/shared";
 import { useState } from "react";
 import { MailSection } from "../mail/MailSection.js";
-import { MailAccountsSection } from "../mail-accounts/MailAccountsSection.js";
+import { SettingsSection } from "../settings/SettingsSection.js";
 import { useAuth } from "./AuthContext.js";
-import { AuthMethodsSection } from "./AuthMethodsSection.js";
 
 /**
  * The authenticated shell: session controls plus the real triage UI
- * (`MailSection`, #40) and the account/auth settings sections below it.
+ * (`MailSection`, #40) and the settings screen below it (#54: Preferences,
+ * auth methods, and Mail Account management, all in one place now).
  */
 export function AppShell({ user }: { user: User }) {
   const { logout } = useAuth();
@@ -32,8 +32,7 @@ export function AppShell({ user }: { user: User }) {
         Log out
       </button>
       <MailSection />
-      <AuthMethodsSection />
-      <MailAccountsSection />
+      <SettingsSection />
     </div>
   );
 }

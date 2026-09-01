@@ -4,6 +4,7 @@ import type {
   Correspondent,
   Label,
   MailAccount,
+  Preference,
   Thread,
 } from "@mail/shared";
 import Dexie from "dexie";
@@ -41,6 +42,7 @@ export const THREAD_WINDOW_FLOOR = 500;
 export const THREAD_WINDOW_HIGH_WATER = 2 * THREAD_WINDOW_FLOOR;
 
 export const MAIL_ACCOUNT_TOKEN_KEY = "user:MailAccount";
+export const PREFERENCE_TOKEN_KEY = "user:Preference";
 
 export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
@@ -103,6 +105,26 @@ export async function applyMailAccountDelta(
       await db.syncState.put({ key: MAIL_ACCOUNT_TOKEN_KEY, token: delta.newState });
     },
   );
+}
+
+/**
+ * `Preference`, User-scoped (#54): exactly one row, so unlike every other
+ * collection here there is no `mailAccountId` and nothing to bulk-delete —
+ * `bulkPut` on a one-row page is simply "replace this Client's copy of the
+ * User's own settings".
+ */
+export async function applyPreferenceDelta(
+  delta: CollectionDelta<Preference>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.preferences, db.syncState], async () => {
+    if (replace) await db.preferences.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.preferences.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.preferences.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: PREFERENCE_TOKEN_KEY, token: delta.newState });
+  });
 }
 
 /**

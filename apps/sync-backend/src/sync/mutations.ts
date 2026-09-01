@@ -1,4 +1,10 @@
-import type { MutationIntent, MutationOutcome, QueuedMutation } from "@mail/shared";
+import type {
+  MutationIntent,
+  MutationOutcome,
+  QueuedMutation,
+  QueuedUserMutation,
+  UserMutationIntent,
+} from "@mail/shared";
 import {
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   isValidLabelName,
@@ -18,6 +24,10 @@ import {
   threads,
   users,
 } from "../db/schema.js";
+import {
+  updateMailAccountNotificationsEnabled,
+  updateMailAccountSignature,
+} from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -103,10 +113,19 @@ async function applyIntent(
   mailAccountId: string,
   intent: MutationIntent,
 ): Promise<IntentResult> {
-  // The two Composition intents (#46) name no Thread, so they are dispatched
-  // ahead of the Thread lookup every other intent starts from.
+  // The two Composition intents (#46) and the two Preference intents (#54)
+  // name no Thread, so they are dispatched ahead of the Thread lookup every
+  // other intent starts from.
   if (intent.type === "sendComposition" || intent.type === "cancelSend") {
     return applyCompositionIntent(db, mailAccountId, intent);
+  }
+  if (intent.type === "setSignature") {
+    await updateMailAccountSignature(db, mailAccountId, intent.signature);
+    return { ok: true };
+  }
+  if (intent.type === "setNotificationsEnabled") {
+    await updateMailAccountNotificationsEnabled(db, mailAccountId, intent.enabled);
+    return { ok: true };
   }
 
   const [thread] = await db
@@ -293,6 +312,89 @@ function toOutcome(
   row: { status: "applied" | "rejected"; reason: string | null },
 ): MutationOutcome {
   return row.reason ? { id, status: row.status, reason: row.reason } : { id, status: row.status };
+}
+
+/**
+ * Applies one User's queued Preference edits (#54): the User-scoped half of
+ * ADR-0010's Optimistic Action queue, alongside `flushMutations` above for
+ * the Mail-Account-scoped half. Same idempotency ledger (`applied_mutations`,
+ * keyed by `userId` here instead of `mailAccountId`), same FIFO-in-array-order
+ * contract, same "one rejected entry doesn't stop the rest" independence —
+ * there is simply no Thread, Composition, or IMAP side-effect a Preference
+ * edit could ever have.
+ */
+export async function flushUserMutations(
+  db: Db,
+  userId: string,
+  queued: QueuedUserMutation[],
+): Promise<MutationOutcome[]> {
+  const outcomes: MutationOutcome[] = [];
+  for (const { id, intent } of queued) {
+    outcomes.push(await applyOneUserMutation(db, userId, id, intent));
+  }
+  return outcomes;
+}
+
+async function applyOneUserMutation(
+  db: Db,
+  userId: string,
+  id: string,
+  intent: UserMutationIntent,
+): Promise<MutationOutcome> {
+  const existing = await ledgerRow(db, id);
+  if (existing) return toOutcome(id, existing);
+
+  const result = await applyUserIntent(db, userId, intent);
+  try {
+    await db.insert(appliedMutations).values({
+      id,
+      userId,
+      intentType: intent.type,
+      status: result.ok ? "applied" : "rejected",
+      reason: result.ok ? null : result.reason,
+    });
+  } catch (error) {
+    // Mirrors `applyOne`'s own race handling above — see its comment.
+    if (isUniqueViolation(error)) {
+      const row = await ledgerRow(db, id);
+      if (row) return toOutcome(id, row);
+    }
+    throw error;
+  }
+
+  return result.ok ? { id, status: "applied" } : { id, status: "rejected", reason: result.reason };
+}
+
+/** Each variant is an absolute set on one `Preference` field (`sync.ts#userMutationIntentSchema`'s own doc comment) — nothing here can ever be rejected. */
+async function applyUserIntent(
+  db: Db,
+  userId: string,
+  intent: UserMutationIntent,
+): Promise<IntentResult> {
+  switch (intent.type) {
+    case "setTheme":
+      await db
+        .update(users)
+        .set({ theme: intent.theme, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
+    case "setAutoAdvance":
+      await db
+        .update(users)
+        .set({
+          autoAdvanceEnabled: intent.enabled,
+          autoAdvanceDirection: intent.direction,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+      return { ok: true };
+    case "setUndoSendDelay":
+      await db
+        .update(users)
+        .set({ undoSendDelaySeconds: intent.undoSendDelaySeconds, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
+  }
 }
 
 function isUniqueViolation(error: unknown): boolean {

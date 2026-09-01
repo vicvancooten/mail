@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchMailAccounts } from "../api/mail-accounts.js";
 import { AddMailAccountForm } from "./AddMailAccountForm.js";
 import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
-import { SignatureEditor } from "./SignatureEditor.js";
 
 /**
  * The account list UI (#33): every Mail Account this User owns
@@ -51,14 +50,6 @@ export function MailAccountsSection() {
               ) : (
                 <span> — connected</span>
               )}
-              <SignatureEditor
-                account={account}
-                onUpdated={(updated) =>
-                  setAccounts((current) =>
-                    (current ?? []).map((entry) => (entry.id === updated.id ? updated : entry)),
-                  )
-                }
-              />
             </li>
           ))}
         </ul>

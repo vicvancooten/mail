@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { composeSaveOutcomeSchema, composeSaveSchema, compositionSchema } from "./compose.js";
+import {
+  composeSaveOutcomeSchema,
+  composeSaveSchema,
+  compositionSchema,
+  undoSendDelaySchema,
+} from "./compose.js";
 import { mailAccountSchema } from "./mail-accounts.js";
 
 /**
@@ -125,6 +130,76 @@ export type ThreadDelta = z.infer<typeof threadDeltaSchema>;
 export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
 export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 
+/** How the Client renders chrome: `system` follows the OS/browser's own `prefers-color-scheme` (#54, poc-spec.md §Preferences). */
+export const themeSchema = z.enum(["system", "light", "dark"]);
+export type Theme = z.infer<typeof themeSchema>;
+export const DEFAULT_THEME: Theme = "system";
+
+/** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
+export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
+export type AutoAdvanceDirection = z.infer<typeof autoAdvanceDirectionSchema>;
+export const DEFAULT_AUTO_ADVANCE_DIRECTION: AutoAdvanceDirection = "older";
+export const DEFAULT_AUTO_ADVANCE_ENABLED = true;
+
+/**
+ * `Preference` (#54, poc-spec.md §Preferences, ADR-0011): the User-scoped
+ * synced preference collection — theme, Auto-advance on/off and direction,
+ * and the Undo Send delay, "the same everywhere the User signs in"
+ * (CONTEXT.md's Device Preference entry, by contrast). Exactly one row per
+ * User, `id` is the owning User's id rather than a minted one — there is
+ * never a second row to distinguish it from — which is what lets this ride
+ * the ordinary `CollectionDelta` shape every other collection uses
+ * (`sync/collection-sync.ts`) with no windowing or pagination of its own.
+ */
+export const preferenceSchema = z.object({
+  id: z.string(),
+  theme: themeSchema,
+  autoAdvanceEnabled: z.boolean(),
+  autoAdvanceDirection: autoAdvanceDirectionSchema,
+  undoSendDelaySeconds: undoSendDelaySchema,
+  updatedAt: z.iso.datetime(),
+});
+export type Preference = z.infer<typeof preferenceSchema>;
+
+export const preferenceDeltaSchema = collectionDeltaSchema(preferenceSchema);
+export type PreferenceDelta = z.infer<typeof preferenceDeltaSchema>;
+
+/**
+ * The User-scoped Optimistic Actions `Preference` accepts (ADR-0010): each is
+ * an absolute set on one field, mirroring `setPinned`'s shape rather than a
+ * single "patch" intent, so two edits queued offline against different
+ * fields never clobber each other and the debug view reads as plainly as
+ * every other intent. None ever touches IMAP — a Preference is App Feature
+ * state through and through.
+ */
+export const userMutationIntentSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("setTheme"), theme: themeSchema }),
+  z.object({
+    type: z.literal("setAutoAdvance"),
+    enabled: z.boolean(),
+    direction: autoAdvanceDirectionSchema,
+  }),
+  z.object({ type: z.literal("setUndoSendDelay"), undoSendDelaySeconds: undoSendDelaySchema }),
+]);
+export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
+
+/** One queued User-scoped Optimistic Action, the same ULID-keyed shape as `QueuedMutation`. */
+export const queuedUserMutationSchema = z.object({
+  id: z.string(),
+  intent: userMutationIntentSchema,
+});
+export type QueuedUserMutation = z.infer<typeof queuedUserMutationSchema>;
+
+/**
+ * The Mail-Account-scoped half of Preferences (#54): the plain-text
+ * signature (already a `MailAccount` field, #47) and the notification on/off
+ * toggle both ride the existing `MailAccount` collection rather than a
+ * separate one — one Mail Account, one row, no join needed to render either.
+ * Both are edited through this Mail Account's ordinary mutation queue —
+ * `setSignature`/`setNotificationsEnabled` on `mutationIntentSchema` below —
+ * same as any other App Feature.
+ */
+
 /**
  * A Correspondent (#49, CONTEXT.md, compose-spec §Recipient autocomplete):
  * an address the User has actually exchanged mail with on this Mail
@@ -186,6 +261,9 @@ const requestedTokenSchema = z.string().nullable();
 
 export const userSyncRequestSchema = z.object({
   MailAccount: requestedTokenSchema.optional(),
+  Preference: requestedTokenSchema.optional(),
+  /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
+  mutations: z.array(queuedUserMutationSchema).optional(),
 });
 export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
 
@@ -233,6 +311,10 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `compose/pending-send.ts`'s atomic claim is rejected `too_late`
  * (ADR-0007: "a cancel arriving after the claim loses and is reported to
  * the User as too late").
+ *
+ * `setSignature`/`setNotificationsEnabled` (#54) are the Mail-Account-scoped
+ * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
+ * above for why they ride this queue rather than a new collection.
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
@@ -244,6 +326,8 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("sendComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("cancelSend"), compositionId: z.string() }),
+  z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
+  z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 
@@ -314,6 +398,9 @@ export type SyncRequest = z.infer<typeof syncRequestSchema>;
  */
 export const userSyncResponseSchema = z.object({
   MailAccount: mailAccountDeltaSchema.optional(),
+  Preference: preferenceDeltaSchema.optional(),
+  /** Outcomes in the same order as the request's `mutations` array. */
+  mutations: z.array(mutationOutcomeSchema).optional(),
 });
 export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 

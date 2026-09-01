@@ -87,6 +87,15 @@ export const mailAccountSchema = z.object({
    * own ticket" shape `compose.ts`'s `UNDO_SEND_DELAY_OPTIONS` already uses.
    */
   signature: z.string().nullable(),
+  /**
+   * The notification on/off toggle (#54, poc-spec.md §Preferences): the
+   * Mail-Account-scoped half of Preferences, alongside `signature` above.
+   * Edited via the `setNotificationsEnabled` Optimistic Action
+   * (`sync.ts#mutationIntentSchema`), read by the Notifier
+   * (ADR-0015) before it ever decides a Message from this account is
+   * push-worthy.
+   */
+  notificationsEnabled: z.boolean(),
   createdAt: z.iso.datetime(),
 });
 export type MailAccount = z.infer<typeof mailAccountSchema>;

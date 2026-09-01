@@ -1,25 +1,33 @@
-import type { Label, Message } from "@mail/shared";
-import { labelNameFromId } from "@mail/shared";
+import type { AutoAdvanceDirection, Label, Message } from "@mail/shared";
+import {
+  DEFAULT_AUTO_ADVANCE_DIRECTION,
+  DEFAULT_AUTO_ADVANCE_ENABLED,
+  labelNameFromId,
+} from "@mail/shared";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import {
+  enqueueUserMutation,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
   useLabels,
   useMailAccounts,
+  usePreference,
   useThreadWindow,
 } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import {
   readLastAccountId,
+  readListDensity,
   readOpenComposerId,
   readStreamMode,
   readViewMode,
   writeLastAccountId,
+  writeListDensity,
   writeStreamMode,
   writeViewMode,
 } from "./device-preferences.js";
@@ -31,8 +39,8 @@ import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { TopBar } from "./TopBar.js";
-import { readAdvanceDirection, writeAdvanceDirection } from "./triage-preferences.js";
 import { useTriage } from "./useTriage.js";
+import { COMPACT_ROW_HEIGHT } from "./VirtualizedThreadList.js";
 import "./mail.css";
 
 /**
@@ -66,10 +74,22 @@ export function MailSection() {
 
   const [viewMode, setViewMode] = useState(readViewMode);
   const [streamMode, setStreamMode] = useState(readStreamMode);
+  // List density (#54, CONTEXT.md's Device Preference): local `useState`
+  // seeded from `localStorage`, same mechanics as `viewMode`/`streamMode`
+  // above — deliberately never synced, because density means something
+  // different on each device the User signs in from.
+  const [density, setDensity] = useState(readListDensity);
+  const rowHeight = density === "compact" ? COMPACT_ROW_HEIGHT : undefined;
   const [accountId, setAccountId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
-  const [direction, setDirection] = useState(readAdvanceDirection);
+  // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
+  // User-scoped and synced — `usePreference()` already carries `base ⊕
+  // pending`, so a change made offline (or on another device) is reflected
+  // here the instant its Optimistic Action lands, no extra plumbing needed.
+  const preference = usePreference();
+  const autoAdvanceEnabled = preference?.autoAdvanceEnabled ?? DEFAULT_AUTO_ADVANCE_ENABLED;
+  const direction = preference?.autoAdvanceDirection ?? DEFAULT_AUTO_ADVANCE_DIRECTION;
   // Filter-by-label (#43): "a label filter behaves as a view, bounded
   // window like any other" — `null` means the ordinary Inbox view.
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
@@ -144,10 +164,21 @@ export function MailSection() {
     writeStreamMode(enabled);
   }, []);
 
-  const changeDirection = useCallback((next: typeof direction) => {
-    setDirection(next);
-    writeAdvanceDirection(next);
+  const changeDensity = useCallback((next: typeof density) => {
+    setDensity(next);
+    writeListDensity(next);
   }, []);
+
+  const changeDirection = useCallback(
+    (next: AutoAdvanceDirection) => {
+      void enqueueUserMutation({
+        type: "setAutoAdvance",
+        enabled: autoAdvanceEnabled,
+        direction: next,
+      });
+    },
+    [autoAdvanceEnabled],
+  );
 
   const view = useMemo(
     () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : "all"),
@@ -218,6 +249,7 @@ export function MailSection() {
     selectedThreadId,
     onSelect: setSelectedThreadId,
     direction,
+    autoAdvanceEnabled,
     shortcutsDisabled: composeId !== null || search.active,
   });
   const rawSearchTriage = useTriage({
@@ -227,6 +259,7 @@ export function MailSection() {
     selectedThreadId: search.selectedThreadId,
     onSelect: search.select,
     direction,
+    autoAdvanceEnabled,
     shortcutsDisabled: composeId !== null || !search.active,
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
@@ -266,6 +299,8 @@ export function MailSection() {
         onViewMode={changeViewMode}
         streamMode={streamMode}
         onStreamMode={changeStreamMode}
+        density={density}
+        onDensity={changeDensity}
         direction={direction}
         onDirection={changeDirection}
         accounts={mailAccounts}
@@ -320,6 +355,7 @@ export function MailSection() {
             triage={triage}
             onReply={openReply}
             initialScrollThreadId={selectedThreadId}
+            rowHeight={rowHeight}
           />
         ) : (
           <ListView
@@ -333,6 +369,7 @@ export function MailSection() {
             triage={triage}
             onReply={openReply}
             initialScrollThreadId={selectedThreadId}
+            rowHeight={rowHeight}
           />
         )}
       </div>
