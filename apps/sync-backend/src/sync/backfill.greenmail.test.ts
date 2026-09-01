@@ -187,16 +187,21 @@ describe("runBackfillBatch against GreenMail", () => {
       done = result.done;
 
       const after = await db.select().from(messages).where(eq(messages.mailAccountId, account.id));
-      for (const row of after) {
-        if (!beforeUids.has(row.uid)) seenUids.push(row.uid);
-      }
+      // `db.select()` has no ORDER BY, so row order says nothing about the order
+      // the batch fetched in — only which UIDs the batch added. Sort within the
+      // batch and let the cross-batch boundaries carry the newest-first claim.
+      const batchUids = after
+        .map((row) => row.uid)
+        .filter((uid) => !beforeUids.has(uid))
+        .sort((left, right) => right - left);
+      seenUids.push(...batchUids);
 
       const refreshed = await findFolderByRole(db, account.id, "inbox");
       if (!refreshed) throw new Error("INBOX vanished mid-backfill");
       folder = refreshed;
     }
 
-    // Newest UID first, strictly descending across every batch boundary.
+    // Every batch's UIDs sit above the next batch's: newest-first, batch by batch.
     expect(seenUids).toHaveLength(7);
     expect([...seenUids].sort((left, right) => right - left)).toEqual(seenUids);
 
