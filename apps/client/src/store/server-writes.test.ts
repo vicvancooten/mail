@@ -1,5 +1,6 @@
 import Dexie from "dexie";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { closeStaleThreadNotification } from "../pwa/close-stale-notifications.js";
 import {
   delta,
   makeComposition,
@@ -29,6 +30,10 @@ import {
   THREAD_WINDOW_HIGH_WATER,
   threadTokenKey,
 } from "./server-writes.js";
+
+vi.mock("../pwa/close-stale-notifications.js", () => ({
+  closeStaleThreadNotification: vi.fn(async () => {}),
+}));
 
 /**
  * The bounded working set (ADR-0009) as it is actually enforced: admission
@@ -247,6 +252,51 @@ describe("the bounded working set", () => {
     const row = await windowRow();
     expect(row?.complete).toBe(true);
     expect(row?.oldestHeldSort).toBeNull();
+  });
+
+  describe("closing stale notifications on \\Seen (#53, ADR-0015)", () => {
+    beforeEach(() => {
+      vi.mocked(closeStaleThreadNotification).mockClear();
+    });
+
+    it("closes the notification for a Thread whose delta update lands with unreadCount at zero", async () => {
+      await applyThreadDelta(ACCOUNT, delta({ created: [makeThread("t1", ACCOUNT)] }), {
+        replace: false,
+      });
+
+      await applyThreadDelta(
+        ACCOUNT,
+        delta({ updated: [makeThread("t1", ACCOUNT, { unreadCount: 0 })] }),
+        { replace: false },
+      );
+
+      expect(closeStaleThreadNotification).toHaveBeenCalledTimes(1);
+      expect(closeStaleThreadNotification).toHaveBeenCalledWith("t1");
+    });
+
+    it("does not touch a Thread whose update still has unread mail", async () => {
+      await applyThreadDelta(ACCOUNT, delta({ created: [makeThread("t1", ACCOUNT)] }), {
+        replace: false,
+      });
+
+      await applyThreadDelta(
+        ACCOUNT,
+        delta({ updated: [makeThread("t1", ACCOUNT, { unreadCount: 2 })] }),
+        { replace: false },
+      );
+
+      expect(closeStaleThreadNotification).not.toHaveBeenCalled();
+    });
+
+    it("does not fire for a newly created (backfilled) Thread — it never had a notification to begin with", async () => {
+      await applyThreadDelta(
+        ACCOUNT,
+        delta({ created: [makeThread("t1", ACCOUNT, { unreadCount: 0 })] }),
+        { replace: false },
+      );
+
+      expect(closeStaleThreadNotification).not.toHaveBeenCalled();
+    });
   });
 });
 

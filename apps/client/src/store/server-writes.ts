@@ -8,6 +8,7 @@ import type {
   Thread,
 } from "@mail/shared";
 import Dexie from "dexie";
+import { closeStaleThreadNotification } from "../pwa/close-stale-notifications.js";
 import {
   type CachedComposition,
   type CachedThread,
@@ -187,6 +188,17 @@ export async function applyThreadDelta(
   // records that this window may be over its high water and coalesces the
   // actual sweep onto the next idle tick — see its own doc comment.
   scheduleWindowTrim(mailAccountId, view);
+
+  // "Any delta marking the thread `\Seen` lets the service worker close
+  // stale notifications on other devices" (#53, ADR-0015). Only
+  // `delta.updated` — a `created` row can only mean a backfill/replace
+  // Thread this device has never seen before, which never had a
+  // notification to begin with. Best-effort, outside the transaction, and
+  // never awaited: this is cosmetic cleanup, not part of the write this
+  // function promises.
+  for (const thread of delta.updated) {
+    if (thread.unreadCount === 0) void closeStaleThreadNotification(thread.id);
+  }
 }
 
 /**
