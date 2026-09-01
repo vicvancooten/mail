@@ -20,6 +20,7 @@ function thread(id: string, lastMessageAt: string | null): CachedThread {
     unreadCount: 0,
     starred: false,
     hasAttachments: false,
+    inInbox: true,
     updatedAt: lastMessageAt ?? "2026-01-01T00:00:00.000Z",
     sortKey: `${lastMessageAt ?? "0000-01-01T00:00:00.000Z"}|${id}`,
   };

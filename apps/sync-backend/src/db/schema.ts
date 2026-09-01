@@ -331,6 +331,16 @@ export const threads = pgTable(
     /** Any message `\Flagged` — Star is a Protocol Feature and lives on the message (ADR-0006). */
     starred: boolean("starred").notNull().default(false),
     hasAttachments: boolean("has_attachments").notNull().default(false),
+    // Not part of the message rollup above — `sync/thread-rollup.ts` never
+    // touches this column. It is `sync/mutations.ts`'s own field (#42): an
+    // archive/trash intent sets it to `false` directly, and nothing sets it
+    // back (there is no `unarchive` yet). Kept independent of the messages'
+    // real `folder_id` on purpose: the *actual* IMAP move that follows is
+    // asynchronous and can only learn a message's new UID once it completes
+    // (`sync/protocol-writes.ts`), so this is the synchronous half of the
+    // Optimistic Action's ack, and the folder move is the asynchronous
+    // mirror of it (ADR-0006).
+    inInbox: boolean("in_inbox").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // See `mailAccounts.syncRev`/`syncCreatedRev` above — same trigger, same
@@ -549,4 +559,39 @@ export const appliedMutations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("applied_mutations_account_idx").on(table.mailAccountId)],
+);
+
+/**
+ * The write-through outbox for the two Protocol Features (#42, ADR-0006):
+ * one row per real IMAP command still owed to the mail server after an
+ * Optimistic Action's synchronous ack — `\Seen`/`\Flagged` for
+ * `setRead`/`setStarred`, a `MOVE` to the account's Archive/Trash folder for
+ * `archive`/`trash`. `sync/mutations.ts` is the only writer;
+ * `sync/protocol-writes.ts#drainProtocolWrites` is the only reader, run
+ * periodically against a short-lived connection
+ * (`sync/protocol-write-loop.ts`) rather than the resident IDLE session, so
+ * a slow or failing mail server never blocks `POST /sync`'s own ack.
+ *
+ * Keyed to `messageId`, not `threadId`: the intents above act on every
+ * Message in a Thread, and a Thread's Messages can span folders (a Sent
+ * self-copy never moves when its Inbox copy is archived). The drain always
+ * re-reads a Message's *current* folder and flag state rather than trusting
+ * anything cached on this row, which is what makes two Optimistic Actions on
+ * the same Message (archive, then trash, before either drains) resolve to
+ * the right end state with no extra bookkeeping here.
+ */
+export const protocolWrites = pgTable(
+  "protocol_writes",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["seen", "flagged", "archive", "trash"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("protocol_writes_account_idx").on(table.mailAccountId, table.createdAt)],
 );

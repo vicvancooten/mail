@@ -19,17 +19,29 @@ function referencedThreadIds(intent: MutationIntent): string[] {
   switch (intent.type) {
     case "setStarred":
     case "setRead":
+    case "archive":
+    case "trash":
       return [intent.threadId];
   }
 }
 
-/** What "the exact inverse, still queued" means for one intent kind (ADR-0010: no coalescing beyond this trivial case). */
+/**
+ * What "the exact inverse, still queued" means for one intent kind
+ * (ADR-0010: no coalescing beyond this trivial case). `archive`/`trash`
+ * (#42) have no inverse intent yet — there is no `unarchive` — so their key
+ * never matches anything else's; `value: true` is a fixed placeholder, not
+ * a real toggle.
+ */
 function coalesceKey(intent: MutationIntent): { type: string; targetId: string; value: boolean } {
   switch (intent.type) {
     case "setStarred":
       return { type: "setStarred", targetId: intent.threadId, value: intent.starred };
     case "setRead":
       return { type: "setRead", targetId: intent.threadId, value: intent.read };
+    case "archive":
+      return { type: "archive", targetId: intent.threadId, value: true };
+    case "trash":
+      return { type: "trash", targetId: intent.threadId, value: true };
   }
 }
 

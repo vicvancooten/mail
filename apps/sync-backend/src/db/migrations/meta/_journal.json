@@ -57,6 +57,13 @@
       "when": 1788250603733,
       "tag": "0007_long_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788254822452,
+      "tag": "0008_confused_longshot",
+      "breakpoints": true
     }
   ]
 }

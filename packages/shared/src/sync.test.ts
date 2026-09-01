@@ -22,6 +22,7 @@ const VALID_THREAD = {
   unreadCount: 1,
   starred: false,
   hasAttachments: false,
+  inInbox: true,
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
 
@@ -156,8 +157,13 @@ describe("mutationIntentSchema", () => {
     ).toBe(true);
   });
 
+  it("accepts archive and trash, with no boolean payload", () => {
+    expect(mutationIntentSchema.safeParse({ type: "archive", threadId: "t1" }).success).toBe(true);
+    expect(mutationIntentSchema.safeParse({ type: "trash", threadId: "t1" }).success).toBe(true);
+  });
+
   it("rejects an unknown intent type", () => {
-    const result = mutationIntentSchema.safeParse({ type: "archive", threadId: "t1" });
+    const result = mutationIntentSchema.safeParse({ type: "pin", threadId: "t1" });
     expect(result.success).toBe(false);
   });
 });

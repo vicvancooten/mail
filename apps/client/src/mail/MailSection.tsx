@@ -13,14 +13,21 @@ import { ListView } from "./ListView.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
 import { TopBar } from "./TopBar.js";
+import { readAdvanceDirection, writeAdvanceDirection } from "./triage-preferences.js";
+import { useTriage } from "./useTriage.js";
 import "./mail.css";
 
 /**
- * The real thread list UI over the Local Cache (#40): the windowed,
+ * The real thread list UI over the Local Cache (#40, #42): the windowed,
  * time-grouped list, the Split (default) / List top-bar modes plus Stream
- * as an independent opt-in, and the account switcher. Everything renders
- * off `useThreadWindow` alone — no path here ever awaits a network
- * response (ADR-0010), which is what makes reopening a Thread <100ms.
+ * as an independent opt-in, the account switcher, and — this ticket's own
+ * job — triage. `useTriage` is called exactly once, here, so archive,
+ * trash, star, read, and the keyboard scheme behind them mean the same
+ * thing no matter which view is showing; every view below is handed the
+ * same four actions and never enqueues a mutation on its own. Everything
+ * renders off `useThreadWindow` alone — no path here ever awaits a network
+ * response (ADR-0010), which is what makes reopening a Thread <100ms and a
+ * triage action <50ms.
  */
 export function MailSection() {
   useLocalCacheSync();
@@ -31,6 +38,7 @@ export function MailSection() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
+  const [direction, setDirection] = useState(readAdvanceDirection);
 
   // Pick the active account once accounts are known: the remembered device
   // preference if it still names one of them, else the first by
@@ -60,6 +68,11 @@ export function MailSection() {
     writeStreamMode(enabled);
   }, []);
 
+  const changeDirection = useCallback((next: typeof direction) => {
+    setDirection(next);
+    writeAdvanceDirection(next);
+  }, []);
+
   const page = useThreadWindow(accountId, { limit });
   const loadMore = useCallback(() => {
     setLimit((current) => current + THREAD_PAGE_SIZE);
@@ -67,6 +80,18 @@ export function MailSection() {
 
   const threads = page?.threads ?? [];
   const ids = useMemo(() => threads.map((thread) => thread.id), [threads]);
+
+  // Called unconditionally, before the early returns below — Rules of
+  // Hooks — and happily a no-op with `accountId: null` or an empty list,
+  // the same "nothing cached yet" shape `useThreadWindow` already handles.
+  const triage = useTriage({
+    mailAccountId: accountId,
+    threads,
+    ids,
+    selectedThreadId,
+    onSelect: setSelectedThreadId,
+    direction,
+  });
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
@@ -78,6 +103,8 @@ export function MailSection() {
         onViewMode={changeViewMode}
         streamMode={streamMode}
         onStreamMode={changeStreamMode}
+        direction={direction}
+        onDirection={changeDirection}
         accounts={mailAccounts}
         selectedAccountId={accountId}
         onSelectAccount={selectAccount}
@@ -89,6 +116,7 @@ export function MailSection() {
             ids={ids}
             selectedThreadId={selectedThreadId}
             onSelect={setSelectedThreadId}
+            triage={triage}
           />
         ) : viewMode === "split" ? (
           <SplitView
@@ -98,6 +126,7 @@ export function MailSection() {
             selectedThreadId={selectedThreadId}
             onSelect={setSelectedThreadId}
             onLoadMore={loadMore}
+            triage={triage}
           />
         ) : (
           <ListView
@@ -108,6 +137,7 @@ export function MailSection() {
             onSelect={setSelectedThreadId}
             onBack={() => setSelectedThreadId(null)}
             onLoadMore={loadMore}
+            triage={triage}
           />
         )}
       </div>

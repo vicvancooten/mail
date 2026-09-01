@@ -21,6 +21,7 @@ function makeThreads(count: number): CachedThread[] {
       unreadCount: 0,
       starred: false,
       hasAttachments: false,
+      inInbox: true,
       updatedAt: lastMessageAt,
       sortKey: `${lastMessageAt}|t${i}`,
     };

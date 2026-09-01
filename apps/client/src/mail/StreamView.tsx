@@ -1,17 +1,18 @@
-import { useEffect } from "react";
 import type { CachedThread } from "../store/index.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
 import { timeGroupLabel } from "./time-groups.js";
+import type { Triage } from "./useTriage.js";
 
 const PEEK_RADIUS = 3;
 
 /**
  * Stream mode (`?stream=1` on the prototype branch): no list at all, one
  * Thread fills the screen with a thin peek strip previewing what's next.
- * Browsing the queue (`h`/`l`, the flanking chevrons) is deliberately
- * separate from resolving a Thread (archive/trash/etc., #42's job) — this
- * view only ever moves the selection.
+ * Keyboard navigation (`h`/`j`/`k`/`l`, the flanking chevrons) and triage
+ * (archive/trash/star/read) are both `useTriage`'s job now (#42), bound
+ * once in `MailSection` — this view only renders off `selectedThreadId`
+ * and the four actions it's handed, the same as Split/List.
  */
 export function StreamView({
   threads,
@@ -19,6 +20,7 @@ export function StreamView({
   selectedThreadId,
   onSelect,
   onBack,
+  triage,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -26,34 +28,12 @@ export function StreamView({
   onSelect: (id: string) => void;
   /** Present when the underlying view mode has a list to fall back to. */
   onBack?: () => void;
+  triage: Triage;
 }) {
   const currentId = selectedThreadId ?? ids[0] ?? null;
   const currentThread = threads.find((thread) => thread.id === currentId) ?? null;
   const prevId = neighborId(ids, currentId, -1);
   const nextId = neighborId(ids, currentId, 1);
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (typing) return;
-      if (event.key === "h" || event.key === "ArrowLeft") {
-        if (prevId) {
-          event.preventDefault();
-          onSelect(prevId);
-        }
-      } else if (event.key === "l" || event.key === "ArrowRight") {
-        if (nextId) {
-          event.preventDefault();
-          onSelect(nextId);
-        }
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [prevId, nextId, onSelect]);
 
   if (!currentThread) {
     return <p className="mail-empty">No mail cached for this account yet.</p>;
@@ -90,6 +70,7 @@ export function StreamView({
         onBack={onBack}
         onPrev={prevId ? () => onSelect(prevId) : undefined}
         onNext={nextId ? () => onSelect(nextId) : undefined}
+        triage={triage}
       />
     </div>
   );

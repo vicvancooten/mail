@@ -9,6 +9,7 @@ import {
   mailAccounts,
   messages,
   passkeyCredentials,
+  protocolWrites,
   sessions,
   syncTombstones,
   threadMessageIds,
@@ -53,6 +54,7 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  */
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(appliedMutations);
+  await db.delete(protocolWrites);
   await db.delete(messages);
   await db.delete(threadMessageIds);
   await db.delete(syncTombstones);

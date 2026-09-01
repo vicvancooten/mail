@@ -9,7 +9,7 @@ import {
   type MutationRejection,
   subscribeMutationRejections,
 } from "../store/mutation-queue.js";
-import { getSyncToken, threadTokenKey } from "../store/server-writes.js";
+import { applyThreadDelta, getSyncToken, threadTokenKey } from "../store/server-writes.js";
 import {
   delta,
   makeMailAccount,
@@ -444,6 +444,42 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
       ]).post,
     );
     expect(await listQueuedMutations("acct-1")).toEqual([]);
+  });
+
+  it("archive: survives offline, drains on reconnect, and a forced rejection rolls back visibly (#42)", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1"));
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+    const id = await enqueueMutation({ type: "archive", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]); // hidden the instant it's queued
+
+    // Offline: the request never gets a response, so nothing dequeues.
+    await expect(runSyncRound(() => Promise.reject(new Error("network error")))).rejects.toThrow(
+      "network error",
+    );
+    expect((await listQueuedMutations("acct-1")).map((mutation) => mutation.id)).toEqual([id]);
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]); // still hidden while offline
+
+    // Back online, but the Sync Backend forces a rejection (no Archive
+    // folder on this account, say) — the queue drains, and the Thread
+    // reappears rather than staying hidden with nothing to show for it.
+    await runSyncRound(
+      scriptedSync([
+        {
+          user: {},
+          mailAccounts: {
+            "acct-1": {
+              mutations: [{ id: id as string, status: "rejected", reason: "no_archive_folder" }],
+            },
+          },
+        },
+      ]).post,
+    );
+
+    expect(await listQueuedMutations("acct-1")).toEqual([]);
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
   });
 
   it("carries the mutation-flush response's Thread delta in the same round trip (ADR-0011's third divergence)", async () => {

@@ -35,6 +35,7 @@ export function makeThread(
     unreadCount: 0,
     starred: false,
     hasAttachments: false,
+    inInbox: true,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };
