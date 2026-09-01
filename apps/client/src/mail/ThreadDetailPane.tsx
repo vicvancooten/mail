@@ -52,6 +52,7 @@ export function ThreadDetailPane({
   onNext,
   triage,
   onReply,
+  focusMessageId,
 }: {
   thread: CachedThread;
   groupLabel?: string;
@@ -60,6 +61,8 @@ export function ThreadDetailPane({
   onNext?: () => void;
   triage: Triage;
   onReply: OnReply;
+  /** A search result's matched message (#51) — forwarded to `MessageList`, see its own doc comment. */
+  focusMessageId?: string | null;
 }) {
   const participants =
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
@@ -212,7 +215,9 @@ export function ThreadDetailPane({
             ) : null}
           </div>
         </div>
-        {messages ? <MessageList messages={messages} onReply={onReply} /> : null}
+        {messages ? (
+          <MessageList messages={messages} onReply={onReply} focusMessageId={focusMessageId} />
+        ) : null}
       </div>
     </div>
   );

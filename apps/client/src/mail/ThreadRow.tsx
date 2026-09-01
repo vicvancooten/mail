@@ -4,6 +4,7 @@ import { Archive, Pin, Star, Trash2 } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
+import { parseHeadline } from "./search/headline.js";
 import { formatRowTime } from "./time-groups.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "./useSwipeToTriage.js";
 
@@ -30,6 +31,13 @@ function describeParticipant(participant: ThreadParticipant): string {
  * already a no-op for anything but a touch pointer, so wiring it
  * unconditionally would cost nothing either way; optional just avoids
  * threading two unused callbacks through call sites that truly have none.
+ *
+ * `headline`/`folderPill`/`actionBadge` are search's own additions (#51,
+ * `docs/search-ux-spec.md` §The row: "Built on ADR-0011's `Thread` list-row
+ * projection, which search reuses unchanged, plus...") — the row markup
+ * itself is untouched, these just decorate it. `headline` replaces the
+ * Snippet only when given; a subject-only match has no headline and the
+ * row falls back to the ordinary Snippet, "so a row never looks broken."
  */
 export function ThreadRow({
   thread,
@@ -38,6 +46,9 @@ export function ThreadRow({
   onArchive,
   onTrash,
   index = 0,
+  headline = null,
+  folderPill = null,
+  actionBadge = null,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -46,11 +57,18 @@ export function ThreadRow({
   onTrash?: () => void;
   /** Position within the visible page — drives the one-shot list-load stagger. */
   index?: number;
+  /** The `ts_headline` fragment (search-ux-spec.md §The row), pre-parsed for `<mark>` rendering. `null`/`undefined`: keep the ordinary Snippet. */
+  headline?: string | null;
+  /** The non-Inbox folder pill (search-ux-spec.md: "Search crosses folders, and 'where did this end up' is half the question"). */
+  folderPill?: string | null;
+  /** "The row stays in place, visibly changed" (search-ux-spec.md §Acting on a result) once a triage action has been taken on a result row that isn't in the Inbox any more. */
+  actionBadge?: string | null;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
   const visibleLabelIds = thread.labelIds.slice(0, MAX_ROW_LABEL_CHIPS);
   const overflowLabelCount = thread.labelIds.length - visibleLabelIds.length;
+  const headlineSegments = headline ? parseHeadline(headline) : null;
 
   const swipe = useSwipeToTriage({
     onArchive: onArchive ?? (() => {}),
@@ -79,7 +97,19 @@ export function ThreadRow({
       <span className="sender">{participantLabel}</span>
       <span className="subject-line">
         <span className="subject">{thread.subject || "(no subject)"}</span>
-        {thread.snippet ? <span className="snippet">{thread.snippet}</span> : null}
+        {headlineSegments ? (
+          <span className="snippet headline">
+            {headlineSegments.map((segment) =>
+              segment.matched ? (
+                <mark key={segment.offset}>{segment.text}</mark>
+              ) : (
+                <span key={segment.offset}>{segment.text}</span>
+              ),
+            )}
+          </span>
+        ) : thread.snippet ? (
+          <span className="snippet">{thread.snippet}</span>
+        ) : null}
         {visibleLabelIds.length > 0 ? (
           <span className="row-labels">
             {visibleLabelIds.map((id) => (
@@ -93,6 +123,8 @@ export function ThreadRow({
           </span>
         ) : null}
       </span>
+      {folderPill ? <span className="folder-pill">{folderPill}</span> : null}
+      {actionBadge ? <span className="action-badge">{actionBadge}</span> : null}
       {thread.pinned ? <Pin size={13} className="pin" fill="currentColor" /> : null}
       {thread.starred ? <Star size={13} className="star" fill="currentColor" /> : null}
       <span className="time">{formatRowTime(thread.lastMessageAt)}</span>

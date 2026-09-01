@@ -1,4 +1,6 @@
+import type { Thread } from "@mail/shared";
 import { localCache } from "./local-cache.js";
+import { threadSortKey } from "./thread-sort-key.js";
 
 /**
  * "Any Thread the User opens is pinned into the entity cache regardless of
@@ -25,4 +27,20 @@ export async function pinThreadIntoCache(threadId: string): Promise<void> {
 
 export async function unpinThreadFromCache(threadId: string): Promise<void> {
   await localCache().cachePins.delete(threadId);
+}
+
+/**
+ * "Search results do" (this file's own comment above): a search result can
+ * name a Thread outside every held window (search reaches the whole Search
+ * Index; the cache holds a bounded working set, ADR-0009), so acting on it
+ * — the standard triage set, per `docs/search-ux-spec.md` §Acting on a
+ * result — needs a base row first, for ADR-0010's `base ⊕ pending` overlay
+ * to render and roll back against. Writes the row **and** pins it in one
+ * call: a materialized-but-unpinned row would just get evicted again on the
+ * next trim, defeating the point.
+ */
+export async function materializeSearchResultThread(thread: Thread): Promise<void> {
+  const db = localCache();
+  await db.threads.put({ ...thread, sortKey: threadSortKey(thread) });
+  await pinThreadIntoCache(thread.id);
 }

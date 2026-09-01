@@ -1,0 +1,294 @@
+import type { MailAccount } from "@mail/shared";
+import { X } from "lucide-react";
+import type { OnReply } from "../ThreadDetailPane.js";
+import { ThreadDetailPane } from "../ThreadDetailPane.js";
+import type { Triage } from "../useTriage.js";
+import type { RowExtra } from "../VirtualizedThreadList.js";
+import { VirtualizedThreadList } from "../VirtualizedThreadList.js";
+import { formatFolderLabel, seededScopeHint } from "./scope.js";
+import type { SearchState } from "./useSearchState.js";
+
+function formatWatermark(state: SearchState): string | null {
+  const watermark = state.indexWatermark;
+  if (!watermark || watermark.complete) return null;
+  if (!watermark.coveredSince) {
+    return "Still indexing this account — older mail matches on sender and subject only.";
+  }
+  const date = new Date(watermark.coveredSince).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+  });
+  return `Bodies indexed back to ${date} — older mail matches on sender and subject only.`;
+}
+
+/**
+ * The chip row (#51, `docs/search-ux-spec.md` §The chip row): "the only
+ * place that states what this search covers... every chip is driven off
+ * the parse, never off separate state." Every chip here reads
+ * `SearchState` and edits `?q=` through it — there is no chip-local state.
+ */
+function ChipRow({
+  state,
+  accounts,
+  mailAccountId,
+}: {
+  state: SearchState;
+  accounts: readonly MailAccount[];
+  mailAccountId: string | null;
+}) {
+  const account = accounts.find((candidate) => candidate.id === mailAccountId);
+  const scopeLabel = state.effectiveFolder
+    ? formatFolderLabel(state.effectiveFolder)
+    : state.effectiveLabel
+      ? state.effectiveLabel
+      : "All mail";
+  const trashJunkOn =
+    state.effectiveFolder?.toLowerCase() === "trash" ||
+    state.effectiveFolder?.toLowerCase() === "junk";
+  const hint = state.seedLive ? seededScopeHint(state.seed) : null;
+
+  return (
+    <div className="search-chip-row">
+      {accounts.length > 1 && account ? (
+        <span className="search-chip search-chip-account">{account.emailAddress}</span>
+      ) : null}
+
+      <span
+        className={`search-chip search-chip-scope${state.seedLive ? " seeded" : ""}`}
+        title={hint ?? undefined}
+      >
+        {scopeLabel}
+        {state.effectiveFolder || state.effectiveLabel ? (
+          <button
+            type="button"
+            className="search-chip-remove"
+            title="Search all mail"
+            onClick={() => {
+              if (state.seedLive) state.popSeed();
+              else if (state.parsed.folder) state.setOperator("in", null);
+              else if (state.parsed.label) state.setOperator("label", null);
+            }}
+          >
+            <X size={11} />
+          </button>
+        ) : null}
+      </span>
+
+      <button
+        type="button"
+        className={`search-chip search-chip-toggle${trashJunkOn ? " on" : ""}`}
+        onClick={state.toggleTrashJunk}
+      >
+        Trash & Junk
+      </button>
+
+      {state.parsed.from ? (
+        <span className="search-chip">
+          From: {state.parsed.from}
+          <button
+            type="button"
+            className="search-chip-remove"
+            onClick={() => state.setOperator("from", null)}
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : null}
+      {state.parsed.to ? (
+        <span className="search-chip">
+          To: {state.parsed.to}
+          <button
+            type="button"
+            className="search-chip-remove"
+            onClick={() => state.setOperator("to", null)}
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : null}
+      {state.parsed.hasAttachment ? (
+        <span className="search-chip">
+          Has attachment
+          <button
+            type="button"
+            className="search-chip-remove"
+            onClick={() => state.setOperator("has", null)}
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : null}
+      {state.parsed.after ? (
+        <span className="search-chip">
+          After: {state.parsed.after}
+          <button
+            type="button"
+            className="search-chip-remove"
+            onClick={() => state.setOperator("after", null)}
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : null}
+      {state.parsed.before ? (
+        <span className="search-chip">
+          Before: {state.parsed.before}
+          <button
+            type="button"
+            className="search-chip-remove"
+            onClick={() => state.setOperator("before", null)}
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function EmptyState({ state }: { state: SearchState }) {
+  const watermark = formatWatermark(state);
+  const parts: string[] = [];
+  if (state.parsed.text) parts.push(`"${state.parsed.text}"`);
+  if (state.parsed.from) parts.push(`From: ${state.parsed.from}`);
+  if (state.parsed.to) parts.push(`To: ${state.parsed.to}`);
+  if (state.effectiveFolder) parts.push(`In: ${formatFolderLabel(state.effectiveFolder)}`);
+  if (state.effectiveLabel) parts.push(`Label: ${state.effectiveLabel}`);
+
+  return (
+    <div className="search-empty">
+      <p>No matches{parts.length > 0 ? ` for ${parts.join(", ")}` : ""}.</p>
+      {state.effectiveFolder && state.effectiveFolder.toLowerCase() !== "inbox" ? (
+        <button type="button" onClick={() => state.setOperator("in", null)}>
+          Search all folders
+        </button>
+      ) : null}
+      {state.parsed.from ? (
+        <button type="button" onClick={() => state.setOperator("from", null)}>
+          Remove From: {state.parsed.from}
+        </button>
+      ) : null}
+      {/* "the promoted watermark line" (spec §The foot of the list) — zero results is the one place it moves out of the foot. */}
+      {watermark ? <p className="search-watermark promoted">{watermark}</p> : null}
+    </div>
+  );
+}
+
+export function SearchResultsView({
+  viewMode,
+  state,
+  triage,
+  onReply,
+  accounts,
+  mailAccountId,
+}: {
+  viewMode: "split" | "list";
+  state: SearchState;
+  triage: Triage;
+  onReply: OnReply;
+  accounts: readonly MailAccount[];
+  mailAccountId: string | null;
+}) {
+  const selectedThread =
+    state.results.find((thread) => thread.id === state.selectedThreadId) ?? null;
+  const watermark = formatWatermark(state);
+
+  const getRowExtra = (thread: { id: string }): RowExtra | undefined => {
+    const display = state.displayById.get(thread.id);
+    if (!display) return undefined;
+    const overlaid = state.results.find((candidate) => candidate.id === thread.id);
+    return {
+      headline: display.headline,
+      folderPill:
+        display.folder && display.folder.role !== "inbox" && display.folder.name
+          ? display.folder.name
+          : null,
+      actionBadge:
+        state.actedOnThreadIds.has(thread.id) && overlaid && !overlaid.inInbox ? "Removed" : null,
+    };
+  };
+
+  const footer =
+    state.results.length === 0 ? null : (
+      <div className="search-foot">
+        {state.offline ? (
+          <p className="search-offline-banner">Offline — searching recent mail only</p>
+        ) : state.needsReauth ? (
+          <p className="search-reauth-banner">Reconnect this account to search all mail</p>
+        ) : state.hasMore ? (
+          <button
+            type="button"
+            className="search-load-older"
+            onClick={state.loadOlder}
+            disabled={state.loadingOlder}
+          >
+            {state.loadingOlder ? "Loading…" : "Load older results"}
+          </button>
+        ) : null}
+        {watermark && !state.offline ? <p className="search-watermark">{watermark}</p> : null}
+      </div>
+    );
+
+  const list =
+    !state.meetsFloor && state.queryText.trim().length > 0 ? (
+      <p className="mail-empty">Keep typing — search starts at 3 characters.</p>
+    ) : state.results.length === 0 ? (
+      <EmptyState state={state} />
+    ) : (
+      <VirtualizedThreadList
+        threads={state.results}
+        complete
+        selectedThreadId={state.selectedThreadId}
+        onSelect={state.select}
+        triage={triage}
+        group={false}
+        footer={footer}
+        getRowExtra={getRowExtra}
+      />
+    );
+
+  if (viewMode === "list" && selectedThread) {
+    return (
+      <ThreadDetailPane
+        key={selectedThread.id}
+        thread={selectedThread}
+        onBack={() => state.select(null)}
+        triage={triage}
+        onReply={onReply}
+        focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
+      />
+    );
+  }
+
+  if (viewMode === "list") {
+    return (
+      <div className="search-results-view search-results-list">
+        <ChipRow state={state} accounts={accounts} mailAccountId={mailAccountId} />
+        {list}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`split-view search-results-view${selectedThread ? " has-selection" : ""}`}>
+      <div className="split-list">
+        <ChipRow state={state} accounts={accounts} mailAccountId={mailAccountId} />
+        {list}
+      </div>
+      <div className="split-pane">
+        {selectedThread ? (
+          <ThreadDetailPane
+            key={selectedThread.id}
+            thread={selectedThread}
+            onBack={() => state.select(null)}
+            triage={triage}
+            onReply={onReply}
+            focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
+          />
+        ) : (
+          <p className="mail-empty">Select a result to read it.</p>
+        )}
+      </div>
+    </div>
+  );
+}
