@@ -175,21 +175,38 @@ export function useSearchState(
   }, [route.active, mailAccountId, meetsFloor, effectiveFolder, effectiveLabel, parsed]);
 
   const usingServerResults = serverResponse !== null;
+  const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
   const displayResults = useMemo(() => {
-    if (serverResponse) return serverResponse.results;
-    return prefilterThreads.map(
-      (thread): SearchResult => ({
-        thread,
-        matchedMessageId: thread.lastMessageId ?? thread.id,
-        headline: null,
-        folder: { id: "", name: "", role: thread.inInbox ? "inbox" : null },
-        // The offline prefilter is a substring scan over the Local Cache,
-        // not a ranker (ADR-0016) — it can see this Thread's own Screening
-        // Hold, but nothing about a *sender* verdict, so `blocked` is not a
-        // badge it can honestly produce.
-        gatekeeper: thread.heldSender ? ("held" as const) : null,
-      }),
-    );
+    const next = serverResponse
+      ? serverResponse.results
+      : prefilterThreads.map(
+          (thread): SearchResult => ({
+            thread,
+            matchedMessageId: thread.lastMessageId ?? thread.id,
+            headline: null,
+            folder: { id: "", name: "", role: thread.inInbox ? "inbox" : null },
+            // The offline prefilter is a substring scan over the Local Cache,
+            // not a ranker (ADR-0016) — it can see this Thread's own Screening
+            // Hold, but nothing about a *sender* verdict, so `blocked` is not a
+            // badge it can honestly produce.
+            gatekeeper: thread.heldSender ? ("held" as const) : null,
+          }),
+        );
+
+    // ADR-0016: the prefilter is "rendered identically to server results...
+    // and replaced wholesale when they arrive (skipping the re-render when
+    // they agree)". A shallow ordered-id comparison against what's already
+    // on screen — not a deep comparison of every field — is the cheap check
+    // that catches the common case (the prefilter already found exactly
+    // what the server did) without chasing every possible id order.
+    const previous = previousDisplayResultsRef.current;
+    const sameOrder =
+      previous.length === next.length &&
+      previous.every((result, index) => result.thread.id === next[index]?.thread.id);
+    if (sameOrder) return previous;
+
+    previousDisplayResultsRef.current = next;
+    return next;
   }, [serverResponse, prefilterThreads]);
 
   const overlaidThreads = useSearchResultThreads(displayResults);
