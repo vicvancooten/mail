@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/auth.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { createFakeLockManager } from "../test-support/fake-lock-manager.js";
+import {
+  createFakeEventSourceFactory,
+  createFakeHintChannelFactory,
+} from "../test-support/fake-sync-hints.js";
 import { getSyncStatus, resetSyncStatus, type SyncLoopHandle, startSyncLoop } from "./sync-loop.js";
 
 /**
@@ -214,5 +218,73 @@ describe("when the Sync Backend is unreachable", () => {
 
     expect(onUnauthorized).toHaveBeenCalledOnce();
     expect(getSyncStatus().lastError).toBe("unauthenticated");
+  });
+});
+
+describe("realtime Sync Hints (#52, ADR-0015)", () => {
+  it("pulls immediately on a hint rather than waiting for the interval", async () => {
+    const { post, calls } = countingSync();
+    const es = createFakeEventSourceFactory();
+    start({
+      post,
+      locks: createFakeLockManager(),
+      sseOptions: { createEventSource: es.createEventSource },
+    });
+    await settle();
+    expect(calls).toHaveLength(1); // the cold-boot round
+
+    es.instances[0]?.fireHint();
+    await settle();
+
+    expect(calls).toHaveLength(2);
+  });
+
+  it("opens exactly one EventSource across two tabs, and hands it to the new leader when the first stops", async () => {
+    const es = createFakeEventSourceFactory();
+    const channel = createFakeHintChannelFactory();
+    const locks = createFakeLockManager();
+    const sseOptions = {
+      createEventSource: es.createEventSource,
+      createChannel: channel.createChannel,
+    };
+
+    const leader = start({ post: countingSync().post, locks, sseOptions });
+    start({ post: countingSync().post, locks, sseOptions });
+    await settle();
+
+    expect(es.instances).toHaveLength(1);
+    expect(es.instances[0]?.closed).toBe(false);
+
+    leader.stop();
+    await settle();
+
+    expect(es.instances).toHaveLength(2);
+    expect(es.instances[0]?.closed).toBe(true);
+    expect(es.instances[1]?.closed).toBe(false);
+  });
+
+  it("relays a hint to a follower tab over BroadcastChannel", async () => {
+    const es = createFakeEventSourceFactory();
+    const channel = createFakeHintChannelFactory();
+    const locks = createFakeLockManager();
+    const sseOptions = {
+      createEventSource: es.createEventSource,
+      createChannel: channel.createChannel,
+    };
+    const { post: leaderPost, calls: leaderCalls } = countingSync();
+    const { post: followerPost, calls: followerCalls } = countingSync();
+
+    start({ post: leaderPost, locks, sseOptions });
+    start({ post: followerPost, locks, sseOptions });
+    await settle();
+
+    es.instances[0]?.fireHint();
+    await settle();
+
+    // Only the leader ever talks to the network — a follower's reaction to
+    // the relay is a no-op until it actually becomes the leader — but the
+    // leader itself must have pulled off the *one* hint that fired.
+    expect(leaderCalls.length).toBeGreaterThan(1);
+    expect(followerCalls).toHaveLength(0);
   });
 });
