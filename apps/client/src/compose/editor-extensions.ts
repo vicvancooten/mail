@@ -11,6 +11,7 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { StarterKit } from "@tiptap/starter-kit";
 import { MailQuote } from "./mail-quote-extension.js";
 import { MailSignature } from "./mail-signature-extension.js";
+import { createSlashMenuExtension } from "./slash-menu.js";
 
 /**
  * The composer's schema (ADR-0013): a deliberately narrow, mail-safe subset
@@ -52,6 +53,9 @@ export function composeEditorExtensions(placeholder: string): AnyExtension[] {
     MailQuote,
     MailSignature,
     Placeholder.configure({ placeholder }),
+    // The Notion-style slash menu (`slash-menu.tsx`) — a small, fixed
+    // block-command popup on `/` at the start of an empty block.
+    createSlashMenuExtension(),
   ];
 }
 

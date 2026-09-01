@@ -251,6 +251,47 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+/*
+ * The Notion-style slash menu (`slash-menu.tsx`): mounted at the document
+ * root by `@tiptap/suggestion`'s own managed positioning, so this cannot
+ * assume `.composer`'s stacking context — its own `z-index` has to clear it.
+ */
+.slash-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--mail-bg-elevated);
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--mail-text);
+  cursor: pointer;
+  text-align: left;
+}
+.slash-menu-item:hover,
+.slash-menu-item.active {
+  background: var(--mail-bg-hover);
+}
+
+.slash-menu-empty {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--mail-text-faint);
+}
+
 .composer-body {
   flex: 1;
   min-height: 0;

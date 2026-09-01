@@ -19,6 +19,11 @@ Notion-style authoring: slash menu, drag handles, markdown input rules, selectio
 slash menu and input rules fire only at the start of an empty block, so they cannot collide with
 prose.
 
+The slash menu (`compose/slash-menu.tsx`) is a small, fixed set — Heading, Bulleted list, Numbered
+list, Blockquote — filterable by typing, navigable with arrow keys, selected with Enter or a click,
+dismissible with Esc; every command calls a command the toolbar already exposes, no new node types.
+Drag handles are not built for the PoC — see Out of scope.
+
 Schema (exhaustive — see ADR-0013 for why):
 
 | In | Out |
@@ -188,6 +193,12 @@ While the composer is open it owns every key and the triage shortcuts are inert;
 
 Ruled out here, noted for the [follow-up map](https://github.com/vicvancooten/mail/issues/15):
 
+- **Drag handles** — a per-block grip that reorders top-level blocks via drag-and-drop. Named
+  alongside the slash menu under "Notion-style authoring", but a from-scratch drag-and-drop
+  implementation (block-boundary decorations, drag state, a reorder transaction) is disproportionate
+  to this fix batch next to the slash menu, which had `@tiptap/suggestion` already staged for it and
+  is the more load-bearing of the two primitives. TODO: implement for the PoC follow-up, or drop from
+  scope explicitly if the map doesn't need it.
 - **Mail Account aliases** — reply-all leaves an alias in the recipient set; also touches Gatekeeper
   sender normalization.
 - **"You wrote 'attached' but attached nothing"** — delightful, cheap, and not in the PoC cut.
