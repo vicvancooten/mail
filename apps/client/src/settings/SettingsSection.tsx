@@ -10,6 +10,7 @@ import {
   useMailAccounts,
   usePreference,
 } from "../store/index.js";
+import { PushNotificationsSection } from "./PushNotificationsSection.js";
 
 /**
  * The settings screen (#54, poc-spec.md §Preferences): "wiring all of it
@@ -163,6 +164,7 @@ export function SettingsSection() {
         </section>
       )}
 
+      <PushNotificationsSection />
       <AuthMethodsSection />
       <MailAccountsSection />
     </section>

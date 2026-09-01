@@ -401,6 +401,18 @@ export const userSyncResponseSchema = z.object({
   Preference: preferenceDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
+  /**
+   * The app-icon badge (#53, ADR-0015): unread Inbox threads across every
+   * Mail Account, Gatekeeper-held mail never counted. The real server always
+   * sends this — unlike the collections above it is never gated on
+   * "something changed", since the leader tab snaps the badge to it on
+   * every round and the visibility-change round that "snaps the badge true"
+   * after a quiet gap depends on that being unconditional rather than riding
+   * some other collection's delta. Optional on the wire schema only for the
+   * same additive-only reason every field here is (a fixture/older response
+   * with no opinion on the badge simply leaves it alone).
+   */
+  unreadInboxCount: z.int().optional(),
 });
 export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 

@@ -16,6 +16,7 @@ import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
+import { pushRoutes } from "./routes/push.js";
 import { searchRoutes } from "./routes/search.js";
 import { sendSettingsRoutes } from "./routes/send-settings.js";
 import { syncRoutes } from "./routes/sync.js";
@@ -58,6 +59,8 @@ export interface BuildAppOptions {
   syncManager?: SyncManager;
   /** ADR-0012's instance-level attachment budget, in encoded bytes. Defaults for tests that never touch #48. */
   attachmentBudgetBytes?: number;
+  /** `env.MAIL_VAPID_PUBLIC_KEY` (#53, ADR-0015) — `null` (the default) states Web Push is disabled instance-wide. */
+  vapidPublicKey?: string | null;
   /**
    * `GET /events`'s Sync Hint fanout (#52, ADR-0015). Defaults to a no-op:
    * opening a dedicated `LISTEN` connection is not something any test asks
@@ -78,6 +81,7 @@ export function buildApp({
   attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
   syncHints = noopSyncHintBroker,
   eventsHeartbeatMs,
+  vapidPublicKey = null,
 }: BuildAppOptions) {
   const app = Fastify({
     // Vitest sets NODE_ENV=test; quiet request logging there so the growing
@@ -108,6 +112,7 @@ export function buildApp({
   });
   app.register(syncRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
+  app.register(pushRoutes, { db, vapidPublicKey });
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });

@@ -826,6 +826,68 @@
   }
 }
 
+/* ---------- new-mail toast (#53, ADR-0015) ---------- */
+
+.new-mail-toast-stack {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top));
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 20;
+  max-width: 320px;
+}
+
+.new-mail-toast {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: light-dark(#1a1d24, #23283a);
+  color: #fff;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  animation: toast-enter var(--dur-base) var(--ease-enter);
+}
+
+.new-mail-toast strong {
+  font-size: 13px;
+}
+
+.new-mail-toast span {
+  opacity: 0.85;
+  white-space: pre-line;
+}
+
+.new-mail-toast-collapsed {
+  cursor: default;
+}
+
+/* ---------- notification offer banner (#53, ADR-0015) ---------- */
+
+.notification-offer-banner {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: light-dark(#1a1d24, #23283a);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  animation: toast-enter var(--dur-base) var(--ease-enter);
+  z-index: 20;
+}
+
 /* ---------- search (#51) ---------- */
 
 .mail-search-field {

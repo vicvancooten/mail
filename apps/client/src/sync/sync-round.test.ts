@@ -1,6 +1,6 @@
 import type { MutationOutcome, SyncRequest, SyncResponse } from "@mail/shared";
 import Dexie from "dexie";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EMPTY_COMPOSE_CONTENT,
   listQueuedComposeSaves,
@@ -703,5 +703,57 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
     expect(request?.mailAccounts?.["acct-1"]?.composeSaves).toBeUndefined();
     expect(request?.mailAccounts?.["acct-2"]?.composeSaves).toHaveLength(1);
     expect(await listQueuedComposeSaves("acct-1")).toHaveLength(1); // held, not dropped
+  });
+
+  describe("the app-icon badge (#53, ADR-0015)", () => {
+    let setAppBadge: ReturnType<typeof vi.fn>;
+    let clearAppBadge: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      setAppBadge = vi.fn().mockResolvedValue(undefined);
+      clearAppBadge = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(globalThis, "Notification", {
+        configurable: true,
+        value: { permission: "granted" },
+      });
+      Object.defineProperty(globalThis.navigator, "setAppBadge", {
+        configurable: true,
+        value: setAppBadge,
+      });
+      Object.defineProperty(globalThis.navigator, "clearAppBadge", {
+        configurable: true,
+        value: clearAppBadge,
+      });
+    });
+
+    // "The leader tab sets [the badge] while open" (ADR-0015) — a round
+    // whose response carries `unreadInboxCount` snaps the badge to it,
+    // covering both "read while open" (the count just went down) and
+    // "reopen after a quiet gap" (a visibility-change round is an ordinary
+    // round from `runSyncRound`'s own point of view — same code path).
+    it("snaps the badge to the response's unreadInboxCount", async () => {
+      const { post } = scriptedSync([{ user: { unreadInboxCount: 3 }, mailAccounts: {} }]);
+      await runSyncRound(post);
+      expect(setAppBadge).toHaveBeenCalledWith(3);
+      expect(clearAppBadge).not.toHaveBeenCalled();
+    });
+
+    it("clears the badge once nothing is unread", async () => {
+      const { post } = scriptedSync([{ user: { unreadInboxCount: 0 }, mailAccounts: {} }]);
+      await runSyncRound(post);
+      expect(clearAppBadge).toHaveBeenCalled();
+      expect(setAppBadge).not.toHaveBeenCalled();
+    });
+
+    it("never touches the Badging API on a denied device", async () => {
+      Object.defineProperty(globalThis, "Notification", {
+        configurable: true,
+        value: { permission: "denied" },
+      });
+      const { post } = scriptedSync([{ user: { unreadInboxCount: 5 }, mailAccounts: {} }]);
+      await runSyncRound(post);
+      expect(setAppBadge).not.toHaveBeenCalled();
+      expect(clearAppBadge).not.toHaveBeenCalled();
+    });
   });
 });

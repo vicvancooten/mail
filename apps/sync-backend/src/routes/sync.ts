@@ -3,6 +3,7 @@ import { syncRequestSchema, syncResponseSchema } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
+import { computeUnreadInboxCount } from "../notifier/badge.js";
 import {
   syncCompositionCollection,
   syncCorrespondentCollection,
@@ -67,6 +68,11 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       const delta = await syncPreferenceCollection(db, userId, user.Preference);
       if (delta) userResult.Preference = delta;
     }
+    // The app-icon badge (#53, ADR-0015): unconditional, never gated on
+    // "something changed" — see `userSyncResponseSchema`'s own doc comment
+    // for why the visibility-change "snap the badge true" round depends on
+    // that.
+    userResult.unreadInboxCount = await computeUnreadInboxCount(db, userId);
 
     const mailAccountsResult: SyncResponse["mailAccounts"] = {};
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {

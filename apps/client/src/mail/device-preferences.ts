@@ -137,3 +137,22 @@ export function clearRecentSearches(): void {
     // Best-effort; see module docstring.
   }
 }
+
+/**
+ * Whether the one-time inline notification offer has already been shown on
+ * this device (#53, ADR-0015): "permission asked at most twice ... plus one
+ * inline offer after the first successful triage session" — never re-shown
+ * once this is true, regardless of whether the User accepted or dismissed
+ * it. Device-truth by definition (CONTEXT.md's Device Preference): a device
+ * that already saw the offer once shouldn't see it again just because
+ * another of the User's devices never has.
+ */
+export function readNotificationOfferShown(): boolean {
+  return readStorage(NOTIFICATION_OFFER_SHOWN_KEY) === "1";
+}
+
+export function writeNotificationOfferShown(): void {
+  writeStorage(NOTIFICATION_OFFER_SHOWN_KEY, "1");
+}
+
+const NOTIFICATION_OFFER_SHOWN_KEY = "mail.devicePref.notificationOfferShown";

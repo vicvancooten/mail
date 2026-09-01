@@ -127,6 +127,13 @@
       "when": 1788280556871,
       "tag": "0017_redundant_jack_power",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788283729490,
+      "tag": "0018_old_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

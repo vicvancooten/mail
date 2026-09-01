@@ -1,9 +1,10 @@
 import type { SyncResponse } from "@mail/shared";
 import { labelId } from "@mail/shared";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
+import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import {
   applyLabelDelta,
@@ -273,6 +274,41 @@ describe("MailSection", () => {
 
     expect(await screen.findByText("Account two thread")).toBeDefined();
     expect(screen.queryByText("Account one thread")).toBeNull();
+  });
+
+  it("a notification click on another account's Thread switches accounts and opens it (#53)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Account two thread" })] }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    expect(await screen.findByText("Account one thread")).toBeDefined();
+
+    act(() => {
+      publishNotificationTarget({ mailAccountId: "acct-2", threadId: "t2" });
+    });
+
+    expect(
+      await screen.findByText("Account two thread", { selector: ".thread-detail-card h1" }),
+    ).toBeDefined();
+    expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
   });
 
   it("a full keyboard-only pass: navigate, archive, star, and auto-advance (#42)", async () => {

@@ -1033,3 +1033,98 @@ export const attachmentBlobs = pgTable(
   (table) => [index("attachment_blobs_composition_idx").on(table.compositionId)],
 );
 export type AttachmentBlobRow = typeof attachmentBlobs.$inferSelect;
+
+/**
+ * A Web Push subscription (#53, ADR-0015): one device's `PushSubscription`,
+ * stored against the **User**, never the Session — "a subscription that
+ * dies with a 60-day cookie rotation is one that stops working silently".
+ * `endpoint` is the subscription's real identity (what a `404`/`410` from
+ * the push service prunes by, and what `POST`/`DELETE /push/subscriptions`
+ * key on); `p256dh`/`auth` are the ECDH/auth secret the Notifier encrypts a
+ * payload against so the relaying push service only ever sees ciphertext.
+ * A device re-registering the same endpoint (a reload, a second tab open on
+ * the same install) upserts rather than duplicating.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("push_subscriptions_user_idx").on(table.userId)],
+);
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+
+/**
+ * The Notifier's durable outbox (#53, ADR-0015): one row per push-worthy
+ * event, inserted at the moment policy decides it is one (a new
+ * Approved-Sender Inbox message, a Needs Reauth transition, a permanently
+ * failed send) and drained by `notifier/deliver-loop.ts` independently of
+ * whichever code path noticed the event. Durability is the point —
+ * "fire-and-forget would re-push the first half of a 40-message batch after
+ * a container restart" — a row surviving a crash between "policy said yes"
+ * and "a push actually went out" is what makes a restart resumable instead
+ * of silently dropping whatever was mid-flight.
+ *
+ * `dedupKey` + the unique index is deliberately a *second* line of defense,
+ * not the primary one: the real "exactly once" guarantee for each kind
+ * already lives where the event is detected (a message's own
+ * `(folder_id, uid)` uniqueness for `new_mail`, the atomic conditional
+ * transition in `mail-accounts/store.ts#markNeedsReauth` for
+ * `needs_reauth`, `compose/pending-send.ts`'s atomic claim for
+ * `failed_send`) — this index only catches an accidental double-insert
+ * racing that guarantee, per kind: the Message id for `new_mail`, the
+ * Composition id for `failed_send`, `${mailAccountId}:${transition instant}`
+ * for `needs_reauth` (never the bare Mail Account id — a second, later
+ * transition into Needs Reauth for the same account is a genuine new event,
+ * not a repeat of the first).
+ */
+export const notifierOutbox = pgTable(
+  "notifier_outbox",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    kind: text("kind", {
+      enum: ["new_mail", "failed_send", "needs_reauth"],
+    }).notNull(),
+    dedupKey: text("dedup_key").notNull(),
+    /** The push payload's content, minus `badgeCount` — computed fresh at delivery time (ADR-0015: "at Notifier-fire time"), never stored stale. */
+    payload: jsonb("payload").$type<NotifierOutboxPayload>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("notifier_outbox_kind_dedup_key").on(table.kind, table.dedupKey),
+    // `deliver-loop.ts`'s own candidate query: every undelivered row, grouped
+    // by account so a `new_mail` burst across one account collapses
+    // together rather than per-row.
+    index("notifier_outbox_pending_idx")
+      .on(table.mailAccountId, table.createdAt)
+      .where(sql`${table.deliveredAt} is null`),
+  ],
+);
+export type NotifierOutboxRow = typeof notifierOutbox.$inferSelect;
+
+/** One outbox row's kind-specific content — everything a push payload needs except the badge count, which is always computed fresh at send time. */
+export type NotifierOutboxPayload =
+  | {
+      kind: "new_mail";
+      threadId: string;
+      senderName: string | null;
+      senderAddress: string | null;
+      subject: string;
+      snippet: string | null;
+    }
+  | { kind: "failed_send"; compositionId: string; subject: string; detail: string }
+  | { kind: "needs_reauth"; emailAddress: string };

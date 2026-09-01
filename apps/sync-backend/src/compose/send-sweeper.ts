@@ -4,6 +4,7 @@ import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { type CompositionRow, compositions } from "../db/schema.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
+import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { withMailAccountConnection } from "../sync/imap-connection.js";
 import { deleteBlobsForComposition } from "./blob-store.js";
@@ -88,7 +89,8 @@ export async function sweepOne(
 
   if (!result.ok) {
     if (result.kind === "reauth") {
-      await markNeedsReauth(db, account.id);
+      const transitioned = await markNeedsReauth(db, account.id);
+      if (transitioned) await recordNeedsReauthNotification(db, transitioned);
       await releaseForReauth(db, row, now);
       options.logger?.warn(
         { mailAccountId: account.id, compositionId },
@@ -98,6 +100,7 @@ export async function sweepOne(
     }
     if (result.kind === "permanent") {
       await markPermanentFailure(db, row.id, result.detail, now);
+      await recordFailedSendNotification(db, account, row, result.detail);
       return "failed";
     }
     const { retrying } = await scheduleRetry(db, row, result.detail, now);

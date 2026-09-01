@@ -9,6 +9,7 @@ import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
+import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   enqueueUserMutation,
   newCompositionId,
@@ -32,6 +33,8 @@ import {
   writeViewMode,
 } from "./device-preferences.js";
 import { ListView } from "./ListView.js";
+import { NewMailToast } from "./NewMailToast.js";
+import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
@@ -147,6 +150,19 @@ export function MailSection() {
     setLabelFilter(null);
     writeLastAccountId(id);
   }, []);
+
+  // A notification click landing here (#53, ADR-0015: "a click always
+  // lands where the next decision is"): the service worker only knows how
+  // to focus/open this one window, so `notification-router.ts` is what
+  // turns "which Thread" into React state once the click actually reaches
+  // this component.
+  useEffect(() => {
+    return subscribeNotificationTarget((target) => {
+      if (target.mailAccountId !== accountId) selectAccount(target.mailAccountId);
+      setLabelFilter(null);
+      setSelectedThreadId(target.threadId);
+    });
+  }, [accountId, selectAccount]);
 
   const selectLabelFilter = useCallback((labelId: string | null) => {
     setLabelFilter(labelId);
@@ -376,6 +392,8 @@ export function MailSection() {
       <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
       <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />
       <RollbackToast />
+      <NewMailToast />
+      <NotificationOfferBanner />
       {composeId && accountId && (
         <Suspense fallback={null}>
           <Composer
