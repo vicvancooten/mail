@@ -71,16 +71,19 @@ export function ThreadDetailPane({
   const { messages } = useThreadMessages(thread.id);
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The Message `r`/`a`/`f` below should act on: whichever one `MessageList`
+  // reports as currently scrolled into view (`onOpenMessageChange`), same
+  // notion its own per-Message Reply/Reply All/Forward buttons already
+  // reach directly. Defaults to the newest Message until a scroll position
+  // is reported — matching where the reading pane lands on open.
+  const [openMessageId, setOpenMessageId] = useState<string | null>(null);
 
   // `L` opens/closes the Label picker (#43), `r`/`a`/`f` reply/reply-all/
-  // forward (#47, compose-spec §Composer surface & keys) — one window
-  // keydown listener, the same "one component owns one binding" shape
-  // `VirtualizedThreadList` already uses for `j`/`k`, rather than routing
-  // through `useTriage`'s scheme (which never needs to know *which* Label,
-  // or *which* Message). `r`/`a`/`f` always act on the newest Message in the
-  // Thread — the reading pane's own per-Message Reply/Reply All/Forward
-  // buttons (`reading/MessageList.tsx`) are what reaches "the specific
-  // message the User had open" when that isn't the newest one.
+  // forward (#47, compose-spec §Threading headers: act on "the specific
+  // message the User had open") — one window keydown listener, the same
+  // "one component owns one binding" shape `VirtualizedThreadList` already
+  // uses for `j`/`k`, rather than routing through `useTriage`'s scheme
+  // (which never needs to know *which* Label, or *which* Message).
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -101,14 +104,14 @@ export function ThreadDetailPane({
               ? "forward"
               : null;
       if (!mode) return;
-      const newest = messages?.at(-1);
-      if (!newest) return;
+      const open = messages?.find((message) => message.id === openMessageId) ?? messages?.at(-1);
+      if (!open) return;
       event.preventDefault();
-      onReply(newest, mode);
+      onReply(open, mode);
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [messages, onReply]);
+  }, [messages, openMessageId, onReply]);
 
   return (
     <div className="thread-detail" key={thread.id}>
@@ -216,7 +219,12 @@ export function ThreadDetailPane({
           </div>
         </div>
         {messages ? (
-          <MessageList messages={messages} onReply={onReply} focusMessageId={focusMessageId} />
+          <MessageList
+            messages={messages}
+            onReply={onReply}
+            focusMessageId={focusMessageId}
+            onOpenMessageChange={setOpenMessageId}
+          />
         ) : null}
       </div>
     </div>
