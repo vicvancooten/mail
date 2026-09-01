@@ -44,6 +44,7 @@ export function SplitView({
       <div className="split-pane">
         {selectedThread ? (
           <ThreadDetailPane
+            key={selectedThread.id}
             thread={selectedThread}
             onPrev={prevId ? () => onSelect(prevId) : undefined}
             onNext={nextId ? () => onSelect(nextId) : undefined}

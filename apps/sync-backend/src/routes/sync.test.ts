@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { MailAccountDelta, MutationOutcome, ThreadDelta } from "@mail/shared";
+import type { LabelDelta, MailAccountDelta, MutationOutcome, ThreadDelta } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -284,6 +284,95 @@ describe("POST /sync", () => {
       expect(delta.reset).toBe(true);
       expect(delta.created.map((row) => row.id).sort()).toEqual(["thread-1", "thread-2"]);
       expect(delta.destroyed).toEqual([]);
+    });
+  });
+
+  describe("Label (per Mail Account, #43)", () => {
+    it("bootstraps, then reports a newly created Label across a token round-trip", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await insertThreadWithMessage(accountId, "thread-1");
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { Label: null } } },
+      });
+      expect(bootstrap.statusCode).toBe(200);
+      expect(bootstrap.json().mailAccounts).toEqual({});
+
+      const applied = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              Label: null,
+              mutations: [
+                {
+                  id: "01LABEL",
+                  intent: { type: "applyLabel", threadId: "thread-1", name: "Work" },
+                },
+              ],
+            },
+          },
+        },
+      });
+      const body = applied.json().mailAccounts[accountId];
+      expect(body.mutations).toEqual([{ id: "01LABEL", status: "applied" }]);
+      const delta = body.Label as LabelDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ mailAccountId: accountId, name: "Work" });
+
+      const unchanged = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { Label: delta.newState } } },
+      });
+      expect(unchanged.json().mailAccounts).toEqual({});
+    });
+
+    it("is not requested unless asked — an ordinary Thread sync never carries a Label delta", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await insertThreadWithMessage(accountId, "thread-1");
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                {
+                  id: "01LABEL",
+                  intent: { type: "applyLabel", threadId: "thread-1", name: "Work" },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { Thread: null } } },
+      });
+      const threadDelta = response.json().mailAccounts[accountId].Thread as ThreadDelta;
+      // The Thread's own `labelIds` field already carries the applied Label
+      // (it is denormalized onto the Thread row, not a join) — what this
+      // asserts is that requesting only `Thread` never triggers a `Label`
+      // collection query or response entry alongside it.
+      expect(threadDelta.created[0]?.labelIds).toHaveLength(1);
+      expect(response.json().mailAccounts[accountId].Label).toBeUndefined();
     });
   });
 

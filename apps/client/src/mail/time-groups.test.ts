@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { CachedThread } from "../store/index.js";
-import { formatRowTime, groupThreadsByTime, timeGroupLabel } from "./time-groups.js";
+import {
+  formatRowTime,
+  groupThreadsByTime,
+  PINNED_GROUP_LABEL,
+  timeGroupLabel,
+} from "./time-groups.js";
 
 // Late enough in the month that "Earlier this month" (>= the 1st) and
 // "Last week" (>= 14 days back) don't collapse into each other.
 const NOW = new Date("2026-06-25T12:00:00.000Z");
 
-function thread(id: string, lastMessageAt: string | null): CachedThread {
+function thread(
+  id: string,
+  lastMessageAt: string | null,
+  overrides: Partial<CachedThread> = {},
+): CachedThread {
   return {
     id,
     mailAccountId: "acct-1",
@@ -21,8 +30,11 @@ function thread(id: string, lastMessageAt: string | null): CachedThread {
     starred: false,
     hasAttachments: false,
     inInbox: true,
+    pinned: false,
+    labelIds: [],
     updatedAt: lastMessageAt ?? "2026-01-01T00:00:00.000Z",
     sortKey: `${lastMessageAt ?? "0000-01-01T00:00:00.000Z"}|${id}`,
+    ...overrides,
   };
 }
 
@@ -70,6 +82,20 @@ describe("groupThreadsByTime", () => {
     ];
     const groups = groupThreadsByTime(threads, NOW);
     expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", "Today"]);
+  });
+
+  it("groups Pinned Threads (#43) under one Pinned header regardless of their own date", () => {
+    const threads = [
+      thread("t1", "2026-04-02T09:00:00.000Z", { pinned: true }), // April, but Pinned
+      thread("t2", "2026-06-25T09:00:00.000Z", { pinned: true }), // Today, but Pinned
+      thread("t3", "2026-06-25T08:00:00.000Z"), // Today, not pinned
+    ];
+
+    const groups = groupThreadsByTime(threads, NOW);
+
+    expect(groups.map((g) => g.label)).toEqual([PINNED_GROUP_LABEL, "Today"]);
+    expect(groups[0]?.threads.map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(groups[1]?.threads.map((t) => t.id)).toEqual(["t3"]);
   });
 });
 

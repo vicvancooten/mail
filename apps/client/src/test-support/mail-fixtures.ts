@@ -1,4 +1,4 @@
-import type { CollectionDelta, MailAccount, Thread } from "@mail/shared";
+import type { CollectionDelta, Label, MailAccount, Thread } from "@mail/shared";
 
 /** Builders for the `POST /sync` wire shapes, so a test states only the field it is about. */
 
@@ -36,6 +36,22 @@ export function makeThread(
     starred: false,
     hasAttachments: false,
     inInbox: true,
+    pinned: false,
+    labelIds: [],
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+export function makeLabel(
+  id: string,
+  mailAccountId: string,
+  overrides: Partial<Label> = {},
+): Label {
+  return {
+    id,
+    mailAccountId,
+    name: id,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };

@@ -1,8 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { labelId } from "@mail/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { appliedMutations, folders, messages, protocolWrites, threads } from "../db/schema.js";
+import {
+  appliedMutations,
+  folders,
+  labels,
+  messages,
+  protocolWrites,
+  threads,
+} from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -271,6 +279,142 @@ describe("flushMutations — archive/trash (#42)", () => {
   it("rejects a trash naming a Thread this Mail Account does not have", async () => {
     const outcomes = await flushMutations(db, account.id, [
       { id: "01MISSING", intent: { type: "trash", threadId: "does-not-exist" } },
+    ]);
+    expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+});
+
+describe("flushMutations — pin (#43)", () => {
+  it("sets and clears pinned, with no protocol write — Pin has no IMAP-side trace (ADR-0006)", async () => {
+    const threadId = await seedThread();
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01PIN", intent: { type: "setPinned", threadId, pinned: true } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01PIN", status: "applied" }]);
+    expect((await threadRow(threadId))?.pinned).toBe(true);
+    expect(await outboxRows(account.id)).toHaveLength(0);
+
+    await flushMutations(db, account.id, [
+      { id: "01UNPIN", intent: { type: "setPinned", threadId, pinned: false } },
+    ]);
+    expect((await threadRow(threadId))?.pinned).toBe(false);
+    expect(await outboxRows(account.id)).toHaveLength(0);
+  });
+
+  it("rejects a setPinned naming a Thread this Mail Account does not have", async () => {
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01MISSING", intent: { type: "setPinned", threadId: "does-not-exist", pinned: true } },
+    ]);
+    expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+});
+
+describe("flushMutations — labels (#43)", () => {
+  it("creates a Label on first apply and adds it to the Thread, with no protocol write", async () => {
+    const threadId = await seedThread();
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01APPLY", intent: { type: "applyLabel", threadId, name: "Work" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01APPLY", status: "applied" }]);
+    const id = labelId(account.id, "Work");
+    expect((await threadRow(threadId))?.labelIds).toEqual([id]);
+    const [labelRow] = await db.select().from(labels).where(eq(labels.id, id));
+    expect(labelRow).toMatchObject({ mailAccountId: account.id, name: "Work" });
+    expect(await outboxRows(account.id)).toHaveLength(0);
+  });
+
+  it("finds the existing Label rather than duplicating it when applied a second time", async () => {
+    const threadA = await seedThread();
+    // `applyLabel` only needs a Thread row to exist, not a Message — a bare
+    // `resolveThread` avoids seeding a second "INBOX" folder for the same
+    // account (`folders_account_path_key` is unique per account).
+    const threadB = await resolveThread(db, {
+      mailAccountId: account.id,
+      threadingIds: [randomUUID()],
+      subject: "Second",
+      receivedAt: new Date("2026-01-02T00:00:00Z"),
+    });
+
+    await flushMutations(db, account.id, [
+      { id: "01A", intent: { type: "applyLabel", threadId: threadA, name: "Work" } },
+    ]);
+    await flushMutations(db, account.id, [
+      { id: "01B", intent: { type: "applyLabel", threadId: threadB, name: "Work" } },
+    ]);
+
+    const rows = await db.select().from(labels).where(eq(labels.mailAccountId, account.id));
+    expect(rows).toHaveLength(1);
+    expect((await threadRow(threadA))?.labelIds).toEqual([labelId(account.id, "Work")]);
+    expect((await threadRow(threadB))?.labelIds).toEqual([labelId(account.id, "Work")]);
+  });
+
+  it("normalizes incidental whitespace so ' Work ' and 'Work' are the same Label", async () => {
+    const threadId = await seedThread();
+
+    await flushMutations(db, account.id, [
+      { id: "01APPLY", intent: { type: "applyLabel", threadId, name: "  Work  " } },
+    ]);
+
+    const rows = await db.select().from(labels).where(eq(labels.mailAccountId, account.id));
+    expect(rows.map((row) => row.name)).toEqual(["Work"]);
+  });
+
+  it("rejects an empty label name", async () => {
+    const threadId = await seedThread();
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01EMPTY", intent: { type: "applyLabel", threadId, name: "   " } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01EMPTY", status: "rejected", reason: "invalid_label_name" }]);
+    expect((await threadRow(threadId))?.labelIds).toEqual([]);
+  });
+
+  it("removes a Label from a Thread without deleting the Label definition itself", async () => {
+    const threadId = await seedThread();
+    await flushMutations(db, account.id, [
+      { id: "01APPLY", intent: { type: "applyLabel", threadId, name: "Work" } },
+    ]);
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01REMOVE", intent: { type: "removeLabel", threadId, name: "Work" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01REMOVE", status: "applied" }]);
+    expect((await threadRow(threadId))?.labelIds).toEqual([]);
+    const rows = await db.select().from(labels).where(eq(labels.mailAccountId, account.id));
+    expect(rows).toHaveLength(1); // still there — no management UI, no delete route (#43)
+  });
+
+  it("is a no-op success removing a Label never applied", async () => {
+    const threadId = await seedThread();
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01REMOVE", intent: { type: "removeLabel", threadId, name: "Ghost" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01REMOVE", status: "applied" }]);
+    expect((await threadRow(threadId))?.labelIds).toEqual([]);
+  });
+
+  it("scopes a Label to its Mail Account — the same name on two accounts is two Labels", async () => {
+    const other = await createTestMailAccount(db);
+    const threadHere = await seedThread();
+
+    await flushMutations(db, account.id, [
+      { id: "01A", intent: { type: "applyLabel", threadId: threadHere, name: "Work" } },
+    ]);
+    // No `seedThread` for `other` — this asserts the id space, not another apply.
+    expect(labelId(account.id, "Work")).not.toBe(labelId(other.id, "Work"));
+  });
+
+  it("rejects an applyLabel naming a Thread this Mail Account does not have", async () => {
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01MISSING", intent: { type: "applyLabel", threadId: "does-not-exist", name: "Work" } },
     ]);
     expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
   });

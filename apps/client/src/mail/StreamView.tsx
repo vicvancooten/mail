@@ -1,7 +1,8 @@
+import { Pin } from "lucide-react";
 import type { CachedThread } from "../store/index.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
-import { timeGroupLabel } from "./time-groups.js";
+import { PINNED_GROUP_LABEL, timeGroupLabel } from "./time-groups.js";
 import type { Triage } from "./useTriage.js";
 
 const PEEK_RADIUS = 3;
@@ -56,17 +57,27 @@ export function StreamView({
             <button
               type="button"
               key={thread.id}
-              className={`chip${thread.id === currentThread.id ? " current" : ""}`}
+              className={`chip${thread.id === currentThread.id ? " current" : ""}${thread.pinned ? " pinned" : ""}`}
               onClick={() => onSelect(thread.id)}
             >
+              {thread.pinned ? <Pin size={11} fill="currentColor" /> : null}
               {thread.participants[0]?.name ?? thread.participants[0]?.address ?? "(no sender)"}
             </button>
           ))}
         </div>
       ) : null}
       <ThreadDetailPane
+        key={currentThread.id}
         thread={currentThread}
-        groupLabel={timeGroupLabel(currentThread.lastMessageAt ?? currentThread.firstMessageAt)}
+        groupLabel={
+          // Pinned surfaces prominently in Stream mode too (#43): the same
+          // synthetic "Pinned" label `groupThreadsByTime` gives it in
+          // Split/List, instead of whatever date bucket it would otherwise
+          // fall into.
+          currentThread.pinned
+            ? PINNED_GROUP_LABEL
+            : timeGroupLabel(currentThread.lastMessageAt ?? currentThread.firstMessageAt)
+        }
         onBack={onBack}
         onPrev={prevId ? () => onSelect(prevId) : undefined}
         onNext={nextId ? () => onSelect(nextId) : undefined}

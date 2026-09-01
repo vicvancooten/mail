@@ -5,6 +5,7 @@ import {
   appliedMutations,
   claimTokens,
   folders,
+  labels,
   loginChallenges,
   mailAccounts,
   messages,
@@ -58,6 +59,7 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(messages);
   await db.delete(threadMessageIds);
   await db.delete(syncTombstones);
+  await db.delete(labels);
   await db.delete(threads);
   await db.delete(folders);
   await db.delete(sessions);

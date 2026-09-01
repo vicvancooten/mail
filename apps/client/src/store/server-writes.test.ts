@@ -2,6 +2,7 @@ import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   delta,
+  makeLabel,
   makeMailAccount,
   makeThread,
   minutesAfterEpoch,
@@ -9,11 +10,13 @@ import {
 import { pinThreadIntoCache } from "./cache-pins.js";
 import { listWindowKey } from "./db.js";
 import { localCache, openLocalCache } from "./local-cache.js";
-import { readThreadWindow } from "./reads.js";
+import { readLabels, readThreadWindow } from "./reads.js";
 import {
+  applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
   getSyncToken,
+  labelTokenKey,
   listCachedMailAccountIds,
   MAIL_ACCOUNT_TOKEN_KEY,
   pruneOrphanedMailAccountData,
@@ -225,17 +228,57 @@ describe("applyMailAccountDelta", () => {
     expect(await getSyncToken(MAIL_ACCOUNT_TOKEN_KEY)).toBe("state-1");
   });
 
-  it("cascades a destroyed Mail Account to its Threads, window, pins and token", async () => {
+  it("cascades a destroyed Mail Account to its Threads, Labels, window, pins and tokens", async () => {
     await applyMailAccountDelta(delta({ created: [makeMailAccount(ACCOUNT)] }), { replace: false });
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(3) }), { replace: false });
+    await applyLabelDelta(ACCOUNT, delta({ created: [makeLabel("l1", ACCOUNT)] }), {
+      replace: false,
+    });
     await pinThreadIntoCache("t000000");
 
     await applyMailAccountDelta(delta({ destroyed: [ACCOUNT] }), { replace: false });
 
     expect(await localCache().threads.count()).toBe(0);
+    expect(await localCache().labels.count()).toBe(0);
     expect(await localCache().cachePins.count()).toBe(0);
     expect(await windowRow()).toBeUndefined();
     expect(await getSyncToken(threadTokenKey(ACCOUNT))).toBeNull();
+    expect(await getSyncToken(labelTokenKey(ACCOUNT))).toBeNull();
+  });
+});
+
+describe("applyLabelDelta (#43)", () => {
+  it("stores Labels and advances the state token", async () => {
+    await applyLabelDelta(
+      ACCOUNT,
+      delta({ created: [makeLabel("l1", ACCOUNT, { name: "Work" })], newState: "label-state-1" }),
+      { replace: false },
+    );
+
+    expect((await readLabels(ACCOUNT)).map((label) => label.name)).toEqual(["Work"]);
+    expect(await getSyncToken(labelTokenKey(ACCOUNT))).toBe("label-state-1");
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyLabelDelta(ACCOUNT, delta({ created: [makeLabel("stale", ACCOUNT)] }), {
+      replace: false,
+    });
+
+    await applyLabelDelta(ACCOUNT, delta({ created: [makeLabel("fresh", ACCOUNT)], reset: true }), {
+      replace: true,
+    });
+
+    expect((await readLabels(ACCOUNT)).map((label) => label.id)).toEqual(["fresh"]);
+  });
+
+  it("removes destroyed Labels", async () => {
+    await applyLabelDelta(ACCOUNT, delta({ created: [makeLabel("l1", ACCOUNT)] }), {
+      replace: false,
+    });
+
+    await applyLabelDelta(ACCOUNT, delta({ destroyed: ["l1"] }), { replace: false });
+
+    expect(await readLabels(ACCOUNT)).toEqual([]);
   });
 });
 

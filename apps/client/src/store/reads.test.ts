@@ -1,15 +1,17 @@
+import { labelId } from "@mail/shared";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   delta,
+  makeLabel,
   makeMailAccount,
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
 import { localCache, openLocalCache } from "./local-cache.js";
 import { enqueueMutation } from "./mutation-queue.js";
-import { readMailAccounts, readThreadWindow, THREAD_PAGE_SIZE } from "./reads.js";
-import { applyMailAccountDelta, applyThreadDelta } from "./server-writes.js";
+import { readLabels, readMailAccounts, readThreadWindow, THREAD_PAGE_SIZE } from "./reads.js";
+import { applyLabelDelta, applyMailAccountDelta, applyThreadDelta } from "./server-writes.js";
 
 let counter = 0;
 const names: string[] = [];
@@ -172,6 +174,117 @@ describe("readThreadWindow — base ⊕ pending overlay (#39)", () => {
     const overlaid = (await readThreadWindow("acct-1")).threads[0];
     expect(overlaid?.starred).toBe(true);
     expect(overlaid?.unreadCount).toBe(2);
+  });
+});
+
+describe("readThreadWindow — Pin (#43)", () => {
+  it("sorts Pinned Threads first, regardless of their own date", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("newest", "acct-1", { lastMessageAt: minutesAfterEpoch(10) }),
+          makeThread("oldest-pinned", "acct-1", {
+            lastMessageAt: minutesAfterEpoch(1),
+            pinned: true,
+          }),
+          makeThread("middle", "acct-1", { lastMessageAt: minutesAfterEpoch(5) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow("acct-1");
+    expect(page.threads.map((thread) => thread.id)).toEqual(["oldest-pinned", "newest", "middle"]);
+  });
+
+  it("renders a queued pin/unpin instantly, before any server round-trip", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { pinned: false })] }),
+      { replace: false },
+    );
+
+    await enqueueMutation({ type: "setPinned", threadId: "t1", pinned: true }, "acct-1");
+    expect((await readThreadWindow("acct-1")).threads[0]?.pinned).toBe(true);
+  });
+});
+
+describe("readThreadWindow — Label filter view (#43)", () => {
+  it("filters to Threads carrying the given Label id, ordered like the Inbox otherwise", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("work-1", "acct-1", {
+            lastMessageAt: minutesAfterEpoch(1),
+            labelIds: [labelId("acct-1", "Work")],
+          }),
+          makeThread("no-label", "acct-1", { lastMessageAt: minutesAfterEpoch(2) }),
+          makeThread("work-2", "acct-1", {
+            lastMessageAt: minutesAfterEpoch(3),
+            labelIds: [labelId("acct-1", "Work")],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow("acct-1", {
+      view: { kind: "label", labelId: labelId("acct-1", "Work") },
+    });
+    expect(page.threads.map((thread) => thread.id)).toEqual(["work-2", "work-1"]);
+  });
+
+  it("renders a queued applyLabel instantly in the matching label view, before any server round-trip", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Work" }, "acct-1");
+
+    const page = await readThreadWindow("acct-1", {
+      view: { kind: "label", labelId: labelId("acct-1", "Work") },
+    });
+    expect(page.threads.map((thread) => thread.id)).toEqual(["t1"]);
+  });
+
+  it("drops a Thread from the label view the instant removeLabel is queued", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [makeThread("t1", "acct-1", { labelIds: [labelId("acct-1", "Work")] })],
+      }),
+      { replace: false },
+    );
+
+    await enqueueMutation({ type: "removeLabel", threadId: "t1", name: "Work" }, "acct-1");
+
+    const page = await readThreadWindow("acct-1", {
+      view: { kind: "label", labelId: labelId("acct-1", "Work") },
+    });
+    expect(page.threads).toEqual([]);
+  });
+});
+
+describe("readLabels", () => {
+  it("returns this Mail Account's Labels, name-ordered", async () => {
+    await applyLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeLabel(labelId("acct-1", "Zeta"), "acct-1", { name: "Zeta" }),
+          makeLabel(labelId("acct-1", "Alpha"), "acct-1", { name: "Alpha" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await readLabels("acct-1")).map((label) => label.name)).toEqual(["Alpha", "Zeta"]);
+  });
+
+  it("is empty for a Mail Account with no Labels synced yet", async () => {
+    expect(await readLabels("never-synced")).toEqual([]);
   });
 });
 

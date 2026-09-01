@@ -52,9 +52,39 @@ export const threadSchema = z.object({
    * pending overlay.
    */
   inInbox: z.boolean(),
+  /**
+   * Whether this Thread is Pinned (#43): an App Feature, deliberately
+   * distinct from `starred` (CONTEXT.md — a Star says "this matters", a Pin
+   * says "keep this in front of me"). The Client sorts Pinned Threads to the
+   * top of every view mode regardless of their date.
+   */
+  pinned: z.boolean(),
+  /**
+   * The Labels currently applied to this Thread, as `Label.id`s (#43). An
+   * App Feature, denormalized here the same way `starred` is — the
+   * `Label` collection below carries the id→name mapping, this is the
+   * per-Thread membership, kept on the Thread row (rather than requiring a
+   * join client-side) because every view already renders off one Thread
+   * projection.
+   */
+  labelIds: z.array(z.string()),
   updatedAt: z.iso.datetime(),
 });
 export type Thread = z.infer<typeof threadSchema>;
+
+/**
+ * A Label (#43, CONTEXT.md): a User-defined tag, App Feature, no colors or
+ * nesting at PoC scope. `id` is deterministic (`labelId` in
+ * `packages/shared/src/labels.ts`) rather than server-minted, so applying a
+ * brand-new Label is a single Optimistic Action with no id round trip first.
+ */
+export const labelSchema = z.object({
+  id: z.string(),
+  mailAccountId: z.string(),
+  name: z.string(),
+  updatedAt: z.iso.datetime(),
+});
+export type Label = z.infer<typeof labelSchema>;
 
 /**
  * One collection's delta since the state token the Client sent.
@@ -91,6 +121,9 @@ export type MailAccountDelta = z.infer<typeof mailAccountDeltaSchema>;
 export const threadDeltaSchema = collectionDeltaSchema(threadSchema);
 export type ThreadDelta = z.infer<typeof threadDeltaSchema>;
 
+export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
+export type LabelDelta = z.infer<typeof labelDeltaSchema>;
+
 /**
  * A requested collection's token. `null` asks for a full bootstrap (the
  * Client holds nothing yet — not the same as a stale/unrecognized token,
@@ -120,12 +153,28 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `store/mutation-queue.ts`. Applying one flips the Thread's `inInbox` to
  * `false` and, asynchronously, moves whatever of its Messages sit in the
  * Inbox to the account's Archive/Trash folder over real IMAP (ADR-0006).
+ *
+ * `setPinned` (#43) mirrors `setStarred`'s absolute-set shape exactly, but
+ * — Pin being an App Feature (ADR-0006) — never enqueues a protocol write:
+ * it touches only the Thread row, never a Message's flags.
+ *
+ * `applyLabel`/`removeLabel` (#43) carry the Label's `name`, not its id: the
+ * id is deterministic (`labelId` in `packages/shared/src/labels.ts`) from
+ * `(mailAccountId, name)`, so both the Client's optimistic overlay
+ * (`store/reads.ts`) and the Sync Backend derive the same id independently
+ * rather than one minting it and handing it to the other. Applying a name
+ * with no existing Label creates one; removing a name with no effect is a
+ * harmless no-op, the same tolerance `archive`/`trash` already have for a
+ * Thread that's already in the state being asked for.
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
   z.object({ type: z.literal("setRead"), threadId: z.string(), read: z.boolean() }),
   z.object({ type: z.literal("archive"), threadId: z.string() }),
   z.object({ type: z.literal("trash"), threadId: z.string() }),
+  z.object({ type: z.literal("setPinned"), threadId: z.string(), pinned: z.boolean() }),
+  z.object({ type: z.literal("applyLabel"), threadId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 
@@ -160,6 +209,7 @@ export type MutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 
 export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
+  Label: requestedTokenSchema.optional(),
   /** This account's queue to flush, oldest first. Omitted (never `[]`) when there is nothing queued for it. */
   mutations: z.array(queuedMutationSchema).optional(),
 });
@@ -190,6 +240,7 @@ export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 
 export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
+  Label: labelDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
 });

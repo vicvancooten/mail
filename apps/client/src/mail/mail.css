@@ -120,6 +120,21 @@
   font-size: 13px;
 }
 
+.label-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mail-text-dim);
+}
+.label-filter select {
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
 /* ---------- body / view layouts ---------- */
 
 .mail-body {
@@ -255,6 +270,35 @@
   color: #e0b32c;
   flex-shrink: 0;
 }
+.thread-row .pin {
+  color: var(--mail-accent);
+  flex-shrink: 0;
+}
+.thread-row.pinned {
+  background: color-mix(in srgb, var(--mail-accent) 6%, transparent);
+}
+
+.row-labels {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--mail-border);
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.label-chip.overflow {
+  color: var(--mail-text-faint);
+}
 
 .thread-row .time {
   color: var(--mail-text-faint);
@@ -347,6 +391,105 @@
 .thread-detail-header .star {
   color: #e0b32c;
 }
+.thread-detail-header .pin {
+  color: var(--mail-accent);
+}
+
+.thread-detail-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.thread-detail-actions button.on {
+  background: var(--mail-bg-selected);
+  border-color: var(--mail-accent);
+  color: var(--mail-text);
+}
+
+.label-picker-anchor {
+  position: relative;
+  display: inline-block;
+}
+
+.label-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  min-width: 200px;
+  padding: 8px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+.label-picker-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.label-picker-empty {
+  color: var(--mail-text-faint);
+  font-size: 12px;
+  margin: 0 0 6px;
+}
+.label-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mail-text-dim);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.label-toggle:hover {
+  background: var(--mail-bg-hover);
+}
+.label-toggle.on {
+  color: var(--mail-text);
+  font-weight: 600;
+}
+.label-picker-new {
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid var(--mail-border);
+  padding-top: 6px;
+}
+.label-picker-new input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  background: var(--mail-bg);
+  color: var(--mail-text);
+  font-size: 13px;
+}
+.label-picker-new button {
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  background: var(--mail-bg);
+  color: var(--mail-text);
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.label-picker-new button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 .thread-detail-card h1 {
   font-size: 20px;
@@ -395,6 +538,11 @@
 .queue-peek .chip.current {
   border-color: var(--mail-accent);
   color: var(--mail-text);
+}
+.queue-peek .chip.pinned {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 @media (prefers-reduced-motion: reduce) {

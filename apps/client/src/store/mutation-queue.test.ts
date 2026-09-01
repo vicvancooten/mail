@@ -94,6 +94,53 @@ describe("enqueueMutation", () => {
     expect(queued).toHaveLength(1);
     expect(queued[0]?.intent).toEqual({ type: "setStarred", threadId: "t1", starred: true });
   });
+
+  it("drops both rows when setPinned's exact inverse is queued before it flushes (#43)", async () => {
+    await enqueueMutation({ type: "setPinned", threadId: "t1", pinned: true }, ACCOUNT);
+    const secondId = await enqueueMutation(
+      { type: "setPinned", threadId: "t1", pinned: false },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("coalesces applyLabel then removeLabel of the same name on the same Thread away (#43)", async () => {
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Work" }, ACCOUNT);
+    const secondId = await enqueueMutation(
+      { type: "removeLabel", threadId: "t1", name: "Work" },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("coalesces regardless of incidental whitespace in the name (#43)", async () => {
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "  Work  " }, ACCOUNT);
+    const secondId = await enqueueMutation(
+      { type: "removeLabel", threadId: "t1", name: "Work" },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("does not coalesce applyLabel of two different names on the same Thread", async () => {
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Work" }, ACCOUNT);
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Personal" }, ACCOUNT);
+
+    expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
+  });
+
+  it("does not coalesce the same Label name applied on two different Threads", async () => {
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Work" }, ACCOUNT);
+    await enqueueMutation({ type: "removeLabel", threadId: "t2", name: "Work" }, ACCOUNT);
+
+    expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
+  });
 });
 
 describe("resolveMutationOutcomes", () => {
