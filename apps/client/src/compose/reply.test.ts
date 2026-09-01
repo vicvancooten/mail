@@ -135,17 +135,32 @@ describe("buildReplyRecipients (#47, compose-spec §Recipients)", () => {
     ]);
   });
 
-  it("reply-all deduplicates on normalized address, keeping the best display name seen", () => {
+  it("reply-all deduplicates on normalized address, keeping the best display name seen — even across To and the From-derived primary recipient", () => {
     const message = makeMessage({
       from: { name: null, address: "Ada@Example.test" },
       to: [{ name: "Vic", address: "vic@example.test" }],
       cc: [{ name: "Ada Lovelace", address: "ada@example.test" }],
     });
     const { to, cc } = buildReplyRecipients("replyAll", message, makeAccount());
-    expect(to).toEqual([{ name: null, address: "Ada@Example.test" }]);
-    // Ada also appears in Cc with a name — but she's already in To, so she is
-    // not duplicated into Cc too.
+    // Ada is the primary (From) recipient, with no name of her own there —
+    // but she also appears in Cc with a full display name for the same
+    // address, and that name wins even though it came from a different
+    // field (compose-spec §Recipients: keep the best available name).
+    expect(to).toEqual([{ name: "Ada Lovelace", address: "Ada@Example.test" }]);
+    // She's already in To, so she is not duplicated into Cc too.
     expect(cc).toEqual([]);
+  });
+
+  it("reply-all keeps the best display name across To and Cc for the same address, not just per-field", () => {
+    const message = makeMessage({
+      to: [
+        { name: "Vic", address: "vic@example.test" },
+        { name: null, address: "carol@example.test" }, // bare in To
+      ],
+      cc: [{ name: "Carol Danvers", address: "Carol@Example.test" }], // named in Cc
+    });
+    const { cc } = buildReplyRecipients("replyAll", message, makeAccount());
+    expect(cc).toEqual([{ name: "Carol Danvers", address: "carol@example.test" }]);
   });
 
   it("forward starts with empty recipients — the User picks new ones", () => {

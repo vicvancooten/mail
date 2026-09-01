@@ -113,13 +113,29 @@ export function buildReplyRecipients(
   if (mode === "forward") return { to: [], cc: [] };
 
   const primary = message.replyTo.length > 0 ? message.replyTo : message.from ? [message.from] : [];
-  const to = dedupeRecipients(primary);
-  if (mode === "reply") return { to, cc: [] };
+  if (mode === "reply") return { to: dedupeRecipients(primary), cc: [] };
 
   const self = new Set([normalizedAddress(account.emailAddress)]);
+
+  // The best display name per address, resolved across `primary`, the
+  // original `To` and the original `Cc` *together* — never per-field — so
+  // an address that shows up bare/null-named in one of those and fully
+  // named in another always ends up with the fuller name in the merged
+  // reply-all recipient set (compose-spec §Recipients), whichever field it
+  // lands in below.
+  const bestNamed = dedupeRecipients([...primary, ...message.to, ...message.cc]);
+  const bestNameByAddress = new Map(
+    bestNamed.map((recipient) => [normalizedAddress(recipient.address), recipient.name]),
+  );
+  const withBestName = (recipient: Recipient): Recipient => ({
+    ...recipient,
+    name: bestNameByAddress.get(normalizedAddress(recipient.address)) ?? recipient.name,
+  });
+
+  const to = dedupeRecipients(primary).map(withBestName);
   const toAddresses = new Set(to.map((recipient) => normalizedAddress(recipient.address)));
   const cc = without(
-    dedupeRecipients([...message.to, ...message.cc]),
+    dedupeRecipients([...message.to, ...message.cc]).map(withBestName),
     new Set([...self, ...toAddresses]),
   );
   return { to: without(to, self), cc };
