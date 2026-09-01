@@ -16,6 +16,7 @@ export function toWireThread(row: ThreadRow): Thread {
     unreadCount: row.unreadCount,
     starred: row.starred,
     hasAttachments: row.hasAttachments,
+    inInbox: row.inInbox,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

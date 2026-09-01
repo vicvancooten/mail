@@ -42,6 +42,16 @@ export const threadSchema = z.object({
   unreadCount: z.int(),
   starred: z.boolean(),
   hasAttachments: z.boolean(),
+  /**
+   * Whether this Thread currently has a Message sitting in the Inbox
+   * (#42). Not a general Folder projection — the Client still holds exactly
+   * one list per Mail Account (`db.ts`) — just the one signal triage needs:
+   * archiving/trashing flips it to `false` server-side (`sync/mutations.ts`)
+   * so the Thread drops out of that list for good, on every Client, once
+   * the intent lands, and not only for the duration of the Client's own
+   * pending overlay.
+   */
+  inInbox: z.boolean(),
   updatedAt: z.iso.datetime(),
 });
 export type Thread = z.infer<typeof threadSchema>;
@@ -97,17 +107,25 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
 /**
  * A semantic Optimistic Action (ADR-0010, #39) — never a wire-level
  * operation, so a protocol change never invalidates a queued action still
- * sitting in a Client's Local Cache. Additive: a future `archive`/`pin`/
- * `label` intent is a new union member, never a reshape of these two.
+ * sitting in a Client's Local Cache. Additive: a future `pin`/`label`
+ * intent is a new union member, never a reshape of these four.
  *
- * Both apply to *every* Message in the Thread — the same "whole Thread"
- * granularity `sync/thread-rollup.ts` already aggregates over, so the
- * optimistic overlay's predicted `unreadCount`/`starred` matches exactly
- * what the backend will compute once the intent lands.
+ * `setStarred`/`setRead` apply to *every* Message in the Thread — the same
+ * "whole Thread" granularity `sync/thread-rollup.ts` already aggregates
+ * over, so the optimistic overlay's predicted `unreadCount`/`starred`
+ * matches exactly what the backend will compute once the intent lands.
+ *
+ * `archive`/`trash` (#42) are one-directional — there is no `unarchive`
+ * intent yet, so unlike the two above they never coalesce with anything in
+ * `store/mutation-queue.ts`. Applying one flips the Thread's `inInbox` to
+ * `false` and, asynchronously, moves whatever of its Messages sit in the
+ * Inbox to the account's Archive/Trash folder over real IMAP (ADR-0006).
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
   z.object({ type: z.literal("setRead"), threadId: z.string(), read: z.boolean() }),
+  z.object({ type: z.literal("archive"), threadId: z.string() }),
+  z.object({ type: z.literal("trash"), threadId: z.string() }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 

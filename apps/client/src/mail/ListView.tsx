@@ -1,6 +1,7 @@
 import type { CachedThread } from "../store/index.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
+import type { Triage } from "./useTriage.js";
 import { VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 /**
@@ -17,6 +18,7 @@ export function ListView({
   onSelect,
   onBack,
   onLoadMore,
+  triage,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -25,6 +27,7 @@ export function ListView({
   onSelect: (id: string) => void;
   onBack: () => void;
   onLoadMore?: () => void;
+  triage: Triage;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
 
@@ -37,6 +40,7 @@ export function ListView({
         onBack={onBack}
         onPrev={prevId ? () => onSelect(prevId) : undefined}
         onNext={nextId ? () => onSelect(nextId) : undefined}
+        triage={triage}
       />
     );
   }

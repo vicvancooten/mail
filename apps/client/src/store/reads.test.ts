@@ -104,6 +104,59 @@ describe("readThreadWindow — base ⊕ pending overlay (#39)", () => {
     expect((await readThreadWindow("acct-1")).threads[0]?.starred).toBe(false);
   });
 
+  it("hides a Thread the instant archive/trash is queued, before any server round-trip (#42)", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { lastMessageAt: minutesAfterEpoch(1) }),
+          makeThread("t2", "acct-1", { lastMessageAt: minutesAfterEpoch(2) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    await enqueueMutation({ type: "archive", threadId: "t1" }, "acct-1");
+
+    const page = await readThreadWindow("acct-1");
+    expect(page.threads.map((thread) => thread.id)).toEqual(["t2"]);
+  });
+
+  it("trash hides a Thread the same way archive does", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    await enqueueMutation({ type: "trash", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+  });
+
+  it("a Thread the Sync Backend already confirmed left the Inbox stays hidden with no pending mutation at all", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { inInbox: false })] }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+  });
+
+  it("reverts an archive rollback visibly — the Thread reappears once the rejected mutation's row is gone", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    await enqueueMutation({ type: "archive", threadId: "t1" }, "acct-1");
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+
+    // A rejected outcome dequeues exactly like an applied one (ADR-0010) —
+    // simulated here by clearing the queue directly, as the "reverts
+    // automatically" test above does for setStarred.
+    await localCache().pendingMutations.clear();
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
+  });
+
   it("overlays two different queued intents on the same Thread independently", async () => {
     await applyThreadDelta(
       "acct-1",

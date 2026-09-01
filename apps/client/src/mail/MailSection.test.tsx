@@ -1,12 +1,17 @@
 import type { SyncResponse } from "@mail/shared";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../store/server-writes.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
-import { delta, makeMailAccount, makeThread } from "../test-support/mail-fixtures.js";
+import {
+  delta,
+  makeMailAccount,
+  makeThread,
+  minutesAfterEpoch,
+} from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
 import { MailSection } from "./MailSection.js";
 
@@ -69,6 +74,30 @@ async function seedCachedMail(): Promise<void> {
   await applyThreadDelta(
     "acct-1",
     delta({ created: [makeThread("t1", "acct-1", { subject: "Last state" })] }),
+    { replace: false },
+  );
+}
+
+/** Two Threads, newest first: "Newer thread" (unread) then "Older thread" (read) — #42's keyboard tests. */
+async function seedTwoThreads(): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: [
+        makeThread("t-older", "acct-1", {
+          subject: "Older thread",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(1),
+        }),
+        makeThread("t-newer", "acct-1", {
+          subject: "Newer thread",
+          unreadCount: 1,
+          messageCount: 1,
+          lastMessageAt: minutesAfterEpoch(2),
+        }),
+      ],
+    }),
     { replace: false },
   );
 }
@@ -238,5 +267,86 @@ describe("MailSection", () => {
 
     expect(await screen.findByText("Account two thread")).toBeDefined();
     expect(screen.queryByText("Account one thread")).toBeNull();
+  });
+
+  it("a full keyboard-only pass: navigate, archive, star, and auto-advance (#42)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    // j with nothing selected opens the newest Thread.
+    fireEvent.keyDown(window, { key: "j" });
+    expect(
+      (await screen.findByRole("option", { name: /Newer thread/ })).getAttribute("aria-selected"),
+    ).toBe("true");
+
+    // j again moves to (and opens) the next-older Thread; k moves back.
+    fireEvent.keyDown(window, { key: "j" });
+    expect(
+      (await screen.findByRole("option", { name: /Older thread/ })).getAttribute("aria-selected"),
+    ).toBe("true");
+    fireEvent.keyDown(window, { key: "k" });
+    expect(
+      (await screen.findByRole("option", { name: /Newer thread/ })).getAttribute("aria-selected"),
+    ).toBe("true");
+
+    // s stars the open Thread.
+    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
+    fireEvent.keyDown(window, { key: "s" });
+    expect(await screen.findByRole("button", { name: "Unstar" })).toBeDefined();
+
+    // e archives the open Thread: it's gone from the list, and — direction
+    // defaults to "older" — the next-older Thread takes over the selection.
+    fireEvent.keyDown(window, { key: "e" });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(
+      (await screen.findByRole("option", { name: /Older thread/ })).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("selecting an unread Thread marks it read; u toggles it back to unread (#42)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+    expect(row.className).toContain("unread");
+
+    fireEvent.click(row);
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Newer thread/ }).className).not.toContain(
+        "unread",
+      );
+    });
+    expect(await screen.findByRole("button", { name: "Mark unread" })).toBeDefined();
+
+    fireEvent.keyDown(window, { key: "u" });
+    expect(await screen.findByRole("button", { name: "Mark read" })).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Newer thread/ }).className).toContain("unread");
+    });
+  });
+
+  it("the auto-advance direction toggle in the top bar flips trash's neighbor choice", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+    fireEvent.click(screen.getByRole("button", { name: /Next: Older/ }));
+    expect(await screen.findByRole("button", { name: /Next: Newer/ })).toBeDefined();
+
+    // Open the *older* Thread and trash it — with direction flipped to
+    // "newer", the newer Thread (the only remaining neighbor either way
+    // here) still takes over, but exercised via the actual toggle rather
+    // than the default.
+    fireEvent.click(screen.getByText("Older thread"));
+    fireEvent.keyDown(window, { key: "#" });
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    expect(
+      (await screen.findByRole("option", { name: /Newer thread/ })).getAttribute("aria-selected"),
+    ).toBe("true");
   });
 });

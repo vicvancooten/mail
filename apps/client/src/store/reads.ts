@@ -84,7 +84,17 @@ export async function readThreadWindow(
   if (!window) return { threads: [], complete: true };
 
   const threads = await threadsInWindow(db, window).reverse().limit(limit).toArray();
-  return { threads: await overlayPendingMutations(db, threads), complete: window.complete };
+  const overlaid = await overlayPendingMutations(db, threads);
+  // `inInbox` (#42) is this Client's one list's whole filter, applied after
+  // the overlay so an archive/trash still queued hides its Thread at the
+  // same instant as one the Sync Backend already confirmed — no flicker
+  // between "optimistically hidden" and "actually gone" as the mutation
+  // dequeues. A page can come back short of `limit` when the window holds
+  // Threads already known to be out of the Inbox; `onLoadMore` still works,
+  // it just may need an extra round to fill the visible page — acceptable
+  // at PoC scope, and the window-admission side of this (`server-writes.ts`)
+  // is a reasonable follow-up if it ever isn't.
+  return { threads: overlaid.filter((thread) => thread.inInbox), complete: window.complete };
 }
 
 /**
@@ -137,6 +147,13 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         // overlay's `unreadCount` is 0 (read) or every Message (unread),
         // never an in-between guess.
         overlaid = { ...overlaid, unreadCount: mutation.intent.read ? 0 : overlaid.messageCount };
+        break;
+      case "archive":
+      case "trash":
+        // The Thread's fate is sealed the instant the action is queued —
+        // `readThreadWindow` drops anything with `inInbox: false` from the
+        // page, offline included, before any server round trip.
+        overlaid = { ...overlaid, inInbox: false };
         break;
     }
   }

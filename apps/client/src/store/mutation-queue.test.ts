@@ -77,6 +77,14 @@ describe("enqueueMutation", () => {
     expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
   });
 
+  it("never coalesces archive or trash — there is no inverse intent for either (#42)", async () => {
+    await enqueueMutation({ type: "archive", threadId: "t1" }, ACCOUNT);
+    await enqueueMutation({ type: "trash", threadId: "t1" }, ACCOUNT);
+    await enqueueMutation({ type: "archive", threadId: "t1" }, ACCOUNT);
+
+    expect(await listQueuedMutations(ACCOUNT)).toHaveLength(3);
+  });
+
   it("re-queues after a star/unstar/star sequence, leaving exactly the last action", async () => {
     await enqueueMutation({ type: "setStarred", threadId: "t1", starred: true }, ACCOUNT);
     await enqueueMutation({ type: "setStarred", threadId: "t1", starred: false }, ACCOUNT);

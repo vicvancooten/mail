@@ -1,14 +1,16 @@
 import type { MailAccount } from "@mail/shared";
-import { Columns2, Layers, List as ListIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, Columns2, Layers, List as ListIcon } from "lucide-react";
 import { AccountSwitcher } from "./AccountSwitcher.js";
 import type { ViewMode } from "./device-preferences.js";
+import type { AdvanceDirection } from "./triage-preferences.js";
 
 /**
  * The top bar: the Split/List segmented control, the Stream mode opt-in
- * toggle, and the account switcher. Icons via lucide-react, icon+label
- * buttons in the shadcn convention — the commitments `prototype/triage-loop-ui`
- * settled on (its README), adopted here without pulling in the full shadcn
- * component library the real app doesn't otherwise use.
+ * toggle, the auto-advance direction toggle (#42), and the account
+ * switcher. Icons via lucide-react, icon+label buttons in the shadcn
+ * convention — the commitments `prototype/triage-loop-ui` settled on (its
+ * README), adopted here without pulling in the full shadcn component
+ * library the real app doesn't otherwise use.
  *
  * Stream mode is deliberately not a third segmented option: it replaces
  * whichever of Split/List is showing, and that underlying choice stays
@@ -19,6 +21,8 @@ export function TopBar({
   onViewMode,
   streamMode,
   onStreamMode,
+  direction,
+  onDirection,
   accounts,
   selectedAccountId,
   onSelectAccount,
@@ -27,6 +31,8 @@ export function TopBar({
   onViewMode: (mode: ViewMode) => void;
   streamMode: boolean;
   onStreamMode: (enabled: boolean) => void;
+  direction: AdvanceDirection;
+  onDirection: (direction: AdvanceDirection) => void;
   accounts: MailAccount[];
   selectedAccountId: string | null;
   onSelectAccount: (id: string) => void;
@@ -61,6 +67,18 @@ export function TopBar({
         title="Opt-in: replaces Split/List with one-thread-at-a-time browsing"
       >
         <Layers size={14} /> Stream mode
+      </button>
+
+      <div className="divider" />
+
+      <button
+        type="button"
+        className="toggle"
+        onClick={() => onDirection(direction === "older" ? "newer" : "older")}
+        title="After archive/trash, which neighbor gets selected?"
+      >
+        {direction === "older" ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
+        Next: {direction === "older" ? "Older" : "Newer"}
       </button>
 
       <div className="topbar-spacer" />
