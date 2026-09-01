@@ -4,6 +4,7 @@ import { startSendLoop } from "./compose/send-loop.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
+import { createSyncHintBroker } from "./realtime/sync-hints.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
@@ -15,7 +16,12 @@ const env = loadEnv();
 // process does not start serving traffic if a migration fails.
 await runMigrations(env.DATABASE_URL, new URL("./db/migrations", import.meta.url).pathname);
 
-const { db } = createDb(env);
+const { db, sql } = createDb(env);
+
+// ADR-0015's fanout: a dedicated `LISTEN` connection (never the pooled one
+// queries run on) turning `migration 0016`'s `pg_notify` into `GET
+// /events` hints.
+const syncHints = createSyncHintBroker(sql);
 
 const [host, portStr] = env.MAIL_BIND.split(":");
 const port = Number(portStr);
@@ -34,6 +40,7 @@ const app = buildApp({
   mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
   syncManager,
   attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
+  syncHints,
 });
 
 // One-time first-run claim token, printed to the logs (ADR-0009 deployment).
@@ -85,6 +92,7 @@ process.on("SIGTERM", () => {
     draftPushLoop.stop(),
     sendLoop.stop(),
     searchIndexRebuildLoop.stop(),
+    syncHints.stop(),
   ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))
     .finally(() => process.exit(0));

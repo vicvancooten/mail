@@ -6,10 +6,12 @@ import authPlugin from "./auth/plugin.js";
 import type { Db } from "./db/client.js";
 import type { discoverMailAccount } from "./mail-accounts/autodiscover.js";
 import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
+import { noopSyncHintBroker, type SyncHintBroker } from "./realtime/sync-hints.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
+import { eventsRoutes } from "./routes/events.js";
 import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
@@ -56,6 +58,14 @@ export interface BuildAppOptions {
   syncManager?: SyncManager;
   /** ADR-0012's instance-level attachment budget, in encoded bytes. Defaults for tests that never touch #48. */
   attachmentBudgetBytes?: number;
+  /**
+   * `GET /events`'s Sync Hint fanout (#52, ADR-0015). Defaults to a no-op:
+   * opening a dedicated `LISTEN` connection is not something any test asks
+   * for just by calling `buildApp` — `main.ts` wires in the live one.
+   */
+  syncHints?: SyncHintBroker;
+  /** Test seam for `GET /events`'s heartbeat cadence — see `routes/events.ts`. */
+  eventsHeartbeatMs?: number;
 }
 
 export function buildApp({
@@ -66,6 +76,8 @@ export function buildApp({
   mailAccountDiscover,
   syncManager = noopSyncManager,
   attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
+  syncHints = noopSyncHintBroker,
+  eventsHeartbeatMs,
 }: BuildAppOptions) {
   const app = Fastify({
     // Vitest sets NODE_ENV=test; quiet request logging there so the growing
@@ -95,6 +107,7 @@ export function buildApp({
     syncManager,
   });
   app.register(syncRoutes, { db });
+  app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });

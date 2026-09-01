@@ -113,6 +113,13 @@
       "when": 1788275305214,
       "tag": "0015_colorful_wildside",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788280324202,
+      "tag": "0016_notify_sync_hint",
+      "breakpoints": true
     }
   ]
 }

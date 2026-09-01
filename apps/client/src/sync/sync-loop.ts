@@ -1,14 +1,28 @@
 import { ApiError } from "../api/auth.js";
 import { claimLeadership, type LeaderHandle, type SyncLockManager } from "./leader.js";
+import {
+  type ConnectSyncHintsOptions,
+  connectSyncHints,
+  type SubscribeSyncHintsOptions,
+  subscribeSyncHints,
+} from "./sse.js";
 import type { PostSync } from "./sync-api.js";
 import { runSyncRound } from "./sync-round.js";
 
 /**
  * The leader tab's sync loop and its cadence (ADR-0011): cold boot,
  * `visibilitychange → visible` (rate-limited so alt-tabbing cannot hammer
- * it), the `online` event, and a 30s interval **while visible only** — a
- * hidden tab polling is battery cost for nothing. SSE Sync Hints replace the
- * signal, not the mechanism, when #52 lands: `requestSync()` is the seam.
+ * it), the `online` event, an SSE Sync Hint (ADR-0015, `sse.ts`), and a 30s
+ * interval **while visible only** — a hidden tab polling is battery cost for
+ * nothing, and the interval survives as the safety net a missed or
+ * never-arrived hint heals against. `requestSync()` is the one seam all of
+ * these wake through.
+ *
+ * The `GET /events` connection itself only ever opens inside the Web Locks
+ * leader task below — never per-tab — and every tab, leader included,
+ * reacts to a hint through `subscribeSyncHints`'s `BroadcastChannel` rather
+ * than a direct call, so there is one reaction to keep correct instead of a
+ * leader path and a follower path.
  *
  * The Client is **silent when healthy**. Nothing here logs, and nothing here
  * renders: a failure moves `SyncStatus`, and a future offline indicator is
@@ -70,10 +84,15 @@ export interface SyncLoopOptions {
    * prompt over last state.
    */
   onUnauthorized?: () => void;
+  /** Test seam for `sse.ts`'s `subscribeSyncHints` — every tab's reaction to a relayed hint. */
+  subscribeHints?: typeof subscribeSyncHints;
+  /** Test seam for `sse.ts`'s `connectSyncHints` — the leader-only `GET /events` connection. */
+  connectHints?: typeof connectSyncHints;
+  sseOptions?: SubscribeSyncHintsOptions & ConnectSyncHintsOptions;
 }
 
 export interface SyncLoopHandle {
-  /** Asks for a round as soon as the loop is free — the seam an SSE Sync Hint will use (#52). */
+  /** Asks for a round as soon as the loop is free — the seam an SSE Sync Hint uses (#52). */
   requestSync(): void;
   stop(): void;
 }
@@ -83,11 +102,12 @@ export interface SyncLoopHandle {
  * the component tree. The Undo Send bar (#46) is what needs it: a send and a
  * cancel are both worth a round trip *now* rather than on the next 30s tick,
  * because a 10-second Undo window that takes 30 seconds to start or to
- * cancel is not an Undo window. #52's SSE Sync Hints call the same seam.
+ * cancel is not an Undo window. An SSE Sync Hint relayed over `sse.ts`'s
+ * `BroadcastChannel` calls the same seam.
  *
  * `null` while no loop is running, and a no-op in a tab that lost the Web
- * Lock — a follower tab has no loop to wake, and cross-tab wake-up is #52's
- * leader relay, not this.
+ * Lock — a follower tab has no loop to wake, only a hint reaction that sets
+ * a flag nothing is reading yet.
  */
 let activeLoop: SyncLoopHandle | null = null;
 
@@ -102,6 +122,9 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
     random = Math.random,
     post,
     onUnauthorized,
+    subscribeHints = subscribeSyncHints,
+    connectHints = connectSyncHints,
+    sseOptions,
   } = options;
 
   let wake: (() => void) | null = null;
@@ -112,6 +135,12 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
     syncRequested = true;
     wake?.();
   }
+
+  // Every tab reacts to a relayed hint the same way, leader included — see
+  // `sse.ts`'s doc comment for why a leader can't just call `requestSync`
+  // and skip this: it exists for the day another tab held the connection
+  // before this one won leadership.
+  const unsubscribeHints = subscribeHints(requestSync, sseOptions);
 
   /** Rate-limited so a burst of `visible`/`online` events cannot hammer the endpoint. */
   function requestSyncThrottled(): void {
@@ -129,6 +158,10 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
     async (signal) => {
       globalThis.addEventListener?.("online", requestSyncThrottled);
       globalThis.document?.addEventListener("visibilitychange", onVisibilityChange);
+      // The one `GET /events` connection for the whole User (ADR-0015):
+      // only the tab that wins the Web Lock ever opens it, and it closes
+      // the moment this tab's leadership does, on `signal` abort.
+      connectHints(requestSync, signal, sseOptions);
       try {
         while (!signal.aborted) {
           if (syncRequested) {
@@ -142,8 +175,8 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
           });
           wake = null;
           // Whatever woke this — the interval, a backoff, `online`, a
-          // regained visible tab, a future SSE Sync Hint — is a reason to
-          // sync. Only an abort leaves through the loop condition.
+          // regained visible tab, an SSE Sync Hint — is a reason to sync.
+          // Only an abort leaves through the loop condition.
           syncRequested = true;
         }
       } finally {
@@ -158,6 +191,7 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
     requestSync,
     stop: () => {
       if (activeLoop === handle) activeLoop = null;
+      unsubscribeHints();
       leader.release();
       wake?.();
     },
