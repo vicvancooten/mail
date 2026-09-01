@@ -49,10 +49,19 @@ export function buildThreadingHeaders(message: Message): ThreadingHeaders {
   };
 }
 
-/** `Re: ` / `Fwd: `, only when not already present — never stacked (compose-spec §Threading headers). */
+/**
+ * `Re: ` / `Fwd: `, only when not already present — never stacked
+ * (compose-spec §Threading headers). "Already present" is recognized
+ * whether or not the other client that wrote it put a space after the
+ * colon (`"RE:hello"`, common from clients other than this one, is just as
+ * prefixed as `"RE: hello"`) — the label must still be followed by a `:` or
+ * the end of the subject, so `"Reply"` is never mistaken for an existing
+ * `Re` prefix.
+ */
 export function buildSubject(originalSubject: string, mode: ReplyMode): string {
-  const prefix = mode === "forward" ? "Fwd: " : "Re: ";
-  const already = new RegExp(`^${prefix.trim()}:?\\s`, "i").test(`${originalSubject} `);
+  const label = mode === "forward" ? "Fwd" : "Re";
+  const prefix = `${label}: `;
+  const already = new RegExp(`^${label}(:|$)\\s*`, "i").test(originalSubject);
   return already ? originalSubject : `${prefix}${originalSubject}`;
 }
 

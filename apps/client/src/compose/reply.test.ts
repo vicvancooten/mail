@@ -95,6 +95,15 @@ describe("buildSubject", () => {
     expect(buildSubject("re: Lunch plans", "reply")).toBe("re: Lunch plans");
     expect(buildSubject("Fwd: Lunch plans", "forward")).toBe("Fwd: Lunch plans");
   });
+
+  it("recognizes a prefix already present with no space after the colon, e.g. from another mail client", () => {
+    expect(buildSubject("RE:hello", "reply")).toBe("RE:hello");
+    expect(buildSubject("Fwd:hello", "forward")).toBe("Fwd:hello");
+  });
+
+  it("does not mistake a look-alike word for an existing prefix", () => {
+    expect(buildSubject("Reply to this", "reply")).toBe("Re: Reply to this");
+  });
 });
 
 describe("buildReplyRecipients (#47, compose-spec §Recipients)", () => {
