@@ -39,6 +39,20 @@ async function queueMutation(threadIds: string[]): Promise<void> {
   });
 }
 
+async function queueComposeSave(): Promise<void> {
+  await localCache().pendingComposeSaves.put({
+    compositionId: "comp-1",
+    mailAccountId: "acct-1",
+    saveId: "01JSAVE",
+    subject: "unsent draft",
+    document: { type: "doc", content: [{ type: "paragraph" }] },
+    to: [],
+    cc: [],
+    bcc: [],
+    queuedAt: "2026-06-01T12:00:00.000Z",
+  });
+}
+
 describe("opening the Local Cache", () => {
   it("reports a first-ever open as fresh", async () => {
     expect(await openLocalCache({ name: uniqueName(), schemaVersion: 1 })).toEqual({
@@ -76,10 +90,25 @@ describe("opening the Local Cache", () => {
       status: "deferred",
       from: 1,
       pendingMutations: 1,
+      pendingComposeSaves: 0,
     });
     // The old data stays, and stays readable: an unsent archive performed on
     // a train outranks the upgrade.
     expect(await localCache().threads.count()).toBe(1);
+  });
+
+  it("never wipes over a non-empty Composition autosave queue either (ADR-0014)", async () => {
+    const name = uniqueName();
+    await openLocalCache({ name, schemaVersion: 1 });
+    await queueComposeSave();
+
+    expect(await openLocalCache({ name, schemaVersion: 2 })).toEqual({
+      status: "deferred",
+      from: 1,
+      pendingMutations: 0,
+      pendingComposeSaves: 1,
+    });
+    expect(await localCache().pendingComposeSaves.count()).toBe(1);
   });
 
   it("performs the deferred wipe once the queue drains", async () => {
@@ -114,6 +143,7 @@ describe("opening the Local Cache", () => {
       status: "deferred",
       from: 2,
       pendingMutations: 1,
+      pendingComposeSaves: 0,
     });
     expect(await localCache().threads.count()).toBe(1);
   });

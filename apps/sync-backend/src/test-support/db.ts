@@ -4,6 +4,8 @@ import { runMigrations } from "../db/migrate.js";
 import {
   appliedMutations,
   claimTokens,
+  composeSaveLedger,
+  compositions,
   folders,
   labels,
   loginChallenges,
@@ -55,6 +57,8 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  */
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(appliedMutations);
+  await db.delete(composeSaveLedger);
+  await db.delete(compositions);
   await db.delete(protocolWrites);
   await db.delete(messages);
   await db.delete(threadMessageIds);

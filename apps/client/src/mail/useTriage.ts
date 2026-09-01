@@ -64,6 +64,14 @@ export interface UseTriageOptions {
   selectedThreadId: string | null;
   onSelect: (id: string) => void;
   direction: AdvanceDirection;
+  /**
+   * True while the composer is open (#45, compose-spec §Composer surface &
+   * keys: "the composer owns every key and the triage shortcuts are inert").
+   * The actions themselves stay callable — only this hook's own `keydown`
+   * listener goes quiet — so a mouse-driven triage action elsewhere is
+   * unaffected.
+   */
+  shortcutsDisabled?: boolean;
 }
 
 export function useTriage({
@@ -73,6 +81,7 @@ export function useTriage({
   selectedThreadId,
   onSelect,
   direction,
+  shortcutsDisabled = false,
 }: UseTriageOptions): Triage {
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
@@ -176,6 +185,8 @@ export function useTriage({
   );
 
   useEffect(() => {
+    if (shortcutsDisabled) return;
+
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const typing =
@@ -226,7 +237,17 @@ export function useTriage({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [ids, selectedThreadId, onSelect, archive, trash, toggleStar, toggleRead, togglePin]);
+  }, [
+    ids,
+    selectedThreadId,
+    onSelect,
+    archive,
+    trash,
+    toggleStar,
+    toggleRead,
+    togglePin,
+    shortcutsDisabled,
+  ]);
 
   return { archive, trash, toggleStar, toggleRead, togglePin, applyLabel, removeLabel };
 }

@@ -1,4 +1,11 @@
-import type { Label, MailAccount, MutationIntent, Thread } from "@mail/shared";
+import type {
+  ComposeDocument,
+  Label,
+  MailAccount,
+  MutationIntent,
+  Recipient,
+  Thread,
+} from "@mail/shared";
 import Dexie, { type EntityTable } from "dexie";
 
 /**
@@ -20,7 +27,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 2; // #43: new `labels` store
+export const CACHE_SCHEMA_VERSION = 3; // #45: new `compositions`/`pendingComposeSaves` stores
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -100,6 +107,61 @@ export interface SyncStateRow {
 }
 
 /**
+ * A Composition (#45, ADR-0014): the Client's own durable copy, held from
+ * the first keystroke — not a `base ⊕ pending` overlay the way a Thread is,
+ * because nothing but this Client's own composer ever writes one at this
+ * ticket's scope, so there is no second writer to reconcile against. `store/
+ * compositions.ts` is both its component-facing read and write surface,
+ * mirroring `cache-pins.ts`'s "one focused concern, one module" shape rather
+ * than `reads.ts`/`mutation-queue.ts`'s split, which exists for Threads to
+ * keep a "components never write a base row" line that has nothing to
+ * enforce here.
+ *
+ * `version` is this Client's last-known server version — `0` before any
+ * save has ever been acknowledged. `status` only ever holds `"draft"` at
+ * this ticket's scope (#46's Pending Send states are additive later).
+ */
+export interface CachedComposition {
+  id: string;
+  mailAccountId: string;
+  status: "draft";
+  subject: string;
+  document: ComposeDocument;
+  to: Recipient[];
+  cc: Recipient[];
+  bcc: Recipient[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The coalescing autosave queue (ADR-0014's "single deliberate exception to
+ * the FIFO, additive intent queue" — `store/mutation-queue.ts`'s own doc
+ * comment). Keyed by `compositionId` rather than a fresh id per save, so a
+ * `put()` from a later keystroke simply **overwrites** an still-unflushed
+ * earlier one in place — coalescing is Dexie's own upsert semantics, no
+ * cancellation logic needed. `saveId` is a fresh ULID minted on every
+ * overwrite: the idempotency key `sync/compose-store.ts`'s ledger replays a
+ * retry against, independent of the Composition's own `id`. Deliberately
+ * carries no `version` of its own — `sync/sync-round.ts` reads the
+ * Composition's *current* `version` fresh at flush time, so a save that
+ * coalesced away an in-flight one is never sent against a version an
+ * already-acknowledged sibling save has since advanced past.
+ */
+export interface PendingComposeSave {
+  compositionId: string;
+  mailAccountId: string;
+  saveId: string;
+  subject: string;
+  document: ComposeDocument;
+  to: Recipient[];
+  cc: Recipient[];
+  bcc: Recipient[];
+  queuedAt: string;
+}
+
+/**
  * The durable Optimistic Action queue (ADR-0010, #39). Two of #38's cache
  * invariants are stated in terms of it: wipe-and-resync must never discard
  * a non-empty queue, and eviction must never drop a Thread a queued action
@@ -136,6 +198,8 @@ export class LocalCache extends Dexie {
   cachePins!: EntityTable<CachePin, "threadId">;
   syncState!: EntityTable<SyncStateRow, "key">;
   pendingMutations!: EntityTable<PendingMutation, "id">;
+  compositions!: EntityTable<CachedComposition, "id">;
+  pendingComposeSaves!: EntityTable<PendingComposeSave, "compositionId">;
   cacheMeta!: EntityTable<CacheMetaRow, "key">;
 
   /** The value `ensureCacheSchema` compares the stored one against; overridable so tests can open the same database twice at different versions. */
@@ -152,12 +216,24 @@ export class LocalCache extends Dexie {
       cachePins: "threadId, mailAccountId",
       syncState: "key",
       pendingMutations: "id, mailAccountId, createdAt, *referencedThreadIds",
+      compositions: "id, mailAccountId",
+      pendingComposeSaves: "compositionId, mailAccountId",
       cacheMeta: "key",
     });
   }
 }
 
-/** Everything a wipe clears. `cacheMeta` and `pendingMutations` are deliberately absent. */
+/**
+ * Everything a wipe clears. `cacheMeta`, `pendingMutations`, and
+ * `pendingComposeSaves` are deliberately absent — the same "unsent user
+ * intent survives" rule, extended to a queued autosave. `compositions`
+ * itself *is* wiped: unlike `pendingMutations`, whose row carries no content
+ * of its own, every `pendingComposeSaves` row is fully self-contained
+ * (`db.ts#PendingComposeSave`'s own doc comment), so a wipe can never lose
+ * content a queued save still protects, and a Composition with nothing
+ * queued is by definition already server-confirmed at what this Client
+ * last wrote — nothing left offline-only to lose.
+ */
 const DATA_TABLES = [
   "mailAccounts",
   "threads",
@@ -165,6 +241,7 @@ const DATA_TABLES = [
   "listWindows",
   "cachePins",
   "syncState",
+  "compositions",
 ] as const;
 
 export type CacheSchemaOutcome =
@@ -175,11 +252,17 @@ export type CacheSchemaOutcome =
   /** A schema bump discarded the cached mail; `sync` re-bootstraps it. */
   | { status: "wiped"; from: number | null }
   /**
-   * A schema bump found unsent Optimistic Actions. The old data stays and
-   * stays readable; the wipe retries once the queue drains (ADR-0009:
-   * "flush first; if it cannot flush, the upgrade waits").
+   * A schema bump found unsent Optimistic Actions or queued Composition
+   * autosaves. The old data stays and stays readable; the wipe retries once
+   * both queues drain (ADR-0009: "flush first; if it cannot flush, the
+   * upgrade waits" — ADR-0014 extends the same rule to autosave).
    */
-  | { status: "deferred"; from: number | null; pendingMutations: number };
+  | {
+      status: "deferred";
+      from: number | null;
+      pendingMutations: number;
+      pendingComposeSaves: number;
+    };
 
 /**
  * Reconciles the cache on disk with this build's schema. Called on every
@@ -197,7 +280,10 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
   }
 
   const pendingMutations = await db.pendingMutations.count();
-  if (pendingMutations > 0) return { status: "deferred", from, pendingMutations };
+  const pendingComposeSaves = await db.pendingComposeSaves.count();
+  if (pendingMutations > 0 || pendingComposeSaves > 0) {
+    return { status: "deferred", from, pendingMutations, pendingComposeSaves };
+  }
 
   await db.transaction(
     "rw",

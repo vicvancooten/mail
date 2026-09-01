@@ -1,12 +1,27 @@
 import { randomUUID } from "node:crypto";
-import type { LabelDelta, MailAccountDelta, MutationOutcome, ThreadDelta } from "@mail/shared";
+import type {
+  ComposeSaveOutcome,
+  LabelDelta,
+  MailAccountDelta,
+  MutationOutcome,
+  ThreadDelta,
+} from "@mail/shared";
+import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import { appliedMutations, folders, mailAccounts, messages, threads } from "../db/schema.js";
+import {
+  appliedMutations,
+  composeSaveLedger,
+  compositions,
+  folders,
+  mailAccounts,
+  messages,
+  threads,
+} from "../db/schema.js";
 import { deleteEmptyThreads } from "../sync/threading.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -518,6 +533,190 @@ describe("POST /sync", () => {
 
       expect(response.json().mailAccounts[someoneElses.id].mutations).toEqual([
         { id: "01FOREIGN", status: "rejected", reason: "mail_account_not_found" },
+      ]);
+    });
+  });
+
+  describe("composeSaves (#45, ADR-0014)", () => {
+    it("creates the Composition lazily on the first save for an unseen id", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              composeSaves: [
+                {
+                  id: "comp-1",
+                  saveId: "01SAVE-A",
+                  version: 0,
+                  subject: "Hello",
+                  document: EMPTY_COMPOSE_DOCUMENT,
+                  to: [],
+                  cc: [],
+                  bcc: [],
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const outcomes = response.json().mailAccounts[accountId].composeSaves as ComposeSaveOutcome[];
+      expect(outcomes).toEqual([
+        { id: "comp-1", saveId: "01SAVE-A", status: "applied", version: 1 },
+      ]);
+
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      expect(row?.subject).toBe("Hello");
+      expect(row?.status).toBe("draft");
+      expect(row?.version).toBe(1);
+    });
+
+    it("bumps the version on a matching save, and rejects a stale one as a conflict", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const save = (saveId: string, version: number, subject: string) => ({
+        method: "POST" as const,
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              composeSaves: [
+                {
+                  id: "comp-1",
+                  saveId,
+                  version,
+                  subject,
+                  document: EMPTY_COMPOSE_DOCUMENT,
+                  to: [],
+                  cc: [],
+                  bcc: [],
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      await app.inject(save("01A", 0, "v1")); // creates at version 1
+      const second = await app.inject(save("01B", 1, "v2"));
+      expect(second.json().mailAccounts[accountId].composeSaves).toEqual([
+        { id: "comp-1", saveId: "01B", status: "applied", version: 2 },
+      ]);
+
+      // A stale save — still claiming version 1, but the row is now at 2 — is
+      // a conflict, never a silent overwrite (ADR-0012).
+      const stale = await app.inject(save("01C", 1, "a lost edit"));
+      expect(stale.json().mailAccounts[accountId].composeSaves).toEqual([
+        { id: "comp-1", saveId: "01C", status: "conflict", version: 2 },
+      ]);
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      expect(row?.subject).toBe("v2"); // untouched by the rejected save
+    });
+
+    it("is exactly-once: replaying the same saveId returns the recorded outcome without re-applying", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const flush = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            mailAccounts: {
+              [accountId]: {
+                composeSaves: [
+                  {
+                    id: "comp-1",
+                    saveId: "01RETRY",
+                    version: 0,
+                    subject: "original",
+                    document: EMPTY_COMPOSE_DOCUMENT,
+                    to: [],
+                    cc: [],
+                    bcc: [],
+                  },
+                ],
+              },
+            },
+          },
+        });
+
+      const first = await flush();
+      expect(first.json().mailAccounts[accountId].composeSaves).toEqual([
+        { id: "comp-1", saveId: "01RETRY", status: "applied", version: 1 },
+      ]);
+
+      // Directly change the subject, bypassing the save pipeline — a retry
+      // that re-applied (rather than idempotently replaying the ledger)
+      // would stomp it back to "original".
+      await db
+        .update(compositions)
+        .set({ subject: "changed elsewhere" })
+        .where(eq(compositions.id, "comp-1"));
+
+      const retry = await flush();
+      expect(retry.json().mailAccounts[accountId].composeSaves).toEqual([
+        { id: "comp-1", saveId: "01RETRY", status: "applied", version: 1 },
+      ]);
+      expect(
+        await db.select().from(composeSaveLedger).where(eq(composeSaveLedger.id, "01RETRY")),
+      ).toHaveLength(1);
+
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      expect(row?.subject).toBe("changed elsewhere"); // the replay never touched it
+    });
+
+    it("rejects every queued composeSave for a Mail Account the User does not own, rather than holding it", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      await createOwnedMailAccount(app, cookie);
+      const someoneElses = await createTestMailAccount(db);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [someoneElses.id]: {
+              composeSaves: [
+                {
+                  id: "comp-1",
+                  saveId: "01FOREIGN",
+                  version: 0,
+                  subject: "nope",
+                  document: EMPTY_COMPOSE_DOCUMENT,
+                  to: [],
+                  cc: [],
+                  bcc: [],
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(response.json().mailAccounts[someoneElses.id].composeSaves).toEqual([
+        {
+          id: "comp-1",
+          saveId: "01FOREIGN",
+          status: "rejected",
+          version: 0,
+          reason: "mail_account_not_found",
+        },
       ]);
     });
   });

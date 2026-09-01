@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { composeSaveOutcomeSchema, composeSaveSchema } from "./compose.js";
 import { mailAccountSchema } from "./mail-accounts.js";
 
 /**
@@ -212,6 +213,14 @@ export const mailAccountSyncRequestSchema = z.object({
   Label: requestedTokenSchema.optional(),
   /** This account's queue to flush, oldest first. Omitted (never `[]`) when there is nothing queued for it. */
   mutations: z.array(queuedMutationSchema).optional(),
+  /**
+   * Composition autosaves to flush (ADR-0014, `compose.ts`) — a *separate*
+   * array from `mutations` above, not a `MutationIntent` variant, because it
+   * coalesces (last-write-wins per Composition) rather than draining FIFO.
+   * At most one entry per Composition per round: `store/compositions.ts`'s
+   * coalescing queue holds only the latest save.
+   */
+  composeSaves: z.array(composeSaveSchema).optional(),
 });
 export type MailAccountSyncRequest = z.infer<typeof mailAccountSyncRequestSchema>;
 
@@ -243,6 +252,8 @@ export const mailAccountSyncResponseSchema = z.object({
   Label: labelDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
+  /** Outcomes in the same order as the request's `composeSaves` array. */
+  composeSaves: z.array(composeSaveOutcomeSchema).optional(),
 });
 export type MailAccountSyncResponse = z.infer<typeof mailAccountSyncResponseSchema>;
 

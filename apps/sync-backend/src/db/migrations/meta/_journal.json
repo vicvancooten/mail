@@ -71,6 +71,13 @@
       "when": 1788256676722,
       "tag": "0009_busy_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788263123221,
+      "tag": "0010_wise_puck",
+      "breakpoints": true
     }
   ]
 }

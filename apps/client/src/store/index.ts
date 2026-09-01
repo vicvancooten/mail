@@ -17,7 +17,15 @@
 
 export { pinThreadIntoCache, unpinThreadFromCache } from "./cache-pins.js";
 export {
+  type ComposeContent,
+  EMPTY_COMPOSE_CONTENT,
+  newCompositionId,
+  saveComposition,
+  useComposition,
+} from "./compositions.js";
+export {
   CACHE_SCHEMA_VERSION,
+  type CachedComposition,
   type CachedThread,
   type CacheSchemaOutcome,
   DEFAULT_VIEW,
