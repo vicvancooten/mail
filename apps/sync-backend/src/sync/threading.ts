@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { messages, threadMessageIds, threads } from "../db/schema.js";
+import { messageSearch, messages, threadMessageIds, threads } from "../db/schema.js";
 import { baseSubject } from "./subject.js";
 import { recordTombstones } from "./tombstones.js";
 
@@ -137,6 +137,13 @@ async function mergeThreads(
     .update(messages)
     .set({ threadId: survivor.id, updatedAt: new Date() })
     .where(inArray(messages.threadId, losers));
+  // The Search Index's own denormalized `thread_id` (#50, ADR-0016) moves in
+  // lockstep with the message rows above — a search result's thread id must
+  // never point at a Thread this merge is about to delete.
+  await db
+    .update(messageSearch)
+    .set({ threadId: survivor.id })
+    .where(inArray(messageSearch.threadId, losers));
   await db
     .update(threadMessageIds)
     .set({ threadId: survivor.id })

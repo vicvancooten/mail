@@ -29,6 +29,20 @@ const bytea = customType<{ data: Buffer }>({
 });
 
 /**
+ * Postgres `tsvector` (ADR-0016's Search Index `doc` column): drizzle-orm has
+ * no first-class column for this either. Every value is written by a raw SQL
+ * expression built from `to_tsvector`/`setweight` (`sync/search-index.ts`),
+ * never read back into JS — a query only ever matches (`@@`) or ranks
+ * (`ts_rank_cd`) it in SQL — so this type exists purely to name the
+ * Postgres-side column, the same role `bytea` plays above.
+ */
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+/**
  * A User signed in to this instance (CONTEXT.md). Exactly one Owner is
  * created by the first-run claim; Member invites are not built yet
  * (poc-scope.md), but the column exists from day one per ADR-0004.
@@ -652,6 +666,64 @@ export const messages = pgTable(
       .where(sql`${table.bodyFetchedAt} is null`),
   ],
 );
+
+/**
+ * The Search Index (#50, CONTEXT.md, ADR-0016): a narrow side table rather
+ * than a generated column on `messages` — the wide, toasted table `messages`
+ * already is would be needlessly re-scanned by every ranking query, and a
+ * generated column's `ALTER TABLE ... ADD COLUMN ... STORED` is a table
+ * rewrite ADR-0009's migrate-on-boot can't afford. `doc` is `simple` +
+ * `unaccent`, **no stemming** (this mailbox mixes Dutch and English inside
+ * one thread), weighted subject (A) / participants (B) / split address parts
+ * (C) / body text + attachment filenames (D) — see `sync/search-index.ts`,
+ * the one writer.
+ *
+ * `folderId`/`threadId` are denormalized off `messages` so `POST /search`'s
+ * Candidate Window scan (`mailAccountId`, `sentAt DESC`, the folder
+ * exclusion/scope) never has to join back to it before the `LIMIT 500`;
+ * `sync/threading.ts#mergeThreads` updates `threadId` here in lockstep with
+ * `messages.thread_id` when two Threads collapse into one.
+ *
+ * `indexVersion` is what makes the index rebuildable without touching
+ * `messages`: bumping `sync/search-index.ts#CURRENT_SEARCH_INDEX_VERSION`
+ * (an analyzer change — stopwords, address rules, weights) is read by
+ * `sync/search-index-loop.ts`'s background, batched, stale-version-first
+ * sweep, never by a migration — search keeps serving the old rows for
+ * whatever's left unrebuilt.
+ */
+export const messageSearch = pgTable(
+  "message_search",
+  {
+    messageId: text("message_id")
+      .primaryKey()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    // Not a foreign key: a Thread merge (`sync/threading.ts#mergeThreads`)
+    // reassigns this column in bulk to the survivor's id in the same
+    // statement that reassigns `messages.thread_id`, and the losing Thread
+    // row is deleted a moment later in that same function — a FK here would
+    // make ordering between those two statements matter for no benefit this
+    // table needs.
+    threadId: text("thread_id").notNull(),
+    folderId: text("folder_id")
+      .notNull()
+      .references(() => folders.id, { onDelete: "cascade" }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    doc: tsvector("doc").notNull(),
+    indexVersion: integer("index_version").notNull(),
+  },
+  (table) => [
+    index("message_search_doc_idx").using("gin", table.doc),
+    index("message_search_account_recency_idx").on(table.mailAccountId, table.sentAt),
+    // `sync/search-index-loop.ts`'s own candidate query: every row not yet at
+    // the current analyzer version, cheaply findable without a sequential
+    // scan however large the table gets.
+    index("message_search_index_version_idx").on(table.indexVersion),
+  ],
+);
+export type MessageSearchRow = typeof messageSearch.$inferSelect;
 
 /**
  * A destroyed entity's record in the delta sync API (#37, ADR-0011): a Thread

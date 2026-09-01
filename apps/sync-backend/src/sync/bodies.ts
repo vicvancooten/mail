@@ -4,6 +4,7 @@ import type { Db } from "../db/client.js";
 import { messages } from "../db/schema.js";
 import type { MessageBodyParts } from "./body-structure.js";
 import { sanitizeMessageHtml } from "./sanitize.js";
+import { reindexMessages } from "./search-index.js";
 import { deriveSnippet } from "./snippet.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 
@@ -153,4 +154,7 @@ export async function storeMessageBody(
     .where(eq(messages.id, messageId));
 
   await refreshThreadRollups(db, [current.threadId]);
+  // The Search Index's weight D (body text) has only just become available —
+  // a message stored headers-first carries an empty body in `doc` until now.
+  await reindexMessages(db, [messageId]);
 }

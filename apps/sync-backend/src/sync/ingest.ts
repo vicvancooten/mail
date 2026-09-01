@@ -12,6 +12,7 @@ import {
 } from "./correspondents.js";
 import type { FolderRow } from "./folders.js";
 import { extractReferencesHeader, normalizeMessageId, threadingIdsFor } from "./message-ids.js";
+import { reindexMessages } from "./search-index.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { deleteEmptyThreads, resolveThread } from "./threading.js";
 
@@ -318,6 +319,14 @@ export async function storeMessage(
   if (!row) {
     throw new Error(`Upsert of message uid ${fetched.uid} in ${folder.path} returned no row`);
   }
+
+  // The Search Index (#50, ADR-0016): written alongside the message on
+  // every upsert, insert or update alike — a re-ingest can change the
+  // subject/participants/attachments a stale `doc` would otherwise keep
+  // ranking against. `sync/search-index.ts#reindexMessages` always
+  // recomputes the whole document from this row's *current* state, so this
+  // single call site is correct for both branches.
+  await reindexMessages(db, [row.id]);
 
   // Correspondent activity (#49) is recorded exactly once per message ever
   // stored — see `correspondents.ts`'s own doc comment for why gating on
