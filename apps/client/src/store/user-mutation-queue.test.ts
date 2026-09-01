@@ -1,5 +1,5 @@
 import Dexie from "dexie";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localCache, openLocalCache } from "./local-cache.js";
 import {
   enqueueUserMutation,
@@ -15,6 +15,12 @@ import {
  * queuing alongside it.
  */
 
+/** `enqueueUserMutation`'s wake-up (ADR-0011): a queued Preference edit rides the next round trip, not the next 30s tick. */
+const requestSyncNow = vi.fn();
+vi.mock("../sync/sync-loop.js", () => ({
+  requestSyncNow: () => requestSyncNow(),
+}));
+
 let counter = 0;
 const names: string[] = [];
 
@@ -22,6 +28,7 @@ beforeEach(async () => {
   const name = `user-mutation-queue-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  requestSyncNow.mockClear();
 });
 
 afterEach(async () => {
@@ -45,6 +52,21 @@ describe("enqueueUserMutation", () => {
     const queued = await listQueuedUserMutations();
     expect(queued).toHaveLength(1);
     expect(queued[0]?.intent).toEqual({ type: "setTheme", theme: "light" });
+  });
+
+  it("wakes the sync loop once the row lands (ADR-0011: no waiting for the next poll)", async () => {
+    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+
+    expect(requestSyncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("wakes the sync loop even when the edit supersedes an earlier one, unlike the per-Thread queue's coalesced-away skip", async () => {
+    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    requestSyncNow.mockClear();
+
+    await enqueueUserMutation({ type: "setTheme", theme: "light" });
+
+    expect(requestSyncNow).toHaveBeenCalledTimes(1);
   });
 
   it("keeps edits to different fields as independent queued rows", async () => {

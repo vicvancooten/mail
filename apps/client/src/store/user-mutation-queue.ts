@@ -1,4 +1,5 @@
 import type { MutationOutcome, UserMutationIntent } from "@mail/shared";
+import { requestSyncNow } from "../sync/sync-loop.js";
 import type { PendingUserMutation } from "./db.js";
 import { localCache } from "./local-cache.js";
 import { generateUlid } from "./ulid.js";
@@ -17,20 +18,30 @@ import { generateUlid } from "./ulid.js";
  * edit to the same field while the first is still queued can only ever mean
  * "the User changed their mind again before it went out" — the earlier row
  * is simply replaced, not queued alongside it.
+ *
+ * Wakes the sync loop (`requestSyncNow`, `sync/sync-loop.ts`) once the row
+ * lands — ADR-0011: flushing the queue and syncing are one round trip, and
+ * an Optimistic Action confirms "without waiting for the next poll", not up
+ * to 30s later on the ordinary interval. Unlike the per-Thread queue, every
+ * call here queues a row (supersede-and-replace, never a coalesced-away
+ * no-op), so the wake is unconditional.
  */
 
 export async function enqueueUserMutation(intent: UserMutationIntent): Promise<string> {
   const db = localCache();
-  return db.transaction("rw", db.pendingUserMutations, async () => {
+  const id = await db.transaction("rw", db.pendingUserMutations, async () => {
     const superseded = await db.pendingUserMutations
       .filter((mutation) => mutation.intent.type === intent.type)
       .primaryKeys();
     if (superseded.length > 0) await db.pendingUserMutations.bulkDelete(superseded);
 
-    const id = generateUlid();
-    await db.pendingUserMutations.put({ id, createdAt: new Date().toISOString(), intent });
-    return id;
+    const newId = generateUlid();
+    await db.pendingUserMutations.put({ id: newId, createdAt: new Date().toISOString(), intent });
+    return newId;
   });
+
+  requestSyncNow();
+  return id;
 }
 
 /** The whole queue, oldest first (ADR-0010: strict FIFO, same as the per-Mail-Account queue). */
