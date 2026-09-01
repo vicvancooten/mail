@@ -83,3 +83,43 @@ export function clearOpenComposerId(): void {
     // Best-effort; see module docstring.
   }
 }
+
+/**
+ * Recent searches (#51, `docs/search-ux-spec.md` §The empty field): "a
+ * recent search *is* its string" — the raw `?q=` text and nothing else, so
+ * storing one is exactly this file's `readStorage`/`writeStorage` pattern.
+ * A per-device convenience and "a small privacy footgun on a shared
+ * machine, which is why the clear is not optional" — `clearRecentSearches`
+ * exists for exactly that button.
+ */
+const RECENT_SEARCHES_KEY = "mail.devicePref.recentSearches";
+const RECENT_SEARCHES_LIMIT = 5;
+
+export function readRecentSearches(): string[] {
+  const stored = readStorage(RECENT_SEARCHES_KEY);
+  if (!stored) return [];
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Most-recent-first, deduped, capped at ~5 (spec: "the last ~5 recent searches"). A no-op for an empty/whitespace-only query. */
+export function addRecentSearch(query: string): void {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return;
+  const deduped = [trimmed, ...readRecentSearches().filter((entry) => entry !== trimmed)];
+  writeStorage(RECENT_SEARCHES_KEY, JSON.stringify(deduped.slice(0, RECENT_SEARCHES_LIMIT)));
+}
+
+export function clearRecentSearches(): void {
+  try {
+    globalThis.localStorage?.removeItem(RECENT_SEARCHES_KEY);
+  } catch {
+    // Best-effort; see module docstring.
+  }
+}

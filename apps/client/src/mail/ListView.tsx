@@ -21,6 +21,7 @@ export function ListView({
   onLoadMore,
   triage,
   onReply,
+  initialScrollThreadId,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -31,6 +32,8 @@ export function ListView({
   onLoadMore?: () => void;
   triage: Triage;
   onReply: OnReply;
+  /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
+  initialScrollThreadId?: string | null;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
 
@@ -58,6 +61,7 @@ export function ListView({
       onSelect={onSelect}
       onLoadMore={onLoadMore}
       triage={triage}
+      initialScrollThreadId={initialScrollThreadId}
     />
   );
 }

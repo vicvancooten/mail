@@ -819,3 +819,217 @@
     transition-duration: 0.001ms;
   }
 }
+
+/* ---------- search (#51) ---------- */
+
+.mail-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 120px;
+  max-width: 360px;
+  padding: 6px 10px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text-dim);
+}
+.mail-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--mail-text);
+  font-size: 13px;
+  outline: none;
+}
+.mail-search-field input::placeholder {
+  color: var(--mail-text-faint);
+}
+.mail-search-clear {
+  display: flex;
+  border: none;
+  background: transparent;
+  color: var(--mail-text-faint);
+  cursor: pointer;
+  padding: 0;
+}
+.mail-search-clear:hover {
+  color: var(--mail-text-dim);
+}
+
+.mail-search-recent {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+.mail-search-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--mail-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.mail-search-recent-item:hover {
+  background: var(--mail-bg-hover);
+}
+.mail-search-recent-clear {
+  padding: 8px 10px;
+  border: none;
+  border-top: 1px solid var(--mail-border);
+  background: transparent;
+  color: var(--mail-text-faint);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.mail-search-recent-clear:hover {
+  color: var(--mail-text-dim);
+}
+
+.search-results-view.split-view .split-list {
+  display: flex;
+  flex-direction: column;
+}
+.search-results-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.search-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mail-border);
+}
+.search-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--mail-border);
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text-dim);
+  font-size: 12px;
+}
+.search-chip-scope.seeded {
+  border-style: dashed;
+  color: var(--mail-text-faint);
+}
+.search-chip-remove {
+  display: flex;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+button.search-chip-toggle {
+  cursor: pointer;
+}
+button.search-chip-toggle.on {
+  background: var(--mail-bg-selected);
+  color: var(--mail-text);
+  border-color: var(--mail-accent);
+}
+
+.thread-row .folder-pill {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.thread-row .action-badge {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mail-accent) 14%, transparent);
+  color: var(--mail-accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.snippet.headline mark {
+  background: color-mix(in srgb, var(--mail-accent) 24%, transparent);
+  color: var(--mail-text);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.search-foot {
+  padding: 10px 12px;
+  border-top: 1px solid var(--mail-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.search-load-older {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.search-load-older:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.search-watermark {
+  color: var(--mail-text-faint);
+  font-size: 12px;
+  margin: 0;
+}
+.search-watermark.promoted {
+  font-size: 13px;
+}
+.search-offline-banner,
+.search-reauth-banner {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--mail-accent) 10%, transparent);
+  color: var(--mail-text-dim);
+}
+
+.search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 24px 16px;
+  color: var(--mail-text-dim);
+}
+.search-empty button {
+  padding: 6px 12px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text);
+  font-size: 13px;
+  cursor: pointer;
+}

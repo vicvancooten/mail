@@ -1,5 +1,6 @@
 import type { Message } from "@mail/shared";
 import { Forward, Reply, ReplyAll } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { AttachmentList } from "./AttachmentList.js";
 import { MessageBody } from "./MessageBody.js";
@@ -11,18 +12,35 @@ import { MessageBody } from "./MessageBody.js";
  * spec §Threading headers) for anything but the newest — `r`/`a`/`f`
  * (`../ThreadDetailPane.js`) always mean the newest, same as every
  * mainstream client's keyboard shortcut.
+ *
+ * `focusMessageId` (#51, `docs/search-ux-spec.md` §The row: "Opening a
+ * result lands on the matched message") scrolls that Message into view once
+ * this list's own Messages have loaded — the matched message id travels
+ * with a search result row, this is where it lands.
  */
 export function MessageList({
   messages,
   onReply,
+  focusMessageId,
 }: {
   messages: readonly Message[];
   onReply: OnReply;
+  focusMessageId?: string | null;
 }) {
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusMessageId || focusedRef.current) return;
+    const target = messages.find((message) => message.id === focusMessageId);
+    if (!target) return;
+    focusedRef.current = true;
+    document.getElementById(`message-${focusMessageId}`)?.scrollIntoView({ block: "start" });
+  }, [messages, focusMessageId]);
+
   return (
     <div className="message-list">
       {messages.map((message) => (
-        <article className="message-item" key={message.id}>
+        <article className="message-item" key={message.id} id={`message-${message.id}`}>
           <header className="message-item-header">
             <span className="message-item-sender">
               {message.from?.name ?? message.from?.address ?? "(unknown sender)"}

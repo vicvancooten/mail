@@ -1,6 +1,6 @@
 import type { Label, Message } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
@@ -27,6 +27,9 @@ import { ListView } from "./ListView.js";
 import { RollbackToast } from "./RollbackToast.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
+import { SearchResultsView } from "./search/SearchResultsView.js";
+import type { ViewOrigin } from "./search/scope.js";
+import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { TopBar } from "./TopBar.js";
 import { readAdvanceDirection, writeAdvanceDirection } from "./triage-preferences.js";
 import { useTriage } from "./useTriage.js";
@@ -182,9 +185,32 @@ export function MailSection() {
     return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
   }, [labels, threads, accountId]);
 
+  // Search (#51, `docs/search-ux-spec.md`): one hook owns the route, the
+  // parse, the prefilter + server round trip and the merged result set;
+  // MailSection's only job is feeding it this account and wiring its own
+  // `useTriage` instance — the same "one shared hook so actions mean the
+  // same thing" reasoning as the triage instance above, kept separate only
+  // because a result's selection/neighbor set is a different list.
+  const search = useSearchState(accountId, mailAccounts ?? []);
+  const searchOrigin = useMemo<ViewOrigin>(
+    () =>
+      labelFilter
+        ? {
+            kind: "label",
+            name: labelsForPicker.find((label) => label.id === labelFilter)?.name ?? "",
+          }
+        : { kind: "inbox" },
+    [labelFilter, labelsForPicker],
+  );
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
   // the same "nothing cached yet" shape `useThreadWindow` already handles.
+  // Stream is suppressed and the segmented control muted while searching
+  // (search-ux-spec.md §The surface) — `search.active` joins `composeId` in
+  // disabling this hook's own keydown listener so a result row's `j`/`k`
+  // (handled by `searchTriage` below) is the only scheme live at once.
   const triage = useTriage({
     mailAccountId: accountId,
     threads,
@@ -192,8 +218,43 @@ export function MailSection() {
     selectedThreadId,
     onSelect: setSelectedThreadId,
     direction,
-    shortcutsDisabled: composeId !== null,
+    shortcutsDisabled: composeId !== null || search.active,
   });
+  const rawSearchTriage = useTriage({
+    mailAccountId: accountId,
+    threads: search.results,
+    ids: useMemo(() => search.results.map((thread) => thread.id), [search.results]),
+    selectedThreadId: search.selectedThreadId,
+    onSelect: search.select,
+    direction,
+    shortcutsDisabled: composeId !== null || !search.active,
+  });
+  const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
+
+  // `/` and `⌘K`/`Ctrl-K` open search and focus the field from anywhere in
+  // the mail section (search-ux-spec.md §The surface), except while typing
+  // elsewhere or with the composer open — the same "not typing" guard
+  // `useTriage`'s own scheme uses.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (composeId !== null) return;
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      const isShortcut =
+        event.key === "/" || ((event.metaKey || event.ctrlKey) && event.key === "k");
+      if (!isShortcut || (typing && event.key === "/")) return;
+      event.preventDefault();
+      // Focusing is enough — `TopBar`'s own `onFocus` is what opens search
+      // when it isn't already active (`SearchField`'s own doc comment).
+      // Opening here too would double-push the route (two `/search` history
+      // entries for one open), which then takes two Back presses to leave.
+      searchInputRef.current?.focus();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [composeId]);
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
@@ -214,9 +275,31 @@ export function MailSection() {
         labelFilter={labelFilter}
         onLabelFilter={selectLabelFilter}
         onCompose={openCompose}
+        search={{
+          active: search.active,
+          queryText: search.queryText,
+          inputRef: searchInputRef,
+          onChange: search.onFieldChange,
+          onCommit: search.onCommit,
+          onEsc: search.onEsc,
+          onBackspaceEmpty: search.onBackspaceEmpty,
+          onOpen: () => search.open(searchOrigin),
+          recentSearches: search.recentSearches,
+          onRunRecent: search.runRecent,
+          onClearRecent: search.clearRecent,
+        }}
       />
       <div className="mail-body">
-        {streamMode ? (
+        {search.active ? (
+          <SearchResultsView
+            viewMode={viewMode}
+            state={search}
+            triage={searchTriage}
+            onReply={openReply}
+            accounts={mailAccounts}
+            mailAccountId={accountId}
+          />
+        ) : streamMode ? (
           <StreamView
             threads={threads}
             ids={ids}
@@ -236,6 +319,7 @@ export function MailSection() {
             onLoadMore={loadMore}
             triage={triage}
             onReply={openReply}
+            initialScrollThreadId={selectedThreadId}
           />
         ) : (
           <ListView
@@ -248,6 +332,7 @@ export function MailSection() {
             onLoadMore={loadMore}
             triage={triage}
             onReply={openReply}
+            initialScrollThreadId={selectedThreadId}
           />
         )}
       </div>

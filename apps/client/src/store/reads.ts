@@ -1,4 +1,4 @@
-import type { Correspondent, Label, MailAccount } from "@mail/shared";
+import type { Correspondent, Label, MailAccount, Thread } from "@mail/shared";
 import { labelId } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -11,6 +11,7 @@ import {
 } from "./db.js";
 import { localCache } from "./local-cache.js";
 import { threadsInWindow } from "./server-writes.js";
+import { threadSortKey } from "./thread-sort-key.js";
 
 /**
  * The Client's only read path (ADR-0010). Components subscribe to these
@@ -159,7 +160,13 @@ export async function readThreadWindow(
  * more than one is just "last one wins", never a fold that needs the base
  * value to seed it.
  */
-async function overlayPendingMutations(
+/**
+ * Exported for `useSearchResultThreads` below (#51): a search result row can
+ * name a Thread this Client has queued a triage action against without ever
+ * having synced it into a list window, so the same overlay `readThreadWindow`
+ * uses is what a result row needs too — one overlay mechanism, not two.
+ */
+export async function overlayPendingMutations(
   db: LocalCache,
   threads: CachedThread[],
 ): Promise<CachedThread[]> {
@@ -232,4 +239,149 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
     }
   }
   return overlaid;
+}
+
+/**
+ * The Client prefilter's own filter fields (#51, `docs/search-ux-spec.md`
+ * §Client prefilter, ADR-0016). Deliberately a narrower shape than the
+ * Sync Backend's `SearchRequest` (`@mail/shared`): the Local Cache holds one
+ * per-account Thread window with no per-Folder membership at all (`db.ts`'s
+ * `ViewKey` doc comment — "the wire Thread carries no Folder"), so `folder`
+ * here can only ever mean `"inbox"` (via `Thread.inInbox`); every other
+ * `in:` value the User might type has nothing local to check it against and
+ * is silently not enforced offline, same as `before`/`after` matching only
+ * `lastMessageAt`. This is exactly the prefilter's own limits made explicit
+ * — "a prefilter, not a second ranker" (ADR-0016) — never a bug to fix here.
+ */
+export interface SearchPrefilterFilters {
+  text: string;
+  from?: string;
+  to?: string;
+  hasAttachment?: boolean;
+  folder?: string;
+  label?: string;
+  after?: string;
+  before?: string;
+}
+
+function matchesParticipant(thread: CachedThread, needle: string): boolean {
+  const lower = needle.toLowerCase();
+  return thread.participants.some(
+    (participant) =>
+      (participant.name?.toLowerCase().includes(lower) ?? false) ||
+      participant.address.toLowerCase().includes(lower),
+  );
+}
+
+function withinDateRange(thread: CachedThread, after?: string, before?: string): boolean {
+  if (!thread.lastMessageAt) return !after && !before;
+  const at = Date.parse(thread.lastMessageAt);
+  if (Number.isNaN(at)) return true;
+  if (after) {
+    const bound = Date.parse(after);
+    if (!Number.isNaN(bound) && at < bound) return false;
+  }
+  if (before) {
+    const bound = Date.parse(before);
+    // Inclusive on the calendar day, matching the Sync Backend's own `before:` (ADR-0016).
+    if (!Number.isNaN(bound) && at > bound + 24 * 60 * 60 * 1000 - 1) return false;
+  }
+  return true;
+}
+
+/**
+ * The Client prefilter (#51, ADR-0016): "case-insensitive substring over
+ * subject, sender name, sender address and Snippet across the bounded Local
+ * Cache, date-ordered." Runs over every held Thread for the account
+ * regardless of which list window it came from — the point is "what's
+ * already on this device", not "what's in the Inbox right now" — with
+ * pending Optimistic Actions overlaid the same way every other read is
+ * (ADR-0010), so an offline archive is reflected instantly here too.
+ */
+export async function readSearchPrefilter(
+  mailAccountId: string,
+  filters: SearchPrefilterFilters,
+): Promise<CachedThread[]> {
+  const db = localCache();
+  const all = await db.threads.where("mailAccountId").equals(mailAccountId).toArray();
+  const overlaid = await overlayPendingMutations(db, all);
+
+  let labelIdFilter: string | null = null;
+  if (filters.label) {
+    const labels = await readLabels(mailAccountId);
+    const match = labels.find((label) => label.name.toLowerCase() === filters.label?.toLowerCase());
+    // No such Label held locally: nothing can match, rather than silently
+    // ignoring the filter and showing everything.
+    labelIdFilter = match?.id ?? "__no-local-match__";
+  }
+
+  const text = filters.text.trim().toLowerCase();
+  const matched = overlaid.filter((thread) => {
+    if (filters.folder && filters.folder.toLowerCase() === "inbox" && !thread.inInbox) return false;
+    if (filters.hasAttachment && !thread.hasAttachments) return false;
+    if (labelIdFilter && !thread.labelIds.includes(labelIdFilter)) return false;
+    if (filters.from && !matchesParticipant(thread, filters.from)) return false;
+    if (filters.to && !matchesParticipant(thread, filters.to)) return false;
+    if (!withinDateRange(thread, filters.after, filters.before)) return false;
+    if (text.length === 0) return true;
+    return (
+      thread.subject.toLowerCase().includes(text) ||
+      (thread.snippet?.toLowerCase().includes(text) ?? false) ||
+      matchesParticipant(thread, text)
+    );
+  });
+
+  return matched.sort((left, right) =>
+    right.sortKey < left.sortKey ? -1 : right.sortKey > left.sortKey ? 1 : 0,
+  );
+}
+
+export function useSearchPrefilter(
+  mailAccountId: string | null,
+  filters: SearchPrefilterFilters,
+): CachedThread[] | undefined {
+  return useLiveQuery(
+    () =>
+      mailAccountId === null ? Promise.resolve([]) : readSearchPrefilter(mailAccountId, filters),
+    [mailAccountId, JSON.stringify(filters)],
+  );
+}
+
+/**
+ * A search result row's live thread (#51, `docs/search-ux-spec.md` §Acting
+ * on a result): prefers the Local Cache's own base row — present once
+ * `materializeSearchResultThread` (`cache-pins.ts`) has pinned this result,
+ * and kept current by every later sync round the same as any other pinned
+ * Thread — falling back to the server's own snapshot (`SearchResult.thread`)
+ * for a row nothing has acted on yet. Overlaying pending mutations on top
+ * either way is what makes "acting on a result... the row stays in place,
+ * visibly changed" (ADR-0016) work: archiving queues a mutation, the base
+ * row hasn't changed yet, and this overlay is what shows the change anyway
+ * — and what un-shows it again if the mutation is later rejected, the exact
+ * same rollback every other Thread read already gets for free.
+ */
+export function useSearchResultThreads(results: readonly { thread: Thread }[]): CachedThread[] {
+  const ids = results.map((result) => result.thread.id);
+  const snapshots = new Map(
+    results.map((result) => [
+      result.thread.id,
+      { ...result.thread, sortKey: threadSortKey(result.thread) },
+    ]),
+  );
+  const overlaid = useLiveQuery(async () => {
+    if (ids.length === 0) return [];
+    const db = localCache();
+    const live = await db.threads.where("id").anyOf(ids).toArray();
+    const liveById = new Map(live.map((thread) => [thread.id, thread]));
+    const merged: CachedThread[] = [];
+    for (const id of ids) {
+      const thread = liveById.get(id) ?? snapshots.get(id);
+      if (thread) merged.push(thread);
+    }
+    return overlayPendingMutations(db, merged);
+    // `ids.join(",")` is the real dependency: `snapshots`/`ids` are derived
+    // fresh from `results` every render, so re-keying on their identity
+    // would resubscribe on every render for no reason.
+  }, [ids.join(",")]);
+  return overlaid ?? [...snapshots.values()];
 }

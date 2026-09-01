@@ -15,7 +15,11 @@
  * ("just write to the table") isn't reachable from a component.
  */
 
-export { pinThreadIntoCache, unpinThreadFromCache } from "./cache-pins.js";
+export {
+  materializeSearchResultThread,
+  pinThreadIntoCache,
+  unpinThreadFromCache,
+} from "./cache-pins.js";
 export {
   type ComposeContent,
   EMPTY_COMPOSE_CONTENT,
@@ -57,11 +61,15 @@ export {
   readCorrespondents,
   readLabels,
   readMailAccounts,
+  readSearchPrefilter,
   readThreadWindow,
+  type SearchPrefilterFilters,
   THREAD_PAGE_SIZE,
   type ThreadWindowPage,
   useCorrespondents,
   useLabels,
   useMailAccounts,
+  useSearchPrefilter,
+  useSearchResultThreads,
   useThreadWindow,
 } from "./reads.js";
