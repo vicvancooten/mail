@@ -1,15 +1,18 @@
+import type { ComposeDocument } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { correspondents, syncTombstones } from "../db/schema.js";
+import { compositions, correspondents, syncTombstones } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import {
   activityForMessage,
+  activityForSentComposition,
   CORRESPONDENT_CAP,
   capCorrespondents,
   recordCorrespondentActivity,
+  wasRecordedAtSend,
 } from "./correspondents.js";
 
 /**
@@ -232,5 +235,74 @@ describe("capCorrespondents", () => {
       .from(correspondents)
       .where(eq(correspondents.mailAccountId, account.id));
     expect(rows).toHaveLength(1);
+  });
+});
+
+/**
+ * The send-time half of "built incrementally at ingest and at send"
+ * (#49, compose-spec) — `compose/send-sweeper.ts`'s own input.
+ */
+describe("activityForSentComposition", () => {
+  const sentAt = new Date("2026-01-01T00:00:00Z");
+
+  it("counts To, Cc and Bcc as sent, deduplicated", () => {
+    const activity = activityForSentComposition(
+      {
+        toAddresses: [{ name: "Bo", address: "bo@example.com" }],
+        ccAddresses: [{ name: null, address: "cc@example.com" }],
+        bccAddresses: [
+          { name: "Dee", address: "dee@example.com" },
+          { name: "Bo", address: "bo@example.com" }, // also To — must not double-count
+        ],
+      },
+      sentAt,
+    );
+    expect(activity).toEqual([
+      { address: "bo@example.com", name: "Bo", direction: "sent", at: sentAt },
+      { address: "cc@example.com", name: null, direction: "sent", at: sentAt },
+      { address: "dee@example.com", name: "Dee", direction: "sent", at: sentAt },
+    ]);
+  });
+
+  it("produces nothing for a message with no recipients", () => {
+    expect(
+      activityForSentComposition({ toAddresses: [], ccAddresses: [], bccAddresses: [] }, sentAt),
+    ).toEqual([]);
+  });
+});
+
+describe("wasRecordedAtSend", () => {
+  const DOC: ComposeDocument = { type: "doc", content: [{ type: "paragraph" }] };
+
+  it("is true for a Sent Composition whose Message-ID matches", async () => {
+    await db.insert(compositions).values({
+      id: "comp-1",
+      mailAccountId: account.id,
+      status: "sent",
+      subject: "Hi",
+      document: DOC,
+      messageId: "abc123@mail.test",
+      version: 1,
+    });
+
+    expect(await wasRecordedAtSend(db, account.id, "abc123@mail.test")).toBe(true);
+  });
+
+  it("is false for a Message-ID with no matching Composition", async () => {
+    expect(await wasRecordedAtSend(db, account.id, "nope@mail.test")).toBe(false);
+  });
+
+  it("is false while the Composition isn't Sent yet — a Draft or an in-flight send hasn't been counted", async () => {
+    await db.insert(compositions).values({
+      id: "comp-2",
+      mailAccountId: account.id,
+      status: "submitting",
+      subject: "Hi",
+      document: DOC,
+      messageId: "still-sending@mail.test",
+      version: 1,
+    });
+
+    expect(await wasRecordedAtSend(db, account.id, "still-sending@mail.test")).toBe(false);
   });
 });

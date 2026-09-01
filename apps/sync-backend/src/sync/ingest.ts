@@ -9,6 +9,7 @@ import {
   activityForMessage,
   capCorrespondents,
   recordCorrespondentActivity,
+  wasRecordedAtSend,
 } from "./correspondents.js";
 import type { FolderRow } from "./folders.js";
 import { extractReferencesHeader, normalizeMessageId, threadingIdsFor } from "./message-ids.js";
@@ -332,20 +333,30 @@ export async function storeMessage(
   // stored — see `correspondents.ts`'s own doc comment for why gating on
   // `created` (never on the update branch, which only means a re-ingest
   // refreshed flags/headers) is what makes this exactly-once with no ledger.
+  // The one exception: a Sent-role folder's own message may already have
+  // been counted at send time (`compose/send-sweeper.ts`), in which case
+  // this ordinary poll ingesting the `Sent` copy back must not count it
+  // again — `wasRecordedAtSend` is that check.
   if (row.created) {
-    await recordCorrespondentActivity(
-      db,
-      folder.mailAccountId,
-      activityForMessage(folder.role, {
-        fromAddress: values.fromAddress
-          ? { name: values.fromName, address: values.fromAddress }
-          : null,
-        toAddresses: values.toAddresses,
-        ccAddresses: values.ccAddresses,
-        sentAt: values.sentAt,
-        receivedAt: values.receivedAt,
-      }),
-    );
+    const alreadyCounted =
+      folder.role === "sent" &&
+      messageIdHeader !== null &&
+      (await wasRecordedAtSend(db, folder.mailAccountId, messageIdHeader));
+    if (!alreadyCounted) {
+      await recordCorrespondentActivity(
+        db,
+        folder.mailAccountId,
+        activityForMessage(folder.role, {
+          fromAddress: values.fromAddress
+            ? { name: values.fromName, address: values.fromAddress }
+            : null,
+          toAddresses: values.toAddresses,
+          ccAddresses: values.ccAddresses,
+          sentAt: values.sentAt,
+          receivedAt: values.receivedAt,
+        }),
+      );
+    }
   }
 
   return { id: row.id, threadId, uid: fetched.uid, receivedAt, created: row.created };

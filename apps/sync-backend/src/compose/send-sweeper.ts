@@ -6,6 +6,7 @@ import { type CompositionRow, compositions } from "../db/schema.js";
 import { approveSendRecipients } from "../gatekeeper/verdicts.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
+import { activityForSentComposition, recordCorrespondentActivity } from "../sync/correspondents.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { withMailAccountConnection } from "../sync/imap-connection.js";
 import { deleteBlobsForComposition } from "./blob-store.js";
@@ -122,6 +123,35 @@ export async function sweepOne(
     );
   }
   await markSent(db, row.id, now);
+
+  // Correspondent activity (#49, compose-spec: "built incrementally at
+  // ingest and at send") — recorded here, the instant the send is
+  // confirmed, so a brand-new recipient ranks/appears immediately rather
+  // than waiting for the `Sent` copy to round-trip through the ordinary
+  // IMAP poll. `sync/ingest.ts#storeMessage`'s own `wasRecordedAtSend`
+  // check is what stops that later poll from double-counting this same
+  // send. Best-effort, matching `approveSendRecipients` below: the mail is
+  // already out, and a Correspondent row that failed to update is a ranking
+  // gap, not a lost message.
+  try {
+    await recordCorrespondentActivity(
+      db,
+      account.id,
+      activityForSentComposition(
+        {
+          toAddresses: row.toAddresses,
+          ccAddresses: row.ccAddresses,
+          bccAddresses: row.bccAddresses,
+        },
+        now,
+      ),
+    );
+  } catch (err) {
+    options.logger?.warn(
+      { err, mailAccountId: account.id, compositionId },
+      "message sent, but recording Correspondent activity failed",
+    );
+  }
 
   // "Sending approves live" (poc-spec.md §Gatekeeper v1, #55). Deliberately
   // here and not at `acceptSend`: a send that was cancelled inside the Undo

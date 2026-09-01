@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type Mail from "nodemailer/lib/mailer/index.js";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { compositions } from "../db/schema.js";
+import { compositions, correspondents } from "../db/schema.js";
 import {
   getMailAccountById,
   type MailAccountRow,
@@ -111,6 +111,31 @@ describe("sweepDueSends", () => {
     expect(after.messageId).not.toBeNull();
     // The `Sent` copy carries the same minted id the recipient's copy did.
     expect(rec.appended[0]?.mime).toContain(`<${after.messageId}>`);
+  });
+
+  it("records Correspondent activity for every recipient the instant the send is confirmed (#49)", async () => {
+    const id = await insertPendingSend();
+    await db
+      .update(compositions)
+      .set({
+        ccAddresses: [{ name: "Cy Chen", address: "cy@example.test" }],
+        bccAddresses: [{ name: null, address: "bcc@example.test" }],
+      })
+      .where(eq(compositions.id, id));
+    const rec = recorder();
+
+    expect(await sweep(rec)).toMatchObject({ sent: 1 });
+
+    const rows = await db
+      .select()
+      .from(correspondents)
+      .where(eq(correspondents.mailAccountId, account.id));
+    const byAddress = new Map(rows.map((entry) => [entry.normalizedAddress, entry]));
+    // Ranks/appears immediately, without waiting for the `Sent` copy to
+    // round-trip through the ordinary IMAP poll.
+    expect(byAddress.get("ada@example.test")).toMatchObject({ sentCount: 1, receivedCount: 0 });
+    expect(byAddress.get("cy@example.test")).toMatchObject({ sentCount: 1 });
+    expect(byAddress.get("bcc@example.test")).toMatchObject({ sentCount: 1 });
   });
 
   it("leaves nothing behind for a second sweep — the mail goes out exactly once", async () => {

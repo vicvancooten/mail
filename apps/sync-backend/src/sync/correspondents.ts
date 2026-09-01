@@ -1,21 +1,29 @@
+import type { Recipient } from "@mail/shared";
 import { correspondentId, normalizeCorrespondentAddress } from "@mail/shared";
-import { type SQL, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { correspondents, type MessageAddress } from "../db/schema.js";
+import { compositions, correspondents, type MessageAddress } from "../db/schema.js";
 import type { FolderRole } from "./folders.js";
 import { recordTombstones } from "./tombstones.js";
 
 /**
  * The Correspondent aggregate (#49, CONTEXT.md, compose-spec §Recipient
- * autocomplete): "sent-weight ≫ received-weight, with recency decay". Hooked
- * off `sync/ingest.ts#storeMessage`'s "genuinely new row" branch — the one
- * point every message this account will ever hold passes through exactly
- * once, whether it arrived via full backfill, the delta UID-diff fallback,
- * or as this account's own just-sent message once its Sent `APPEND` is
- * ingested like any other folder message. That single point of truth is
- * what makes counting exactly-once trivial: there is nowhere else a message
- * could be counted from, so there is no double-count to guard against and no
- * ledger table needed the way `applied_mutations` guards a retried intent.
+ * autocomplete): "sent-weight ≫ received-weight, with recency decay", "built
+ * incrementally at ingest and at send". Two call sites, each exactly-once by
+ * construction:
+ *
+ * - `sync/ingest.ts#storeMessage`'s "genuinely new row" branch — the one
+ *   point every *received* message this account will ever hold passes
+ *   through exactly once, whether it arrived via full backfill or the delta
+ *   UID-diff fallback.
+ * - `compose/send-sweeper.ts#sweepOne`, the instant a Composition's send is
+ *   confirmed — so a brand-new recipient ranks immediately rather than
+ *   waiting for the `Sent` `APPEND` to round-trip back through the ordinary
+ *   IMAP poll. `wasRecordedAtSend` below is what keeps that poll, once it
+ *   *does* ingest the `Sent` copy as a "genuinely new row" of its own, from
+ *   double-counting the same recipients a second time — the one seam where
+ *   "there is nowhere else a message could be counted from" needed an actual
+ *   guard rather than remaining true by construction.
  */
 
 /** Sent mail says far more about who you'd address next than mail you merely received (compose-spec). */
@@ -98,6 +106,70 @@ export function activityForMessage(
       at: message.receivedAt,
     },
   ];
+}
+
+/**
+ * The Correspondent activity a just-sent Composition represents (#49,
+ * compose-spec: the aggregate is "built incrementally at ingest **and at
+ * send**") — every To/Cc/Bcc recipient counts as `sent`, deduplicated the
+ * same way `activityForMessage`'s own Sent-folder branch is, so a brand-new
+ * recipient ranks immediately rather than waiting for the `Sent` copy to
+ * round-trip through the ordinary IMAP poll. Bcc is included here even
+ * though `activityForMessage`'s Sent-folder branch never sees it (a Bcc
+ * recipient's name is not visible on the wire copy other IMAP clients read)
+ * — this is the one place the Sync Backend genuinely knows who all three
+ * fields were addressed to.
+ */
+export function activityForSentComposition(
+  addresses: { toAddresses: Recipient[]; ccAddresses: Recipient[]; bccAddresses: Recipient[] },
+  sentAt: Date,
+): CorrespondentActivity[] {
+  const seen = new Map<string, CorrespondentActivity>();
+  for (const recipient of [
+    ...addresses.toAddresses,
+    ...addresses.ccAddresses,
+    ...addresses.bccAddresses,
+  ]) {
+    const key = normalizeCorrespondentAddress(recipient.address);
+    if (!seen.has(key)) {
+      seen.set(key, {
+        address: recipient.address,
+        name: recipient.name,
+        direction: "sent",
+        at: sentAt,
+      });
+    }
+  }
+  return [...seen.values()];
+}
+
+/**
+ * True when this `Message-ID` belongs to a Composition this Sync Backend
+ * already sent (`compose/send-sweeper.ts`, `mintMessageId`'s normalized,
+ * bracket-free form matches `sync/message-ids.ts#normalizeMessageId`'s
+ * storage form exactly, so the two are directly comparable). `ingest.ts`
+ * calls this only for a Sent-role folder's own messages, and only to skip
+ * `recordCorrespondentActivity` for one it already ran **at send time** —
+ * without it, the ordinary poll re-ingesting that same message a moment
+ * later as a "genuinely new row" would double-count every recipient.
+ */
+export async function wasRecordedAtSend(
+  db: Db,
+  mailAccountId: string,
+  messageIdHeader: string,
+): Promise<boolean> {
+  const [found] = await db
+    .select({ id: compositions.id })
+    .from(compositions)
+    .where(
+      and(
+        eq(compositions.mailAccountId, mailAccountId),
+        eq(compositions.messageId, messageIdHeader),
+        eq(compositions.status, "sent"),
+      ),
+    )
+    .limit(1);
+  return found !== undefined;
 }
 
 /**
