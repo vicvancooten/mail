@@ -12,6 +12,7 @@ import {
   writeViewMode,
 } from "./device-preferences.js";
 import { ListView } from "./ListView.js";
+import { RollbackToast } from "./RollbackToast.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
 import { TopBar } from "./TopBar.js";
@@ -173,6 +174,7 @@ export function MailSection() {
             complete={page.complete}
             selectedThreadId={selectedThreadId}
             onSelect={setSelectedThreadId}
+            onClearSelection={() => setSelectedThreadId(null)}
             onLoadMore={loadMore}
             triage={triage}
           />
@@ -189,6 +191,7 @@ export function MailSection() {
           />
         )}
       </div>
+      <RollbackToast />
     </section>
   );
 }
