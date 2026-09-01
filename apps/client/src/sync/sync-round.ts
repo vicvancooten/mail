@@ -1,4 +1,15 @@
-import type { MailAccount, QueuedMutation, SyncRequest, SyncResponse } from "@mail/shared";
+import type {
+  ComposeSave,
+  MailAccount,
+  QueuedMutation,
+  SyncRequest,
+  SyncResponse,
+} from "@mail/shared";
+import {
+  listQueuedComposeSaves,
+  resolveComposeSaveOutcomes,
+  toWireComposeSave,
+} from "../store/compositions.js";
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
@@ -71,7 +82,10 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
     const response = await post(request);
     pages += 1;
 
-    if (pages === 1) await applyMutationOutcomes(request, response);
+    if (pages === 1) {
+      await applyMutationOutcomes(request, response);
+      await applyComposeSaveOutcomes(request, response);
+    }
 
     let hasMore = false;
 
@@ -129,6 +143,7 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
 
   const response = await post(request);
   await applyMutationOutcomes(request, response);
+  await applyComposeSaveOutcomes(request, response);
   return 1;
 }
 
@@ -145,6 +160,21 @@ async function applyMutationOutcomes(request: SyncRequest, response: SyncRespons
     const outcomes = response.mailAccounts?.[mailAccountId]?.mutations;
     if (!outcomes || outcomes.length === 0) continue;
     await resolveMutationOutcomes(mailAccountId, queued, outcomes);
+  }
+}
+
+/** Same shape as `applyMutationOutcomes`, for Composition autosaves (ADR-0014, #45). */
+async function applyComposeSaveOutcomes(
+  request: SyncRequest,
+  response: SyncResponse,
+): Promise<void> {
+  for (const [mailAccountId, requested] of Object.entries(request.mailAccounts ?? {})) {
+    const queued = requested.composeSaves;
+    if (!queued || queued.length === 0) continue;
+
+    const outcomes = response.mailAccounts?.[mailAccountId]?.composeSaves;
+    if (!outcomes || outcomes.length === 0) continue;
+    await resolveComposeSaveOutcomes(mailAccountId, queued, outcomes);
   }
 }
 
@@ -184,8 +214,15 @@ async function buildSyncRequest({
     if (includeMutations) {
       const mutations = await mutationsToFlush(account);
       if (mutations.length > 0) entry.mutations = mutations;
+      const composeSaves = await composeSavesToFlush(account);
+      if (composeSaves.length > 0) entry.composeSaves = composeSaves;
     }
-    if (entry.Thread !== undefined || entry.Label !== undefined || entry.mutations !== undefined) {
+    if (
+      entry.Thread !== undefined ||
+      entry.Label !== undefined ||
+      entry.mutations !== undefined ||
+      entry.composeSaves !== undefined
+    ) {
       mailAccounts[account.id] = entry;
     }
   }
@@ -209,4 +246,11 @@ async function mutationsToFlush(account: MailAccount): Promise<QueuedMutation[]>
   if (account.status === "needs_reauth") return [];
   const queued = await listQueuedMutations(account.id);
   return queued.map((mutation) => ({ id: mutation.id, intent: mutation.intent }));
+}
+
+/** Same Needs Reauth hold as `mutationsToFlush` (CONTEXT.md): autosave waits rather than fails. */
+async function composeSavesToFlush(account: MailAccount): Promise<ComposeSave[]> {
+  if (account.status === "needs_reauth") return [];
+  const queued = await listQueuedComposeSaves(account.id);
+  return Promise.all(queued.map((save) => toWireComposeSave(save)));
 }

@@ -1,3 +1,4 @@
+import type { ComposeDocument, Recipient } from "@mail/shared";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -649,4 +650,98 @@ export const protocolWrites = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("protocol_writes_account_idx").on(table.mailAccountId, table.createdAt)],
+);
+
+/**
+ * A Composition (#45, CONTEXT.md, ADR-0012/0013/0014): the App Feature
+ * authoritative copy of a message being written. `id` is Client-generated
+ * (a ULID, the same "offline-derivable" shape a Label's id has) so autosave
+ * from the first keystroke never waits on a round trip for one to exist —
+ * `sync/compose-store.ts#applyComposeSave` creates the row lazily on the
+ * first save it sees for an unknown id, scoped to `mailAccountId` the same
+ * way every other per-account table is.
+ *
+ * `status` only ever holds `draft` at this ticket's scope — the rest of the
+ * enum is #46's Pending Send state machine (ADR-0012: "one entity, two
+ * states"), reserved here so that ticket is a status transition, not a
+ * reshape.
+ *
+ * `document` is the ProseMirror JSON itself (ADR-0013: "a Composition is a
+ * structured document, not HTML") — the mail HTML and plaintext alternative
+ * are derived from it at push time (`compose/mail-serializer.ts`) and never
+ * stored. `version` is ADR-0012's optimistic-concurrency counter: bumped by
+ * every accepted save, and what a stale save (a second device's autosave
+ * racing this one) is rejected against.
+ *
+ * `imapDraftUid`/`imapDraftFolderId` and `pushedContentHash` are the
+ * debounced IMAP push's own bookkeeping (`sync/draft-push.ts`): the one UID
+ * this Composition owns in the account's Drafts folder, and the hash of the
+ * content last pushed under it, so an idle-but-open composer pushes once
+ * rather than on every debounce tick.
+ */
+export const compositions = pgTable(
+  "compositions",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    status: text("status", {
+      enum: ["draft", "pending", "submitting", "sent", "failed"],
+    })
+      .notNull()
+      .default("draft"),
+    schemaVersion: integer("schema_version").notNull().default(1),
+    subject: text("subject").notNull().default(""),
+    document: jsonb("document").$type<ComposeDocument>().notNull(),
+    toAddresses: jsonb("to_addresses").$type<Recipient[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<Recipient[]>().notNull().default([]),
+    bccAddresses: jsonb("bcc_addresses").$type<Recipient[]>().notNull().default([]),
+    /** Optimistic-concurrency counter (ADR-0012), bumped on every accepted save. */
+    version: integer("version").notNull().default(0),
+    /** The Composition's one live message in the account's Drafts folder, or null before the first push. */
+    imapDraftUid: bigint("imap_draft_uid", { mode: "number" }),
+    imapDraftFolderId: text("imap_draft_folder_id").references(() => folders.id, {
+      onDelete: "set null",
+    }),
+    /** sha256 of the content last exported — a push is skipped when this still matches (ADR-0012). */
+    pushedContentHash: text("pushed_content_hash"),
+    lastPushedAt: timestamp("last_pushed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("compositions_account_status_idx").on(table.mailAccountId, table.status),
+    // The debounced push's own candidate query (`sync/draft-push.ts`): every
+    // draft not yet known to be pushed at its current content.
+    index("compositions_push_pending_idx")
+      .on(table.mailAccountId, table.updatedAt)
+      .where(sql`${table.status} = 'draft'`),
+  ],
+);
+export type CompositionRow = typeof compositions.$inferSelect;
+
+/**
+ * The idempotency ledger for `composeSaves` (ADR-0014, #45) — the exact
+ * shape `appliedMutations` is for `mutations`, kept as its own table rather
+ * than widened into it: a save's outcome carries a `version` a
+ * `MutationOutcome` has no field for, and `status` has a third value
+ * (`conflict`) that would otherwise be meaningless on every other intent
+ * type. `id` is the save's own `saveId`, so a retried autosave (a dropped
+ * response over a flaky connection, the ordinary case ADR-0010 accounts for)
+ * replays this row's recorded `version` instead of being re-validated
+ * against the Composition's now-advanced `version` and misread as a
+ * conflict with itself.
+ */
+export const composeSaveLedger = pgTable(
+  "compose_save_ledger",
+  {
+    id: text("id").primaryKey(),
+    compositionId: text("composition_id").notNull(),
+    status: text("status", { enum: ["applied", "conflict", "rejected"] }).notNull(),
+    version: integer("version").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("compose_save_ledger_composition_idx").on(table.compositionId)],
 );

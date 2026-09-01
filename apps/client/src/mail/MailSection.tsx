@@ -1,10 +1,18 @@
 import type { Label } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { THREAD_PAGE_SIZE, useLabels, useMailAccounts, useThreadWindow } from "../store/index.js";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useComposeShortcut } from "../compose/useComposeShortcut.js";
+import {
+  newCompositionId,
+  THREAD_PAGE_SIZE,
+  useLabels,
+  useMailAccounts,
+  useThreadWindow,
+} from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import {
   readLastAccountId,
+  readOpenComposerId,
   readStreamMode,
   readViewMode,
   writeLastAccountId,
@@ -19,6 +27,15 @@ import { TopBar } from "./TopBar.js";
 import { readAdvanceDirection, writeAdvanceDirection } from "./triage-preferences.js";
 import { useTriage } from "./useTriage.js";
 import "./mail.css";
+
+/**
+ * Lazy-loaded (compose-spec §Editor: "TipTap v3 ... lazy-loaded so it never
+ * touches the <1s cold-start budget"): TipTap and its extensions are real
+ * weight, and nothing before the first `c`/Compose click needs any of it.
+ */
+const Composer = lazy(() =>
+  import("../compose/Composer.js").then((m) => ({ default: m.Composer })),
+);
 
 /**
  * The real thread list UI over the Local Cache (#40, #42, #43): the
@@ -50,6 +67,15 @@ export function MailSection() {
   // window like any other" — `null` means the ordinary Inbox view.
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const labels = useLabels(accountId) ?? [];
+
+  // One composer at a time (#45, compose-spec §Composer surface & keys).
+  // Reads `readOpenComposerId()` once, at mount, so a composer left open
+  // across a reload reopens itself rather than the offline-durable draft
+  // sitting unreachable in the Local Cache.
+  const [composeId, setComposeId] = useState<string | null>(readOpenComposerId);
+  const openCompose = useCallback(() => setComposeId(newCompositionId()), []);
+  const closeCompose = useCallback(() => setComposeId(null), []);
+  useComposeShortcut(openCompose, composeId !== null);
 
   // Pick the active account once accounts are known: the remembered device
   // preference if it still names one of them, else the first by
@@ -137,6 +163,7 @@ export function MailSection() {
     selectedThreadId,
     onSelect: setSelectedThreadId,
     direction,
+    shortcutsDisabled: composeId !== null,
   });
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
@@ -157,6 +184,7 @@ export function MailSection() {
         labels={labelsForPicker}
         labelFilter={labelFilter}
         onLabelFilter={selectLabelFilter}
+        onCompose={openCompose}
       />
       <div className="mail-body">
         {streamMode ? (
@@ -192,6 +220,17 @@ export function MailSection() {
         )}
       </div>
       <RollbackToast />
+      {composeId && accountId && (
+        <Suspense fallback={null}>
+          <Composer
+            key={composeId}
+            compositionId={composeId}
+            mailAccounts={mailAccounts}
+            defaultMailAccountId={accountId}
+            onClose={closeCompose}
+          />
+        </Suspense>
+      )}
     </section>
   );
 }

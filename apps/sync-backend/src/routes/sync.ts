@@ -1,4 +1,4 @@
-import type { MutationOutcome, SyncResponse } from "@mail/shared";
+import type { ComposeSaveOutcome, MutationOutcome, SyncResponse } from "@mail/shared";
 import { syncRequestSchema, syncResponseSchema } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
@@ -8,6 +8,7 @@ import {
   syncMailAccountCollection,
   syncThreadCollection,
 } from "../sync/collection-sync.js";
+import { flushComposeSaves } from "../sync/compose-store.js";
 import { flushMutations } from "../sync/mutations.js";
 
 export interface SyncRoutesOptions {
@@ -47,25 +48,46 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       const wantsThread = requested.Thread !== undefined;
       const wantsLabel = requested.Label !== undefined;
       const queued = requested.mutations ?? [];
-      if (!wantsThread && !wantsLabel && queued.length === 0) continue;
+      const queuedComposeSaves = requested.composeSaves ?? [];
+      if (!wantsThread && !wantsLabel && queued.length === 0 && queuedComposeSaves.length === 0) {
+        continue;
+      }
 
       // Silently skipped rather than a 404/403: a Mail Account the Client
       // still has cached but no longer owns (or that never existed) is not
       // this Client's mistake to report on — the MailAccount collection is
       // what tells it the account is gone. A queued mutation against it is
       // rejected outright instead: nothing here will ever apply it, and
-      // holding it forever would starve the retry it deserves.
+      // holding it forever would starve the retry it deserves. Same for a
+      // queued Composition autosave.
       const account = await getMailAccountForUser(db, userId, mailAccountId);
       if (!account) {
-        if (queued.length > 0) {
+        if (queued.length > 0 || queuedComposeSaves.length > 0) {
           mailAccountsResult[mailAccountId] = {
-            mutations: queued.map(
-              (mutation): MutationOutcome => ({
-                id: mutation.id,
-                status: "rejected",
-                reason: "mail_account_not_found",
-              }),
-            ),
+            ...(queued.length > 0
+              ? {
+                  mutations: queued.map(
+                    (mutation): MutationOutcome => ({
+                      id: mutation.id,
+                      status: "rejected",
+                      reason: "mail_account_not_found",
+                    }),
+                  ),
+                }
+              : {}),
+            ...(queuedComposeSaves.length > 0
+              ? {
+                  composeSaves: queuedComposeSaves.map(
+                    (save): ComposeSaveOutcome => ({
+                      id: save.id,
+                      saveId: save.saveId,
+                      status: "rejected",
+                      version: save.version,
+                      reason: "mail_account_not_found",
+                    }),
+                  ),
+                }
+              : {}),
           };
         }
         continue;
@@ -73,6 +95,10 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
 
       const mutationResults =
         queued.length > 0 ? await flushMutations(db, mailAccountId, queued) : [];
+      const composeSaveResults =
+        queuedComposeSaves.length > 0
+          ? await flushComposeSaves(db, mailAccountId, queuedComposeSaves)
+          : [];
 
       const threadDelta = wantsThread
         ? await syncThreadCollection(
@@ -87,11 +113,17 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         ? await syncLabelCollection(db, mailAccountId, requested.Label ?? null)
         : null;
 
-      if (threadDelta || labelDelta || mutationResults.length > 0) {
+      if (
+        threadDelta ||
+        labelDelta ||
+        mutationResults.length > 0 ||
+        composeSaveResults.length > 0
+      ) {
         mailAccountsResult[mailAccountId] = {
           ...(threadDelta ? { Thread: threadDelta } : {}),
           ...(labelDelta ? { Label: labelDelta } : {}),
           ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),
+          ...(composeSaveResults.length > 0 ? { composeSaves: composeSaveResults } : {}),
         };
       }
     }

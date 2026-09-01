@@ -1,0 +1,249 @@
+/*
+ * The docked composer (compose-spec §Composer surface & keys): bottom-right
+ * overlay, expandable to full screen. Reuses `mail.css`'s custom properties
+ * (`--mail-*`) rather than redefining a second palette.
+ */
+
+.composer {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: min(560px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+  overflow: hidden;
+}
+
+.composer.expanded {
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  top: 16px;
+  width: auto;
+  height: auto;
+}
+
+.composer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--mail-bg-elevated);
+  border-bottom: 1px solid var(--mail-border);
+  font-size: 13px;
+  color: var(--mail-text-dim);
+}
+
+.composer-from {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.composer-header-actions button,
+.composer-show-ccbcc {
+  background: none;
+  border: none;
+  color: var(--mail-text-dim);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.composer-header-actions button:hover,
+.composer-show-ccbcc:hover {
+  background: var(--mail-bg-hover);
+}
+
+.composer-recipients {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--mail-border);
+}
+
+.recipient-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--mail-border);
+}
+.recipient-field:last-child {
+  border-bottom: none;
+}
+.recipient-field-label {
+  font-size: 13px;
+  color: var(--mail-text-faint);
+  padding-top: 4px;
+  width: 28px;
+  flex-shrink: 0;
+}
+.recipient-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+.recipient-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mail-bg-selected);
+  border-radius: 12px;
+  padding: 2px 6px 2px 10px;
+  font-size: 13px;
+}
+.recipient-chip.invalid {
+  outline: 1px solid #d64545;
+}
+.recipient-chip button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--mail-text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.recipient-input {
+  flex: 1;
+  min-width: 80px;
+}
+.recipient-input input {
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--mail-text);
+  font-size: 13px;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.composer-subject {
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--mail-text);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mail-border);
+}
+
+.compose-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mail-border);
+}
+.compose-toolbar-button {
+  background: none;
+  border: none;
+  color: var(--mail-text-dim);
+  border-radius: 4px;
+  padding: 4px;
+  display: flex;
+  cursor: pointer;
+}
+.compose-toolbar-button:hover {
+  background: var(--mail-bg-hover);
+}
+.compose-toolbar-button.active {
+  background: var(--mail-bg-selected);
+  color: var(--mail-text);
+}
+.compose-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--mail-border);
+  margin: 0 4px;
+}
+
+.compose-swatch-picker {
+  position: relative;
+}
+.compose-swatch-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 6px;
+  background: var(--mail-bg-elevated);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  z-index: 60;
+}
+.compose-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--mail-border);
+  cursor: pointer;
+  padding: 0;
+}
+.compose-swatch-clear {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--mail-text-dim);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.compose-bubble-menu {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--mail-bg-elevated);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.composer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+.composer-body .tiptap {
+  outline: none;
+  min-height: 100%;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--mail-text);
+}
+.composer-body .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--mail-text-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.composer-body .tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.composer-body .tiptap td,
+.composer-body .tiptap th {
+  border: 1px solid var(--mail-border);
+  padding: 4px 8px;
+}

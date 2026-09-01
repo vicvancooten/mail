@@ -1,5 +1,13 @@
 import type { Label, MailAccount } from "@mail/shared";
-import { ArrowDown, ArrowUp, Columns2, Layers, List as ListIcon, Tag } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Columns2,
+  Layers,
+  List as ListIcon,
+  PenSquare,
+  Tag,
+} from "lucide-react";
 import { AccountSwitcher } from "./AccountSwitcher.js";
 import type { ViewMode } from "./device-preferences.js";
 import type { AdvanceDirection } from "./triage-preferences.js";
@@ -31,6 +39,7 @@ export function TopBar({
   labels,
   labelFilter,
   onLabelFilter,
+  onCompose,
 }: {
   viewMode: ViewMode;
   onViewMode: (mode: ViewMode) => void;
@@ -46,6 +55,8 @@ export function TopBar({
   /** `null` is the ordinary Inbox; a Label id filters to Threads carrying it. */
   labelFilter: string | null;
   onLabelFilter: (labelId: string | null) => void;
+  /** Opens a new composer (#45; `c` is the same action's keyboard shortcut). */
+  onCompose: () => void;
 }) {
   return (
     <div className="mail-topbar">
@@ -113,6 +124,10 @@ export function TopBar({
       ) : null}
 
       <div className="topbar-spacer" />
+
+      <button type="button" className="compose-button" onClick={onCompose} title="Compose (c)">
+        <PenSquare size={14} /> Compose
+      </button>
 
       <AccountSwitcher
         accounts={accounts}

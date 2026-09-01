@@ -3,6 +3,7 @@ import { ensureClaimToken } from "./auth/claim.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
+import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 
@@ -46,12 +47,20 @@ const protocolWriteLoop = startProtocolWriteLoop(db, {
   logger: app.log,
 });
 
+// The debounced Composition → IMAP Drafts push (ADR-0012 tier 2, #45): same
+// independent-short-lived-connection shape as the outbox above, on its own
+// interval so a slow Drafts folder can never stall it either.
+const draftPushLoop = startDraftPushLoop(db, {
+  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+  logger: app.log,
+});
+
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
 // describes: stop every resident session (a polite IMAP LOGOUT, then close)
 // before the process actually exits, rather than yanking the sockets shut.
 process.on("SIGTERM", () => {
-  void Promise.all([syncManager.stopAll(), protocolWriteLoop.stop()])
+  void Promise.all([syncManager.stopAll(), protocolWriteLoop.stop(), draftPushLoop.stop()])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))
     .finally(() => process.exit(0));
 });

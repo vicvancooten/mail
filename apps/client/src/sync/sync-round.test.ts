@@ -1,6 +1,11 @@
 import type { MutationOutcome, SyncRequest, SyncResponse } from "@mail/shared";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  EMPTY_COMPOSE_CONTENT,
+  listQueuedComposeSaves,
+  saveComposition,
+} from "../store/compositions.js";
 import { readThreadWindow } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import {
@@ -507,5 +512,116 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
 
     expect(await listQueuedMutations("acct-1")).toEqual([]);
     expect((await readThreadWindow("acct-1")).threads[0]?.starred).toBe(true);
+  });
+});
+
+describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
+  it("sends a coalesced save on the round's first request only", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1"));
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "v1" });
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "v2" });
+
+    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {} }]);
+    await runSyncRound(post);
+
+    expect(requests).toHaveLength(1);
+    const sent = requests[0]?.mailAccounts?.["acct-1"]?.composeSaves;
+    expect(sent).toHaveLength(1);
+    expect(sent?.[0]?.subject).toBe("v2"); // coalesced — never one save per keystroke
+    expect(sent?.[0]?.id).toBe("comp-1");
+  });
+
+  it("dequeues on `applied` — draining exactly once, never resent on the next round", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1"));
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "v1" });
+    const [queued] = await listQueuedComposeSaves("acct-1");
+    expect(queued).toBeDefined();
+    const queuedSaveId = (queued as { saveId: string }).saveId;
+
+    await runSyncRound(
+      scriptedSync([
+        {
+          user: {},
+          mailAccounts: {
+            "acct-1": {
+              composeSaves: [{ id: "comp-1", saveId: queuedSaveId, status: "applied", version: 1 }],
+            },
+          },
+        },
+      ]).post,
+    );
+    expect(await listQueuedComposeSaves("acct-1")).toEqual([]);
+    expect((await localCache().compositions.get("comp-1"))?.version).toBe(1);
+
+    const second = scriptedSync([{ user: {}, mailAccounts: {} }]);
+    await runSyncRound(second.post);
+    expect(second.requests[0]?.mailAccounts?.["acct-1"]?.composeSaves).toBeUndefined();
+  });
+
+  it("survives offline: a request that never gets a response leaves the queue untouched, still coalesced", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1"));
+    await saveComposition("comp-1", "acct-1", {
+      ...EMPTY_COMPOSE_CONTENT,
+      subject: "typed while offline",
+    });
+
+    const failingPost = async (): Promise<SyncResponse> => {
+      throw new Error("network unreachable");
+    };
+    await expect(runSyncRound(failingPost)).rejects.toThrow("network unreachable");
+
+    const stillQueued = await listQueuedComposeSaves("acct-1");
+    expect(stillQueued).toHaveLength(1);
+    expect(stillQueued[0]?.subject).toBe("typed while offline");
+  });
+
+  it("survives a reload — closing and reopening the same cache — then syncs up on reconnect, coalesced not replayed", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1"));
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "keystroke 1" });
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "keystroke 2" });
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "final text" });
+
+    // A page reload: the same IndexedDB database reopens at the same schema
+    // version — nothing wipes, and both the durable row and the coalesced
+    // queue are right there, exactly as ADR-0014 requires.
+    localCache().close();
+    expect(await openLocalCache({ name: cacheName, schemaVersion: 1 })).toEqual({
+      status: "current",
+    });
+    expect((await localCache().compositions.get("comp-1"))?.subject).toBe("final text");
+    const reloaded = await listQueuedComposeSaves("acct-1");
+    expect(reloaded).toHaveLength(1); // one coalesced save, not three replayed ones
+    expect(reloaded[0]?.subject).toBe("final text");
+    const reloadedSaveId = (reloaded[0] as { saveId: string }).saveId;
+
+    const { post, requests } = scriptedSync([
+      {
+        user: {},
+        mailAccounts: {
+          "acct-1": {
+            composeSaves: [{ id: "comp-1", saveId: reloadedSaveId, status: "applied", version: 1 }],
+          },
+        },
+      },
+    ]);
+    await runSyncRound(post);
+
+    expect(requests[0]?.mailAccounts?.["acct-1"]?.composeSaves).toHaveLength(1);
+    expect(await listQueuedComposeSaves("acct-1")).toEqual([]);
+  });
+
+  it("never sends a Needs Reauth account's queue, while a co-queued active account still flushes", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1", { status: "needs_reauth" }));
+    await localCache().mailAccounts.put(makeMailAccount("acct-2"));
+    await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "held" });
+    await saveComposition("comp-2", "acct-2", { ...EMPTY_COMPOSE_CONTENT, subject: "flows" });
+
+    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {} }]);
+    await runSyncRound(post);
+
+    const request = requests[0];
+    expect(request?.mailAccounts?.["acct-1"]?.composeSaves).toBeUndefined();
+    expect(request?.mailAccounts?.["acct-2"]?.composeSaves).toHaveLength(1);
+    expect(await listQueuedComposeSaves("acct-1")).toHaveLength(1); // held, not dropped
   });
 });
