@@ -1038,6 +1038,20 @@ button.search-chip-toggle.on {
   font-size: 11px;
   white-space: nowrap;
 }
+.thread-row .gatekeeper-badge {
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.gatekeeper-badge-held {
+  background: color-mix(in srgb, #d9a441 18%, transparent);
+  color: #a06a12;
+}
+.gatekeeper-badge-blocked {
+  background: color-mix(in srgb, #d1453b 16%, transparent);
+  color: #b33429;
+}
 .snippet.headline mark {
   background: color-mix(in srgb, var(--mail-accent) 24%, transparent);
   color: var(--mail-text);
@@ -1100,4 +1114,173 @@ button.search-chip-toggle.on {
   color: var(--mail-text);
   font-size: 13px;
   cursor: pointer;
+}
+
+/* ---------- Gatekeeper (#56) ---------- */
+
+.gatekeeper-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mail-border);
+  background: color-mix(in srgb, #d9a441 12%, transparent);
+  color: var(--mail-text);
+  font-size: 13px;
+}
+.gatekeeper-banner span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gatekeeper-banner button {
+  padding: 5px 12px;
+  border: 1px solid var(--mail-accent);
+  border-radius: 8px;
+  background: var(--mail-accent);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.screener {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.screener-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mail-border);
+}
+.screener-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.screener-close {
+  padding: 6px 12px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.screener-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.screener-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mail-border);
+}
+.screener-row.selected {
+  background: var(--mail-bg-hover);
+}
+.screener-row-sender {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 200px;
+  flex-shrink: 0;
+}
+.screener-row-name {
+  font-weight: 600;
+  color: var(--mail-text);
+}
+.screener-row-address {
+  font-size: 12px;
+  color: var(--mail-text-faint);
+}
+.screener-row-count {
+  font-size: 12px;
+  color: var(--mail-text-dim);
+}
+.screener-row-peek {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+}
+.screener-row-subject {
+  color: var(--mail-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.screener-row-snippet {
+  color: var(--mail-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.screener-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.screener-row-actions button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  color: var(--mail-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.screener-approve:hover {
+  border-color: #2f9e58;
+  color: #2f9e58;
+}
+.screener-deny:hover {
+  border-color: var(--mail-text-dim);
+}
+.screener-block:hover {
+  border-color: #d1453b;
+  color: #d1453b;
+}
+
+.gatekeeper-settings {
+  margin-top: 8px;
+}
+.gatekeeper-settings h4,
+.gatekeeper-settings h5 {
+  margin: 8px 0 4px;
+}
+.gatekeeper-settings-description {
+  color: var(--mail-text-dim);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.gatekeeper-cutoff {
+  font-size: 12px;
+  color: var(--mail-text-faint);
+}
+.gatekeeper-blocked ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gatekeeper-blocked li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
 }

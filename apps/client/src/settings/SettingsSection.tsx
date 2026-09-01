@@ -10,6 +10,7 @@ import {
   useMailAccounts,
   usePreference,
 } from "../store/index.js";
+import { GatekeeperSection } from "./GatekeeperSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
 
 /**
@@ -159,6 +160,7 @@ export function SettingsSection() {
                 />
                 Notifications
               </label>
+              <GatekeeperSection account={account} />
             </div>
           ))}
         </section>

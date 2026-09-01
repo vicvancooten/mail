@@ -37,6 +37,8 @@ export interface RowExtra {
   headline?: string | null;
   folderPill?: string | null;
   actionBadge?: string | null;
+  /** The Held/Blocked badge (#56, `docs/search-ux-spec.md` §The row) — search's own result decoration, same as the other three. */
+  gatekeeperBadge?: "held" | "blocked" | null;
 }
 
 export function VirtualizedThreadList({
@@ -216,6 +218,7 @@ export function VirtualizedThreadList({
                   headline={extra?.headline}
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}
+                  gatekeeperBadge={extra?.gatekeeperBadge}
                 />
               )}
             </div>

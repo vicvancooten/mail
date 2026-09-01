@@ -18,6 +18,7 @@ import {
   useLabels,
   useMailAccounts,
   usePreference,
+  useScreenerSenders,
   useThreadWindow,
 } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
@@ -29,6 +30,7 @@ import {
   readViewMode,
   writeLastAccountId,
   writeListDensity,
+  writeScreenerViewed,
   writeStreamMode,
   writeViewMode,
 } from "./device-preferences.js";
@@ -38,6 +40,8 @@ import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
+import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
+import { Screener } from "./screener/Screener.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
@@ -86,6 +90,12 @@ export function MailSection() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
+  // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen
+  // swap of `.mail-body`, the same shape `search.active` already uses below
+  // — there is no router here, so "a screen" means a boolean and a
+  // conditional render, not a route.
+  const [screenerOpen, setScreenerOpen] = useState(false);
+  const screenerSenders = useScreenerSenders(accountId) ?? [];
   // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
   // User-scoped and synced — `usePreference()` already carries `base ⊕
   // pending`, so a change made offline (or on another device) is reflected
@@ -148,8 +158,19 @@ export function MailSection() {
     setSelectedThreadId(null);
     setLimit(THREAD_PAGE_SIZE);
     setLabelFilter(null);
+    setScreenerOpen(false);
     writeLastAccountId(id);
   }, []);
+
+  // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own
+  // doc comment) — the banner's unseen cursor advances the instant this
+  // fires, not on some later "you scrolled past every row" heuristic.
+  const openScreener = useCallback(() => {
+    if (!accountId) return;
+    writeScreenerViewed(accountId);
+    setScreenerOpen(true);
+  }, [accountId]);
+  const closeScreener = useCallback(() => setScreenerOpen(false), []);
 
   // A notification click landing here (#53, ADR-0015: "a click always
   // lands where the next decision is"): the service worker only knows how
@@ -266,7 +287,7 @@ export function MailSection() {
     onSelect: setSelectedThreadId,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || search.active,
+    shortcutsDisabled: composeId !== null || search.active || screenerOpen,
   });
   const rawSearchTriage = useTriage({
     mailAccountId: accountId,
@@ -276,7 +297,7 @@ export function MailSection() {
     onSelect: search.select,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || !search.active,
+    shortcutsDisabled: composeId !== null || !search.active || screenerOpen,
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
 
@@ -286,7 +307,7 @@ export function MailSection() {
   // `useTriage`'s own scheme uses.
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (composeId !== null) return;
+      if (composeId !== null || screenerOpen) return;
       const target = event.target as HTMLElement | null;
       const typing =
         target &&
@@ -303,7 +324,7 @@ export function MailSection() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [composeId]);
+  }, [composeId, screenerOpen]);
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
@@ -326,6 +347,7 @@ export function MailSection() {
         labelFilter={labelFilter}
         onLabelFilter={selectLabelFilter}
         onCompose={openCompose}
+        screener={{ count: screenerSenders.length, onOpen: openScreener }}
         search={{
           active: search.active,
           queryText: search.queryText,
@@ -340,8 +362,16 @@ export function MailSection() {
           onClearRecent: search.clearRecent,
         }}
       />
+      {/* Unmounted rather than merely hidden while the Screener is open: a
+          `readScreenerSeenUntil` read only happens on mount/account change
+          (`GatekeeperBanner`'s own doc comment), and `openScreener` just
+          wrote a fresh cursor — remounting is what picks it up, so the
+          banner doesn't still claim "unseen" for holds it was just shown. */}
+      {!screenerOpen && <GatekeeperBanner mailAccountId={accountId} onOpen={openScreener} />}
       <div className="mail-body">
-        {search.active ? (
+        {screenerOpen && accountId ? (
+          <Screener mailAccountId={accountId} onClose={closeScreener} />
+        ) : search.active ? (
           <SearchResultsView
             viewMode={viewMode}
             state={search}
