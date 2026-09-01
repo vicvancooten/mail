@@ -39,10 +39,12 @@ export {
   subscribeMutationRejections,
 } from "./mutation-queue.js";
 export {
+  readLabels,
   readMailAccounts,
   readThreadWindow,
   THREAD_PAGE_SIZE,
   type ThreadWindowPage,
+  useLabels,
   useMailAccounts,
   useThreadWindow,
 } from "./reads.js";

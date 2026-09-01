@@ -2,9 +2,11 @@ import type { MailAccount, QueuedMutation, SyncRequest, SyncResponse } from "@ma
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
+  applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
   getSyncToken,
+  labelTokenKey,
   listCachedMailAccountIds,
   MAIL_ACCOUNT_TOKEN_KEY,
   pruneOrphanedMailAccountData,
@@ -84,12 +86,22 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
 
     for (const [mailAccountId, collections] of Object.entries(response.mailAccounts)) {
       const threadDelta = collections.Thread;
-      if (!threadDelta) continue;
-      changed = true;
-      hasMore ||= threadDelta.hasMore;
-      await applyThreadDelta(mailAccountId, threadDelta, {
-        replace: startsReplay(replaysStarted, threadTokenKey(mailAccountId), threadDelta.reset),
-      });
+      if (threadDelta) {
+        changed = true;
+        hasMore ||= threadDelta.hasMore;
+        await applyThreadDelta(mailAccountId, threadDelta, {
+          replace: startsReplay(replaysStarted, threadTokenKey(mailAccountId), threadDelta.reset),
+        });
+      }
+
+      const labelDelta = collections.Label;
+      if (labelDelta) {
+        changed = true;
+        hasMore ||= labelDelta.hasMore;
+        await applyLabelDelta(mailAccountId, labelDelta, {
+          replace: startsReplay(replaysStarted, labelTokenKey(mailAccountId), labelDelta.reset),
+        });
+      }
     }
 
     // A first-ever boot learns its Mail Accounts from the round it is in the
@@ -165,12 +177,15 @@ async function buildSyncRequest({
 
   for (const account of accounts) {
     const entry: MailAccountRequestEntry = {};
-    if (includeCollections) entry.Thread = await getSyncToken(threadTokenKey(account.id));
+    if (includeCollections) {
+      entry.Thread = await getSyncToken(threadTokenKey(account.id));
+      entry.Label = await getSyncToken(labelTokenKey(account.id));
+    }
     if (includeMutations) {
       const mutations = await mutationsToFlush(account);
       if (mutations.length > 0) entry.mutations = mutations;
     }
-    if (entry.Thread !== undefined || entry.mutations !== undefined) {
+    if (entry.Thread !== undefined || entry.Label !== undefined || entry.mutations !== undefined) {
       mailAccounts[account.id] = entry;
     }
   }

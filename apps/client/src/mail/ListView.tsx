@@ -36,6 +36,7 @@ export function ListView({
     const nextId = neighborId(ids, selectedThreadId, 1);
     return (
       <ThreadDetailPane
+        key={selectedThread.id}
         thread={selectedThread}
         onBack={onBack}
         onPrev={prevId ? () => onSelect(prevId) : undefined}

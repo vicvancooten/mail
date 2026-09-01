@@ -1,5 +1,7 @@
+import type { Label } from "@mail/shared";
+import { labelNameFromId } from "@mail/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { THREAD_PAGE_SIZE, useMailAccounts, useThreadWindow } from "../store/index.js";
+import { THREAD_PAGE_SIZE, useLabels, useMailAccounts, useThreadWindow } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import {
   readLastAccountId,
@@ -18,16 +20,20 @@ import { useTriage } from "./useTriage.js";
 import "./mail.css";
 
 /**
- * The real thread list UI over the Local Cache (#40, #42): the windowed,
- * time-grouped list, the Split (default) / List top-bar modes plus Stream
- * as an independent opt-in, the account switcher, and — this ticket's own
- * job — triage. `useTriage` is called exactly once, here, so archive,
- * trash, star, read, and the keyboard scheme behind them mean the same
- * thing no matter which view is showing; every view below is handed the
- * same four actions and never enqueues a mutation on its own. Everything
- * renders off `useThreadWindow` alone — no path here ever awaits a network
- * response (ADR-0010), which is what makes reopening a Thread <100ms and a
- * triage action <50ms.
+ * The real thread list UI over the Local Cache (#40, #42, #43): the
+ * windowed, time-grouped list, the Split (default) / List top-bar modes
+ * plus Stream as an independent opt-in, the account switcher, and triage.
+ * `useTriage` is called exactly once, here, so archive, trash, star, read,
+ * pin, and label mean the same thing no matter which view is showing; every
+ * view below is handed the same actions and never enqueues a mutation on
+ * its own. Everything renders off `useThreadWindow` alone — no path here
+ * ever awaits a network response (ADR-0010), which is what makes reopening
+ * a Thread <100ms and a triage action <50ms.
+ *
+ * `labelFilter` (#43) picks which `ViewKey` `useThreadWindow` reads: `null`
+ * is the ordinary Inbox, a Label id filters it — see `store/db.ts#ViewKey`
+ * for why that's a client-side filter over the one synced window rather
+ * than a second one.
  */
 export function MailSection() {
   useLocalCacheSync();
@@ -39,6 +45,10 @@ export function MailSection() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   const [direction, setDirection] = useState(readAdvanceDirection);
+  // Filter-by-label (#43): "a label filter behaves as a view, bounded
+  // window like any other" — `null` means the ordinary Inbox view.
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const labels = useLabels(accountId) ?? [];
 
   // Pick the active account once accounts are known: the remembered device
   // preference if it still names one of them, else the first by
@@ -55,7 +65,14 @@ export function MailSection() {
     setAccountId(id);
     setSelectedThreadId(null);
     setLimit(THREAD_PAGE_SIZE);
+    setLabelFilter(null);
     writeLastAccountId(id);
+  }, []);
+
+  const selectLabelFilter = useCallback((labelId: string | null) => {
+    setLabelFilter(labelId);
+    setSelectedThreadId(null);
+    setLimit(THREAD_PAGE_SIZE);
   }, []);
 
   const changeViewMode = useCallback((mode: typeof viewMode) => {
@@ -73,13 +90,41 @@ export function MailSection() {
     writeAdvanceDirection(next);
   }, []);
 
-  const page = useThreadWindow(accountId, { limit });
+  const view = useMemo(
+    () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : "all"),
+    [labelFilter],
+  );
+  const page = useThreadWindow(accountId, { view, limit });
   const loadMore = useCallback(() => {
     setLimit((current) => current + THREAD_PAGE_SIZE);
   }, []);
 
   const threads = page?.threads ?? [];
   const ids = useMemo(() => threads.map((thread) => thread.id), [threads]);
+
+  // The filter-by-label picker's data source (#43): the synced `Label`
+  // collection, plus any id the currently loaded page's Threads carry that
+  // hasn't synced back yet — a Label applied offline is filterable the
+  // instant it's applied, not once a round trip confirms it. See
+  // `labelNameFromId`'s doc comment for why decoding the name needs no
+  // lookup.
+  const labelsForPicker = useMemo(() => {
+    if (!accountId) return [];
+    const byId = new Map(labels.map((label): [string, Label] => [label.id, label]));
+    for (const thread of threads) {
+      for (const id of thread.labelIds) {
+        if (!byId.has(id)) {
+          byId.set(id, {
+            id,
+            mailAccountId: accountId,
+            name: labelNameFromId(accountId, id),
+            updatedAt: "",
+          });
+        }
+      }
+    }
+    return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }, [labels, threads, accountId]);
 
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
@@ -108,6 +153,9 @@ export function MailSection() {
         accounts={mailAccounts}
         selectedAccountId={accountId}
         onSelectAccount={selectAccount}
+        labels={labelsForPicker}
+        labelFilter={labelFilter}
+        onLabelFilter={selectLabelFilter}
       />
       <div className="mail-body">
         {streamMode ? (

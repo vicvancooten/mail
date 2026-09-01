@@ -341,6 +341,18 @@ export const threads = pgTable(
     // Optimistic Action's ack, and the folder move is the asynchronous
     // mirror of it (ADR-0006).
     inInbox: boolean("in_inbox").notNull().default(true),
+    // Pin (#43, CONTEXT.md): an App Feature, `sync/mutations.ts`'s own field
+    // exactly like `inInbox` above — no rollup ever touches it, only a
+    // `setPinned` intent does. Deliberately not the same thing as `starred`:
+    // a Star is a Protocol Feature mirroring IMAP's own `\Flagged`, a Pin
+    // has zero IMAP-side trace (ADR-0006).
+    pinned: boolean("pinned").notNull().default(false),
+    // Labels currently applied to this Thread (#43), as `labels.id`s —
+    // denormalized here the same way `inInbox`/`pinned` are, so the Client's
+    // one Thread projection carries membership without a join. `sync/
+    // mutations.ts` is the only writer; `labels` below is the id→name
+    // collection those ids resolve against.
+    labelIds: text("label_ids").array().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // See `mailAccounts.syncRev`/`syncCreatedRev` above — same trigger, same
@@ -397,6 +409,38 @@ export const threadMessageIds = pgTable(
     index("thread_message_ids_thread_idx").on(table.threadId),
   ],
 );
+
+/**
+ * A Label (#43, CONTEXT.md, ADR-0006): a User-defined tag, App Feature, no
+ * management UI/colors/nesting at PoC scope. `id` is **deterministic**
+ * (`labelId` in `packages/shared/src/labels.ts`, `(mailAccountId, name)`)
+ * rather than minted here and handed back — `sync/mutations.ts`'s
+ * `applyLabel` computes the same id a Client already predicted offline, so
+ * creating a brand-new Label by applying it is one Optimistic Action, not
+ * two. `threads.labelIds` is the membership side; this table is only the
+ * id→name definition, synced as its own ADR-0011 collection.
+ */
+export const labels = pgTable(
+  "labels",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `threads`/`mail_accounts` — see
+    // their comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("labels_account_name_key").on(table.mailAccountId, table.name),
+    index("labels_sync_rev_idx").on(table.mailAccountId, table.syncRev),
+  ],
+);
+export type LabelRow = typeof labels.$inferSelect;
 
 /** One attachment as summarized from BODYSTRUCTURE at ingest; bytes are never stored (fetch-through). */
 export interface MessageAttachment {

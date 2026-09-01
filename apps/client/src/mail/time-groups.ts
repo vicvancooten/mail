@@ -81,10 +81,18 @@ export interface ThreadGroup {
   threads: CachedThread[];
 }
 
+/** The synthetic group label a Pinned Thread (#43) surfaces under, ahead of every date-based group. */
+export const PINNED_GROUP_LABEL = "Pinned";
+
 /**
- * Buckets an already newest-first ordered page into contiguous groups.
- * Never re-sorts — the Local Cache's `[mailAccountId+sortKey]` index is
- * the order of record, and grouping is purely a presentation pass over it.
+ * Buckets an already newest-first, pinned-first ordered page
+ * (`store/reads.ts#readThreadWindow`) into contiguous groups. Never
+ * re-sorts — the order handed in is the order of record, and grouping is
+ * purely a presentation pass over it. Pinned Threads (#43, CONTEXT.md:
+ * "keep this in front of me") group under one `Pinned` header regardless of
+ * their own date — `readThreadWindow` already put them first, this just
+ * labels that leading run instead of scattering them across the ordinary
+ * date buckets they'd otherwise fall into.
  */
 export function groupThreadsByTime(
   threads: readonly CachedThread[],
@@ -92,7 +100,9 @@ export function groupThreadsByTime(
 ): ThreadGroup[] {
   const groups: ThreadGroup[] = [];
   for (const thread of threads) {
-    const label = timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now);
+    const label = thread.pinned
+      ? PINNED_GROUP_LABEL
+      : timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.threads.push(thread);
     else groups.push({ label, threads: [thread] });

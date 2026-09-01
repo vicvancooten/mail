@@ -1,4 +1,4 @@
-import type { CollectionDelta, MailAccount, Thread } from "@mail/shared";
+import type { CollectionDelta, Label, MailAccount, Thread } from "@mail/shared";
 import Dexie from "dexie";
 import {
   type CachedThread,
@@ -38,6 +38,10 @@ export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
 }
 
+export function labelTokenKey(mailAccountId: string): string {
+  return `account:${mailAccountId}:Label`;
+}
+
 export async function getSyncToken(key: string): Promise<string | null> {
   const row = await localCache().syncState.get(key);
   return row?.token ?? null;
@@ -66,7 +70,7 @@ export async function applyMailAccountDelta(
   const db = localCache();
   await db.transaction(
     "rw",
-    [db.mailAccounts, db.threads, db.listWindows, db.cachePins, db.syncState],
+    [db.mailAccounts, db.threads, db.labels, db.listWindows, db.cachePins, db.syncState],
     async () => {
       if (replace) await db.mailAccounts.clear();
       await db.mailAccounts.bulkPut([...delta.created, ...delta.updated]);
@@ -135,6 +139,27 @@ export async function applyThreadDelta(
 }
 
 /**
+ * `Label`, scoped to one Mail Account (#43, ADR-0011). No windowing — unlike
+ * `Thread` there is no bounded working set to maintain, a Mail Account has
+ * at most a handful of Labels at PoC scope (no management UI to make many
+ * of them), so every Label this account has is simply held in full.
+ */
+export async function applyLabelDelta(
+  mailAccountId: string,
+  delta: CollectionDelta<Label>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.labels, db.syncState], async () => {
+    if (replace) await db.labels.where("mailAccountId").equals(mailAccountId).delete();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.labels.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.labels.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: labelTokenKey(mailAccountId), token: delta.newState });
+  });
+}
+
+/**
  * Drops everything keyed to a Mail Account the User no longer has. Runs at
  * the end of a sync round rather than on the delta, because a `reset: true`
  * MailAccount replay only reveals what is gone once its last page lands.
@@ -147,7 +172,7 @@ export async function pruneOrphanedMailAccountData(): Promise<void> {
 
   await db.transaction(
     "rw",
-    [db.mailAccounts, db.threads, db.listWindows, db.cachePins, db.syncState],
+    [db.mailAccounts, db.threads, db.labels, db.listWindows, db.cachePins, db.syncState],
     async () => {
       const live = new Set(await db.mailAccounts.toCollection().primaryKeys());
       const held = new Set<string>();
@@ -165,9 +190,13 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   if (mailAccountIds.length === 0) return;
   await db.mailAccounts.bulkDelete(mailAccountIds);
   await db.threads.where("mailAccountId").anyOf(mailAccountIds).delete();
+  await db.labels.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.listWindows.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.cachePins.where("mailAccountId").anyOf(mailAccountIds).delete();
-  await db.syncState.bulkDelete(mailAccountIds.map(threadTokenKey));
+  await db.syncState.bulkDelete([
+    ...mailAccountIds.map(threadTokenKey),
+    ...mailAccountIds.map(labelTokenKey),
+  ]);
 }
 
 async function loadWindow(

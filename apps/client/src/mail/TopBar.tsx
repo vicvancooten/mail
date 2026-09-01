@@ -1,16 +1,18 @@
-import type { MailAccount } from "@mail/shared";
-import { ArrowDown, ArrowUp, Columns2, Layers, List as ListIcon } from "lucide-react";
+import type { Label, MailAccount } from "@mail/shared";
+import { ArrowDown, ArrowUp, Columns2, Layers, List as ListIcon, Tag } from "lucide-react";
 import { AccountSwitcher } from "./AccountSwitcher.js";
 import type { ViewMode } from "./device-preferences.js";
 import type { AdvanceDirection } from "./triage-preferences.js";
 
 /**
  * The top bar: the Split/List segmented control, the Stream mode opt-in
- * toggle, the auto-advance direction toggle (#42), and the account
- * switcher. Icons via lucide-react, icon+label buttons in the shadcn
- * convention — the commitments `prototype/triage-loop-ui` settled on (its
- * README), adopted here without pulling in the full shadcn component
- * library the real app doesn't otherwise use.
+ * toggle, the auto-advance direction toggle (#42), the filter-by-label
+ * picker (#43, hidden until the account has at least one Label — no point
+ * showing an empty filter), and the account switcher. Icons via
+ * lucide-react, icon+label buttons in the shadcn convention — the
+ * commitments `prototype/triage-loop-ui` settled on (its README), adopted
+ * here without pulling in the full shadcn component library the real app
+ * doesn't otherwise use.
  *
  * Stream mode is deliberately not a third segmented option: it replaces
  * whichever of Split/List is showing, and that underlying choice stays
@@ -26,6 +28,9 @@ export function TopBar({
   accounts,
   selectedAccountId,
   onSelectAccount,
+  labels,
+  labelFilter,
+  onLabelFilter,
 }: {
   viewMode: ViewMode;
   onViewMode: (mode: ViewMode) => void;
@@ -36,6 +41,11 @@ export function TopBar({
   accounts: MailAccount[];
   selectedAccountId: string | null;
   onSelectAccount: (id: string) => void;
+  /** This account's Labels (#43) — the filter-by-label picker's data source. */
+  labels: Label[];
+  /** `null` is the ordinary Inbox; a Label id filters to Threads carrying it. */
+  labelFilter: string | null;
+  onLabelFilter: (labelId: string | null) => void;
 }) {
   return (
     <div className="mail-topbar">
@@ -80,6 +90,27 @@ export function TopBar({
         {direction === "older" ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
         Next: {direction === "older" ? "Older" : "Newer"}
       </button>
+
+      {labels.length > 0 ? (
+        <>
+          <div className="divider" />
+          <label className="label-filter" title="Filter by label (#43)">
+            <Tag size={14} />
+            <select
+              value={labelFilter ?? ""}
+              onChange={(event) => onLabelFilter(event.target.value || null)}
+              aria-label="Filter by label"
+            >
+              <option value="">All mail</option>
+              {labels.map((label) => (
+                <option key={label.id} value={label.id}>
+                  {label.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
 
       <div className="topbar-spacer" />
 

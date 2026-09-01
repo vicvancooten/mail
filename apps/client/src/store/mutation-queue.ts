@@ -1,4 +1,5 @@
 import type { MutationIntent, MutationOutcome, QueuedMutation } from "@mail/shared";
+import { normalizeLabelName } from "@mail/shared";
 import type { PendingMutation } from "./db.js";
 import { localCache } from "./local-cache.js";
 import { generateUlid } from "./ulid.js";
@@ -21,6 +22,9 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "setRead":
     case "archive":
     case "trash":
+    case "setPinned":
+    case "applyLabel":
+    case "removeLabel":
       return [intent.threadId];
   }
 }
@@ -30,7 +34,10 @@ function referencedThreadIds(intent: MutationIntent): string[] {
  * (ADR-0010: no coalescing beyond this trivial case). `archive`/`trash`
  * (#42) have no inverse intent yet — there is no `unarchive` — so their key
  * never matches anything else's; `value: true` is a fixed placeholder, not
- * a real toggle.
+ * a real toggle. `applyLabel`/`removeLabel` (#43) share one `"label"`
+ * bucket keyed on `threadId:name` so applying then removing (or vice versa)
+ * the same name on the same Thread while both are still queued coalesces
+ * away exactly like star does, rather than shipping a self-cancelling pair.
  */
 function coalesceKey(intent: MutationIntent): { type: string; targetId: string; value: boolean } {
   switch (intent.type) {
@@ -42,6 +49,20 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "archive", targetId: intent.threadId, value: true };
     case "trash":
       return { type: "trash", targetId: intent.threadId, value: true };
+    case "setPinned":
+      return { type: "setPinned", targetId: intent.threadId, value: intent.pinned };
+    case "applyLabel":
+      return {
+        type: "label",
+        targetId: `${intent.threadId}:${normalizeLabelName(intent.name)}`,
+        value: true,
+      };
+    case "removeLabel":
+      return {
+        type: "label",
+        targetId: `${intent.threadId}:${normalizeLabelName(intent.name)}`,
+        value: false,
+      };
   }
 }
 

@@ -3,7 +3,11 @@ import { syncRequestSchema, syncResponseSchema } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
-import { syncMailAccountCollection, syncThreadCollection } from "../sync/collection-sync.js";
+import {
+  syncLabelCollection,
+  syncMailAccountCollection,
+  syncThreadCollection,
+} from "../sync/collection-sync.js";
 import { flushMutations } from "../sync/mutations.js";
 
 export interface SyncRoutesOptions {
@@ -41,8 +45,9 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     const mailAccountsResult: SyncResponse["mailAccounts"] = {};
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {
       const wantsThread = requested.Thread !== undefined;
+      const wantsLabel = requested.Label !== undefined;
       const queued = requested.mutations ?? [];
-      if (!wantsThread && queued.length === 0) continue;
+      if (!wantsThread && !wantsLabel && queued.length === 0) continue;
 
       // Silently skipped rather than a 404/403: a Mail Account the Client
       // still has cached but no longer owns (or that never existed) is not
@@ -78,9 +83,14 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
           )
         : null;
 
-      if (threadDelta || mutationResults.length > 0) {
+      const labelDelta = wantsLabel
+        ? await syncLabelCollection(db, mailAccountId, requested.Label ?? null)
+        : null;
+
+      if (threadDelta || labelDelta || mutationResults.length > 0) {
         mailAccountsResult[mailAccountId] = {
           ...(threadDelta ? { Thread: threadDelta } : {}),
+          ...(labelDelta ? { Label: labelDelta } : {}),
           ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),
         };
       }

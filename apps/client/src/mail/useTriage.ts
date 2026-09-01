@@ -31,7 +31,19 @@ import type { AdvanceDirection } from "./triage-preferences.js";
  *   nuance); `e` archives, `#`/`Backspace`/`Delete` trashes, `s` toggles
  *   star, `u` toggles read/unread — the prototype's own scheme
  *   (`prototype/triage-loop-ui`), plus the two star/read shortcuts it never
- *   needed (`Thread` there had no `starred` field).
+ *   needed (`Thread` there had no `starred` field). `p` toggles Pin (#43) —
+ *   the prototype had no Pin either, so this is a fresh binding on the same
+ *   scheme, chosen because `p`in is mnemonic and every other short letter
+ *   near it is already spoken for.
+ *
+ * `applyLabel`/`removeLabel` (#43) are one call each — no coalescing
+ * decision to make here, `store/mutation-queue.ts` already owns that (apply
+ * then remove of the same name while both are still queued cancels out).
+ * Neither has a single-key binding here: which Label to apply is a name, not
+ * a boolean, so it is reached through `LabelPicker`'s own input/list —
+ * `ThreadDetailPane` owns that widget's open/close (its own `L` binding,
+ * the same "one component, one window keydown listener" shape
+ * `VirtualizedThreadList` already uses for `j`/`k`) and calls these two.
  */
 
 export interface Triage {
@@ -39,6 +51,9 @@ export interface Triage {
   trash(threadId: string): void;
   toggleStar(threadId: string): void;
   toggleRead(threadId: string): void;
+  togglePin(threadId: string): void;
+  applyLabel(threadId: string, name: string): void;
+  removeLabel(threadId: string, name: string): void;
 }
 
 export interface UseTriageOptions {
@@ -134,6 +149,32 @@ export function useTriage({
     [mailAccountId],
   );
 
+  const togglePin = useCallback(
+    (threadId: string) => {
+      if (!mailAccountId) return;
+      const thread = threadsRef.current.find((t) => t.id === threadId);
+      if (!thread) return;
+      void enqueueMutation({ type: "setPinned", threadId, pinned: !thread.pinned }, mailAccountId);
+    },
+    [mailAccountId],
+  );
+
+  const applyLabel = useCallback(
+    (threadId: string, name: string) => {
+      if (!mailAccountId) return;
+      void enqueueMutation({ type: "applyLabel", threadId, name }, mailAccountId);
+    },
+    [mailAccountId],
+  );
+
+  const removeLabel = useCallback(
+    (threadId: string, name: string) => {
+      if (!mailAccountId) return;
+      void enqueueMutation({ type: "removeLabel", threadId, name }, mailAccountId);
+    },
+    [mailAccountId],
+  );
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -177,12 +218,15 @@ export function useTriage({
           return;
         case "u":
           if (selectedThreadId) toggleRead(selectedThreadId);
+          return;
+        case "p":
+          if (selectedThreadId) togglePin(selectedThreadId);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [ids, selectedThreadId, onSelect, archive, trash, toggleStar, toggleRead]);
+  }, [ids, selectedThreadId, onSelect, archive, trash, toggleStar, toggleRead, togglePin]);
 
-  return { archive, trash, toggleStar, toggleRead };
+  return { archive, trash, toggleStar, toggleRead, togglePin, applyLabel, removeLabel };
 }

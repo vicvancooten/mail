@@ -1,13 +1,19 @@
 import type { SyncResponse } from "@mail/shared";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { labelId } from "@mail/shared";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
-import { applyMailAccountDelta, applyThreadDelta } from "../store/server-writes.js";
+import {
+  applyLabelDelta,
+  applyMailAccountDelta,
+  applyThreadDelta,
+} from "../store/server-writes.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
 import {
   delta,
+  makeLabel,
   makeMailAccount,
   makeThread,
   minutesAfterEpoch,
@@ -348,5 +354,90 @@ describe("MailSection", () => {
     expect(
       (await screen.findByRole("option", { name: /Newer thread/ })).getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("p pins the open Thread, and it surfaces first in the list regardless of date (#43)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    // Open the older (and by date, second) Thread.
+    fireEvent.click(await screen.findByText("Older thread"));
+    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
+
+    fireEvent.keyDown(window, { key: "p" });
+    expect(await screen.findByRole("button", { name: "Unpin" })).toBeDefined();
+
+    // Pinned floats to the top of the list, ahead of the newer, unpinned Thread.
+    const rows = await screen.findAllByRole("option");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Older thread"),
+      expect.stringContaining("Newer thread"),
+    ]);
+    expect(screen.getByText("Pinned")).toBeDefined(); // the synthetic group header
+  });
+
+  it("lists a synced Label in the filter-by-label picker, hidden entirely when there are none", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    const { unmount } = renderMail();
+    await screen.findByText("Newer thread");
+    // No Labels synced yet — the picker doesn't show at all.
+    expect(screen.queryByLabelText("Filter by label")).toBeNull();
+    unmount();
+    cleanup();
+
+    await applyLabelDelta(
+      "acct-1",
+      delta({ created: [makeLabel(labelId("acct-1", "Work"), "acct-1", { name: "Work" })] }),
+      { replace: false },
+    );
+    renderMail();
+    await screen.findByText("Newer thread");
+    const filter = await screen.findByLabelText<HTMLSelectElement>("Filter by label");
+    expect(screen.getByRole("option", { name: "Work" })).toBeDefined();
+    expect(filter.value).toBe(""); // "All mail" by default
+  });
+
+  it("applies and removes a Label from the keyboard, and the filter-by-label view narrows the corpus (#43)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+
+    // L opens the picker; typing a new name and submitting applies it —
+    // offline, before any server round trip (`stubFetch(never)`).
+    fireEvent.keyDown(window, { key: "L" });
+    const input = await screen.findByLabelText("New label name");
+    fireEvent.change(input, { target: { value: "Work" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    const detail = document.querySelector(".thread-detail") as HTMLElement;
+    expect(await within(detail).findByText("Work", { selector: ".label-chip" })).toBeDefined();
+
+    // The filter-by-label picker in the top bar already lists it (derived
+    // from the Thread's own overlay, not a round trip through the `Label`
+    // collection) and filtering to it narrows the corpus.
+    const filter = await screen.findByLabelText<HTMLSelectElement>("Filter by label");
+    expect(screen.getByRole("option", { name: "Work" })).toBeDefined();
+    fireEvent.change(filter, { target: { value: labelId("acct-1", "Work") } });
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    expect(screen.getByText("Newer thread")).toBeDefined();
+
+    // Back to "All mail" (switching the filter clears the selection) and
+    // reopen the Thread so its detail pane stays reachable once the Label
+    // currently filtering it to view is removed.
+    fireEvent.change(filter, { target: { value: "" } });
+    fireEvent.click(await screen.findByText("Newer thread"));
+    const reopenedDetail = document.querySelector(".thread-detail") as HTMLElement;
+
+    // Removing it from the keyboard drops the chip immediately.
+    fireEvent.keyDown(window, { key: "L" });
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Work/ }));
+    await waitFor(() =>
+      expect(within(reopenedDetail).queryByText("Work", { selector: ".label-chip" })).toBeNull(),
+    );
   });
 });

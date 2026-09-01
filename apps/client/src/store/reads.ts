@@ -1,4 +1,5 @@
-import type { MailAccount } from "@mail/shared";
+import type { Label, MailAccount } from "@mail/shared";
+import { labelId } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   type CachedThread,
@@ -41,6 +42,19 @@ export function readMailAccounts(): Promise<MailAccount[]> {
   return localCache().mailAccounts.orderBy("createdAt").toArray();
 }
 
+/** Every Label (#43) a Mail Account has, name-ordered — the "filter by label" picker's whole data source. */
+export function useLabels(mailAccountId: string | null): Label[] | undefined {
+  return useLiveQuery(
+    () => (mailAccountId === null ? Promise.resolve([]) : readLabels(mailAccountId)),
+    [mailAccountId],
+  );
+}
+
+export async function readLabels(mailAccountId: string): Promise<Label[]> {
+  const rows = await localCache().labels.where("mailAccountId").equals(mailAccountId).toArray();
+  return rows.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export interface ThreadWindowPage {
   /** Newest first. */
   threads: CachedThread[];
@@ -71,30 +85,46 @@ export function useThreadWindow(
 }
 
 /**
- * The top `limit` Threads of one (Mail Account, view), newest first. Served
- * off the `[mailAccountId+sortKey]` index, so the order is the index's and
- * not an incidental property of the scan.
+ * The top `limit` Threads of one (Mail Account, view), newest first — Pinned
+ * Threads (#43) sorted ahead of the rest regardless of their own date,
+ * within that. A label `view` (`db.ts#ViewKey`) is a filter *over* the
+ * `all` window's already-loaded contents rather than a second server-synced
+ * window, so it fetches `all`'s full held range (not just `limit`) before
+ * filtering — the `[mailAccountId+sortKey]` index still gives the order,
+ * filtering by `labelIds` just thins what passes through.
  */
 export async function readThreadWindow(
   mailAccountId: string,
   { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
 ): Promise<ThreadWindowPage> {
   const db = localCache();
-  const window = await db.listWindows.get(listWindowKey(mailAccountId, view));
+  const window = await db.listWindows.get(listWindowKey(mailAccountId, "all"));
   if (!window) return { threads: [], complete: true };
 
-  const threads = await threadsInWindow(db, window).reverse().limit(limit).toArray();
-  const overlaid = await overlayPendingMutations(db, threads);
+  const held = await threadsInWindow(db, window).reverse().toArray();
+  const overlaid = await overlayPendingMutations(db, held);
   // `inInbox` (#42) is this Client's one list's whole filter, applied after
   // the overlay so an archive/trash still queued hides its Thread at the
   // same instant as one the Sync Backend already confirmed — no flicker
   // between "optimistically hidden" and "actually gone" as the mutation
-  // dequeues. A page can come back short of `limit` when the window holds
-  // Threads already known to be out of the Inbox; `onLoadMore` still works,
-  // it just may need an extra round to fill the visible page — acceptable
-  // at PoC scope, and the window-admission side of this (`server-writes.ts`)
-  // is a reasonable follow-up if it ever isn't.
-  return { threads: overlaid.filter((thread) => thread.inInbox), complete: window.complete };
+  // dequeues.
+  const inInbox = overlaid.filter((thread) => thread.inInbox);
+  const filtered =
+    view === "all" ? inInbox : inInbox.filter((t) => t.labelIds.includes(view.labelId));
+
+  // Pinned-first (#43, CONTEXT.md: "keep this in front of me"), stable
+  // within each partition — `held` above is already newest-first, so this
+  // is a partition, not a re-sort.
+  const pinned = filtered.filter((t) => t.pinned);
+  const rest = filtered.filter((t) => !t.pinned);
+  const ordered = [...pinned, ...rest];
+
+  // A page can come back short of `limit` when the window holds Threads
+  // already filtered out above (out of the Inbox, or unlabeled); `onLoadMore`
+  // still works, it just may need an extra round to fill the visible page —
+  // acceptable at PoC scope, and the window-admission side of this
+  // (`server-writes.ts`) is a reasonable follow-up if it ever isn't.
+  return { threads: ordered.slice(0, limit), complete: window.complete };
 }
 
 /**
@@ -155,6 +185,26 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         // page, offline included, before any server round trip.
         overlaid = { ...overlaid, inInbox: false };
         break;
+      case "setPinned":
+        overlaid = { ...overlaid, pinned: mutation.intent.pinned };
+        break;
+      case "applyLabel": {
+        // Same deterministic id both sides derive independently (#43) — see
+        // `packages/shared/src/labels.ts`'s doc comment.
+        const id = labelId(overlaid.mailAccountId, mutation.intent.name);
+        if (!overlaid.labelIds.includes(id)) {
+          overlaid = { ...overlaid, labelIds: [...overlaid.labelIds, id] };
+        }
+        break;
+      }
+      case "removeLabel": {
+        const id = labelId(overlaid.mailAccountId, mutation.intent.name);
+        overlaid = {
+          ...overlaid,
+          labelIds: overlaid.labelIds.filter((existing) => existing !== id),
+        };
+        break;
+      }
     }
   }
   return overlaid;

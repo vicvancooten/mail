@@ -1,10 +1,10 @@
-import type { CollectionDelta, MailAccount, Thread } from "@mail/shared";
+import type { CollectionDelta, Label, MailAccount, Thread } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { mailAccounts, syncTombstones, threads } from "../db/schema.js";
+import { labels, mailAccounts, syncTombstones, threads } from "../db/schema.js";
 import { toWireMailAccount } from "../mail-accounts/store.js";
 import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
-import { toWireThread } from "./thread-projection.js";
+import { toWireLabel, toWireThread } from "./thread-projection.js";
 
 /**
  * Computes one collection's answer for `POST /sync` (#37, ADR-0011): the
@@ -181,5 +181,51 @@ export async function syncThreadCollection(
     needsReset,
     epoch: currentEpoch,
     toPayload: toWireThread,
+  });
+}
+
+/**
+ * `Label`, scoped to one Mail Account (#43, ADR-0011). No delete route
+ * exists yet — `applyLabel`/`removeLabel` only ever touch `threads
+ * .labelIds`, never this table's rows — so the tombstone query below is
+ * queried defensively (like `MailAccount`'s) rather than never called at
+ * all, and there is no rebuild-epoch concept to track (labels are never
+ * bulk-invalidated the way a UIDVALIDITY change invalidates Threads).
+ */
+export async function syncLabelCollection(
+  db: Db,
+  mailAccountId: string,
+  token: string | null,
+): Promise<CollectionDelta<Label> | null> {
+  const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+  const rows = await db
+    .select()
+    .from(labels)
+    .where(and(eq(labels.mailAccountId, mailAccountId), gt(labels.syncRev, cursorRev)))
+    .orderBy(asc(labels.syncRev))
+    .limit(PAGE_SIZE + 1);
+
+  const tombstoneRows = needsReset
+    ? []
+    : await db
+        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+        .from(syncTombstones)
+        .where(
+          and(
+            eq(syncTombstones.mailAccountId, mailAccountId),
+            eq(syncTombstones.collection, "Label"),
+            gt(syncTombstones.syncRev, cursorRev),
+          ),
+        )
+        .orderBy(asc(syncTombstones.syncRev))
+        .limit(PAGE_SIZE + 1);
+
+  return buildDelta({
+    rows,
+    tombstones: tombstoneRows,
+    cursorRev,
+    needsReset,
+    toPayload: toWireLabel,
   });
 }

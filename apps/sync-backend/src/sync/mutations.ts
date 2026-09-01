@@ -1,7 +1,8 @@
 import type { MutationIntent, MutationOutcome, QueuedMutation } from "@mail/shared";
-import { and, eq } from "drizzle-orm";
+import { isValidLabelName, labelId, normalizeLabelName } from "@mail/shared";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { appliedMutations, folders, messages, threads } from "../db/schema.js";
+import { appliedMutations, folders, labels, messages, threads } from "../db/schema.js";
 import { findFolderByRole } from "./folders.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -78,7 +79,9 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
  * Messages currently sit in the Inbox — a Sent self-copy elsewhere never
  * moves. A Thread the Mail Account no longer has (evicted, merged away, or
  * never this account's to begin with) is a permanent rejection — there is
- * nothing to retry it into.
+ * nothing to retry it into. `setPinned`/`applyLabel`/`removeLabel` (#43) are
+ * App Features (ADR-0006): all three touch only the Thread row, and none
+ * ever enqueues a protocol write — no IMAP-side trace for either feature.
  */
 async function applyIntent(
   db: Db,
@@ -86,7 +89,7 @@ async function applyIntent(
   intent: MutationIntent,
 ): Promise<IntentResult> {
   const [thread] = await db
-    .select({ id: threads.id })
+    .select({ id: threads.id, labelIds: threads.labelIds })
     .from(threads)
     .where(and(eq(threads.id, intent.threadId), eq(threads.mailAccountId, mailAccountId)))
     .limit(1);
@@ -130,6 +133,53 @@ async function applyIntent(
       const inboxMessageIds = await inboxResidentMessageIds(db, intent.threadId);
       await db.update(threads).set({ inInbox: false }).where(eq(threads.id, intent.threadId));
       await enqueueProtocolWrites(db, mailAccountId, inboxMessageIds, intent.type);
+      return { ok: true };
+    }
+
+    case "setPinned":
+      // Pin (#43) is an App Feature (ADR-0006): the Thread row is the whole
+      // of it, and unlike `setStarred`/`setRead` above, no protocol write is
+      // ever enqueued — there is nothing on the IMAP side for a Pin to be.
+      await db
+        .update(threads)
+        .set({ pinned: intent.pinned })
+        .where(eq(threads.id, intent.threadId));
+      return { ok: true };
+
+    case "applyLabel": {
+      const name = normalizeLabelName(intent.name);
+      if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
+      const id = labelId(mailAccountId, name);
+
+      // Find-or-create by the deterministic id (#43): a Client that already
+      // predicted this id offline and one applying the same name for the
+      // first time both land here, and `onConflictDoNothing` is what makes
+      // two concurrent first-applies of the same brand-new name resolve to
+      // one Label row instead of a unique-index error.
+      await db.insert(labels).values({ id, mailAccountId, name }).onConflictDoNothing({
+        target: labels.id,
+      });
+
+      if (!thread.labelIds.includes(id)) {
+        await db
+          .update(threads)
+          .set({ labelIds: sql`array_append(${threads.labelIds}, ${id})` })
+          .where(eq(threads.id, intent.threadId));
+      }
+      return { ok: true };
+    }
+
+    case "removeLabel": {
+      const id = labelId(mailAccountId, normalizeLabelName(intent.name));
+      if (thread.labelIds.includes(id)) {
+        await db
+          .update(threads)
+          .set({ labelIds: thread.labelIds.filter((existing) => existing !== id) })
+          .where(eq(threads.id, intent.threadId));
+      }
+      // A name with no matching applied Label (already removed, or never
+      // applied) is a harmless no-op — the same tolerance `archive`/`trash`
+      // already have for a Thread already in the requested state.
       return { ok: true };
     }
   }

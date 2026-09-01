@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  labelDeltaSchema,
+  labelSchema,
   mailAccountDeltaSchema,
   mutationIntentSchema,
   queuedMutationSchema,
@@ -23,6 +25,15 @@ const VALID_THREAD = {
   starred: false,
   hasAttachments: false,
   inInbox: true,
+  pinned: false,
+  labelIds: ["account-1:Work"],
+  updatedAt: "2026-01-02T00:00:00.000Z",
+};
+
+const VALID_LABEL = {
+  id: "account-1:Work",
+  mailAccountId: "account-1",
+  name: "Work",
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
 
@@ -39,6 +50,28 @@ describe("threadSchema", () => {
   it("rejects a non-integer unreadCount", () => {
     const result = threadSchema.safeParse({ ...VALID_THREAD, unreadCount: 1.5 });
     expect(result.success).toBe(false);
+  });
+
+  it("requires pinned and labelIds (#43)", () => {
+    const { pinned, ...withoutPinned } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutPinned).success).toBe(false);
+    const { labelIds, ...withoutLabelIds } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutLabelIds).success).toBe(false);
+  });
+
+  it("accepts an empty labelIds array", () => {
+    expect(threadSchema.safeParse({ ...VALID_THREAD, labelIds: [] }).success).toBe(true);
+  });
+});
+
+describe("labelSchema", () => {
+  it("accepts a well-formed Label", () => {
+    expect(labelSchema.safeParse(VALID_LABEL).success).toBe(true);
+  });
+
+  it("rejects a Label missing a name", () => {
+    const { name, ...withoutName } = VALID_LABEL;
+    expect(labelSchema.safeParse(withoutName).success).toBe(false);
   });
 });
 
@@ -88,6 +121,17 @@ describe("collectionDeltaSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("accepts a Label delta (#43) the same shape as any other collection", () => {
+    const result = labelDeltaSchema.safeParse({
+      created: [VALID_LABEL],
+      updated: [],
+      destroyed: [],
+      newState: "opaque-token",
+      hasMore: false,
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("syncRequestSchema", () => {
@@ -98,6 +142,14 @@ describe("syncRequestSchema", () => {
     });
     expect(result.success).toBe(true);
     expect(result.data?.user?.MailAccount).toBeNull();
+  });
+
+  it("accepts a Label token alongside Thread (#43)", () => {
+    const result = syncRequestSchema.safeParse({
+      mailAccounts: { "account-1": { Thread: "th-token", Label: null } },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.mailAccounts?.["account-1"]?.Label).toBeNull();
   });
 
   it("accepts an empty request — a Client asking about nothing yet", () => {
@@ -139,6 +191,13 @@ describe("syncResponseSchema", () => {
             newState: "token",
             hasMore: false,
           },
+          Label: {
+            created: [VALID_LABEL],
+            updated: [],
+            destroyed: [],
+            newState: "token",
+            hasMore: false,
+          },
           mutations: [{ id: "01JQ", status: "applied" }],
         },
       },
@@ -165,6 +224,21 @@ describe("mutationIntentSchema", () => {
   it("rejects an unknown intent type", () => {
     const result = mutationIntentSchema.safeParse({ type: "pin", threadId: "t1" });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts setPinned (#43)", () => {
+    expect(
+      mutationIntentSchema.safeParse({ type: "setPinned", threadId: "t1", pinned: true }).success,
+    ).toBe(true);
+  });
+
+  it("accepts applyLabel and removeLabel, keyed by name not id (#43)", () => {
+    expect(
+      mutationIntentSchema.safeParse({ type: "applyLabel", threadId: "t1", name: "Work" }).success,
+    ).toBe(true);
+    expect(
+      mutationIntentSchema.safeParse({ type: "removeLabel", threadId: "t1", name: "Work" }).success,
+    ).toBe(true);
   });
 });
 

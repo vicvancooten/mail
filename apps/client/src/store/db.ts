@@ -1,4 +1,4 @@
-import type { MailAccount, MutationIntent, Thread } from "@mail/shared";
+import type { Label, MailAccount, MutationIntent, Thread } from "@mail/shared";
 import Dexie, { type EntityTable } from "dexie";
 
 /**
@@ -20,7 +20,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 1;
+export const CACHE_SCHEMA_VERSION = 2; // #43: new `labels` store
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -32,17 +32,29 @@ export const DEFAULT_CACHE_NAME = "mail-local-cache";
 export type CachedThread = Thread & { sortKey: string };
 
 /**
- * Which list a window bounds. Only `all` exists today: the wire Thread
- * (`packages/shared/src/sync.ts`) carries no Folder or Label, so there is
- * exactly one date-ordered list per Mail Account to bound. The key keeps the
- * `(Mail Account, view)` shape ADR-0009 specifies so Inbox/Label windows are
- * an added value here rather than a reshape of the table.
+ * Which list a window bounds. `all` is the one Sync Backend-fed window
+ * (ADR-0009): the wire Thread carries no Folder, so there is exactly one
+ * date-ordered list per Mail Account synced from `POST /sync`. A `label`
+ * view (#43) is *not* a second synced window — the Sync Backend still only
+ * ever serves the one Thread list — it is a client-side filter **over**
+ * `all`'s already-bounded contents, by `Thread.labelIds`
+ * (`store/reads.ts#readLabelView`). It still behaves like "a view, bounded
+ * window like any other" from the User's perspective: it inherits `all`'s
+ * floor and its `complete` flag, it just never gets its own `ListWindow` row
+ * or state token, because there is nothing server-side to page through that
+ * `all` hasn't already fetched. A future server-side label filter (once
+ * search, ADR-0016, lands) would turn this into a real second window without
+ * reshaping this type further.
  */
-export type ViewKey = "all";
+export type ViewKey = "all" | { readonly kind: "label"; readonly labelId: string };
 export const DEFAULT_VIEW: ViewKey = "all";
 
+function viewKeyPart(view: ViewKey): string {
+  return view === "all" ? "all" : `label:${view.labelId}`;
+}
+
 export function listWindowKey(mailAccountId: string, view: ViewKey): string {
-  return `${mailAccountId}|${view}`;
+  return `${mailAccountId}|${viewKeyPart(view)}`;
 }
 
 /**
@@ -119,6 +131,7 @@ export const SCHEMA_VERSION_META_KEY = "schemaVersion";
 export class LocalCache extends Dexie {
   mailAccounts!: EntityTable<MailAccount, "id">;
   threads!: EntityTable<CachedThread, "id">;
+  labels!: EntityTable<Label, "id">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
   syncState!: EntityTable<SyncStateRow, "key">;
@@ -134,6 +147,7 @@ export class LocalCache extends Dexie {
     this.version(schemaVersion).stores({
       mailAccounts: "id, createdAt",
       threads: "id, mailAccountId, [mailAccountId+sortKey]",
+      labels: "id, mailAccountId",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -144,7 +158,14 @@ export class LocalCache extends Dexie {
 }
 
 /** Everything a wipe clears. `cacheMeta` and `pendingMutations` are deliberately absent. */
-const DATA_TABLES = ["mailAccounts", "threads", "listWindows", "cachePins", "syncState"] as const;
+const DATA_TABLES = [
+  "mailAccounts",
+  "threads",
+  "labels",
+  "listWindows",
+  "cachePins",
+  "syncState",
+] as const;
 
 export type CacheSchemaOutcome =
   /** No cache existed; this boot starts one. */
