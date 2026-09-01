@@ -1,5 +1,6 @@
 import type { MutationIntent, MutationOutcome, QueuedMutation } from "@mail/shared";
 import { normalizeLabelName } from "@mail/shared";
+import { requestSyncNow } from "../sync/sync-loop.js";
 import type { PendingMutation } from "./db.js";
 import { localCache } from "./local-cache.js";
 import { generateUlid } from "./ulid.js";
@@ -131,6 +132,13 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
  * queuing a second one — that is already the Undo button's mechanism, and
  * ADR-0010 asks for nothing cleverer than this one trivial case.
  *
+ * Wakes the sync loop (`requestSyncNow`, `sync/sync-loop.ts`) once the row
+ * lands — ADR-0011: flushing the queue and syncing are one round trip, and
+ * an Optimistic Action confirms "without waiting for the next poll", not up
+ * to 30s later on the ordinary interval. Skipped on the coalesced-away path:
+ * there is nothing new to flush, so nothing worth a round trip sooner than
+ * the next one anyway.
+ *
  * Returns the new mutation's id, or `null` when it coalesced away instead
  * of being queued.
  */
@@ -141,7 +149,7 @@ export async function enqueueMutation(
   const db = localCache();
   const key = coalesceKey(intent);
 
-  return db.transaction("rw", db.pendingMutations, async () => {
+  const id = await db.transaction("rw", db.pendingMutations, async () => {
     const candidates = await db.pendingMutations
       .where("mailAccountId")
       .equals(mailAccountId)
@@ -159,16 +167,19 @@ export async function enqueueMutation(
       return null;
     }
 
-    const id = generateUlid();
+    const newId = generateUlid();
     await db.pendingMutations.put({
-      id,
+      id: newId,
       mailAccountId,
       createdAt: new Date().toISOString(),
       referencedThreadIds: referencedThreadIds(intent),
       intent,
     });
-    return id;
+    return newId;
   });
+
+  if (id !== null) requestSyncNow();
+  return id;
 }
 
 /** This Mail Account's queue, oldest first (ADR-0010: strict FIFO per Mail Account). */

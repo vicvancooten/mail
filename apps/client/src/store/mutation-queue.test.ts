@@ -1,6 +1,6 @@
 import type { MutationIntent } from "@mail/shared";
 import Dexie from "dexie";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localCache, openLocalCache } from "./local-cache.js";
 import {
   enqueueMutation,
@@ -8,6 +8,12 @@ import {
   resolveMutationOutcomes,
   subscribeMutationRejections,
 } from "./mutation-queue.js";
+
+/** `enqueueMutation`'s wake-up (ADR-0011): a queued Optimistic Action rides the next round trip, not the next 30s tick. */
+const requestSyncNow = vi.fn();
+vi.mock("../sync/sync-loop.js", () => ({
+  requestSyncNow: () => requestSyncNow(),
+}));
 
 const ACCOUNT = "acct-1";
 
@@ -23,6 +29,7 @@ beforeEach(async () => {
   const name = `mutation-queue-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  requestSyncNow.mockClear();
 });
 
 afterEach(async () => {
@@ -46,6 +53,25 @@ describe("enqueueMutation", () => {
       referencedThreadIds: ["t1"],
       intent: { type: "setStarred", threadId: "t1", starred: true },
     });
+  });
+
+  it("wakes the sync loop once the row lands (ADR-0011: no waiting for the next poll)", async () => {
+    await enqueueMutation({ type: "setStarred", threadId: "t1", starred: true }, ACCOUNT);
+
+    expect(requestSyncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not wake the sync loop when the action coalesces away instead of queuing", async () => {
+    await enqueueMutation({ type: "setStarred", threadId: "t1", starred: true }, ACCOUNT);
+    requestSyncNow.mockClear();
+
+    const secondId = await enqueueMutation(
+      { type: "setStarred", threadId: "t1", starred: false },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(requestSyncNow).not.toHaveBeenCalled();
   });
 
   it("keeps strict FIFO order across two Mail Accounts' queues independently", async () => {
