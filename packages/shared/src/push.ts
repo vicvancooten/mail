@@ -58,20 +58,26 @@ export const pushConfigResponseSchema = z.object({
 export type PushConfigResponse = z.infer<typeof pushConfigResponseSchema>;
 
 /**
- * The push-worthy kinds the Notifier fires (ADR-0015's "The Notifier"),
- * minus the coalesced Gatekeeper hold digest — "the Gatekeeper digest kind
- * lands with Gatekeeper" (#53's own ticket text), not this one.
+ * The push-worthy kinds the Notifier fires (ADR-0015's "The Notifier").
  * `new_mail_burst` is the per-Mail-Account collapse (poc-scope.md: "past ~5
  * pushes in a short window, collapse into one 'N new messages'") — a
  * distinct kind rather than a `new_mail` with `count > 1`, so the service
  * worker's click routing (a single Thread vs. nowhere in particular to land)
  * never has to branch on which shape a `new_mail` payload happens to be.
+ *
+ * `gatekeeper_digest` is the coalesced Gatekeeper hold notification, landing
+ * with Gatekeeper (#55) exactly as #53 said it would. Held mail never fires
+ * a `new_mail` push — that is the whole point of a Screening Hold — so this
+ * is the *only* way a stranger's arrival ever reaches a closed device, and
+ * poc-scope.md bounds it hard: one push naming the senders on the first
+ * hold, then four hours of silence however many more arrive.
  */
 export const notificationKindSchema = z.enum([
   "new_mail",
   "new_mail_burst",
   "failed_send",
   "needs_reauth",
+  "gatekeeper_digest",
 ]);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 
@@ -119,6 +125,20 @@ export const pushPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("needs_reauth"),
     mailAccountId: z.string(),
     emailAddress: z.string(),
+    badgeCount: z.int(),
+  }),
+  z.object({
+    kind: z.literal("gatekeeper_digest"),
+    mailAccountId: z.string(),
+    /**
+     * The held senders this digest names, best display name first
+     * (poc-scope.md's "3 held: A, B, C"). Capped server-side — a digest that
+     * names forty strangers is a wall of text, and the Screener is where the
+     * actual list lives.
+     */
+    senders: z.array(z.string()),
+    /** How many senders are held in total, which can exceed `senders.length` once the cap bites. */
+    count: z.int(),
     badgeCount: z.int(),
   }),
 ]);

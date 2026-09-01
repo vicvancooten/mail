@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mailAccounts, threads } from "../db/schema.js";
 
@@ -12,12 +12,16 @@ import { mailAccounts, threads } from "../db/schema.js";
  * response uses") — one query, two callers, so the two paths can never
  * silently drift apart.
  *
- * Gatekeeper-held mail never counts (ADR-0015) — there is no Gatekeeper
- * column to exclude yet (#12 hasn't shipped one), so this is already correct
- * by construction: a held Thread doesn't exist as a Thread in the Inbox
- * sense until Gatekeeper releases it. The clause is a plain `inInbox`/
- * `unreadCount > 0` sum today; #12 is expected to add a Verdict exclusion
- * here once it has a column to exclude on.
+ * **Gatekeeper-held mail never counts** (ADR-0015, #55): a Thread with a
+ * Screening Hold is deliberately still `inInbox` — it is Inbox mail the User
+ * has not been shown yet, not mail that was archived — so the exclusion has
+ * to be explicit here rather than falling out of the `inInbox` clause. This
+ * is what makes "a new stranger's mail is held, and the badge does not move"
+ * true; releasing them (`gatekeeper/decisions.ts`) makes the badge jump on
+ * the next `/sync`, which is exactly when the User can act on it.
+ *
+ * Blocked mail needs no clause of its own: ADR-0008 takes it out of the
+ * Inbox on arrival, so `inInbox` already excludes it.
  */
 export async function computeUnreadInboxCount(db: Db, userId: string): Promise<number> {
   const [row] = await db
@@ -28,6 +32,7 @@ export async function computeUnreadInboxCount(db: Db, userId: string): Promise<n
       and(
         eq(mailAccounts.userId, userId),
         eq(threads.inInbox, true),
+        isNull(threads.heldSender),
         sql`${threads.unreadCount} > 0`,
       ),
     );

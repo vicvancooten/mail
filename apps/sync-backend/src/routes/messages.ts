@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, type MessageAttachment, messages } from "../db/schema.js";
+import { resolveVerdicts, verdictFor } from "../gatekeeper/verdicts.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById, getMailAccountForUser } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "../sync/bodies.js";
@@ -64,8 +65,24 @@ export async function messageRoutes(
 
       const resolved = await resolvePendingBodies(db, account.id, rows, credentialKey);
 
+      // The image-loading gate (#55, poc-scope.md: "the Gatekeeper verdict
+      // *is* the image-loading permission"). One batched resolve per Thread
+      // open rather than one per message — a Thread's messages are usually
+      // from two or three distinct senders — and evaluated on every read, so
+      // approving someone in the Screener takes effect the next time the
+      // User opens their mail rather than needing a re-sync of stored bodies.
+      const verdicts = await resolveVerdicts(
+        db,
+        account.id,
+        resolved.map((row) => row.fromAddress ?? ""),
+      );
+
       return threadMessagesResponseSchema.parse({
-        messages: resolved.map((row) => toWireMessage(row, imageProxyKey)),
+        messages: resolved.map((row) =>
+          toWireMessage(row, imageProxyKey, {
+            remoteImagesAllowed: verdictFor(verdicts, row.fromAddress).verdict === "approved",
+          }),
+        ),
       });
     },
   );
@@ -237,7 +254,11 @@ async function resolvePendingBodies(
   return rows.map((row) => patched.get(row.id) ?? row);
 }
 
-function toWireMessage(row: MessageRow, imageProxyKey: Buffer) {
+function toWireMessage(
+  row: MessageRow,
+  imageProxyKey: Buffer,
+  { remoteImagesAllowed }: { remoteImagesAllowed: boolean },
+) {
   return messageSchema.parse({
     id: row.id,
     threadId: row.threadId,
@@ -264,6 +285,7 @@ function toWireMessage(row: MessageRow, imageProxyKey: Buffer) {
       row.bodyHtml === null
         ? null
         : rewriteRemoteImageReferences(row.bodyHtml, { messageId: row.id, key: imageProxyKey }),
+    remoteImagesAllowed,
   });
 }
 

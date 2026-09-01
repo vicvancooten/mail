@@ -1,6 +1,7 @@
 export * from "./auth.js";
 export * from "./compose.js";
 export * from "./correspondents.js";
+export * from "./gatekeeper.js";
 export * from "./health.js";
 export * from "./labels.js";
 export * from "./mail-accounts.js";

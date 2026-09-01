@@ -35,6 +35,18 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "setSignature":
     case "setNotificationsEnabled":
       return [];
+    // The Gatekeeper decisions (#55) name a *sender*, not a Thread — one
+    // decision per stranger, however many Threads they are holding. The
+    // Threads they release or trash are the Sync Backend's to work out and
+    // report back through the ordinary Thread delta, so there is nothing
+    // here for the Thread overlay to predict and nothing to exempt from
+    // eviction. The Screener's own optimistic feel comes from the row
+    // leaving the Screener list, not from a Thread-level overlay.
+    case "approveSender":
+    case "denySender":
+    case "blockSender":
+    case "unblockSender":
+      return [];
   }
 }
 
@@ -94,6 +106,22 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "setNotificationsEnabled", targetId: "notifications", value: intent.enabled };
     case "setSignature":
       return { type: "setSignature", targetId: "signature", value: true };
+    // Each Gatekeeper decision (#55) is keyed to its sender, and Approve vs.
+    // Block/Deny are not inverses of one another — Deny trashes mail, Approve
+    // releases it — so nothing here coalesces away a decision the User
+    // actually made. `approveSender` and `unblockSender` are the two that
+    // read as "yes", which is what `value` distinguishes; a second decision
+    // on the same sender while the first is still queued therefore just
+    // queues behind it, and FIFO lands on whichever they chose last.
+    case "approveSender":
+    case "denySender":
+    case "blockSender":
+    case "unblockSender":
+      return {
+        type: `gatekeeper:${intent.type}`,
+        targetId: `${intent.sender.scope}:${intent.sender.value.trim().toLowerCase()}`,
+        value: intent.type === "approveSender" || intent.type === "unblockSender",
+      };
   }
 }
 

@@ -18,12 +18,15 @@ import { isIP } from "node:net";
  * open relay by a tampered URL (`ALLOWED_URI_REGEXP`/query string) — hence
  * the HMAC over `(messageId, url)`.
  *
- * The Approved-Sender verdict this proxy will eventually gate on
- * (`docs/research/0005`'s "gated live on the Approved-Sender verdict")
- * arrives with Gatekeeper (`poc-scope.md` — "built last"). There is no
- * verdict table yet, so this proxy fetches whatever a validly-signed request
- * asks for; the manual per-message "load images" override is what stands in
- * for the sender check until Gatekeeper lands.
+ * The Approved-Sender verdict (`docs/research/0005`'s "gated live on the
+ * Approved-Sender verdict") landed with Gatekeeper (#55) — as the *default*
+ * the reading pane opens with, carried per message on
+ * `Message.remoteImagesAllowed` (`routes/messages.ts`), not as a rule this
+ * proxy enforces. This proxy still fetches whatever a validly-signed request
+ * asks for, deliberately: the manual per-message "load images" override has
+ * to keep working for an Unscreened sender, and a signature the Client can
+ * only have obtained from a body it was served is not the place to
+ * re-litigate a decision the User just made by clicking the button.
  */
 
 /** Derived from the same instance-held secret credentials are sealed under (ADR-0003), a different HKDF-style label so a leak of one key says nothing about the other. */

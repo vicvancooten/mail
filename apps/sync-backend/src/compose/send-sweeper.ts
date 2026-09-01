@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { type CompositionRow, compositions } from "../db/schema.js";
+import { approveSendRecipients } from "../gatekeeper/verdicts.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
 import { findFolderByRole } from "../sync/folders.js";
@@ -121,6 +122,28 @@ export async function sweepOne(
     );
   }
   await markSent(db, row.id, now);
+
+  // "Sending approves live" (poc-spec.md §Gatekeeper v1, #55). Deliberately
+  // here and not at `acceptSend`: a send that was cancelled inside the Undo
+  // Send window, or that SMTP permanently rejected, is not a conversation
+  // the User started, and approving off it would let a typo'd address
+  // through the Screener forever. Best-effort — the mail is already out, and
+  // a Verdict that failed to be written is a stranger held once more, not a
+  // lost message.
+  try {
+    await approveSendRecipients(
+      db,
+      account.id,
+      [...row.toAddresses, ...row.ccAddresses, ...row.bccAddresses].map(
+        (recipient) => recipient.address,
+      ),
+    );
+  } catch (err) {
+    options.logger?.warn(
+      { err, mailAccountId: account.id, compositionId },
+      "message sent, but approving its recipients with Gatekeeper failed",
+    );
+  }
   return "sent";
 }
 

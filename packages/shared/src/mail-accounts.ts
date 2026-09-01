@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { gatekeeperSettingsSchema } from "./gatekeeper.js";
 
 /**
  * How a connection's transport is secured. `tls` is implicit TLS on connect
@@ -96,6 +97,16 @@ export const mailAccountSchema = z.object({
    * push-worthy.
    */
   notificationsEnabled: z.boolean(),
+  /**
+   * Gatekeeper's opt-in and its Cutoff (#55, CONTEXT.md §Gatekeeper) —
+   * Mail-Account-scoped state riding this collection for the same reason
+   * `signature`/`notificationsEnabled` do: one row per Mail Account, and
+   * every surface that renders the Screener needs both fields. Written only
+   * by `POST /mail-accounts/:id/gatekeeper/{enable,disable,reset}`, never by
+   * a mutation intent — enabling seeds Approved from Sent history, which is
+   * a backend job, not something a Client can predict optimistically.
+   */
+  gatekeeper: gatekeeperSettingsSchema,
   createdAt: z.iso.datetime(),
 });
 export type MailAccount = z.infer<typeof mailAccountSchema>;

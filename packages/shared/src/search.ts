@@ -82,15 +82,22 @@ export type SearchResultFolder = z.infer<typeof searchResultFolderSchema>;
  * The Client turns the markers into emphasis itself, never
  * `dangerouslySetInnerHTML`.
  *
- * Gatekeeper's `Held`/`Blocked` badges (`docs/search-ux-spec.md` §The row)
- * have no field here yet — Gatekeeper (#12) is sequenced last in the build
- * order and ships no verdict state this projection could read.
+ * `gatekeeper` is the `Held`/`Blocked` badge (`docs/search-ux-spec.md` §The
+ * row, #55). Two different facts wearing one field: `held` is this Thread's
+ * own Screening Hold, `blocked` is a *sender* verdict that the matched
+ * message's `From` carries — which is why the badge is computed here rather
+ * than read off `thread.heldSender`, and why it is on the result rather than
+ * on the Thread. Blocked mail is findable at all because ADR-0008 moved it
+ * to a real `\Trash` folder, so it takes an explicit `in:trash` to reach —
+ * poc-spec.md's "search returns held and blocked mail badged" is exactly
+ * that combination: reachable, and never silently mistaken for Inbox mail.
  */
 export const searchResultSchema = z.object({
   thread: threadSchema,
   matchedMessageId: z.string(),
   headline: z.string().nullable(),
   folder: searchResultFolderSchema,
+  gatekeeper: z.enum(["held", "blocked"]).nullable(),
 });
 export type SearchResult = z.infer<typeof searchResultSchema>;
 

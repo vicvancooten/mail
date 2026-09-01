@@ -1,10 +1,14 @@
-import { inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { messages } from "../db/schema.js";
+import { messages, notifierOutbox } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import type { FolderRow } from "../sync/folders.js";
 import { insertOutboxEntry } from "./outbox.js";
-import { isSimulatedApprovedSenderMail } from "./policy.js";
+import {
+  GATEKEEPER_DIGEST_SENDER_CAP,
+  GATEKEEPER_DIGEST_SILENCE_MS,
+  isInboxArrival,
+} from "./policy.js";
 
 /**
  * Where the sync engine's three arrival paths (`sync/delta.ts`,
@@ -23,6 +27,12 @@ export async function recordNewMailNotifications(
   db: Db,
   folder: Pick<FolderRow, "mailAccountId" | "role">,
   account: Pick<MailAccountRow, "id" | "userId" | "notificationsEnabled">,
+  /**
+   * Already screened (#55): `sync/arrivals.ts` hands over only what
+   * Gatekeeper let through, so held and blocked mail never reaches this
+   * function at all — see `policy.ts#isInboxArrival` for why the sender check
+   * lives there and not here.
+   */
   createdMessageIds: string[],
 ): Promise<void> {
   if (createdMessageIds.length === 0) return;
@@ -30,7 +40,7 @@ export async function recordNewMailNotifications(
   // (poc-scope.md) for new-mail pushes — gated here, before the Inbox check,
   // so a disabled account never even queries for content.
   if (!account.notificationsEnabled) return;
-  if (!isSimulatedApprovedSenderMail(folder)) return;
+  if (!isInboxArrival(folder)) return;
 
   const rows = await db
     .select({
@@ -64,6 +74,66 @@ export async function recordNewMailNotifications(
       },
     });
   }
+}
+
+/**
+ * The coalesced Gatekeeper digest (#55, poc-scope.md, ADR-0015): "one
+ * coalesced Gatekeeper notification naming the senders ('3 held: A, B, C'),
+ * on the first hold, then suppressed for 4 hours". This is the only push a
+ * Screening Hold ever produces — a held stranger never fires `new_mail`,
+ * which is the point of holding them.
+ *
+ * The 4-hour silence is read straight off this table rather than kept as a
+ * column somewhere: the most recent `gatekeeper_digest` row for the account
+ * *is* the record of when the User was last told, and it survives a restart
+ * for free the way every other fact in the outbox does. The window is
+ * measured from when a digest was **recorded**, not delivered, so a device
+ * that was unreachable does not entitle the next hold to interrupt again.
+ *
+ * `dedupKey` is the recording instant, so two digests four hours apart are
+ * two genuinely different events — the same reasoning `needs_reauth` uses
+ * for putting its transition instant in the key rather than the bare account
+ * id.
+ */
+export async function recordGatekeeperDigest(
+  db: Db,
+  account: Pick<MailAccountRow, "id" | "userId" | "notificationsEnabled">,
+  heldSenders: { address: string; name: string | null }[],
+  now: Date = new Date(),
+): Promise<boolean> {
+  if (heldSenders.length === 0) return false;
+  if (!account.notificationsEnabled) return false;
+
+  const [recent] = await db
+    .select({ id: notifierOutbox.id })
+    .from(notifierOutbox)
+    .where(
+      and(
+        eq(notifierOutbox.mailAccountId, account.id),
+        eq(notifierOutbox.kind, "gatekeeper_digest"),
+        gte(notifierOutbox.createdAt, new Date(now.getTime() - GATEKEEPER_DIGEST_SILENCE_MS)),
+      ),
+    )
+    .orderBy(desc(notifierOutbox.createdAt))
+    .limit(1);
+  if (recent) return false;
+
+  return insertOutboxEntry(db, {
+    userId: account.userId,
+    mailAccountId: account.id,
+    kind: "gatekeeper_digest",
+    dedupKey: `${account.id}:${now.toISOString()}`,
+    payload: {
+      kind: "gatekeeper_digest",
+      // Display name where the mail carried one, address otherwise: a
+      // notification that reads "3 held: Ada, grace@example.com" is how the
+      // User recognizes whether any of this is worth opening.
+      senders: heldSenders
+        .slice(0, GATEKEEPER_DIGEST_SENDER_CAP)
+        .map((sender) => sender.name ?? sender.address),
+      count: heldSenders.length,
+    },
+  });
 }
 
 /**

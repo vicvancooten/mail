@@ -3,7 +3,7 @@ import type { ExpungeEvent, FlagsEvent, ImapFlow, MailboxObject } from "imapflow
 import type { Db } from "../db/client.js";
 import { folders, messages } from "../db/schema.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
-import { recordNewMailNotifications } from "../notifier/record.js";
+import { handleNewArrivals } from "./arrivals.js";
 import { type FolderDeltaResult, flagsDiffer } from "./delta.js";
 import type { FolderRow } from "./folders.js";
 import { storeMessage } from "./ingest.js";
@@ -166,12 +166,12 @@ export async function attemptQresyncCatchup(
     createdMessageIds.push(stored.id);
     created += 1;
   }
-  // The Notifier hook (#53, ADR-0015) — same reasoning as `delta.ts`'s own
-  // new-UID loop: this whole function only ever runs for a live
-  // reconnect/poll catch-up, never backfill.
+  // The Gatekeeper + Notifier hook (#55, #53, ADR-0015) — same reasoning as
+  // `delta.ts`'s own new-UID loop: this whole function only ever runs for a
+  // live reconnect/poll catch-up, never backfill.
   if (createdMessageIds.length > 0) {
     const account = await getMailAccountById(db, folder.mailAccountId);
-    if (account) await recordNewMailNotifications(db, folder, account, createdMessageIds);
+    if (account) await handleNewArrivals(db, folder, account, createdMessageIds);
   }
 
   await refreshThreadRollups(db, [...affectedThreadIds]);

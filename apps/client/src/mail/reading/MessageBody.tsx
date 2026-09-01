@@ -29,7 +29,12 @@ function usePrefersDark(): boolean {
  * (`sandbox-document.ts`) immediately before every `srcdoc` write, resolves
  * `cid:` references against fetched attachment bytes, sizes itself via
  * `ResizeObserver` + `postMessage`, and keeps remote images blocked until
- * the User opts in for this one message.
+ * the User opts in for this one message — unless the sender is an Approved
+ * Sender, in which case they load straight away (#55, poc-scope.md: "the
+ * Gatekeeper verdict *is* the image-loading permission"). The verdict
+ * arrives per message on `remoteImagesAllowed`, resolved server-side on
+ * every read (`routes/messages.ts`), so approving someone in the Screener
+ * takes effect the next time their mail is opened.
  *
  * No sandbox token besides `allow-scripts` is ever granted — never
  * `allow-same-origin` together with it (that combination lets the framed
@@ -47,7 +52,10 @@ function usePrefersDark(): boolean {
 export function MessageBody({ message }: { message: Message }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [cidBlobs, setCidBlobs] = useState<CidBlob[]>([]);
-  const [imagesLoaded, setImagesLoaded] = useState(false);
+  // Seeded from the sender's Verdict, then the User's own per-message
+  // override on top. A fresh mount per Message (see `key={message.id}`
+  // above) is what re-reads the seed when they move to another one.
+  const [imagesLoaded, setImagesLoaded] = useState(message.remoteImagesAllowed);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const darkMode = usePrefersDark();
 

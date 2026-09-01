@@ -71,6 +71,22 @@ export const messageSchema = z.object({
    * `docs/research/0005` §4. Null for a message with no HTML alternative.
    */
   bodyHtml: z.string().nullable(),
+  /**
+   * Whether this message's remote images should load without asking (#55,
+   * poc-scope.md: "Remote images blocked by default and loaded automatically
+   * for Approved Senders — the Gatekeeper verdict *is* the image-loading
+   * permission"). True exactly when the `From` address resolves to an
+   * Approved Verdict on this Mail Account.
+   *
+   * This is the **default** the reading pane opens with, not an
+   * authorization: the per-message "Load remote images" override
+   * (`MessageBody.tsx`) still works for an Unscreened or Blocked sender, and
+   * `/messages/:id/image-proxy` still serves any validly-signed request —
+   * the proxy's job is hiding the viewer's IP and refusing to be an open
+   * relay, and making it refuse on a verdict would break the override
+   * without protecting anything the User has not already chosen to see.
+   */
+  remoteImagesAllowed: z.boolean(),
 });
 export type Message = z.infer<typeof messageSchema>;
 

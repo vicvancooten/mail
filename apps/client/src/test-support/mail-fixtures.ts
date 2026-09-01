@@ -14,6 +14,7 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     indexWatermark: { coveredSince: null, complete: false },
     signature: null,
     notificationsEnabled: true,
+    gatekeeper: { enabled: false, cutoff: null },
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -41,6 +42,7 @@ export function makeThread(
     inInbox: true,
     pinned: false,
     labelIds: [],
+    heldSender: null,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };

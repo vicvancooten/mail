@@ -20,6 +20,7 @@ export function toWireThread(row: ThreadRow): Thread {
     inInbox: row.inInbox,
     pinned: row.pinned,
     labelIds: row.labelIds,
+    heldSender: row.heldSender,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
