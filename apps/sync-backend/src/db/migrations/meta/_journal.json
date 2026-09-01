@@ -43,6 +43,13 @@
       "when": 1788218010512,
       "tag": "0005_nostalgic_nebula",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788247182817,
+      "tag": "0006_black_power_pack",
+      "breakpoints": true
     }
   ]
 }

@@ -211,10 +211,31 @@ export const mailAccounts = pgTable(
     // Only `sync/body-sweep.ts` writes either column.
     bodyWatermark: timestamp("body_watermark", { withTimezone: true }),
     bodySweepComplete: boolean("body_sweep_complete").notNull().default(false),
+    // Bumped whenever a Folder under this account is rebuilt from a
+    // UIDVALIDITY change (`sync/ingest.ts#applyUidValidity`) — the "underlying
+    // state was rebuilt" trigger ADR-0011 names for a Thread `reset: true`.
+    // A Client's Thread state token embeds the epoch it was issued under
+    // (`sync/sync-tokens.ts`); a mismatch means the rebuild deleted Threads
+    // this account's tombstones don't individually account for, so #37
+    // answers with a fresh full page instead of a `destroyed` list.
+    threadsEpoch: integer("threads_epoch").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // The delta sync API's (#37) cursor pair, stamped by the `bump_sync_rev`
+    // trigger (migration 0006) on every insert/update — nothing in
+    // application code writes these two columns directly. `syncRev` is this
+    // row's position in the account-wide revision order every sync-tracked
+    // table shares; `syncCreatedRev` is frozen at the row's first stamp, so
+    // `sync/collection-sync.ts` can tell "new to a Client since token X"
+    // (`syncCreatedRev > X`) apart from "changed since X" (`syncRev > X`)
+    // without a second timestamp column to keep in sync by hand.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
-  (table) => [index("mail_accounts_user_id_idx").on(table.userId)],
+  (table) => [
+    index("mail_accounts_user_id_idx").on(table.userId),
+    index("mail_accounts_sync_rev_idx").on(table.userId, table.syncRev),
+  ],
 );
 
 /**
@@ -312,9 +333,16 @@ export const threads = pgTable(
     hasAttachments: boolean("has_attachments").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // See `mailAccounts.syncRev`/`syncCreatedRev` above — same trigger, same
+    // shared revision sequence, so a Thread page and a MailAccount page order
+    // consistently against one another even though #37 never mixes them into
+    // one query.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
   (table) => [
     index("threads_account_last_message_idx").on(table.mailAccountId, table.lastMessageAt),
+    index("threads_sync_rev_idx").on(table.mailAccountId, table.syncRev),
   ],
 );
 
@@ -460,5 +488,38 @@ export const messages = pgTable(
     index("messages_body_pending_idx")
       .on(table.mailAccountId, table.receivedAt)
       .where(sql`${table.bodyFetchedAt} is null`),
+  ],
+);
+
+/**
+ * A destroyed entity's record in the delta sync API (#37, ADR-0011): a Thread
+ * merge's losing side (`sync/threading.ts#mergeThreads`) or a Thread left
+ * with no messages (`deleteEmptyThreads`) writes one of these instead of
+ * simply vanishing, so a Client's `destroyed` list can name it rather than
+ * the Client discovering the gap on its own. Generic across collections
+ * (`collection` + `entityId`) so a future Label/Draft/PendingSend deletion
+ * reuses this table rather than growing its own.
+ *
+ * `mailAccountId` is null for a User-scoped collection's tombstone (nothing
+ * writes one yet — `MailAccount` has no delete route). `syncRev` is stamped
+ * from the same `sync_rev_seq` sequence `mail_accounts.syncRev`/
+ * `threads.syncRev` draw from (`sync/tombstones.ts`), one call per row, so a
+ * destroy and an upsert for two different entities never tie and pagination
+ * never has to split a batch of same-revision rows across two pages.
+ */
+export const syncTombstones = pgTable(
+  "sync_tombstones",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
+      onDelete: "cascade",
+    }),
+    collection: text("collection").notNull(),
+    entityId: text("entity_id").notNull(),
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("sync_tombstones_scope_idx").on(table.mailAccountId, table.collection, table.syncRev),
   ],
 );

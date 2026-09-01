@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import type { FetchMessageObject, ImapFlow, MessageAddressObject } from "imapflow";
 import type { Db } from "../db/client.js";
-import { folders, type MessageAddress, messages } from "../db/schema.js";
+import { folders, type MessageAddress, mailAccounts, messages } from "../db/schema.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { hasRealAttachments, readBodyParts } from "./body-structure.js";
 import type { FolderRow } from "./folders.js";
@@ -203,6 +203,12 @@ export async function fetchAndStoreSequenceBatch(
  * stored messages at whatever now happens to hold those UIDs, so the folder
  * is emptied and re-ingested — the storage-layer form of ADR-0011's
  * `reset: true`.
+ *
+ * Bumps the account's `threadsEpoch` (#37, `db/schema.ts`) rather than
+ * relying on `deleteEmptyThreads`' per-Thread tombstones alone: a rebuild
+ * this size can plausibly outrun any one `/sync` response's entity cap, and
+ * ADR-0011 names exactly this case ("the underlying state was rebuilt") as a
+ * `reset: true`, not a `destroyed` list to page through.
  */
 export async function applyUidValidity(
   db: Db,
@@ -213,6 +219,10 @@ export async function applyUidValidity(
 
   await db.delete(messages).where(eq(messages.folderId, folder.id));
   await deleteEmptyThreads(db, folder.mailAccountId);
+  await db
+    .update(mailAccounts)
+    .set({ threadsEpoch: sql`${mailAccounts.threadsEpoch} + 1` })
+    .where(eq(mailAccounts.id, folder.mailAccountId));
   return true;
 }
 

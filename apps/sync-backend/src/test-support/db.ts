@@ -9,6 +9,7 @@ import {
   messages,
   passkeyCredentials,
   sessions,
+  syncTombstones,
   threadMessageIds,
   threads,
   totpCredentials,
@@ -52,6 +53,7 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(messages);
   await db.delete(threadMessageIds);
+  await db.delete(syncTombstones);
   await db.delete(threads);
   await db.delete(folders);
   await db.delete(sessions);
