@@ -12,11 +12,15 @@ export default defineConfig({
     // keeps requests same-origin here too, which the session cookie needs.
     proxy: {
       "/auth": "http://127.0.0.1:3000",
+      "/sync": "http://127.0.0.1:3000",
       "/healthz": "http://127.0.0.1:3000",
     },
   },
   test: {
     environment: "jsdom",
     globals: false,
+    // jsdom has no IndexedDB; the Local Cache's suites need one before any
+    // module-level Dexie handle is constructed.
+    setupFiles: ["./src/test-support/indexeddb.ts"],
   },
 });
