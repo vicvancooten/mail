@@ -28,6 +28,9 @@ export interface ComposeContent {
   to: Recipient[];
   cc: Recipient[];
   bcc: Recipient[];
+  /** The reply/forward threading headers (#47, `compose/reply.ts`) — `null`/`[]` for an ordinary new compose. */
+  inReplyTo: string | null;
+  references: string[];
 }
 
 export const EMPTY_COMPOSE_CONTENT: ComposeContent = {
@@ -36,6 +39,8 @@ export const EMPTY_COMPOSE_CONTENT: ComposeContent = {
   to: [],
   cc: [],
   bcc: [],
+  inReplyTo: null,
+  references: [],
 };
 
 /** A fresh Composition id, mintable before any content exists — the composer opens with one immediately. */
@@ -146,6 +151,8 @@ export async function toWireComposeSave(pending: PendingComposeSave): Promise<Co
     to: pending.to,
     cc: pending.cc,
     bcc: pending.bcc,
+    inReplyTo: pending.inReplyTo,
+    references: pending.references,
   };
 }
 
@@ -198,6 +205,8 @@ export async function resolveComposeSaveOutcomes(
               to: composition.to,
               cc: composition.cc,
               bcc: composition.bcc,
+              inReplyTo: composition.inReplyTo,
+              references: composition.references,
             },
             new Date().toISOString(),
           );

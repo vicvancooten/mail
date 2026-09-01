@@ -17,6 +17,7 @@ import { requestSyncNow } from "../sync/sync-loop.js";
 import { AttachmentsPanel, useAttachments } from "./Attachments.js";
 import { ComposeBubbleMenu, ComposeToolbar, insertLink } from "./ComposeToolbar.js";
 import { composeEditorExtensions } from "./editor-extensions.js";
+import { signatureDocumentNode } from "./mail-signature-extension.js";
 import { RecipientField } from "./RecipientField.js";
 import { SendControl } from "./SendControl.js";
 import { validateSend } from "./send-validation.js";
@@ -60,14 +61,35 @@ export function Composer({
   const [cc, setCc] = useState<Recipient[]>([]);
   const [bcc, setBcc] = useState<Recipient[]>([]);
   const [showCcBcc, setShowCcBcc] = useState(false);
+  // The reply/forward threading headers (#47): held constant across every
+  // edit, same as `subject`/`to`/`cc` — hydrated once from an existing
+  // Composition, or already seeded on the row a reply/forward's own
+  // `saveComposition({force: true})` wrote before this composer ever
+  // mounted (`compose/reply.ts#buildReplyContent`, `MailSection.tsx`).
+  const [inReplyTo, setInReplyTo] = useState<string | null>(null);
+  const [references, setReferences] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
   // compose-spec's "warn once, then send" — scoped to this composer, so the
   // warning is about *this* mail and never carried into the next one.
   const [warned, setWarned] = useState(false);
 
+  // The signature (#47, compose-spec §Signature): "inserted into the
+  // document when the composer opens ... on new mail, replies and forwards
+  // alike." A reply/forward's own row already carries it (its Composition
+  // was seeded by `compose/reply.ts#buildReplyContent` before this composer
+  // ever mounted) — this is only the brand-new-compose path. A `useState`
+  // initializer (not `useMemo`) on purpose: `useEditor`'s own `content`
+  // option is read once at mount, never again, so this must genuinely run
+  // only once too, not merely skip recomputing while still re-running.
+  const [initialDocument] = useState((): ComposeDocument => {
+    const signature = mailAccounts.find((account) => account.id === mailAccountId)?.signature;
+    if (!signature || signature.trim().length === 0) return EMPTY_COMPOSE_DOCUMENT;
+    return { type: "doc", content: [signatureDocumentNode(signature), { type: "paragraph" }] };
+  });
+
   const editor = useEditor({
     extensions: composeEditorExtensions("Write something…"),
-    content: EMPTY_COMPOSE_DOCUMENT as JSONContent,
+    content: initialDocument as JSONContent,
   });
 
   // Remembers this composer across a reload (device-preferences.ts) — the
@@ -88,6 +110,8 @@ export function Composer({
     setTo(existing.to);
     setCc(existing.cc);
     setBcc(existing.bcc);
+    setInReplyTo(existing.inReplyTo);
+    setReferences(existing.references);
     if (existing.cc.length > 0 || existing.bcc.length > 0) setShowCcBcc(true);
     editor.commands.setContent(existing.document as JSONContent, { emitUpdate: false });
   }, [existing, editor]);
@@ -96,8 +120,8 @@ export function Composer({
 
   const currentContent = useCallback((): ComposeContent => {
     const document = (editor?.getJSON() ?? EMPTY_COMPOSE_DOCUMENT) as ComposeDocument;
-    return { subject, document, to, cc, bcc };
-  }, [editor, subject, to, cc, bcc]);
+    return { subject, document, to, cc, bcc, inReplyTo, references };
+  }, [editor, subject, to, cc, bcc, inReplyTo, references]);
 
   // #48: "the Composition row is created lazily on first content — a
   // keystroke or attach". An attach that arrives before any keystroke needs

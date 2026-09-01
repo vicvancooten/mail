@@ -12,6 +12,7 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     status: "active",
     sync: { state: "idle", lastProgressAt: null, lastError: null },
     indexWatermark: { coveredSince: null, complete: false },
+    signature: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -89,6 +90,8 @@ export function makeComposition(
     to: [{ name: null, address: "ada@example.test" }],
     cc: [],
     bcc: [],
+    inReplyTo: null,
+    references: [],
     version: 1,
     submitAfter: null,
     sendError: null,

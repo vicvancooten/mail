@@ -9,6 +9,8 @@ import { TaskList } from "@tiptap/extension-task-list";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { StarterKit } from "@tiptap/starter-kit";
+import { MailQuote } from "./mail-quote-extension.js";
+import { MailSignature } from "./mail-signature-extension.js";
 
 /**
  * The composer's schema (ADR-0013): a deliberately narrow, mail-safe subset
@@ -43,6 +45,12 @@ export function composeEditorExtensions(placeholder: string): AnyExtension[] {
     TaskItem.configure({ nested: false }),
     TableKit.configure({ table: { resizable: false } }),
     ComposeImage,
+    // #47: the opaque Quoted Original and the per-account signature — both
+    // outside the spec's own "In" table since neither is an authoring
+    // primitive the slash menu or markdown rules ever produce; they only
+    // ever arrive pre-built, from `compose/reply.ts` at composer-open.
+    MailQuote,
+    MailSignature,
     Placeholder.configure({ placeholder }),
   ];
 }

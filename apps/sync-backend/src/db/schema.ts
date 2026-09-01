@@ -214,6 +214,8 @@ export const mailAccounts = pgTable(
     status: text("status", { enum: ["active", "needs_reauth"] })
       .notNull()
       .default("active"),
+    /** The plain-text signature (#47, compose-spec §Signature) — null until the User sets one. */
+    signature: text("signature"),
     // The groundwork for ADR-0015's two-tier liveness (#35): the resident
     // sync loop (`sync/live-session.ts`) stamps `lastProgressAt` on every
     // IDLE keepalive or completed poll and `syncState` on every transition,
@@ -723,6 +725,15 @@ export const compositions = pgTable(
     toAddresses: jsonb("to_addresses").$type<Recipient[]>().notNull().default([]),
     ccAddresses: jsonb("cc_addresses").$type<Recipient[]>().notNull().default([]),
     bccAddresses: jsonb("bcc_addresses").$type<Recipient[]>().notNull().default([]),
+    /**
+     * The reply/forward threading headers (#47, compose-spec §Threading
+     * headers) — computed once client-side at composer-open and carried
+     * through every autosave unchanged (`@mail/shared`'s `composeSaveSchema`
+     * doc comment). Null/`[]` for an ordinary new-compose Composition.
+     * `submit.ts#submitComposition` passes both straight to Nodemailer.
+     */
+    inReplyTo: text("in_reply_to"),
+    references: text("references").array().notNull().default([]),
     /** Optimistic-concurrency counter (ADR-0012), bumped on every accepted save. */
     version: integer("version").notNull().default(0),
     /** The Composition's one live message in the account's Drafts folder, or null before the first push. */

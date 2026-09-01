@@ -63,6 +63,11 @@ export async function composeMailOptions(
     subject: row.subject,
     ...(messageId ? { messageId: `<${messageId}>` } : {}),
     ...(date ? { date } : {}),
+    // Threading headers (#47, compose-spec §Threading headers): computed
+    // once client-side against the message the User had open and carried
+    // through unchanged — Nodemailer wraps each id in angle brackets itself.
+    ...(row.inReplyTo ? { inReplyTo: row.inReplyTo } : {}),
+    ...(row.references.length > 0 ? { references: row.references } : {}),
     text: serializeComposePlaintext(row.document),
     html: serializeComposeHtml(row.document),
     ...(attachments.length > 0 ? { attachments } : {}),

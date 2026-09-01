@@ -95,6 +95,8 @@ async function applySave(db: Db, mailAccountId: string, save: ComposeSave): Prom
       toAddresses: save.to,
       ccAddresses: save.cc,
       bccAddresses: save.bcc,
+      inReplyTo: save.inReplyTo,
+      references: save.references,
       version: 1,
     });
     return { status: "applied", version: 1 };
@@ -116,6 +118,8 @@ async function applySave(db: Db, mailAccountId: string, save: ComposeSave): Prom
       toAddresses: save.to,
       ccAddresses: save.cc,
       bccAddresses: save.bcc,
+      inReplyTo: save.inReplyTo,
+      references: save.references,
       version: nextVersion,
       updatedAt: new Date(),
     })

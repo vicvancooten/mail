@@ -142,6 +142,9 @@ export interface CachedComposition {
   to: Recipient[];
   cc: Recipient[];
   bcc: Recipient[];
+  /** The reply/forward threading headers (#47) — see `@mail/shared`'s `compositionSchema` field of the same name. */
+  inReplyTo: string | null;
+  references: string[];
   version: number;
   /**
    * The absolute instant the Sync Backend will submit this Pending Send, as
@@ -199,6 +202,8 @@ export interface PendingComposeSave {
   to: Recipient[];
   cc: Recipient[];
   bcc: Recipient[];
+  inReplyTo: string | null;
+  references: string[];
   queuedAt: string;
 }
 

@@ -599,6 +599,28 @@
   white-space: nowrap;
 }
 
+/* #47: per-Message Reply / Reply All / Forward — "the specific message the User had open". */
+.message-item-reply-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.message-item-reply-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.message-item-reply-actions button:hover {
+  background: var(--mail-bg-hover);
+}
+
 .message-body {
   display: flex;
   flex-direction: column;

@@ -401,6 +401,51 @@
   cursor: pointer;
 }
 
+/* #47: the Quoted Original and the per-account signature */
+
+.mail-quote {
+  margin: 4px 0 1em 0;
+}
+.mail-quote-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mail-quote-toggle,
+.mail-quote-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mail-bg-hover);
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.mail-quote-toggle svg {
+  transition: transform 0.1s ease;
+}
+.mail-quote-toggle svg.expanded {
+  transform: rotate(90deg);
+}
+.mail-quote-preview {
+  margin-top: 6px;
+  padding-left: 1em;
+  border-left: 3px solid var(--mail-border);
+  color: var(--mail-text-dim);
+  font-size: 13px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.mail-signature {
+  margin: 0 0 1em 0;
+  padding-top: 4px;
+  color: var(--mail-text-dim);
+}
+
 /* #48: attachments */
 
 .attachments-panel {

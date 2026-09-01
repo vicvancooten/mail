@@ -79,9 +79,25 @@ export const mailAccountSchema = z.object({
   status: mailAccountStatusSchema,
   sync: mailAccountSyncSchema,
   indexWatermark: indexWatermarkSchema,
+  /**
+   * The plain-text signature (compose-spec §Signature, poc-scope.md): one
+   * per Mail Account, null until the User sets one. #54 (Preferences) grows
+   * this into the general Mail-Account-scoped preference collection; this is
+   * the inline column it will read from — the same "one value ahead of its
+   * own ticket" shape `compose.ts`'s `UNDO_SEND_DELAY_OPTIONS` already uses.
+   */
+  signature: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
 export type MailAccount = z.infer<typeof mailAccountSchema>;
+
+/** `PATCH /mail-accounts/:id/signature` — a plain-text signature, or `null` to clear it. */
+export const updateMailAccountSignatureRequestSchema = z.object({
+  signature: z.string().nullable(),
+});
+export type UpdateMailAccountSignatureRequest = z.infer<
+  typeof updateMailAccountSignatureRequestSchema
+>;
 
 export const mailAccountListResponseSchema = z.object({
   mailAccounts: z.array(mailAccountSchema),

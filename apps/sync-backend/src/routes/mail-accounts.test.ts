@@ -281,6 +281,73 @@ describe("POST /mail-accounts/:id/reauth", () => {
   });
 });
 
+describe("PATCH /mail-accounts/:id/signature (#47)", () => {
+  async function createAccount(app: FastifyInstance, cookie: string): Promise<string> {
+    const response = await app.inject({
+      method: "POST",
+      url: "/mail-accounts",
+      headers: { cookie },
+      payload: VALID_ACCOUNT_PAYLOAD,
+    });
+    return response.json().mailAccount.id;
+  }
+
+  it("is null until set, then rides the wire projection", async () => {
+    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const cookie = await claimOwner(app);
+    const id = await createAccount(app, cookie);
+
+    const created = await app.inject({ method: "GET", url: "/mail-accounts", headers: { cookie } });
+    expect(created.json().mailAccounts[0]).toMatchObject({ signature: null });
+
+    const update = await app.inject({
+      method: "PATCH",
+      url: `/mail-accounts/${id}/signature`,
+      headers: { cookie },
+      payload: { signature: "Ada Lovelace\nComputing pioneer" },
+    });
+    expect(update.statusCode).toBe(200);
+    expect(update.json().mailAccount.signature).toBe("Ada Lovelace\nComputing pioneer");
+
+    const list = await app.inject({ method: "GET", url: "/mail-accounts", headers: { cookie } });
+    expect(list.json().mailAccounts[0].signature).toBe("Ada Lovelace\nComputing pioneer");
+  });
+
+  it("clears back to null", async () => {
+    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const cookie = await claimOwner(app);
+    const id = await createAccount(app, cookie);
+
+    await app.inject({
+      method: "PATCH",
+      url: `/mail-accounts/${id}/signature`,
+      headers: { cookie },
+      payload: { signature: "Ada" },
+    });
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/mail-accounts/${id}/signature`,
+      headers: { cookie },
+      payload: { signature: null },
+    });
+    expect(cleared.json().mailAccount.signature).toBeNull();
+  });
+
+  it("404s for another User's Mail Account rather than leaking existence", async () => {
+    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const cookie = await claimOwner(app);
+    const id = await createAccount(app, cookie);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/mail-accounts/${id}/signature`,
+      // No cookie: unauthenticated, not "someone else's account".
+      payload: { signature: "nope" },
+    });
+    expect(response.statusCode).toBe(401);
+  });
+});
+
 describe("SyncManager wiring (#35)", () => {
   it("starts a session for a newly created Mail Account", async () => {
     const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };

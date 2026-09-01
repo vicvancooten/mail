@@ -9,6 +9,7 @@ function makeMessage(attachments: MessageAttachment[]): Message {
     threadId: "thread-1",
     mailAccountId: "acct-1",
     messageIdHeader: null,
+    references: [],
     subject: "Hello",
     from: { name: "Ada", address: "ada@example.test" },
     to: [],

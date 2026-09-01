@@ -35,6 +35,14 @@ export const messageSchema = z.object({
   threadId: z.string(),
   mailAccountId: z.string(),
   messageIdHeader: z.string().nullable(),
+  /**
+   * This message's own `References` chain (ancestors only, own id not
+   * included), stripped of angle brackets — #47's reply threading reads it
+   * to build a reply's own `References` (compose-spec §Threading headers:
+   * "its `References` + its `Message-ID`") entirely client-side, no round
+   * trip needed, keeping reply-composition offline (ADR-0014).
+   */
+  references: z.array(z.string()),
   subject: z.string(),
   from: threadParticipantSchema.nullable(),
   to: z.array(threadParticipantSchema),

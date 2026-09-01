@@ -53,6 +53,8 @@ export function toWireComposition(row: CompositionRow): Composition {
     to: row.toAddresses,
     cc: row.ccAddresses,
     bcc: row.bccAddresses,
+    inReplyTo: row.inReplyTo,
+    references: row.references,
     version: row.version,
     submitAfter: row.submitAfter?.toISOString() ?? null,
     sendError: row.sendError,

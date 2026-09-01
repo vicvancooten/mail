@@ -1,4 +1,5 @@
 import type { ComposeDocument, ComposeMark, ComposeNode } from "@mail/shared";
+import { htmlToText } from "html-to-text";
 
 /**
  * The dedicated mail serialiser (ADR-0013): walks the Composition's
@@ -96,6 +97,20 @@ function renderBlockHtml(node: ComposeNode): string {
         `<table style="border-collapse:collapse;width:100%;margin:0 0 1em 0;">` +
         `${(node.content ?? []).map((row) => renderBlockHtml(row)).join("")}</table>`
       );
+
+    // The opaque Quoted Original (#47, ADR-0013): `attrs.html` is the
+    // sanitized original body exactly as it arrived — emitted **verbatim**,
+    // never escaped or reformatted, which is what "byte-identical unless the
+    // escape is used" means. `escapeHtml`'s `<br />` rewrite and every other
+    // block case above only ever touch *authored* content; this is the one
+    // case in this file that intentionally never runs it.
+    case "mailQuote": {
+      const html = typeof node.attrs?.html === "string" ? node.attrs.html : "";
+      return (
+        `<blockquote style="margin:0 0 1em 0;padding-left:1em;` +
+        `border-left:3px solid ${QUOTE_BORDER_COLOR};">${html}</blockquote>`
+      );
+    }
 
     case "tableRow":
       return `<tr>${(node.content ?? []).map((cell) => renderBlockHtml(cell)).join("")}</tr>`;
@@ -284,6 +299,29 @@ function renderBlockPlain(node: ComposeNode): string {
 
     case "table":
       return renderTablePlain(node);
+
+    // The hybrid plaintext's own opaque-quote half (ADR-0013): `html-to-text`
+    // over the same verbatim `attrs.html` the HTML serialiser emits, then
+    // `> `-prefixed line by line — the mirror of `mailQuote`'s HTML case
+    // above, at the depth this node sits at (nesting a reply-to-a-reply's
+    // quote inside a quote is `blockquote`'s job, not this one's).
+    case "mailQuote": {
+      const html = typeof node.attrs?.html === "string" ? node.attrs.html : "";
+      if (!html) return "";
+      const text = htmlToText(html, { wordwrap: false });
+      return prefixLines(text, "> ", "> ");
+    }
+
+    // The signature node (#47, compose-spec §Signature): preceded by the
+    // RFC 3676 `-- ` sigdash, its own line — what lets a receiving client
+    // that honours the convention offer to strip it on reply/forward.
+    case "mailSignature": {
+      const body = (node.content ?? [])
+        .map((child) => renderBlockPlain(child))
+        .filter((block) => block.length > 0)
+        .join("\n");
+      return body.length > 0 ? `-- \n${body}` : "-- ";
+    }
 
     default:
       return (node.content ?? [])
