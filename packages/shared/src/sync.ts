@@ -94,8 +94,56 @@ export const userSyncRequestSchema = z.object({
 });
 export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
 
+/**
+ * A semantic Optimistic Action (ADR-0010, #39) — never a wire-level
+ * operation, so a protocol change never invalidates a queued action still
+ * sitting in a Client's Local Cache. Additive: a future `archive`/`pin`/
+ * `label` intent is a new union member, never a reshape of these two.
+ *
+ * Both apply to *every* Message in the Thread — the same "whole Thread"
+ * granularity `sync/thread-rollup.ts` already aggregates over, so the
+ * optimistic overlay's predicted `unreadCount`/`starred` matches exactly
+ * what the backend will compute once the intent lands.
+ */
+export const mutationIntentSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
+  z.object({ type: z.literal("setRead"), threadId: z.string(), read: z.boolean() }),
+]);
+export type MutationIntent = z.infer<typeof mutationIntentSchema>;
+
+/**
+ * One queued Optimistic Action as it rides the wire: `id` is the
+ * Client-generated ULID idempotency key (ADR-0010), echoed back verbatim in
+ * the matching `MutationOutcome`. A Mail Account's array is sent, and must
+ * be applied, in **strict FIFO order** — the array's order *is* the queue's
+ * order, never re-derived from a timestamp on the server side.
+ */
+export const queuedMutationSchema = z.object({
+  id: z.string(),
+  intent: mutationIntentSchema,
+});
+export type QueuedMutation = z.infer<typeof queuedMutationSchema>;
+
+/**
+ * One mutation's outcome (ADR-0011's third divergence: a mutation-flush
+ * response carries deltas back in the same round trip). `applied` covers
+ * both "just applied" and "already applied — this id was a retry", so the
+ * Client always dequeues on it; `rejected` is permanent and is never
+ * retried by the Client (a transient failure never reaches this shape at
+ * all — it fails the whole `POST /sync` instead, per the ordinary
+ * network-error/backoff path).
+ */
+export const mutationOutcomeSchema = z.object({
+  id: z.string(),
+  status: z.enum(["applied", "rejected"]),
+  reason: z.string().optional(),
+});
+export type MutationOutcome = z.infer<typeof mutationOutcomeSchema>;
+
 export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
+  /** This account's queue to flush, oldest first. Omitted (never `[]`) when there is nothing queued for it. */
+  mutations: z.array(queuedMutationSchema).optional(),
 });
 export type MailAccountSyncRequest = z.infer<typeof mailAccountSyncRequestSchema>;
 
@@ -111,7 +159,11 @@ export type SyncRequest = z.infer<typeof syncRequestSchema>;
  * Mirrors the request, one level per scope. A collection is present in the
  * response only when something actually changed for it since the token the
  * Client sent — "unchanged collections return no payload" (#37) — so an
- * all-quiet poll answers with `{ user: {}, mailAccounts: {} }`.
+ * all-quiet poll answers with `{ user: {}, mailAccounts: {} }`. `mutations`
+ * follows the same rule but on a different trigger: present whenever the
+ * request carried mutations to flush for that account, regardless of
+ * whether the Thread delta itself is non-empty (an idempotent replay can
+ * report `applied` with no further Thread change at all).
  */
 export const userSyncResponseSchema = z.object({
   MailAccount: mailAccountDeltaSchema.optional(),
@@ -120,6 +172,8 @@ export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 
 export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
+  /** Outcomes in the same order as the request's `mutations` array. */
+  mutations: z.array(mutationOutcomeSchema).optional(),
 });
 export type MailAccountSyncResponse = z.infer<typeof mailAccountSyncResponseSchema>;
 

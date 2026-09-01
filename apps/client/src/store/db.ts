@@ -1,4 +1,4 @@
-import type { MailAccount, Thread } from "@mail/shared";
+import type { MailAccount, MutationIntent, Thread } from "@mail/shared";
 import Dexie, { type EntityTable } from "dexie";
 
 /**
@@ -88,20 +88,24 @@ export interface SyncStateRow {
 }
 
 /**
- * The durable Optimistic Action queue. **#39 owns this table's contents and
- * the `base ⊕ pending` overlay**; it is declared here, empty, because two of
- * this ticket's invariants are stated in terms of it: wipe-and-resync must
- * never discard a non-empty queue, and eviction must never drop a Thread a
- * queued action references (ADR-0009). #39 adds the intent payload as new
- * fields on this row.
+ * The durable Optimistic Action queue (ADR-0010, #39). Two of #38's cache
+ * invariants are stated in terms of it: wipe-and-resync must never discard
+ * a non-empty queue, and eviction must never drop a Thread a queued action
+ * references (ADR-0009) — both read `referencedThreadIds` below.
+ *
+ * `intent` is not part of the Dexie index string (nothing queries by it),
+ * so adding it did not need a `CACHE_SCHEMA_VERSION` bump — only a new
+ * *indexed* field would.
  */
 export interface PendingMutation {
-  /** Client-generated ULID, echoed by the Sync Backend as the idempotency key. */
+  /** Client-generated ULID (`store/ulid.ts`), echoed by the Sync Backend as the idempotency key. */
   id: string;
   mailAccountId: string;
   createdAt: string;
-  /** Threads this action is about — the eviction-exempt set. */
+  /** Threads this action is about — the eviction-exempt set, and what `reads.ts`'s overlay matches against. */
   referencedThreadIds: string[];
+  /** The semantic intent itself (`store/mutation-queue.ts` is the only writer). */
+  intent: MutationIntent;
 }
 
 /** Cache-level bookkeeping that survives a wipe (it is what records that one happened). */

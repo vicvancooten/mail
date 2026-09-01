@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   mailAccountDeltaSchema,
+  mutationIntentSchema,
+  queuedMutationSchema,
   syncRequestSchema,
   syncResponseSchema,
   threadDeltaSchema,
@@ -136,6 +138,56 @@ describe("syncResponseSchema", () => {
             newState: "token",
             hasMore: false,
           },
+          mutations: [{ id: "01JQ", status: "applied" }],
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("mutationIntentSchema", () => {
+  it("accepts setStarred and setRead", () => {
+    expect(
+      mutationIntentSchema.safeParse({ type: "setStarred", threadId: "t1", starred: true }).success,
+    ).toBe(true);
+    expect(
+      mutationIntentSchema.safeParse({ type: "setRead", threadId: "t1", read: false }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown intent type", () => {
+    const result = mutationIntentSchema.safeParse({ type: "archive", threadId: "t1" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("queuedMutationSchema", () => {
+  it("requires an id alongside the intent", () => {
+    const result = queuedMutationSchema.safeParse({
+      intent: { type: "setStarred", threadId: "t1", starred: true },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("round-trips a queued mutation", () => {
+    const result = queuedMutationSchema.safeParse({
+      id: "01JQUEUED",
+      intent: { type: "setRead", threadId: "t1", read: true },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("syncRequestSchema mutations", () => {
+  it("carries a per-account mutation queue alongside Thread", () => {
+    const result = syncRequestSchema.safeParse({
+      mailAccounts: {
+        "account-1": {
+          Thread: null,
+          mutations: [
+            { id: "01JQ", intent: { type: "setStarred", threadId: "t1", starred: true } },
+          ],
         },
       },
     });

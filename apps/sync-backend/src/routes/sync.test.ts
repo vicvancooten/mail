@@ -1,11 +1,12 @@
-import type { MailAccountDelta, ThreadDelta } from "@mail/shared";
+import { randomUUID } from "node:crypto";
+import type { MailAccountDelta, MutationOutcome, ThreadDelta } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import { mailAccounts, threads } from "../db/schema.js";
+import { appliedMutations, folders, mailAccounts, messages, threads } from "../db/schema.js";
 import { deleteEmptyThreads } from "../sync/threading.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -75,6 +76,31 @@ async function insertThread(
   overrides: Partial<typeof threads.$inferInsert> = {},
 ) {
   await db.insert(threads).values({ id, mailAccountId, ...overrides });
+}
+
+/** A Thread with one real Message, so a mutation's rollup effect is observable end-to-end. */
+async function insertThreadWithMessage(mailAccountId: string, threadId: string): Promise<void> {
+  await insertThread(mailAccountId, threadId);
+  const folderId = randomUUID();
+  await db.insert(folders).values({
+    id: folderId,
+    mailAccountId,
+    path: "INBOX",
+    name: "INBOX",
+    role: "inbox",
+  });
+  await db.insert(messages).values({
+    id: randomUUID(),
+    mailAccountId,
+    threadId,
+    folderId,
+    uid: 1,
+    subject: "Test",
+    sentAt: new Date("2026-01-01T00:00:00Z"),
+    receivedAt: new Date("2026-01-01T00:00:00Z"),
+    seen: false,
+    flagged: false,
+  });
 }
 
 beforeEach(async () => {
@@ -258,6 +284,152 @@ describe("POST /sync", () => {
       expect(delta.reset).toBe(true);
       expect(delta.created.map((row) => row.id).sort()).toEqual(["thread-1", "thread-2"]);
       expect(delta.destroyed).toEqual([]);
+    });
+  });
+
+  describe("mutations (#39)", () => {
+    it("applies queued mutations and the same response's Thread delta already reflects them", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await insertThreadWithMessage(accountId, "thread-1");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              Thread: null,
+              mutations: [
+                {
+                  id: "01STAR",
+                  intent: { type: "setStarred", threadId: "thread-1", starred: true },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json().mailAccounts[accountId];
+      expect(body.mutations).toEqual([{ id: "01STAR", status: "applied" }]);
+      const threadDelta = body.Thread as ThreadDelta;
+      expect(threadDelta.created[0]?.starred).toBe(true);
+    });
+
+    it("is exactly-once: replaying the same id is reported applied without re-applying", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await insertThreadWithMessage(accountId, "thread-1");
+
+      const flush = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            mailAccounts: {
+              [accountId]: {
+                mutations: [
+                  {
+                    id: "01RETRY",
+                    intent: { type: "setStarred", threadId: "thread-1", starred: true },
+                  },
+                ],
+              },
+            },
+          },
+        });
+
+      const first = await flush();
+      expect(first.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01RETRY", status: "applied" },
+      ]);
+
+      // Directly unstar the underlying message, bypassing the mutation
+      // pipeline — a re-applying (rather than idempotently replaying) retry
+      // would flip it back to starred via the rollup it triggers.
+      await db.update(messages).set({ flagged: false }).where(eq(messages.threadId, "thread-1"));
+
+      const retry = await flush();
+      expect(retry.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01RETRY", status: "applied" },
+      ]);
+      const ledgerRows = await db
+        .select()
+        .from(appliedMutations)
+        .where(eq(appliedMutations.id, "01RETRY"));
+      expect(ledgerRows).toHaveLength(1);
+
+      const [threadRow] = await db.select().from(threads).where(eq(threads.id, "thread-1"));
+      // Unchanged since the first apply — proof the retry never re-touched
+      // the message or re-ran the rollup.
+      expect(threadRow?.starred).toBe(true);
+    });
+
+    it("rejects a mutation naming a Thread this account does not have, and processes the rest of the queue anyway", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await insertThreadWithMessage(accountId, "thread-1");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                {
+                  id: "01GHOST",
+                  intent: { type: "setStarred", threadId: "no-such-thread", starred: true },
+                },
+                { id: "01OK", intent: { type: "setStarred", threadId: "thread-1", starred: true } },
+              ],
+            },
+          },
+        },
+      });
+
+      const outcomes = response.json().mailAccounts[accountId].mutations as MutationOutcome[];
+      expect(outcomes).toEqual([
+        { id: "01GHOST", status: "rejected", reason: "thread_not_found" },
+        { id: "01OK", status: "applied" },
+      ]);
+    });
+
+    it("rejects every queued mutation for a Mail Account the User does not own, rather than holding them", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      await createOwnedMailAccount(app, cookie);
+      const someoneElses = await createTestMailAccount(db);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [someoneElses.id]: {
+              mutations: [
+                {
+                  id: "01FOREIGN",
+                  intent: { type: "setStarred", threadId: "thread-1", starred: true },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(response.json().mailAccounts[someoneElses.id].mutations).toEqual([
+        { id: "01FOREIGN", status: "rejected", reason: "mail_account_not_found" },
+      ]);
     });
   });
 });

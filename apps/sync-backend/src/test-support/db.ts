@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { createDb, type Db } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
 import {
+  appliedMutations,
   claimTokens,
   folders,
   loginChallenges,
@@ -51,6 +52,7 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  * keeps the intent readable and survives a future FK losing its cascade.
  */
 export async function resetTestDb(db: Db): Promise<void> {
+  await db.delete(appliedMutations);
   await db.delete(messages);
   await db.delete(threadMessageIds);
   await db.delete(syncTombstones);

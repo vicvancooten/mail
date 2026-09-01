@@ -35,6 +35,7 @@ async function queueMutation(threadIds: string[]): Promise<void> {
     mailAccountId: "acct-1",
     createdAt: "2026-06-01T12:00:00.000Z",
     referencedThreadIds: threadIds,
+    intent: { type: "setStarred", threadId: threadIds[0] ?? "unknown", starred: true },
   });
 }
 
