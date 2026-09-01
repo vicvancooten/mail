@@ -6,18 +6,25 @@ import { withMailAccountConnection } from "./imap-connection.js";
 import { type IngestFolderResult, ingestFolder } from "./ingest.js";
 
 /**
- * The sync engine's entry point (#34): connect one Mail Account, discover
- * its folders, ingest headers newest-first.
+ * The sync engine's original entry point (#34): connect one Mail Account,
+ * discover its folders, ingest headers newest-first.
  *
  * ADR-0005 asks for the sync engine to be "a self-contained module (talks
  * only to Postgres and IMAP) so it can be lifted into its own service" —
- * that is what `src/sync/` is, and this file is its front door. It takes a
- * `Db` and a Mail Account row and returns a report; it knows nothing about
- * Fastify, sessions, or the wire contract.
+ * that is what `src/sync/` is, and this file was meant as its front door. It
+ * takes a `Db` and a Mail Account row and returns a report; it knows
+ * nothing about Fastify, sessions, or the wire contract.
  *
- * #35 replaces the one-shot pass with a resident IDLE/QRESYNC loop and #36
- * replaces the bounded ingest with full backfill; both build on these calls
- * rather than around them.
+ * #35 replaced the one-shot pass with the resident IDLE/QRESYNC loop
+ * `live-session.ts` runs, and #36 replaced the bounded ingest with full
+ * backfill (`backfill.ts`'s `establishFolderBaseline`/`runAccountBackfill`)
+ * — the live wiring (`app.ts`/`manager.ts`) calls those directly and never
+ * this function. What's left for `syncMailAccount` is the test suite's own
+ * one-shot sync harness: a single call that connects, discovers folders and
+ * ingests, which every GreenMail-backed test in `sync/` and `gatekeeper/`
+ * uses to get a Mail Account into a known synced state before exercising
+ * the thing it actually wants to test. Not dead code — just no longer the
+ * production path its docstring originally described.
  */
 
 export interface SyncMailAccountOptions {
