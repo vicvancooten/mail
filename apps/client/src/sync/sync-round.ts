@@ -15,10 +15,12 @@ import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
   applyCompositionDelta,
+  applyCorrespondentDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
   compositionTokenKey,
+  correspondentTokenKey,
   getSyncToken,
   labelTokenKey,
   listCachedMailAccountIds,
@@ -132,6 +134,19 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
           ),
         });
       }
+
+      const correspondentDelta = collections.Correspondent;
+      if (correspondentDelta) {
+        changed = true;
+        hasMore ||= correspondentDelta.hasMore;
+        await applyCorrespondentDelta(mailAccountId, correspondentDelta, {
+          replace: startsReplay(
+            replaysStarted,
+            correspondentTokenKey(mailAccountId),
+            correspondentDelta.reset,
+          ),
+        });
+      }
     }
 
     // A first-ever boot learns its Mail Accounts from the round it is in the
@@ -239,6 +254,7 @@ async function buildSyncRequest({
       entry.Thread = await getSyncToken(threadTokenKey(account.id));
       entry.Label = await getSyncToken(labelTokenKey(account.id));
       entry.Composition = await getSyncToken(compositionTokenKey(account.id));
+      entry.Correspondent = await getSyncToken(correspondentTokenKey(account.id));
     }
     if (includeMutations) {
       const mutations = await mutationsToFlush(account);
@@ -250,6 +266,7 @@ async function buildSyncRequest({
       entry.Thread !== undefined ||
       entry.Label !== undefined ||
       entry.Composition !== undefined ||
+      entry.Correspondent !== undefined ||
       entry.mutations !== undefined ||
       entry.composeSaves !== undefined
     ) {

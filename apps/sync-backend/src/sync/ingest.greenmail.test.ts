@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { folders, messages, threads } from "../db/schema.js";
+import { correspondents, folders, messages, threads } from "../db/schema.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import {
   getMailAccountForUser,
@@ -344,6 +344,40 @@ describe("syncMailAccount against GreenMail", () => {
       .from(threads)
       .where(eq(threads.mailAccountId, account.id));
     expect(conversation).toHaveLength(3);
+  });
+
+  it("builds the Correspondent aggregate as mail syncs, and never double-counts a re-sync (#49)", async () => {
+    const first = await syncMailAccount(db, account, {
+      mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
+    });
+    if (first.status !== "synced") throw new Error("expected a sync");
+
+    const rows = await db
+      .select()
+      .from(correspondents)
+      .where(eq(correspondents.mailAccountId, account.id));
+    const byAddress = new Map(rows.map((row) => [row.normalizedAddress, row]));
+
+    // Every message ingested here landed in INBOX or Archive (both
+    // "received" folders) — Alice appears twice (once per folder), Carol
+    // twice (both in INBOX).
+    expect(byAddress.get("alice@example.test")).toMatchObject({ sentCount: 0, receivedCount: 2 });
+    expect(byAddress.get("carol@example.test")).toMatchObject({ sentCount: 0, receivedCount: 2 });
+
+    const second = await syncMailAccount(db, account, {
+      mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
+    });
+    if (second.status !== "synced") throw new Error("expected a second sync");
+
+    const afterResync = await db
+      .select()
+      .from(correspondents)
+      .where(eq(correspondents.mailAccountId, account.id));
+    const afterByAddress = new Map(afterResync.map((row) => [row.normalizedAddress, row]));
+    // A re-sync only refreshes flags/headers (`ingest.ts`'s update branch) —
+    // it must never re-count activity already recorded.
+    expect(afterByAddress.get("alice@example.test")?.receivedCount).toBe(2);
+    expect(afterByAddress.get("carol@example.test")?.receivedCount).toBe(2);
   });
 
   it("never parks an account in Needs Reauth over an unreachable server", async () => {

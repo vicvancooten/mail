@@ -1,10 +1,29 @@
-import type { CollectionDelta, Composition, Label, MailAccount, Thread } from "@mail/shared";
+import type {
+  CollectionDelta,
+  Composition,
+  Correspondent,
+  Label,
+  MailAccount,
+  Thread,
+} from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { compositions, labels, mailAccounts, syncTombstones, threads } from "../db/schema.js";
+import {
+  compositions,
+  correspondents,
+  labels,
+  mailAccounts,
+  syncTombstones,
+  threads,
+} from "../db/schema.js";
 import { toWireMailAccount } from "../mail-accounts/store.js";
 import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
-import { toWireComposition, toWireLabel, toWireThread } from "./thread-projection.js";
+import {
+  toWireComposition,
+  toWireCorrespondent,
+  toWireLabel,
+  toWireThread,
+} from "./thread-projection.js";
 
 /**
  * Computes one collection's answer for `POST /sync` (#37, ADR-0011): the
@@ -227,6 +246,52 @@ export async function syncLabelCollection(
     cursorRev,
     needsReset,
     toPayload: toWireLabel,
+  });
+}
+
+/**
+ * `Correspondent`, scoped to one Mail Account (#49, ADR-0011). Like `Label`,
+ * there is no windowing here — the table itself never holds more than the
+ * top ~500 by score (`sync/correspondents.ts#capCorrespondents`), so "sync
+ * everything this account has" already *is* "sync the top ~500".
+ */
+export async function syncCorrespondentCollection(
+  db: Db,
+  mailAccountId: string,
+  token: string | null,
+): Promise<CollectionDelta<Correspondent> | null> {
+  const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+  const rows = await db
+    .select()
+    .from(correspondents)
+    .where(
+      and(eq(correspondents.mailAccountId, mailAccountId), gt(correspondents.syncRev, cursorRev)),
+    )
+    .orderBy(asc(correspondents.syncRev))
+    .limit(PAGE_SIZE + 1);
+
+  const tombstoneRows = needsReset
+    ? []
+    : await db
+        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+        .from(syncTombstones)
+        .where(
+          and(
+            eq(syncTombstones.mailAccountId, mailAccountId),
+            eq(syncTombstones.collection, "Correspondent"),
+            gt(syncTombstones.syncRev, cursorRev),
+          ),
+        )
+        .orderBy(asc(syncTombstones.syncRev))
+        .limit(PAGE_SIZE + 1);
+
+  return buildDelta({
+    rows,
+    tombstones: tombstoneRows,
+    cursorRev,
+    needsReset,
+    toPayload: toWireCorrespondent,
   });
 }
 

@@ -1,5 +1,5 @@
-import type { Composition, Label, Thread } from "@mail/shared";
-import type { CompositionRow, LabelRow } from "../db/schema.js";
+import type { Composition, Correspondent, Label, Thread } from "@mail/shared";
+import type { CompositionRow, CorrespondentRow, LabelRow } from "../db/schema.js";
 import type { ThreadRow } from "./threading.js";
 
 /** Maps a stored Thread row to ADR-0011's wire projection — the list row, never a Message body. */
@@ -30,6 +30,21 @@ export function toWireLabel(row: LabelRow): Label {
     id: row.id,
     mailAccountId: row.mailAccountId,
     name: row.name,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Maps a stored Correspondent row (#49) to ADR-0011's wire projection. */
+export function toWireCorrespondent(row: CorrespondentRow): Correspondent {
+  return {
+    id: row.id,
+    mailAccountId: row.mailAccountId,
+    address: row.address,
+    name: row.name,
+    sentCount: row.sentCount,
+    receivedCount: row.receivedCount,
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    score: row.score,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

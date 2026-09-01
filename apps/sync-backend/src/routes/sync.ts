@@ -5,6 +5,7 @@ import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import {
   syncCompositionCollection,
+  syncCorrespondentCollection,
   syncLabelCollection,
   syncMailAccountCollection,
   syncThreadCollection,
@@ -58,12 +59,14 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       const wantsThread = requested.Thread !== undefined;
       const wantsLabel = requested.Label !== undefined;
       const wantsComposition = requested.Composition !== undefined;
+      const wantsCorrespondent = requested.Correspondent !== undefined;
       const queued = requested.mutations ?? [];
       const queuedComposeSaves = requested.composeSaves ?? [];
       if (
         !wantsThread &&
         !wantsLabel &&
         !wantsComposition &&
+        !wantsCorrespondent &&
         queued.length === 0 &&
         queuedComposeSaves.length === 0
       ) {
@@ -134,10 +137,15 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         ? await syncCompositionCollection(db, mailAccountId, requested.Composition ?? null)
         : null;
 
+      const correspondentDelta = wantsCorrespondent
+        ? await syncCorrespondentCollection(db, mailAccountId, requested.Correspondent ?? null)
+        : null;
+
       if (
         threadDelta ||
         labelDelta ||
         compositionDelta ||
+        correspondentDelta ||
         mutationResults.length > 0 ||
         composeSaveResults.length > 0
       ) {
@@ -145,6 +153,7 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
           ...(threadDelta ? { Thread: threadDelta } : {}),
           ...(labelDelta ? { Label: labelDelta } : {}),
           ...(compositionDelta ? { Composition: compositionDelta } : {}),
+          ...(correspondentDelta ? { Correspondent: correspondentDelta } : {}),
           ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),
           ...(composeSaveResults.length > 0 ? { composeSaves: composeSaveResults } : {}),
         };

@@ -71,7 +71,9 @@ describe("runSyncRound", () => {
     expect(requests[0]).toEqual({ user: { MailAccount: null }, mailAccounts: {} });
     expect(requests[1]).toEqual({
       user: { MailAccount: "ma-1" },
-      mailAccounts: { "acct-1": { Thread: null, Label: null, Composition: null } },
+      mailAccounts: {
+        "acct-1": { Thread: null, Label: null, Composition: null, Correspondent: null },
+      },
     });
     expect(result.pages).toBe(2);
     expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
@@ -114,6 +116,7 @@ describe("runSyncRound", () => {
       Thread: "th-1",
       Label: null,
       Composition: null,
+      Correspondent: null,
     });
     expect(await getSyncToken(threadTokenKey("acct-1"))).toBe("th-2");
     expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual([
@@ -214,6 +217,7 @@ describe("runSyncRound", () => {
       Thread: null,
       Label: null,
       Composition: null,
+      Correspondent: null,
     });
     expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
   });
