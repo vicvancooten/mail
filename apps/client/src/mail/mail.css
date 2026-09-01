@@ -26,12 +26,28 @@
 }
 
 .mail-section {
+  position: relative; /* anchors the rollback toast (#44) */
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   color: var(--mail-text);
   background: var(--mail-bg);
+}
+
+/* ---------- mobile layout / safe area (#44) ----------
+ * `env(safe-area-inset-*)` is 0 on anything that isn't an installed
+ * standalone app clear of a notch/home-indicator (a regular browser tab,
+ * desktop), so these are unconditionally safe additions rather than a
+ * `display-mode: standalone` media query around every one of them. */
+.mail-topbar {
+  padding-top: calc(8px + env(safe-area-inset-top));
+  padding-left: calc(12px + env(safe-area-inset-left));
+  padding-right: calc(12px + env(safe-area-inset-right));
+}
+.thread-list,
+.stream-view {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .mail-section button {
@@ -200,6 +216,10 @@
   font-size: 13px;
   animation: row-enter var(--dur-base) var(--ease-enter) backwards;
   animation-delay: calc(var(--i, 0) * var(--stagger-row));
+  /* #44: the pointer handlers live on this element (`useSwipeToTriage.ts`),
+     so this is where `touch-action` needs to be set for the browser's own
+     gesture recognition to honor it, not just on `.thread-row-swipe`. */
+  touch-action: pan-y;
 }
 .thread-row:hover {
   background: var(--mail-bg-hover);
@@ -312,12 +332,49 @@
   font-size: 12px;
 }
 
+/* ---------- swipe-to-triage (#44, touch only) ---------- */
+
+.thread-row-swipe {
+  position: relative;
+  /* Lets the browser own vertical scrolling natively — see
+     `useSwipeToTriage.ts`'s doc comment for why this is what makes the
+     hook's pointer tracking safe with no manual axis-lock code. */
+  touch-action: pan-y;
+  overflow: hidden;
+}
+
+.swipe-reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+.swipe-reveal.archive {
+  background: #2f9e58;
+  justify-content: flex-start;
+}
+.swipe-reveal.trash {
+  background: #c0392b;
+  justify-content: flex-end;
+}
+.swipe-reveal-archive,
+.swipe-reveal-trash {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ---------- thread detail ---------- */
 
 .thread-detail {
   height: 100%;
   overflow-y: auto;
   padding: 16px 24px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom)); /* #44: home-indicator clearance */
 }
 
 .thread-detail-nav {
@@ -543,6 +600,72 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Split's "Back to list" pill only exists for the narrow layout below —
+   at desktop widths both panes are already on screen. */
+.split-pane .back-pill {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  /* Split collapses to List's own "one pane at a time" behavior: there's
+     no room for list + reading pane side by side on a phone. `has-selection`
+     (set in `SplitView.tsx`) is the same signal List already gets for free
+     by unmounting one side entirely — Split keeps both mounted (so
+     `useTriage`'s single keydown listener and any in-flight swipe never
+     un-mount mid-gesture), just visually hides one. */
+  .split-view {
+    position: relative;
+  }
+  .split-list,
+  .split-pane {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+  .split-view:not(.has-selection) .split-pane {
+    display: none;
+  }
+  .split-view.has-selection .split-list {
+    display: none;
+  }
+  .split-pane .back-pill {
+    display: flex;
+  }
+
+  .thread-row .sender {
+    width: 96px;
+  }
+}
+
+/* ---------- rollback toast (#44) ---------- */
+
+.rollback-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: light-dark(#1a1d24, #23283a);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  animation: toast-enter var(--dur-base) var(--ease-enter);
+  z-index: 20;
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

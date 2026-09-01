@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { CachedThread } from "../store/index.js";
 import { ThreadRow } from "./ThreadRow.js";
 import { groupThreadsByTime } from "./time-groups.js";
+import type { Triage } from "./useTriage.js";
 
 /**
  * The windowed, time-grouped list (#40). Renders only the rows in and near
@@ -27,6 +28,7 @@ export function VirtualizedThreadList({
   selectedThreadId,
   onSelect,
   onLoadMore,
+  triage,
 }: {
   threads: readonly CachedThread[];
   /** False once the window has been truncated at the bottom (ADR-0009). */
@@ -35,6 +37,8 @@ export function VirtualizedThreadList({
   onSelect: (id: string) => void;
   /** Requests a wider page — called once as the viewport nears the bottom. */
   onLoadMore?: () => void;
+  /** Present wires each row's swipe-to-archive/-trash (#44); omitted, rows render with no swipe affordance. */
+  triage?: Triage;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -143,6 +147,8 @@ export function VirtualizedThreadList({
                   thread={item.thread}
                   selected={item.thread.id === selectedThreadId}
                   onSelect={() => onSelect(item.thread.id)}
+                  onArchive={triage ? () => triage.archive(item.thread.id) : undefined}
+                  onTrash={triage ? () => triage.trash(item.thread.id) : undefined}
                   index={item.index}
                 />
               )}

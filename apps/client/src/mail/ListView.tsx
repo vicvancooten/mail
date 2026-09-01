@@ -53,6 +53,7 @@ export function ListView({
       selectedThreadId={selectedThreadId}
       onSelect={onSelect}
       onLoadMore={onLoadMore}
+      triage={triage}
     />
   );
 }

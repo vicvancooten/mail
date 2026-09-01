@@ -23,5 +23,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // `sw.ts` runs in the ServiceWorker global scope, not DOM — its own
+  // `tsconfig.sw.json` (WebWorker lib) typechecks it instead, since the two
+  // libs declare `self` and friends incompatibly.
+  "exclude": ["src/sw.ts", "src/sw-env.d.ts"]
 }
