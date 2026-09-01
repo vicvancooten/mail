@@ -1,6 +1,8 @@
 import type { Label } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { PendingSendBar } from "../compose/PendingSendBar.js";
+import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import {
   newCompositionId,
@@ -75,6 +77,10 @@ export function MailSection() {
   const [composeId, setComposeId] = useState<string | null>(readOpenComposerId);
   const openCompose = useCallback(() => setComposeId(newCompositionId()), []);
   const closeCompose = useCallback(() => setComposeId(null), []);
+  // Reopening an *existing* Composition: a cancelled send (ADR-0007 reopens
+  // the composer on whichever device cancelled) and the "Open draft" button
+  // on a failed send both land here.
+  const reopenCompose = useCallback((compositionId: string) => setComposeId(compositionId), []);
   useComposeShortcut(openCompose, composeId !== null);
 
   // Pick the active account once accounts are known: the remembered device
@@ -219,6 +225,8 @@ export function MailSection() {
           />
         )}
       </div>
+      <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
+      <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />
       <RollbackToast />
       {composeId && accountId && (
         <Suspense fallback={null}>

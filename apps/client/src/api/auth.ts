@@ -57,6 +57,24 @@ export async function getJson<T>(url: string, parse: (data: unknown) => T): Prom
   return parse(await response.json());
 }
 
+/** Same shape as `postJson`, for the one PATCH endpoint (`api/send-settings.ts`). */
+export async function patchJson<T>(
+  url: string,
+  body: unknown,
+  parse: (data: unknown) => T,
+): Promise<T> {
+  const response = await fetch(url, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorCode(response));
+  }
+  return parse(await response.json());
+}
+
 export async function deleteRequest(url: string): Promise<void> {
   const response = await fetch(url, { method: "DELETE", credentials: "include" });
   if (!response.ok) {

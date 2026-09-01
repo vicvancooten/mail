@@ -26,6 +26,12 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "applyLabel":
     case "removeLabel":
       return [intent.threadId];
+    // The Composition intents (#46) name no Thread. Empty is exactly right
+    // for both readers: nothing to exempt from Thread eviction, and nothing
+    // for the Thread overlay to match against.
+    case "sendComposition":
+    case "cancelSend":
+      return [];
   }
 }
 
@@ -63,6 +69,16 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
         targetId: `${intent.threadId}:${normalizeLabelName(intent.name)}`,
         value: false,
       };
+    // Send and Undo Send (#46) are a genuine inverse pair, and the *only*
+    // one where coalescing is more than an optimization: pressing Undo while
+    // the send is still sitting in this queue means the Sync Backend never
+    // hears about the send at all, so there is no Pending Send to race and
+    // no way for the cancel to arrive too late. Offline, this is the whole
+    // of Undo Send.
+    case "sendComposition":
+      return { type: "send", targetId: intent.compositionId, value: true };
+    case "cancelSend":
+      return { type: "send", targetId: intent.compositionId, value: false };
   }
 }
 

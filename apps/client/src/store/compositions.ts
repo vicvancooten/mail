@@ -3,12 +3,14 @@ import type {
   ComposeNode,
   ComposeSave,
   ComposeSaveOutcome,
+  MutationIntent,
   Recipient,
 } from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import type { CachedComposition, PendingComposeSave } from "./db.js";
 import { localCache } from "./local-cache.js";
+import { enqueueMutation } from "./mutation-queue.js";
 import { generateUlid } from "./ulid.js";
 
 /**
@@ -79,7 +81,14 @@ export async function saveComposition(
     const row: CachedComposition = {
       id,
       mailAccountId,
-      status: "draft",
+      // Every server-owned field is carried through untouched: autosave is
+      // about content, and predicting a send state here would be exactly the
+      // locally-invented countdown ADR-0014 rules out.
+      status: existing?.status ?? "draft",
+      submitAfter: existing?.submitAfter ?? null,
+      sendError: existing?.sendError ?? null,
+      sentAt: existing?.sentAt ?? null,
+      sendState: existing?.sendState ?? null,
       ...content,
       version: existing?.version ?? 0,
       createdAt: existing?.createdAt ?? now,
@@ -228,4 +237,152 @@ export function subscribeComposeConflicts(
 
 function notifyConflict(conflict: ComposeSaveConflict): void {
   for (const listener of conflictListeners) listener(conflict);
+}
+
+/**
+ * Presses Send (#46, ADR-0007/ADR-0014). Three things, in this order and for
+ * this reason:
+ *
+ * 1. **A final, un-debounced autosave.** Send means "send what I am looking
+ *    at", and the backend submits whatever the Composition row holds. The
+ *    save and the intent go out in the same `POST /sync` round, where the
+ *    route drains saves before mutations (`routes/sync.ts`).
+ * 2. **A `sendComposition` intent on the durable queue.** Offline this simply
+ *    waits, which is ADR-0014's "an offline send queues, and says so".
+ * 3. **`sendState: "queued"`,** the only thing this Client asserts about the
+ *    send. It never invents a `submitAfter`: the countdown starts when the
+ *    Sync Backend accepts the send and reports the absolute instant it chose
+ *    (ADR-0007 measures the delay from server receipt), so until then the UI
+ *    says "sending" rather than counting down from a number it made up.
+ */
+export async function sendComposition(
+  id: string,
+  mailAccountId: string,
+  content: ComposeContent,
+): Promise<void> {
+  await saveComposition(id, mailAccountId, content);
+  await enqueueMutation({ type: "sendComposition", compositionId: id }, mailAccountId);
+  await setSendState(id, "queued");
+}
+
+/**
+ * Undo Send. Optimistic only in the weak sense — `cancelling` is a "this is
+ * in flight" marker, not a predicted outcome — because the cancel genuinely
+ * may lose: ADR-0007's claim is atomic and a late cancel "is reported to the
+ * User as too late". `resolveSendOutcomes` below is where that verdict
+ * lands.
+ */
+export async function requestCancelSend(id: string, mailAccountId: string): Promise<void> {
+  const queued = await enqueueMutation({ type: "cancelSend", compositionId: id }, mailAccountId);
+  // `null` means the cancel coalesced the still-queued send away
+  // (`mutation-queue.ts`): the Sync Backend never heard about this send, so
+  // there is nothing in flight to mark and the Composition is already back to
+  // being an ordinary Draft.
+  await setSendState(id, queued === null ? null : "cancelling");
+}
+
+async function setSendState(id: string, sendState: CachedComposition["sendState"]): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", db.compositions, async () => {
+    const row = await db.compositions.get(id);
+    if (row) await db.compositions.put({ ...row, sendState });
+  });
+}
+
+/**
+ * Turns the two Composition intents' outcomes into the local `sendState`
+ * (`sync/sync-round.ts` calls this beside `resolveMutationOutcomes`).
+ *
+ * An `applied` outcome clears the marker and lets the server's synced
+ * `status` speak — which it can, because that same round trip carried the
+ * `Composition` delta. A rejected `cancelSend` is the one outcome the User
+ * is shown: `too_late` sticks on the row until the composer is next opened,
+ * so "your Undo lost the race, the mail is on its way" is a fact on the
+ * screen rather than a toast that may already have vanished.
+ */
+export async function resolveSendOutcomes(
+  outcomes: { intent: MutationIntent; status: "applied" | "rejected"; reason?: string }[],
+): Promise<void> {
+  for (const outcome of outcomes) {
+    const intent = outcome.intent;
+    if (intent.type !== "sendComposition" && intent.type !== "cancelSend") continue;
+    if (outcome.status === "applied") {
+      await setSendState(intent.compositionId, null);
+      continue;
+    }
+    await setSendState(
+      intent.compositionId,
+      intent.type === "cancelSend" && outcome.reason === "too_late" ? "too_late" : null,
+    );
+  }
+}
+
+/**
+ * Every Composition of one Mail Account with a live send — server-side
+ * `pending`/`submitting`, or a send this Client has queued and not yet had
+ * answered. This is what the Undo Send bar renders, and it is deliberately
+ * *not* scoped to the open composer: a Pending Send started on another
+ * device shows up here too, which is the whole point of the backend holding
+ * it (ADR-0007).
+ */
+export function usePendingSends(mailAccountId: string | null): CachedComposition[] | undefined {
+  return useLiveQuery(() => readPendingSends(mailAccountId), [mailAccountId]);
+}
+
+async function readPendingSends(mailAccountId: string | null): Promise<CachedComposition[]> {
+  if (mailAccountId === null) return [];
+  const rows = await localCache()
+    .compositions.where("mailAccountId")
+    .equals(mailAccountId)
+    .toArray();
+  return rows
+    .filter(
+      (row) =>
+        row.status === "pending" ||
+        row.status === "submitting" ||
+        row.sendState === "queued" ||
+        row.sendState === "cancelling" ||
+        // A cancel that lost the race (ADR-0007) stays on the bar until the
+        // send resolves, so "too late" is something the User reads rather
+        // than a toast that may already have gone.
+        row.sendState === "too_late",
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/**
+ * Drafts carrying a permanent SMTP rejection — compose-spec's "persistent
+ * in-app banner until resolved". Sending again clears `sendError` server-side
+ * (`compose/pending-send.ts#acceptSend`), which is what "resolved" means.
+ */
+export function useFailedSends(mailAccountId: string | null): CachedComposition[] | undefined {
+  return useLiveQuery(() => readFailedSends(mailAccountId), [mailAccountId]);
+}
+
+async function readFailedSends(mailAccountId: string | null): Promise<CachedComposition[]> {
+  if (mailAccountId === null) return [];
+  const rows = await localCache()
+    .compositions.where("mailAccountId")
+    .equals(mailAccountId)
+    .toArray();
+  return rows
+    .filter((row) => row.sendError !== null && row.status === "draft")
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/**
+ * Seconds left on a Pending Send's countdown, or `null` when there is no
+ * server-issued deadline to count from yet (an offline or in-flight send).
+ * The deadline is the server's absolute `submitAfter` and the tick is local,
+ * so a clock skewed by a few seconds shortens or lengthens the *displayed*
+ * window without ever changing when the mail actually goes out.
+ */
+export function undoSecondsRemaining(
+  row: CachedComposition,
+  now: number = Date.now(),
+): number | null {
+  if (row.submitAfter === null) return null;
+  const remaining = Date.parse(row.submitAfter) - now;
+  if (Number.isNaN(remaining)) return null;
+  return Math.max(0, Math.ceil(remaining / 1000));
 }

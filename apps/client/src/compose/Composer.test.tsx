@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localCache, openLocalCache } from "../store/local-cache.js";
+import { listQueuedMutations } from "../store/mutation-queue.js";
 import { Composer } from "./Composer.js";
 
 /**
@@ -127,6 +128,101 @@ describe("Composer", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  it("blocks Send until there is a plausible recipient (compose-spec: blocking validation)", async () => {
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT]}
+        defaultMailAccountId="acct-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const sendButton = screen.getByRole("button", { name: /Send/ });
+    expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+
+    const toInput = screen.getByLabelText("To recipients");
+    fireEvent.change(toInput, { target: { value: "ada@example.test" } });
+    fireEvent.keyDown(toInput, { key: "Enter" });
+
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: /send/i }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    });
+  });
+
+  it("warns once about an empty subject, then sends and closes to a Pending Send", async () => {
+    const onClose = vi.fn();
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT]}
+        defaultMailAccountId="acct-1"
+        onClose={onClose}
+      />,
+    );
+
+    const toInput = screen.getByLabelText("To recipients");
+    fireEvent.change(toInput, { target: { value: "ada@example.test" } });
+    fireEvent.keyDown(toInput, { key: "Enter" });
+
+    // First press: the warning, not a send (compose-spec's "warn once, then send").
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /send/i })));
+    expect(onClose).not.toHaveBeenCalled();
+    const warned = await waitFor(() => screen.getByRole("button", { name: /Send anyway/ }));
+
+    fireEvent.click(warned);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await waitFor(async () => {
+      expect((await listQueuedMutations("acct-1")).map((mutation) => mutation.intent)).toEqual([
+        { type: "sendComposition", compositionId: "comp-1" },
+      ]);
+    });
+    // The composer closed, but nothing is "sent" locally: the countdown is
+    // the Sync Backend's to report (ADR-0014).
+    const row = await localCache().compositions.get("comp-1");
+    expect(row?.sendState).toBe("queued");
+    expect(row?.submitAfter).toBeNull();
+  });
+
+  it("sends on Cmd/Ctrl+Enter through the same validation as the button", async () => {
+    const onClose = vi.fn();
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT]}
+        defaultMailAccountId="acct-1"
+        onClose={onClose}
+      />,
+    );
+
+    // Blocked: no recipient yet, so the shortcut must do nothing at all.
+    fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+    expect(onClose).not.toHaveBeenCalled();
+
+    const toInput = screen.getByLabelText("To recipients");
+    fireEvent.change(toInput, { target: { value: "ada@example.test" } });
+    fireEvent.keyDown(toInput, { key: "Enter" });
+    fireEvent.change(screen.getByPlaceholderText("Subject"), { target: { value: "Lunch" } });
+
+    // Still an empty body, so the first shortcut press warns like the button.
+    await waitFor(() => screen.getByRole("button", { name: /send/i }));
+    fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+    // Waited on so the send's fire-and-forget write settles before this
+    // test's `afterEach` closes the cache under it.
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toHaveLength(1);
+    });
   });
 
   it("shows the sending Mail Account in the header", () => {

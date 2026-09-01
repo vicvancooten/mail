@@ -32,6 +32,17 @@ export const users = pgTable("users", {
   role: text("role", { enum: ["owner", "member"] })
     .notNull()
     .default("member"),
+  /**
+   * The Undo Send delay in seconds (#46, ADR-0007), User-scoped per
+   * poc-spec.md §Preferences. Lives on this row rather than in a preference
+   * collection because #54 owns that collection and has not landed — it is
+   * the "existing inline default" #54's own ticket says migrates into it.
+   * Server-held rather than sent up with each send: ADR-0007 measures the
+   * delay "from server receipt, never from the Client's clock", so
+   * `submit_after` is this server's to compute. `0` is `off`, which is a
+   * zero-length window, never a bypass of the Pending Send row.
+   */
+  undoSendDelaySeconds: integer("undo_send_delay_seconds").notNull().default(10),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -661,10 +672,12 @@ export const protocolWrites = pgTable(
  * first save it sees for an unknown id, scoped to `mailAccountId` the same
  * way every other per-account table is.
  *
- * `status` only ever holds `draft` at this ticket's scope — the rest of the
- * enum is #46's Pending Send state machine (ADR-0012: "one entity, two
- * states"), reserved here so that ticket is a status transition, not a
- * reshape.
+ * `status` is ADR-0007's state machine over ADR-0012's "one entity, two
+ * states": `draft` while the User is writing, `pending` from the moment a
+ * send is accepted, `submitting` from the sweeper's atomic claim, `sent`
+ * once the `Sent` APPEND lands. A cancel and a permanent rejection both
+ * return the row to `draft` — see `@mail/shared`'s `compositionStatusSchema`
+ * for why, and why `failed` stays reserved rather than written.
  *
  * `document` is the ProseMirror JSON itself (ADR-0013: "a Composition is a
  * structured document, not HTML") — the mail HTML and plaintext alternative
@@ -707,8 +720,35 @@ export const compositions = pgTable(
     /** sha256 of the content last exported — a push is skipped when this still matches (ADR-0012). */
     pushedContentHash: text("pushed_content_hash"),
     lastPushedAt: timestamp("last_pushed_at", { withTimezone: true }),
+    /**
+     * The Pending Send's own columns (#46, ADR-0007). `submitAfter` is the
+     * **absolute** instant the sweeper may claim this row — absolute, so "a
+     * boot-time sweep submits everything due, however long the backend was
+     * down" needs no extra bookkeeping, and so the delay can never be
+     * measured against a Client's clock. Null for a Draft.
+     *
+     * `messageId` is minted by the Sync Backend at claim time and written
+     * **before** anything reaches Nodemailer (compose-spec §Threading
+     * headers), so a transient-failure retry re-uses it rather than minting
+     * a second id for the same mail; the `Sent` APPEND carries the identical
+     * value. `sendAttempts`/`nextAttemptAt` are the transient-retry backoff
+     * ADR-0007 keeps *inside* `submitting`. `sendError` is the SMTP
+     * rejection verbatim, non-null exactly while a Draft wears the "Send
+     * failed" badge (compose-spec §Send-time validation & failure).
+     */
+    submitAfter: timestamp("submit_after", { withTimezone: true }),
+    messageId: text("message_id"),
+    sendAttempts: integer("send_attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    sendError: text("send_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `threads`/`labels` (migration
+    // 0011) — the `Composition` collection (#46) pages exactly the way
+    // theirs do. See `mailAccounts.syncRev`.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
   (table) => [
     index("compositions_account_status_idx").on(table.mailAccountId, table.status),
@@ -717,6 +757,13 @@ export const compositions = pgTable(
     index("compositions_push_pending_idx")
       .on(table.mailAccountId, table.updatedAt)
       .where(sql`${table.status} = 'draft'`),
+    // The send sweeper's due query (`compose/send-sweeper.ts`), across every
+    // account on the instance — deliberately not scoped to one Mail Account,
+    // because a boot-time sweep asks "what is due anywhere".
+    index("compositions_send_due_idx")
+      .on(table.submitAfter)
+      .where(sql`${table.status} in ('pending', 'submitting')`),
+    index("compositions_sync_rev_idx").on(table.mailAccountId, table.syncRev),
   ],
 );
 export type CompositionRow = typeof compositions.$inferSelect;

@@ -1,3 +1,4 @@
+import type { MutationIntent } from "@mail/shared";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { localCache, openLocalCache } from "./local-cache.js";
@@ -9,6 +10,12 @@ import {
 } from "./mutation-queue.js";
 
 const ACCOUNT = "acct-1";
+
+/** Narrows to the Thread-shaped intents this suite queues — the Composition ones (#46) name no Thread. */
+function threadIdOf(intent: MutationIntent): string | undefined {
+  return "threadId" in intent ? intent.threadId : undefined;
+}
+
 let counter = 0;
 const names: string[] = [];
 
@@ -47,9 +54,9 @@ describe("enqueueMutation", () => {
     await enqueueMutation({ type: "setRead", threadId: "t3", read: false }, "acct-1");
 
     const acct1 = await listQueuedMutations("acct-1");
-    expect(acct1.map((mutation) => mutation.intent.threadId)).toEqual(["t1", "t3"]);
+    expect(acct1.map((mutation) => threadIdOf(mutation.intent))).toEqual(["t1", "t3"]);
     const acct2 = await listQueuedMutations("acct-2");
-    expect(acct2.map((mutation) => mutation.intent.threadId)).toEqual(["t2"]);
+    expect(acct2.map((mutation) => threadIdOf(mutation.intent))).toEqual(["t2"]);
   });
 
   it("drops both rows when the exact inverse is queued before it flushes (star, then unstar)", async () => {

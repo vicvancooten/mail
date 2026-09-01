@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   ComposeSaveOutcome,
+  CompositionDelta,
   LabelDelta,
   MailAccountDelta,
   MutationOutcome,
@@ -717,6 +718,371 @@ describe("POST /sync", () => {
           version: 0,
           reason: "mail_account_not_found",
         },
+      ]);
+    });
+  });
+  describe("Composition + the send path (#46, ADR-0007)", () => {
+    /** One `POST /sync` that saves a sendable Composition and asks for the collection back. */
+    async function saveSendableDraft(
+      app: FastifyInstance,
+      cookie: string,
+      accountId: string,
+      id = "comp-1",
+    ) {
+      return app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              Composition: null,
+              composeSaves: [
+                {
+                  id,
+                  saveId: `save-${id}`,
+                  version: 0,
+                  subject: "Lunch",
+                  document: EMPTY_COMPOSE_DOCUMENT,
+                  to: [{ name: null, address: "ada@example.test" }],
+                  cc: [],
+                  bcc: [],
+                },
+              ],
+            },
+          },
+        },
+      });
+    }
+
+    it("serves the Composition collection, so a Draft and its send state reach every device", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const saved = await saveSendableDraft(app, cookie, accountId);
+      const delta = saved.json().mailAccounts[accountId].Composition as CompositionDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({
+        id: "comp-1",
+        status: "draft",
+        subject: "Lunch",
+        submitAfter: null,
+        sendError: null,
+      });
+
+      const unchanged = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { Composition: delta.newState } } },
+      });
+      expect(unchanged.json().mailAccounts).toEqual({});
+    });
+
+    it("reports a send as an update against the token the Client already held", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const saved = await saveSendableDraft(app, cookie, accountId);
+      const bootstrapped = saved.json().mailAccounts[accountId].Composition as CompositionDelta;
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              Composition: bootstrapped.newState,
+              mutations: [
+                { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-1" } },
+              ],
+            },
+          },
+        },
+      });
+
+      // Resuming from a real token, not a bootstrap: this only works because
+      // the row's `sync_rev` advanced when the send transition wrote it, which
+      // is the `compositions_bump_sync_rev` trigger doing its job.
+      const delta = response.json().mailAccounts[accountId].Composition as CompositionDelta;
+      expect(delta.created).toEqual([]);
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({ id: "comp-1", status: "pending" });
+      expect(delta.newState).not.toBe(bootstrapped.newState);
+    });
+
+    it("accepts a send and reports the countdown's absolute deadline in the same round trip", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await saveSendableDraft(app, cookie, accountId);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              Composition: null,
+              mutations: [
+                { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-1" } },
+              ],
+            },
+          },
+        },
+      });
+
+      const body = response.json().mailAccounts[accountId];
+      expect(body.mutations).toEqual([{ id: "01SEND", status: "applied" }]);
+      // ADR-0014: "the countdown starts only when the Sync Backend accepts
+      // it" — and this is the round trip that hands the Client the deadline.
+      const composition = (body.Composition as CompositionDelta).created[0];
+      expect(composition?.status).toBe("pending");
+      expect(composition?.submitAfter).not.toBeNull();
+      // Default delay, 10s (poc-spec.md §Preferences), from the server's clock.
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      const window = (row?.submitAfter?.getTime() ?? 0) - (row?.updatedAt.getTime() ?? 0);
+      expect(window).toBe(10_000);
+    });
+
+    it("sends the content of the autosave that rode the same round trip, not the previous one", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await saveSendableDraft(app, cookie, accountId);
+
+      // What a Send press actually looks like: the composer's final,
+      // un-debounced autosave and the send intent in one request.
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              composeSaves: [
+                {
+                  id: "comp-1",
+                  saveId: "save-final",
+                  version: 1,
+                  subject: "Lunch at one",
+                  document: EMPTY_COMPOSE_DOCUMENT,
+                  to: [{ name: null, address: "ada@example.test" }],
+                  cc: [],
+                  bcc: [],
+                },
+              ],
+              mutations: [
+                { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-1" } },
+              ],
+            },
+          },
+        },
+      });
+
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      expect(row?.status).toBe("pending");
+      expect(row?.subject).toBe("Lunch at one");
+    });
+
+    it("honours the User's own Undo Send delay, including `off` as a zero-length window", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await saveSendableDraft(app, cookie, accountId);
+
+      const patched = await app.inject({
+        method: "PATCH",
+        url: "/send-settings",
+        headers: { cookie },
+        payload: { undoSendDelaySeconds: 0 },
+      });
+      expect(patched.statusCode).toBe(200);
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-1" } },
+              ],
+            },
+          },
+        },
+      });
+
+      // `off` is N = 0: a real Pending Send row that is simply already due.
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      expect(row?.status).toBe("pending");
+      expect(row?.submitAfter?.getTime()).toBe(row?.updatedAt.getTime());
+    });
+
+    it("cancels a Pending Send back to a Draft, content intact", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await saveSendableDraft(app, cookie, accountId);
+
+      const flush = (id: string, intent: unknown) =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            mailAccounts: { [accountId]: { Composition: null, mutations: [{ id, intent }] } },
+          },
+        });
+
+      await flush("01SEND", { type: "sendComposition", compositionId: "comp-1" });
+      const cancelled = await flush("01CANCEL", {
+        type: "cancelSend",
+        compositionId: "comp-1",
+      });
+
+      expect(cancelled.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01CANCEL", status: "applied" },
+      ]);
+      const composition = (cancelled.json().mailAccounts[accountId].Composition as CompositionDelta)
+        .created[0];
+      expect(composition).toMatchObject({ status: "draft", subject: "Lunch", submitAfter: null });
+    });
+
+    it("rejects a cancel that lost the claim as `too_late`", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await saveSendableDraft(app, cookie, accountId);
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-1" } },
+              ],
+            },
+          },
+        },
+      });
+      // The sweeper's claim, taken while the cancel was in flight.
+      await db
+        .update(compositions)
+        .set({ status: "submitting" })
+        .where(eq(compositions.id, "comp-1"));
+
+      const cancelled = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                { id: "01CANCEL", intent: { type: "cancelSend", compositionId: "comp-1" } },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(cancelled.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01CANCEL", status: "rejected", reason: "too_late" },
+      ]);
+    });
+
+    it("is exactly-once: replaying a send intent's id never arms a second Pending Send", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await saveSendableDraft(app, cookie, accountId);
+
+      const send = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            mailAccounts: {
+              [accountId]: {
+                mutations: [
+                  { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-1" } },
+                ],
+              },
+            },
+          },
+        });
+
+      await send();
+      await db
+        .update(compositions)
+        .set({ status: "draft", submitAfter: null })
+        .where(eq(compositions.id, "comp-1"));
+
+      // A replayed id replays its recorded outcome rather than re-applying —
+      // so the Composition the User cancelled is not silently re-armed.
+      const replay = await send();
+      expect(replay.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01SEND", status: "applied" },
+      ]);
+      const [row] = await db.select().from(compositions).where(eq(compositions.id, "comp-1"));
+      expect(row?.status).toBe("draft");
+    });
+
+    it("rejects a send whose Composition has no recipient", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              composeSaves: [
+                {
+                  id: "comp-2",
+                  saveId: "save-comp-2",
+                  version: 0,
+                  subject: "Nobody",
+                  document: EMPTY_COMPOSE_DOCUMENT,
+                  to: [],
+                  cc: [],
+                  bcc: [],
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [
+                { id: "01SEND", intent: { type: "sendComposition", compositionId: "comp-2" } },
+              ],
+            },
+          },
+        },
+      });
+      expect(response.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01SEND", status: "rejected", reason: "no_recipients" },
       ]);
     });
   });

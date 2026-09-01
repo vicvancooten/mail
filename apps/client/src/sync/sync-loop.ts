@@ -78,6 +78,23 @@ export interface SyncLoopHandle {
   stop(): void;
 }
 
+/**
+ * The live loop's `requestSync`, reachable without threading a handle through
+ * the component tree. The Undo Send bar (#46) is what needs it: a send and a
+ * cancel are both worth a round trip *now* rather than on the next 30s tick,
+ * because a 10-second Undo window that takes 30 seconds to start or to
+ * cancel is not an Undo window. #52's SSE Sync Hints call the same seam.
+ *
+ * `null` while no loop is running, and a no-op in a tab that lost the Web
+ * Lock — a follower tab has no loop to wake, and cross-tab wake-up is #52's
+ * leader relay, not this.
+ */
+let activeLoop: SyncLoopHandle | null = null;
+
+export function requestSyncNow(): void {
+  activeLoop?.requestSync();
+}
+
 export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
   const {
     intervalMs = SYNC_INTERVAL_MS,
@@ -137,13 +154,16 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
     { lockName: options.lockName, locks: options.locks },
   );
 
-  return {
+  const handle: SyncLoopHandle = {
     requestSync,
     stop: () => {
+      if (activeLoop === handle) activeLoop = null;
       leader.release();
       wake?.();
     },
   };
+  activeLoop = handle;
+  return handle;
 }
 
 async function runRound(post: PostSync | undefined, onUnauthorized: (() => void) | undefined) {

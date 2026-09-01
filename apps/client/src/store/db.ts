@@ -1,5 +1,6 @@
 import type {
   ComposeDocument,
+  CompositionStatus,
   Label,
   MailAccount,
   MutationIntent,
@@ -27,7 +28,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 3; // #45: new `compositions`/`pendingComposeSaves` stores
+export const CACHE_SCHEMA_VERSION = 4; // #46: `compositions` gains a `status` index for the Pending Send queries
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -108,29 +109,58 @@ export interface SyncStateRow {
 
 /**
  * A Composition (#45, ADR-0014): the Client's own durable copy, held from
- * the first keystroke — not a `base ⊕ pending` overlay the way a Thread is,
- * because nothing but this Client's own composer ever writes one at this
- * ticket's scope, so there is no second writer to reconcile against. `store/
- * compositions.ts` is both its component-facing read and write surface,
- * mirroring `cache-pins.ts`'s "one focused concern, one module" shape rather
- * than `reads.ts`/`mutation-queue.ts`'s split, which exists for Threads to
- * keep a "components never write a base row" line that has nothing to
- * enforce here.
+ * the first keystroke — one row rather than a Thread's `base ⊕ pending`
+ * overlay, because the two writers here own disjoint *fields* rather than
+ * competing for the same ones (the composer owns the content, the Sync
+ * Backend owns the send state), so there is nothing to merge at read time.
+ * `store/compositions.ts` is both its component-facing read and write
+ * surface, mirroring `cache-pins.ts`'s "one focused concern, one module"
+ * shape rather than `reads.ts`/`mutation-queue.ts`'s split, which exists for
+ * Threads to keep a "components never write a base row" line that has
+ * nothing to enforce here.
  *
  * `version` is this Client's last-known server version — `0` before any
- * save has ever been acknowledged. `status` only ever holds `"draft"` at
- * this ticket's scope (#46's Pending Send states are additive later).
+ * save has ever been acknowledged.
+ *
+ * From #46 the row is no longer *only* this Client's: the `Composition`
+ * synced collection writes it too (`store/server-writes.ts`), which is what
+ * makes a Pending Send's countdown visible on every device (ADR-0007).
+ * `status`, `submitAfter`, `sendError` and `sentAt` are therefore
+ * **server-owned** — a Client never predicts them, it waits for them, which
+ * is ADR-0014's "the Undo Send countdown starts only when the Sync Backend
+ * accepts it" expressed as a data rule. `sendState` is this Client's own
+ * optimistic overlay for the gap in between (see below); the content fields
+ * stay Client-owned while an autosave is still queued.
  */
 export interface CachedComposition {
   id: string;
   mailAccountId: string;
-  status: "draft";
+  status: CompositionStatus;
   subject: string;
   document: ComposeDocument;
   to: Recipient[];
   cc: Recipient[];
   bcc: Recipient[];
   version: number;
+  /**
+   * The absolute instant the Sync Backend will submit this Pending Send, as
+   * it reported it. Null for a Draft — and null for a send this Client has
+   * queued but the server has not accepted yet, which is exactly why
+   * `sendState` exists rather than a locally-invented deadline.
+   */
+  submitAfter: string | null;
+  /** The SMTP rejection verbatim, badging this Draft "Send failed" (compose-spec). */
+  sendError: string | null;
+  sentAt: string | null;
+  /**
+   * This Client's own view of a send it has queued but not yet had answered
+   * (ADR-0010's overlay, in the one shape a Composition needs): `queued`
+   * from the moment Send is pressed until the round trip lands, at which
+   * point the server's `status` takes over and this goes back to `null`.
+   * `too_late` records the one rejection the User must be told about — a
+   * cancel that lost to the claim (ADR-0007).
+   */
+  sendState: "queued" | "cancelling" | "too_late" | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -216,7 +246,7 @@ export class LocalCache extends Dexie {
       cachePins: "threadId, mailAccountId",
       syncState: "key",
       pendingMutations: "id, mailAccountId, createdAt, *referencedThreadIds",
-      compositions: "id, mailAccountId",
+      compositions: "id, mailAccountId, status",
       pendingComposeSaves: "compositionId, mailAccountId",
       cacheMeta: "key",
     });

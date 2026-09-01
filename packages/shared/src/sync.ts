@@ -1,16 +1,16 @@
 import { z } from "zod";
-import { composeSaveOutcomeSchema, composeSaveSchema } from "./compose.js";
+import { composeSaveOutcomeSchema, composeSaveSchema, compositionSchema } from "./compose.js";
 import { mailAccountSchema } from "./mail-accounts.js";
 
 /**
  * The one delta endpoint (ADR-0011): `POST /sync` carries a map of
  * `{collection → stateToken}`, scoped per Mail Account plus a set of
  * User-scoped collections, and answers with per-collection
- * `{created, updated, destroyed, newState, hasMore}`. Only `MailAccount`
- * (User-scoped) and `Thread` (per Mail Account) are wired so far — the
- * envelope below is additive-only, so `Label`/`Preference`/`Draft`/etc. land
- * in their own tickets as new optional fields on the same request/response
- * shapes, never a reshape of them.
+ * `{created, updated, destroyed, newState, hasMore}`. `MailAccount` is
+ * User-scoped; `Thread`, `Label` and `Composition` are per Mail Account —
+ * the envelope below is additive-only, so `Preference`/etc. land in their
+ * own tickets as new optional fields on the same request/response shapes,
+ * never a reshape of them.
  *
  * A `stateToken` is opaque to the Client — it round-trips whatever this
  * package hands back and is never constructed or inspected client-side.
@@ -126,6 +126,16 @@ export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
 export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 
 /**
+ * `Composition` (#46, ADR-0007): Drafts and Pending Sends, per Mail Account.
+ * The collection exists so a Pending Send's countdown is "visible and
+ * cancellable from every device the User has open" — see
+ * `compose.ts#compositionSchema` for why the whole document rides it rather
+ * than the send state alone.
+ */
+export const compositionDeltaSchema = collectionDeltaSchema(compositionSchema);
+export type CompositionDelta = z.infer<typeof compositionDeltaSchema>;
+
+/**
  * A requested collection's token. `null` asks for a full bootstrap (the
  * Client holds nothing yet — not the same as a stale/unrecognized token,
  * which the server can also answer with `reset: true`); omitting the key
@@ -167,6 +177,21 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * with no existing Label creates one; removing a name with no effect is a
  * harmless no-op, the same tolerance `archive`/`trash` already have for a
  * Thread that's already in the state being asked for.
+ *
+ * `sendComposition`/`cancelSend` (#46) are the first intents that name a
+ * Composition rather than a Thread. They ride this queue rather than a
+ * dedicated route because ADR-0014 says so directly — "an offline send
+ * queues, and says so ... it becomes a Pending Send intent, and the Undo
+ * Send countdown starts only when the Sync Backend accepts it" — which is
+ * exactly the durable, offline-survivable, idempotent-by-id delivery the
+ * queue already provides. Neither carries a delay: `submit_after` is the
+ * server's to compute from the User's own preference, because ADR-0007
+ * measures the delay "from server receipt, never from the Client's clock".
+ * `cancelSend` is the one intent whose rejection is a *normal* outcome the
+ * User must be told about: a cancel that arrives after
+ * `compose/pending-send.ts`'s atomic claim is rejected `too_late`
+ * (ADR-0007: "a cancel arriving after the claim loses and is reported to
+ * the User as too late").
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
@@ -176,6 +201,8 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setPinned"), threadId: z.string(), pinned: z.boolean() }),
   z.object({ type: z.literal("applyLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("sendComposition"), compositionId: z.string() }),
+  z.object({ type: z.literal("cancelSend"), compositionId: z.string() }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 
@@ -211,6 +238,7 @@ export type MutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
   Label: requestedTokenSchema.optional(),
+  Composition: requestedTokenSchema.optional(),
   /** This account's queue to flush, oldest first. Omitted (never `[]`) when there is nothing queued for it. */
   mutations: z.array(queuedMutationSchema).optional(),
   /**
@@ -250,6 +278,7 @@ export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
   Label: labelDeltaSchema.optional(),
+  Composition: compositionDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
   /** Outcomes in the same order as the request's `composeSaves` array. */

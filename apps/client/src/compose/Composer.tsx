@@ -5,10 +5,18 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearOpenComposerId, writeOpenComposerId } from "../mail/device-preferences.js";
-import { type ComposeContent, saveComposition, useComposition } from "../store/index.js";
+import {
+  type ComposeContent,
+  saveComposition,
+  sendComposition,
+  useComposition,
+} from "../store/index.js";
+import { requestSyncNow } from "../sync/sync-loop.js";
 import { ComposeBubbleMenu, ComposeToolbar, insertLink } from "./ComposeToolbar.js";
 import { composeEditorExtensions } from "./editor-extensions.js";
 import { RecipientField } from "./RecipientField.js";
+import { SendControl } from "./SendControl.js";
+import { validateSend } from "./send-validation.js";
 import "./compose.css";
 
 /** The Client's own local-write debounce (distinct from the backend's ~30s idle push, ADR-0012). */
@@ -27,10 +35,13 @@ export interface ComposerProps {
  * time, bottom-right, expandable to full screen. `Esc` closes to a Draft —
  * it never discards, so closing is just unmounting after a final, immediate
  * autosave flush (a debounced write mid-flight must not be lost to the
- * unmount race). Discard, the sending-Mail-Account switcher, and Send
- * itself are out of this ticket's scope (compose-spec's Discard button
- * needs #46's Pending Send lifecycle; Send needs #46's SMTP submission) —
- * `Cmd/Ctrl+Enter` is wired but a no-op until #46 lands.
+ * unmount race).
+ *
+ * Send (#46) closes the composer the same way `Esc` does — the Composition
+ * lives on as a Pending Send, and its countdown belongs to `PendingSendBar`,
+ * which renders outside any composer precisely because the send survives this
+ * component (and this device) being gone. The sending-Mail-Account switcher
+ * and the explicit Discard button are still out of scope (#47, #48).
  */
 export function Composer({
   compositionId,
@@ -47,6 +58,9 @@ export function Composer({
   const [bcc, setBcc] = useState<Recipient[]>([]);
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // compose-spec's "warn once, then send" — scoped to this composer, so the
+  // warning is about *this* mail and never carried into the next one.
+  const [warned, setWarned] = useState(false);
 
   const editor = useEditor({
     extensions: composeEditorExtensions("Write something…"),
@@ -118,6 +132,35 @@ export function Composer({
     };
   }, [editor, scheduleAutosave]);
 
+  const verdict = useMemo(
+    () => validateSend({ to, cc, bcc, subject, bodyIsEmpty: editor?.isEmpty ?? true }),
+    [to, cc, bcc, subject, editor?.isEmpty],
+  );
+
+  /**
+   * Send: one final content write, one `sendComposition` intent, and the
+   * composer closes. `requestSyncNow()` is what makes the Undo window start
+   * within a beat rather than on the next 30s poll — the intent is durable
+   * either way, this only asks for it to go now.
+   *
+   * The verdict gate is here rather than in the button so `Cmd/Ctrl+Enter`
+   * obeys the same blocking and warn-once rules.
+   */
+  const send = useCallback(() => {
+    if (verdict.kind === "blocked") return;
+    if (verdict.kind === "warn" && !warned) {
+      setWarned(true);
+      return;
+    }
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    void sendComposition(compositionId, mailAccountId, currentContent()).then(requestSyncNow);
+    clearOpenComposerId();
+    onClose();
+  }, [verdict, warned, compositionId, mailAccountId, currentContent, onClose]);
+
   const flushAndClose = useCallback(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
@@ -144,9 +187,8 @@ export function Composer({
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        // Send is #46's (Pending Send, Undo Send, SMTP submission) — wired
-        // here so the binding exists and does nothing destructive yet.
         event.preventDefault();
+        send();
       }
     }
     // The composer owns every key while it is mounted (compose-spec):
@@ -154,7 +196,7 @@ export function Composer({
     // additionally suppressed via `shortcutsDisabled` while this is open.
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [flushAndClose, editor]);
+  }, [flushAndClose, editor, send]);
 
   const fromAddress = useMemo(
     () => mailAccounts.find((account) => account.id === mailAccountId)?.emailAddress ?? "",
@@ -215,6 +257,8 @@ export function Composer({
       <div className="composer-body">
         <EditorContent editor={editor} />
       </div>
+
+      <SendControl verdict={verdict} acknowledged={warned} onSend={send} />
     </div>
   );
 }

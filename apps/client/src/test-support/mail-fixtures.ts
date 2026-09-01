@@ -1,4 +1,5 @@
-import type { CollectionDelta, Label, MailAccount, Thread } from "@mail/shared";
+import type { CollectionDelta, Composition, Label, MailAccount, Thread } from "@mail/shared";
+import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 
 /** Builders for the `POST /sync` wire shapes, so a test states only the field it is about. */
 
@@ -71,4 +72,29 @@ export function delta<Payload>(overrides: Partial<CollectionDelta<Payload>> = {}
     hasMore: false,
     ...overrides,
   } satisfies CollectionDelta<Payload>;
+}
+
+/** A wire `Composition` (#46) — a Draft by default; overrides carry it into a send state. */
+export function makeComposition(
+  id: string,
+  mailAccountId: string,
+  overrides: Partial<Composition> = {},
+): Composition {
+  return {
+    id,
+    mailAccountId,
+    status: "draft",
+    subject: `subject ${id}`,
+    document: EMPTY_COMPOSE_DOCUMENT,
+    to: [{ name: null, address: "ada@example.test" }],
+    cc: [],
+    bcc: [],
+    version: 1,
+    submitAfter: null,
+    sendError: null,
+    messageId: null,
+    sentAt: null,
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
 }
