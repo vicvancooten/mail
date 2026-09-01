@@ -108,6 +108,10 @@ jobs:
       MAIL_VERSION: ${{ needs.docker.outputs.sha_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Rollback below re-pins to the previous commit's already-published
+          # sha tag, which needs HEAD~1 to be resolvable.
+          fetch-depth: 2
 
       - uses: docker/login-action@v3
         with:
@@ -162,8 +166,17 @@ jobs:
           done
           exit 1
 
+      - id: rollback-target
+        name: Resolve the last-known-good sha tag (README.md#rolling-back)
+        run: echo "value=sha-$(git rev-parse --short HEAD~1)" >> "$GITHUB_OUTPUT"
+
       - name: Exercise rollback (re-pin the immutable sha tag)
+        env:
+          # Genuinely different from the sha tag published this run: the
+          # previous commit's own immutable sha tag, already sitting in GHCR.
+          MAIL_VERSION: ${{ steps.rollback-target.outputs.value }}
         run: |
+          docker compose pull
           docker compose up -d
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/healthz; then exit 0; fi
