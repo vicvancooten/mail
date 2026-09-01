@@ -3,6 +3,7 @@ import { createDb, type Db } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
 import {
   appliedMutations,
+  attachmentBlobs,
   claimTokens,
   composeSaveLedger,
   compositions,
@@ -58,6 +59,7 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(appliedMutations);
   await db.delete(composeSaveLedger);
+  await db.delete(attachmentBlobs);
   await db.delete(compositions);
   await db.delete(protocolWrites);
   await db.delete(messages);

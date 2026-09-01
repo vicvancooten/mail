@@ -118,6 +118,25 @@ describe("serializeComposeHtml", () => {
     expect(html).toContain("height:auto");
   });
 
+  it("rewrites an inline (pasted) image's preview URL to cid: at MIME-build time (#48)", () => {
+    const doc: ComposeDocument = {
+      type: "doc",
+      content: [
+        {
+          type: "image",
+          attrs: {
+            src: "/compositions/comp-1/attachments/att-1",
+            contentId: "att-1@mail.local",
+            alt: "a screenshot",
+          },
+        },
+      ],
+    };
+    const html = serializeComposeHtml(doc);
+    expect(html).toContain('src="cid:att-1@mail.local"');
+    expect(html).not.toContain("/compositions/comp-1/attachments/att-1");
+  });
+
   it("escapes text content", () => {
     const doc: ComposeDocument = {
       type: "doc",

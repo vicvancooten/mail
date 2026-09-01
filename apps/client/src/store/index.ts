@@ -20,6 +20,8 @@ export {
   type ComposeContent,
   EMPTY_COMPOSE_CONTENT,
   newCompositionId,
+  recordAttachmentRemoved,
+  recordAttachmentUploaded,
   requestCancelSend,
   saveComposition,
   sendComposition,

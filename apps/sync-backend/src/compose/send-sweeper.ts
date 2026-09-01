@@ -6,6 +6,7 @@ import { type CompositionRow, compositions } from "../db/schema.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { withMailAccountConnection } from "../sync/imap-connection.js";
+import { deleteBlobsForComposition } from "./blob-store.js";
 import {
   claimSend,
   dueSendCandidateIds,
@@ -79,7 +80,7 @@ export async function sweepOne(
   // this sweep's mail.
   if (!row) return "skipped";
 
-  const result = await submitComposition(account, row, {
+  const result = await submitComposition(db, account, row, {
     credentialKey: options.credentialKey,
     sendMail: options.sendMail,
     now,
@@ -121,11 +122,11 @@ export async function sweepOne(
 }
 
 /**
- * `APPEND` to the account's `Sent` folder and expunge the IMAP draft copy
- * over one connection this function owns — ADR-0012's "the IMAP draft copy
- * is expunged in that same step" as the `Sent` APPEND. (Attachment blobs are
- * the third thing that step drops; there is no Blob Store until #48, so
- * there is nothing yet to drop.)
+ * `APPEND` to the account's `Sent` folder, expunge the IMAP draft copy, and
+ * drop the Composition's attachment blobs — all three over one connection
+ * this function owns, in the same step (ADR-0012's lifecycle: "blobs are
+ * deleted once the `Sent` `APPEND` succeeds, and the IMAP draft copy is
+ * expunged in that same step").
  *
  * Folder discovery degrades rather than creates, exactly as the draft push
  * does: an account with no `Sent` folder simply gets no copy, and Mail never
@@ -150,6 +151,7 @@ export function imapSentWriter(db: Db, credentialKey: Buffer): AppendToSent {
       }
       await expungeDraftCopy(db, client, row);
     });
+    await deleteBlobsForComposition(db, row.id);
   };
 }
 

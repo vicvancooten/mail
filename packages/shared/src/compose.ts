@@ -210,6 +210,57 @@ export const IN_FLIGHT_COMPOSITION_STATUSES: readonly CompositionStatus[] = [
 ];
 
 /**
+ * An attachment's disposition (#48, ADR-0012): `attachment` for anything
+ * dropped or picked, `inline` for an image pasted into the body — carries a
+ * `contentId` either way so the mail serialiser can rewrite an inline
+ * image's `src` to `cid:` at MIME-build time (`compose/mail-serializer.ts`),
+ * while the editor keeps previewing it from the Blob Store's own download
+ * route. The per-image toggle compose-spec describes just flips this field.
+ */
+export const attachmentDispositionSchema = z.enum(["attachment", "inline"]);
+export type AttachmentDisposition = z.infer<typeof attachmentDispositionSchema>;
+
+/**
+ * One attachment's metadata as it rides the `Composition` (ADR-0012: "a
+ * single Composition row carries ... attachment references"). The bytes
+ * themselves never leave the Blob Store except through the download route —
+ * this is only what the composer needs to render a row and what the mail
+ * serialiser needs to build a MIME part.
+ */
+export const attachmentMetaSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  disposition: attachmentDispositionSchema,
+  /** Non-null exactly when `disposition` is `inline` — what an authored `cid:` reference resolves against. */
+  contentId: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type AttachmentMeta = z.infer<typeof attachmentMetaSchema>;
+
+/**
+ * The instance-level attachment budget (ADR-0012: "size limits are
+ * instance-level config, defaulting to 25MB of encoded message size"),
+ * served by `GET /compose-config` so the Client can enforce it live at
+ * selection without a round trip per file.
+ */
+export const composeConfigSchema = z.object({
+  attachmentBudgetEncodedBytes: z.number().int().positive(),
+});
+export type ComposeConfig = z.infer<typeof composeConfigSchema>;
+
+/**
+ * Base64's 3-bytes-in/4-chars-out inflation (compose-spec: "25MB encoded ≈
+ * 18MB of files") — the one formula the Client's live budget check and the
+ * Sync Backend's own re-check both run, so the two can never disagree about
+ * what "encoded size" means.
+ */
+export function encodedByteSize(rawBytes: number): number {
+  return Math.ceil(rawBytes / 3) * 4;
+}
+
+/**
  * The wire projection of a Composition (#46): the `Composition` collection
  * ADR-0011's `/sync` serves per Mail Account, which is what makes a Pending
  * Send "visible and cancellable from every device the User has open"
@@ -245,5 +296,7 @@ export const compositionSchema = z.object({
   messageId: z.string().nullable(),
   sentAt: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime(),
+  /** The Blob Store's references for this Composition (#48) — metadata only, never bytes. */
+  attachments: z.array(attachmentMetaSchema),
 });
 export type Composition = z.infer<typeof compositionSchema>;

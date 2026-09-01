@@ -1,4 +1,5 @@
 import type {
+  AttachmentMeta,
   ComposeDocument,
   ComposeNode,
   ComposeSave,
@@ -68,6 +69,7 @@ export async function saveComposition(
   id: string,
   mailAccountId: string,
   content: ComposeContent,
+  options: { force?: boolean } = {},
 ): Promise<void> {
   const db = localCache();
   const now = new Date().toISOString();
@@ -76,8 +78,12 @@ export async function saveComposition(
     // ADR-0012: "created lazily on first content." A composer opened and
     // closed without a keystroke must leave nothing behind — an *existing*
     // row is still written through even if the User deletes everything back
-    // to blank, since that is an ordinary edit, not a creation.
-    if (!existing && isComposeContentEmpty(content)) return;
+    // to blank, since that is an ordinary edit, not a creation. `force`
+    // (compose-spec: "the Composition row is created lazily on first
+    // content — keystroke or attach") is `store/attachments.ts`'s own way of
+    // taking the same "first content" branch for an attach with no keystroke
+    // behind it yet.
+    if (!existing && !options.force && isComposeContentEmpty(content)) return;
     const row: CachedComposition = {
       id,
       mailAccountId,
@@ -89,6 +95,7 @@ export async function saveComposition(
       sendError: existing?.sendError ?? null,
       sentAt: existing?.sentAt ?? null,
       sendState: existing?.sendState ?? null,
+      attachments: existing?.attachments ?? [],
       ...content,
       version: existing?.version ?? 0,
       createdAt: existing?.createdAt ?? now,
@@ -203,6 +210,39 @@ export async function resolveComposeSaveOutcomes(
       if (save) notifyConflict({ mailAccountId, compositionId: outcome.id });
     }
   }
+}
+
+/**
+ * Writes one just-uploaded attachment's metadata into the Composition's row
+ * directly (#48) — an optimistic mirror of what `putBlob` already committed
+ * server-side, so the row the composer just attached to shows up
+ * immediately rather than waiting for the next sync round to confirm it.
+ * `server-writes.ts#mergeComposition` later overwrites `attachments`
+ * wholesale from the wire anyway, so this can never drift permanently even
+ * if the optimistic write and the delta briefly disagree.
+ */
+export async function recordAttachmentUploaded(
+  compositionId: string,
+  meta: AttachmentMeta,
+): Promise<void> {
+  const db = localCache();
+  const row = await db.compositions.get(compositionId);
+  if (!row) return;
+  await db.compositions.put({ ...row, attachments: [...row.attachments, meta] });
+}
+
+/** The mirror of `recordAttachmentUploaded`, for a Remove button's own optimistic update. */
+export async function recordAttachmentRemoved(
+  compositionId: string,
+  attachmentId: string,
+): Promise<void> {
+  const db = localCache();
+  const row = await db.compositions.get(compositionId);
+  if (!row) return;
+  await db.compositions.put({
+    ...row,
+    attachments: row.attachments.filter((entry) => entry.id !== attachmentId),
+  });
 }
 
 /** Whether a save carries nothing worth creating a Composition for (ADR-0012: "created lazily on first content"). */

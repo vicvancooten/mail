@@ -6,7 +6,9 @@ import authPlugin from "./auth/plugin.js";
 import type { Db } from "./db/client.js";
 import type { discoverMailAccount } from "./mail-accounts/autodiscover.js";
 import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
+import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
+import { composeConfigRoutes } from "./routes/compose-config.js";
 import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
@@ -15,6 +17,9 @@ import { sendSettingsRoutes } from "./routes/send-settings.js";
 import { syncRoutes } from "./routes/sync.js";
 import { totpRoutes } from "./routes/totp.js";
 import { noopSyncManager, type SyncManager } from "./sync/manager.js";
+
+/** ADR-0012's default: 25MB of encoded message size, matching `env.ts`'s own default. */
+const DEFAULT_ATTACHMENT_BUDGET_BYTES = 25 * 1024 * 1024;
 
 // Populated by the Docker build (ADR-0009: one image, Client bundle and API
 // ship together so a fresh load can never skew). Absent in local dev, where
@@ -47,6 +52,8 @@ export interface BuildAppOptions {
    * the only real caller that wires in `createSyncManager`'s live one.
    */
   syncManager?: SyncManager;
+  /** ADR-0012's instance-level attachment budget, in encoded bytes. Defaults for tests that never touch #48. */
+  attachmentBudgetBytes?: number;
 }
 
 export function buildApp({
@@ -56,12 +63,21 @@ export function buildApp({
   mailAccountVerify,
   mailAccountDiscover,
   syncManager = noopSyncManager,
+  attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
 }: BuildAppOptions) {
   const app = Fastify({
     // Vitest sets NODE_ENV=test; quiet request logging there so the growing
     // pile of integration tests doesn't drown its own assertions in output.
     logger: process.env.NODE_ENV !== "test",
     trustProxy: true, // operator brings their own reverse proxy (ADR-0009)
+  });
+
+  // An attachment upload (`routes/attachments.ts`) is raw bytes of whatever
+  // mime type the file is, not JSON — the one route on this app that isn't.
+  // Fastify's built-in JSON/text parsers still win on an exact
+  // Content-Type match, so this only ever catches what nothing else claims.
+  app.addContentTypeParser("*", { parseAs: "buffer" }, (_request, payload, done) => {
+    done(null, payload);
   });
 
   app.register(authPlugin, { db, publicUrl });
@@ -79,6 +95,8 @@ export function buildApp({
   app.register(syncRoutes, { db });
   app.register(sendSettingsRoutes, { db });
   app.register(messageRoutes, { db, mailCredentialKey });
+  app.register(composeConfigRoutes, { attachmentBudgetBytes });
+  app.register(attachmentRoutes, { db, attachmentBudgetBytes });
 
   if (existsSync(publicDir)) {
     app.register(fastifyStatic, { root: publicDir });

@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import type Mail from "nodemailer/lib/mailer/index.js";
+import type { Db } from "../db/client.js";
 import type { CompositionRow } from "../db/schema.js";
 import { unsealPasswordCredential } from "../mail-accounts/credential-crypto.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
@@ -66,6 +67,7 @@ export interface SubmitOptions {
  * sent in every respect a recipient could observe.
  */
 export async function submitComposition(
+  db: Db,
   account: MailAccountRow,
   row: CompositionRow,
   { credentialKey, sendMail, now = new Date() }: SubmitOptions,
@@ -79,11 +81,11 @@ export async function submitComposition(
   }
 
   const transmitted: Mail.Options = {
-    ...composeMailOptions(row, account.emailAddress, {
+    ...(await composeMailOptions(db, row, account.emailAddress, {
       messageId,
       date: now,
       includeBcc: false,
-    }),
+    })),
     envelope: { from: account.emailAddress, to: envelopeRecipients },
   };
 
@@ -102,7 +104,11 @@ export async function submitComposition(
   }
 
   const sentCopy = await buildMime(
-    composeMailOptions(row, account.emailAddress, { messageId, date: now, includeBcc: true }),
+    await composeMailOptions(db, row, account.emailAddress, {
+      messageId,
+      date: now,
+      includeBcc: true,
+    }),
     true,
   );
   return { ok: true, mime: sentCopy };

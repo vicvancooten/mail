@@ -59,5 +59,6 @@ export function toWireComposition(row: CompositionRow): Composition {
     messageId: row.messageId,
     sentAt: row.sentAt?.toISOString() ?? null,
     updatedAt: row.updatedAt.toISOString(),
+    attachments: row.attachments,
   };
 }

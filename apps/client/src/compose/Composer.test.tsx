@@ -1,10 +1,33 @@
-import type { MailAccount } from "@mail/shared";
+import type { AttachmentMeta, MailAccount } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations } from "../store/mutation-queue.js";
 import { Composer } from "./Composer.js";
+
+/**
+ * #48's own two acceptance lines that need the network mocked to observe:
+ * an upload in flight disables Send, and the attached file shows up once it
+ * resolves. `attachment-budget.test.ts` and `Attachments.test.tsx` cover the
+ * budget math and the row rendering without going through `Composer` at all.
+ */
+let uploadCalled = false;
+let resolveFn: (meta: AttachmentMeta) => void = () => {};
+vi.mock("../api/attachments.js", () => ({
+  fetchComposeConfig: vi.fn(async () => ({ attachmentBudgetEncodedBytes: 25 * 1024 * 1024 })),
+  uploadAttachment: vi.fn(
+    () =>
+      new Promise<AttachmentMeta>((resolve) => {
+        uploadCalled = true;
+        resolveFn = resolve;
+      }),
+  ),
+  deleteAttachment: vi.fn(async () => {}),
+  attachmentUrl: (compositionId: string, attachmentId: string) =>
+    `/compositions/${compositionId}/attachments/${attachmentId}`,
+  AttachmentBudgetExceededError: class AttachmentBudgetExceededError extends Error {},
+}));
 
 /**
  * The composer's own acceptance lines (compose-spec §Composer surface &
@@ -235,5 +258,53 @@ describe("Composer", () => {
       />,
     );
     expect(screen.getByTitle("vic@example.test")).not.toBeNull();
+  });
+
+  it("disables Send while a dropped file is uploading, and re-enables once it resolves (#48)", async () => {
+    uploadCalled = false;
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT]}
+        defaultMailAccountId="acct-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const toInput = screen.getByLabelText("To recipients");
+    fireEvent.change(toInput, { target: { value: "ada@example.test" } });
+    fireEvent.keyDown(toInput, { key: "Enter" });
+    await waitFor(() => screen.getByRole("button", { name: /send/i }));
+
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    fireEvent.drop(screen.getByRole("dialog", { name: "New message" }), {
+      dataTransfer: { files: [file] },
+    });
+
+    await waitFor(() => {
+      const button = screen.getByRole("button", { name: /^send$/i }) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.title).toBe("Uploading…");
+    });
+
+    expect(uploadCalled).toBe(true);
+    resolveFn({
+      id: "att-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 5,
+      disposition: "attachment",
+      contentId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    // Once the upload resolves `uploading` clears, but this composer still
+    // has an empty subject and body, so the verdict becomes `warn` rather
+    // than `ready` — the button's own label changes with it. What matters
+    // here is only that it is no longer disabled for the uploading reason.
+    await waitFor(() => {
+      const button = document.querySelector(".composer-send-button") as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+    });
   });
 });

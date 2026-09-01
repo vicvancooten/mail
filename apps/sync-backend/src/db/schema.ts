@@ -1,8 +1,9 @@
-import type { ComposeDocument, Recipient } from "@mail/shared";
+import type { AttachmentMeta, ComposeDocument, Recipient } from "@mail/shared";
 import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -13,6 +14,18 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { MailAccountCredential } from "../mail-accounts/credential-crypto.js";
+
+/**
+ * Postgres `bytea` (ADR-0012's Blob Store): drizzle-orm has no first-class
+ * column for it, so this is the one `customType` in the schema. `postgres`
+ * (the driver `db/client.ts` builds on) already serialises/parses a `Buffer`
+ * as `bytea` by default — this only has to name the Postgres-side type.
+ */
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 /**
  * A User signed in to this instance (CONTEXT.md). Exactly one Owner is
@@ -721,6 +734,17 @@ export const compositions = pgTable(
     pushedContentHash: text("pushed_content_hash"),
     lastPushedAt: timestamp("last_pushed_at", { withTimezone: true }),
     /**
+     * The Blob Store's references for this Composition (#48, ADR-0012:
+     * "attachment references"), metadata only — the bytes live in
+     * `attachment_blobs`, keyed by each entry's own `id`. Neither
+     * `compose/compose-store.ts#applySave` nor an ordinary autosave ever
+     * writes this column; only `compose/blob-store.ts` does, on upload and
+     * on delete, which is also what bumps `syncRev` (via the shared
+     * `bump_sync_rev` trigger) so an attachment change reaches every device
+     * the same way a content edit does.
+     */
+    attachments: jsonb("attachments").$type<AttachmentMeta[]>().notNull().default([]),
+    /**
      * The Pending Send's own columns (#46, ADR-0007). `submitAfter` is the
      * **absolute** instant the sweeper may claim this row — absolute, so "a
      * boot-time sweep submits everything due, however long the backend was
@@ -792,3 +816,36 @@ export const composeSaveLedger = pgTable(
   },
   (table) => [index("compose_save_ledger_composition_idx").on(table.compositionId)],
 );
+
+/**
+ * The Blob Store (#48, ADR-0012): one attachment's bytes, `bytea` behind the
+ * narrow put/get/delete-by-id seam `compose/blob-store.ts` is. `id` is
+ * server-minted at upload time (never Client-generated the way a
+ * Composition's own id is) — it is also the seam's own natural key, and
+ * `compositions.attachments` carries it as each entry's `id`.
+ *
+ * `compositionId` is `NOT NULL` with `onDelete: "cascade"` **on purpose**:
+ * ADR-0012 names a 24h sweeper for "blobs with no parent Composition" as the
+ * general Blob Store design's cleanup mechanism, but this table's own FK
+ * makes that class of orphan structurally impossible instead — a blob is
+ * never insertable without a Composition row already behind it (the upload
+ * route creates one lazily first, the same "created lazily on first
+ * content" path autosave uses), and deleting a Composition deletes its
+ * blobs in the same statement, no sweeper required. An abandoned
+ * attach-then-never-sent composer is simply a Draft with an attachment
+ * forever, which is exactly what "Drafts never auto-expire" already says is
+ * fine.
+ */
+export const attachmentBlobs = pgTable(
+  "attachment_blobs",
+  {
+    id: text("id").primaryKey(),
+    compositionId: text("composition_id")
+      .notNull()
+      .references(() => compositions.id, { onDelete: "cascade" }),
+    bytes: bytea("bytes").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("attachment_blobs_composition_idx").on(table.compositionId)],
+);
+export type AttachmentBlobRow = typeof attachmentBlobs.$inferSelect;

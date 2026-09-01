@@ -4,14 +4,15 @@ import { eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { compositions, folders } from "../db/schema.js";
+import { attachmentBlobs, compositions, folders } from "../db/schema.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById, type MailAccountRow } from "../mail-accounts/store.js";
 import { pushDraftsForAccount } from "../sync/draft-push.js";
 import { connectMailAccount } from "../sync/imap-connection.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
-import { acceptSend } from "./pending-send.js";
+import { putBlob } from "./blob-store.js";
+import { acceptSend, cancelSend } from "./pending-send.js";
 import { imapSentWriter, sweepDueSends } from "./send-sweeper.js";
 
 /**
@@ -151,6 +152,72 @@ describe("the send path against GreenMail", () => {
     expect(delivered).toHaveLength(1);
     expect(delivered[0]).toContain(`<${mintedId}>`);
     expect(delivered[0]).not.toMatch(/^Bcc:/m);
+  });
+
+  it("carries three dropped attachments intact over real SMTP, and drops the blobs once sent (#48)", async () => {
+    const o = await connectOther();
+    await seedFolder(o, "Sent", "sent");
+    const id = await insertSend(0, "Three files attached");
+
+    for (const file of [
+      { filename: "report.pdf", mimeType: "application/pdf", bytes: Buffer.from("%PDF-1.4 fake") },
+      {
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("hello from a text file"),
+      },
+      { filename: "photo.png", mimeType: "image/png", bytes: Buffer.from("fake png bytes") },
+    ]) {
+      const result = await putBlob(db, {
+        compositionId: id,
+        mailAccountId: account.id,
+        bytes: file.bytes,
+        filename: file.filename,
+        mimeType: file.mimeType,
+        disposition: "attachment",
+        budgetBytes: 25 * 1024 * 1024,
+      });
+      expect(result.ok).toBe(true);
+    }
+    expect(await db.select().from(attachmentBlobs)).toHaveLength(3);
+
+    expect(await realSweep()).toMatchObject({ sent: 1 });
+
+    const sent = await sourcesIn(o, "Sent");
+    expect(sent).toHaveLength(1);
+    const mime = sent[0] ?? "";
+    expect(mime).toMatch(/Content-Type:\s*multipart\/mixed/i);
+    expect(mime).toContain("filename=report.pdf");
+    expect(mime).toContain("filename=notes.txt");
+    expect(mime).toContain("filename=photo.png");
+    // Base64-decodable proof the bytes themselves made the trip, not just the filenames.
+    expect(mime).toContain(Buffer.from("hello from a text file").toString("base64"));
+
+    // ADR-0012's lifecycle: blobs are gone from Postgres once the send succeeds.
+    expect(await db.select().from(attachmentBlobs)).toEqual([]);
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id));
+    expect(row?.status).toBe("sent");
+  });
+
+  it("keeps the blobs with the Draft when a send is cancelled instead of completed (#48)", async () => {
+    const id = await insertSend(30, "Cancel me");
+    const result = await putBlob(db, {
+      compositionId: id,
+      mailAccountId: account.id,
+      bytes: Buffer.from("keep me"),
+      filename: "keep.txt",
+      mimeType: "text/plain",
+      disposition: "attachment",
+      budgetBytes: 25 * 1024 * 1024,
+    });
+    expect(result.ok).toBe(true);
+
+    expect(await cancelSend(db, account.id, id)).toEqual({ status: "cancelled" });
+
+    expect(await db.select().from(attachmentBlobs)).toHaveLength(1);
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id));
+    expect(row?.status).toBe("draft");
+    expect(row?.attachments).toHaveLength(1);
   });
 
   it("expunges the draft's IMAP copy in the same step that APPENDs to Sent (ADR-0012)", async () => {

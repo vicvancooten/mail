@@ -32,6 +32,7 @@ const app = buildApp({
   publicUrl: env.PUBLIC_URL,
   mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
   syncManager,
+  attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
 });
 
 // One-time first-run claim token, printed to the logs (ADR-0009 deployment).

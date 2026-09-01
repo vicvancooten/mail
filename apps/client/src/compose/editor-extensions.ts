@@ -42,7 +42,24 @@ export function composeEditorExtensions(placeholder: string): AnyExtension[] {
     TaskList,
     TaskItem.configure({ nested: false }),
     TableKit.configure({ table: { resizable: false } }),
-    Image,
+    ComposeImage,
     Placeholder.configure({ placeholder }),
   ];
 }
+
+/**
+ * `Image` widened with the two attrs an inline (pasted) attachment needs
+ * (#48): `attachmentId` for the Remove/toggle UI to address the Blob Store
+ * entry, `contentId` for `compose/mail-serializer.ts` to rewrite `src` to
+ * `cid:` at MIME-build time. Both `null` for a plain (non-attachment) image
+ * node, which keeps every existing image untouched.
+ */
+const ComposeImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      attachmentId: { default: null },
+      contentId: { default: null },
+    };
+  },
+});

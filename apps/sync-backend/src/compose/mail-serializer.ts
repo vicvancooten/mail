@@ -76,7 +76,16 @@ function renderBlockHtml(node: ComposeNode): string {
       );
 
     case "image": {
-      const src = typeof node.attrs?.src === "string" ? node.attrs.src : "";
+      // An inline (pasted) image's `src` is the composer's own preview URL
+      // (the Blob Store's download route) — outgoing mail must reference it
+      // as `cid:` instead, which is what `contentId` (#48) carries whenever
+      // this node points at an inline attachment rather than a plain URL.
+      const contentId = typeof node.attrs?.contentId === "string" ? node.attrs.contentId : null;
+      const src = contentId
+        ? `cid:${contentId}`
+        : typeof node.attrs?.src === "string"
+          ? node.attrs.src
+          : "";
       const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt : "";
       if (!src) return "";
       return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}" style="max-width:100%;height:auto;" />`;
