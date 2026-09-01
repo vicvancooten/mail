@@ -22,6 +22,7 @@ const ALTERNATIVE_WITH_ATTACHMENT: MessageStructureObject = {
       size: 51_200,
       disposition: "attachment",
       dispositionParameters: { filename: "invoice.pdf" },
+      encoding: "BASE64",
     },
     {
       part: "3",
@@ -55,6 +56,9 @@ describe("readBodyParts", () => {
         sizeBytes: 51_200,
         contentId: null,
         inline: false,
+        // Lowercased from BODYSTRUCTURE's "BASE64" — the fetch-through
+        // download decodes against this value (`routes/messages.ts`).
+        encoding: "base64",
       },
       {
         part: "3",
@@ -64,6 +68,9 @@ describe("readBodyParts", () => {
         // Brackets off, per RFC 2392, so a `cid:` href matches it directly.
         contentId: "logo@example.test",
         inline: true,
+        // No encoding declared on this fixture node — falls back to null
+        // rather than throwing, since a caller decodes 7bit/8bit as-is.
+        encoding: null,
       },
     ]);
   });

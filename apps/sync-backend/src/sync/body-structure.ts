@@ -68,6 +68,7 @@ function walk(node: MessageStructureObject, result: MessageBodyParts, isRoot: bo
     // RFC 2392: a `cid:` URL references this value with the brackets off.
     contentId: node.id ? node.id.replace(/^<|>$/g, "") : null,
     inline: disposition === "inline" || (disposition !== "attachment" && node.id !== undefined),
+    encoding: node.encoding ? node.encoding.toLowerCase() : null,
   });
 }
 
@@ -79,12 +80,18 @@ function readFilename(node: MessageStructureObject): string | null {
 }
 
 /**
- * Whether a message should show the attachment pill. An inline part that
- * carries a `Content-ID` only exists to satisfy a `cid:` reference in the
- * body, and counting those would put a paperclip on every HTML newsletter.
- * An inline part with no `Content-ID` is what Apple Mail sends when a User
- * drops a file into the body — a real attachment, and counted.
+ * Whether one attachment is a real, User-facing file rather than a `cid:`
+ * body reference's backing part. An inline part that carries a `Content-ID`
+ * only exists to satisfy a `cid:` reference in the body, and counting those
+ * would put a paperclip — or an attachment-panel entry (#41) — on every HTML
+ * newsletter. An inline part with no `Content-ID` is what Apple Mail sends
+ * when a User drops a file into the body — a real attachment, and counted.
  */
+export function isRealAttachment(attachment: MessageAttachment): boolean {
+  return !attachment.inline || attachment.contentId === null;
+}
+
+/** Whether a message should show the attachment pill — see `isRealAttachment`. */
 export function hasRealAttachments(attachments: MessageAttachment[]): boolean {
-  return attachments.some((attachment) => !attachment.inline || attachment.contentId === null);
+  return attachments.some(isRealAttachment);
 }
