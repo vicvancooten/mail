@@ -107,7 +107,7 @@ async function pushOne(
   fromAddress: string,
 ): Promise<void> {
   const hash = computeContentHash(row);
-  const mime = await buildDraftMime(row, fromAddress);
+  const mime = await buildDraftMime(db, row, fromAddress);
 
   const previousUid =
     row.imapDraftUid !== null && (await uidStillExists(client, row.imapDraftUid))

@@ -1,7 +1,9 @@
 import type { Recipient } from "@mail/shared";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
 import type Mail from "nodemailer/lib/mailer/index.js";
+import type { Db } from "../db/client.js";
 import type { CompositionRow } from "../db/schema.js";
+import { attachmentsForMailOptions } from "./blob-store.js";
 import { serializeComposeHtml, serializeComposePlaintext } from "./mail-serializer.js";
 
 /**
@@ -18,10 +20,11 @@ import { serializeComposeHtml, serializeComposePlaintext } from "./mail-serializ
  * builds that MIME shape; this file's own job is only choosing what goes
  * into it, never hand-rolling multipart boundaries.
  *
- * No attachments yet (#48's Blob Store) and no inline images, so there is no
- * outer `multipart/mixed`/`multipart/related` wrapping here — ADR-0012's
- * full nesting only appears once attachments/inline images exist to nest
- * around.
+ * Attachments (#48) are what make Nodemailer nest an outer
+ * `multipart/mixed`, and any `cid`-tagged one a further `multipart/related`
+ * around the `multipart/alternative` pair — ADR-0012's full shape, built
+ * entirely by `MailComposer` from the `attachments` array
+ * `blob-store.ts#attachmentsForMailOptions` loads.
  */
 
 export interface ComposeMailOptions {
@@ -45,11 +48,13 @@ export interface ComposeMailOptions {
   includeBcc: boolean;
 }
 
-export function composeMailOptions(
+export async function composeMailOptions(
+  db: Db,
   row: CompositionRow,
   fromAddress: string,
   { messageId, date, includeBcc }: ComposeMailOptions,
-): Mail.Options {
+): Promise<Mail.Options> {
+  const attachments = await attachmentsForMailOptions(db, row);
   return {
     from: fromAddress,
     to: toAddressList(row.toAddresses),
@@ -60,6 +65,7 @@ export function composeMailOptions(
     ...(date ? { date } : {}),
     text: serializeComposePlaintext(row.document),
     html: serializeComposeHtml(row.document),
+    ...(attachments.length > 0 ? { attachments } : {}),
   };
 }
 
@@ -81,8 +87,12 @@ export async function buildMime(options: Mail.Options, keepBcc = false): Promise
 }
 
 /** The MIME a Composition pushes to IMAP `Drafts` (ADR-0012). Bcc kept: it is the User's own copy. */
-export async function buildDraftMime(row: CompositionRow, fromAddress: string): Promise<Buffer> {
-  return buildMime(composeMailOptions(row, fromAddress, { includeBcc: true }), true);
+export async function buildDraftMime(
+  db: Db,
+  row: CompositionRow,
+  fromAddress: string,
+): Promise<Buffer> {
+  return buildMime(await composeMailOptions(db, row, fromAddress, { includeBcc: true }), true);
 }
 
 function toAddressList(recipients: Recipient[]): { name: string; address: string }[] | undefined {

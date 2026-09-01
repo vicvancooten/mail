@@ -400,3 +400,67 @@
   font-size: 12px;
   cursor: pointer;
 }
+
+/* #48: attachments */
+
+.attachments-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--mail-border);
+}
+
+.attachments-budget-error {
+  font-size: 12px;
+  color: light-dark(#b91c1c, #f87171);
+}
+
+.attachments-budget-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mail-border);
+  overflow: hidden;
+}
+
+.attachments-budget-bar-fill {
+  height: 100%;
+  background: var(--mail-accent);
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--mail-text);
+}
+
+.attachment-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.attachment-row-size,
+.attachment-row-progress {
+  color: var(--mail-text-dim);
+  flex: none;
+}
+
+.attachment-row-error {
+  color: light-dark(#b91c1c, #f87171);
+  flex: none;
+}
+
+.attachment-row button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--mail-text-dim);
+  display: flex;
+  align-items: center;
+}

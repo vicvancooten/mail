@@ -244,6 +244,10 @@ function mergeComposition(
       wire.status === "draft" || wire.status === "sent" ? null : (local?.sendState ?? null),
     createdAt: local?.createdAt ?? wire.updatedAt,
     updatedAt: wire.updatedAt,
+    // Server-owned, always — an attach/delete already lands optimistically
+    // via `store/attachments.ts`'s own direct write the moment its HTTP call
+    // resolves; this delta is simply the authoritative confirmation.
+    attachments: wire.attachments,
   };
 }
 

@@ -1,10 +1,14 @@
 import type { ComposeDocument } from "@mail/shared";
 import type Mail from "nodemailer/lib/mailer/index.js";
 import { describe, expect, it } from "vitest";
+import type { Db } from "../db/client.js";
 import type { CompositionRow } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { buildMime } from "./draft-mime.js";
 import { classifyFailure, submitComposition } from "./submit.js";
+
+/** Never touched: every `ROW` here carries `attachments: []`, so `blob-store.ts` never queries it. */
+const NO_DB = {} as Db;
 
 /**
  * Submission's two decisions that do not need a mail server to test: what
@@ -40,13 +44,14 @@ const ROW = {
   messageId: "minted-id@example.test",
   imapDraftUid: null,
   sendAttempts: 1,
+  attachments: [],
 } as unknown as CompositionRow;
 
 const NOW = new Date("2026-09-01T12:00:00.000Z");
 
 async function captureSubmission(row: CompositionRow = ROW) {
   const sent: Mail.Options[] = [];
-  const result = await submitComposition(ACCOUNT, row, {
+  const result = await submitComposition(NO_DB, ACCOUNT, row, {
     credentialKey: Buffer.alloc(32),
     sendMail: async (options) => {
       sent.push(options);
@@ -109,7 +114,7 @@ describe("submitComposition", () => {
   it("refuses a message with no recipient rather than opening an SMTP connection", async () => {
     const naked = { ...ROW, toAddresses: [], ccAddresses: [], bccAddresses: [] } as CompositionRow;
     const sent: Mail.Options[] = [];
-    const result = await submitComposition(ACCOUNT, naked, {
+    const result = await submitComposition(NO_DB, ACCOUNT, naked, {
       credentialKey: Buffer.alloc(32),
       sendMail: async (options) => {
         sent.push(options);
@@ -124,7 +129,7 @@ describe("submitComposition", () => {
   });
 
   it("classifies whatever the transport threw", async () => {
-    const result = await submitComposition(ACCOUNT, ROW, {
+    const result = await submitComposition(NO_DB, ACCOUNT, ROW, {
       credentialKey: Buffer.alloc(32),
       sendMail: async () => {
         throw Object.assign(new Error("Message failed"), {

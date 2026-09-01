@@ -1,4 +1,5 @@
 import type {
+  AttachmentMeta,
   ComposeDocument,
   CompositionStatus,
   Label,
@@ -163,6 +164,16 @@ export interface CachedComposition {
   sendState: "queued" | "cancelling" | "too_late" | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The Blob Store's references (#48) — server-owned like `status`, written
+   * by `store/server-writes.ts` from the synced `Composition` and by
+   * `store/attachments.ts` optimistically the moment an upload/delete
+   * resolves, so the row does not wait a sync round to show a file that just
+   * finished. Not part of the Dexie index string — nothing queries by it, the
+   * same reasoning `PendingMutation.intent` above gives for skipping a
+   * `CACHE_SCHEMA_VERSION` bump.
+   */
+  attachments: AttachmentMeta[];
 }
 
 /**

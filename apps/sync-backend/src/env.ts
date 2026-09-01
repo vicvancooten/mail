@@ -11,6 +11,17 @@ const envSchema = z.object({
   MAIL_CREDENTIAL_KEY: z.string().min(32, "MAIL_CREDENTIAL_KEY must be at least 32 bytes"),
   MAIL_BIND: z.string().default("127.0.0.1:3000"),
   DATABASE_URL: z.url(),
+  /**
+   * ADR-0012's instance-level attachment budget, in encoded (base64) bytes —
+   * 25MB default, ~18MB of real files. Read once at boot and handed to
+   * `routes/attachments.ts`/`routes/compose-config.ts`; never a per-User or
+   * per-Mail-Account setting.
+   */
+  ATTACHMENT_BUDGET_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(25 * 1024 * 1024),
 });
 
 export type Env = z.infer<typeof envSchema>;

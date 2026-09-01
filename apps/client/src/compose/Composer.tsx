@@ -3,7 +3,9 @@ import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 import type { JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
+import type { ClipboardEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { attachmentUrl } from "../api/attachments.js";
 import { clearOpenComposerId, writeOpenComposerId } from "../mail/device-preferences.js";
 import {
   type ComposeContent,
@@ -12,6 +14,7 @@ import {
   useComposition,
 } from "../store/index.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
+import { AttachmentsPanel, useAttachments } from "./Attachments.js";
 import { ComposeBubbleMenu, ComposeToolbar, insertLink } from "./ComposeToolbar.js";
 import { composeEditorExtensions } from "./editor-extensions.js";
 import { RecipientField } from "./RecipientField.js";
@@ -96,6 +99,78 @@ export function Composer({
     return { subject, document, to, cc, bcc };
   }, [editor, subject, to, cc, bcc]);
 
+  // #48: "the Composition row is created lazily on first content — a
+  // keystroke or attach". An attach that arrives before any keystroke needs
+  // the same forced creation the empty-content guard in `saveComposition`
+  // otherwise skips.
+  const ensureCompositionRow = useCallback(() => {
+    void saveComposition(compositionId, mailAccountId, currentContent(), { force: true });
+  }, [compositionId, mailAccountId, currentContent]);
+
+  const insertInlineImage = useCallback(
+    (meta: { id: string; contentId: string | null; filename: string }) => {
+      // `insertContent` takes arbitrary ProseMirror JSON rather than
+      // `setImage`'s narrowly-typed `{src, alt, title}` command options, so
+      // `ComposeImage`'s own widened attrs (`editor-extensions.ts`:
+      // `attachmentId`, `contentId`) need no type gymnastics to reach it.
+      editor
+        ?.chain()
+        .focus()
+        .insertContent({
+          type: "image",
+          attrs: {
+            src: attachmentUrl(compositionId, meta.id),
+            alt: meta.filename,
+            attachmentId: meta.id,
+            contentId: meta.contentId,
+          },
+        })
+        .run();
+    },
+    [editor, compositionId],
+  );
+
+  const attachments = existing?.attachments ?? [];
+  const {
+    uploads,
+    budgetError,
+    budgetFraction,
+    uploading,
+    attachFiles,
+    removeAttachment,
+    retryUpload,
+  } = useAttachments(
+    compositionId,
+    mailAccountId,
+    attachments,
+    ensureCompositionRow,
+    insertInlineImage,
+  );
+
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer.files ?? []);
+      if (files.length > 0) attachFiles(files, "attachment");
+    },
+    [attachFiles],
+  );
+
+  // Paste-an-image-into-the-body = inline (compose-spec); anything else in
+  // the clipboard's file list falls through to TipTap's own paste handling
+  // untouched (plain text, rich HTML, etc).
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+        file.type.startsWith("image/"),
+      );
+      if (files.length === 0) return;
+      event.preventDefault();
+      attachFiles(files, "inline");
+    },
+    [attachFiles],
+  );
+
   const scheduleAutosave = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -132,10 +207,18 @@ export function Composer({
     };
   }, [editor, scheduleAutosave]);
 
-  const verdict = useMemo(
-    () => validateSend({ to, cc, bcc, subject, bodyIsEmpty: editor?.isEmpty ?? true }),
-    [to, cc, bcc, subject, editor?.isEmpty],
-  );
+  const verdict = useMemo(() => {
+    const base = validateSend({ to, cc, bcc, subject, bodyIsEmpty: editor?.isEmpty ?? true });
+    // compose-spec: "send is disabled while an upload is in flight" — a
+    // second, independent blocking reason `validateSend` deliberately knows
+    // nothing about (its own doc comment: "attachments and their budget are
+    // #48's"). A `blocked` verdict from validation itself still wins its own
+    // reason, since fixing the recipient is the more useful thing to show.
+    if (base.kind !== "blocked" && uploading) {
+      return { kind: "blocked" as const, reason: "Uploading…" };
+    }
+    return base;
+  }, [to, cc, bcc, subject, editor?.isEmpty, uploading]);
 
   /**
    * Send: one final content write, one `sendComposition` intent, and the
@@ -210,6 +293,9 @@ export function Composer({
       className={`composer${expanded ? " expanded" : ""}`}
       role="dialog"
       aria-label="New message"
+      // Drop anywhere on the composer surface = attachment (compose-spec).
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={handleDrop}
     >
       <div className="composer-header">
         <span className="composer-from" title={fromAddress}>
@@ -254,9 +340,19 @@ export function Composer({
 
       <ComposeToolbar editor={editor} />
       <ComposeBubbleMenu editor={editor} />
-      <div className="composer-body">
+      <div className="composer-body" onPaste={handlePaste}>
         <EditorContent editor={editor} />
       </div>
+
+      <AttachmentsPanel
+        compositionId={compositionId}
+        attachments={attachments}
+        uploads={uploads}
+        budgetError={budgetError}
+        budgetFraction={budgetFraction}
+        onRemove={removeAttachment}
+        onRetry={retryUpload}
+      />
 
       <SendControl verdict={verdict} acknowledged={warned} onSend={send} />
     </div>
