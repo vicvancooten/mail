@@ -94,6 +94,10 @@ describe("Mail Account add flow against GreenMail", () => {
     expect(body.mailAccount).toMatchObject({ emailAddress, status: "active" });
     expect(JSON.stringify(body)).not.toContain(password);
 
+    // The Index Watermark (#36) is queryable from the moment the account
+    // exists — unswept (no body-sweep batch has run yet) rather than absent.
+    expect(body.mailAccount.indexWatermark).toEqual({ coveredSince: null, complete: false });
+
     // The credential really is sealed at rest, under this Mail Account's id
     // as associated data (ADR-0003) — not just absent from the API response.
     const stored = await getMailAccountForUser(db, userId, body.mailAccount.id);

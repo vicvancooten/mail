@@ -52,6 +52,21 @@ export const mailAccountSyncSchema = z.object({
 export type MailAccountSync = z.infer<typeof mailAccountSyncSchema>;
 
 /**
+ * The Index Watermark (CONTEXT.md, #36): how far back this Mail Account's
+ * message bodies have been fetched and indexed. Headers are searchable from
+ * the first sync regardless; this is what lets the Client state partial body
+ * coverage rather than silently searching (or previewing) too little.
+ * `coveredSince` is null until the background sweep has completed at least
+ * one batch; `complete` is true once it has swept every folder's history —
+ * the sweep's "runs once and then stops".
+ */
+export const indexWatermarkSchema = z.object({
+  coveredSince: z.iso.datetime().nullable(),
+  complete: z.boolean(),
+});
+export type IndexWatermark = z.infer<typeof indexWatermarkSchema>;
+
+/**
  * The wire projection of a Mail Account. Credentials are write-only across
  * the API (ADR-0003) — this shape has no field for them, ever, not even a
  * masked one; the Client shows "password set" from `status` alone.
@@ -63,6 +78,7 @@ export const mailAccountSchema = z.object({
   smtp: mailAccountConnectionSchema,
   status: mailAccountStatusSchema,
   sync: mailAccountSyncSchema,
+  indexWatermark: indexWatermarkSchema,
   createdAt: z.iso.datetime(),
 });
 export type MailAccount = z.infer<typeof mailAccountSchema>;
