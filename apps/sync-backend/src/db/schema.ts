@@ -523,3 +523,30 @@ export const syncTombstones = pgTable(
     index("sync_tombstones_scope_idx").on(table.mailAccountId, table.collection, table.syncRev),
   ],
 );
+
+/**
+ * The idempotency ledger for Optimistic Action mutations (ADR-0010's
+ * Client-generated ULID key, ADR-0011's mutation-flush divergence, #39).
+ * One row per mutation id this server has ever seen: `sync/mutations.ts`
+ * checks it before applying anything, so a retry of the same id — the
+ * expected shape of a dropped response over a flaky connection — replays
+ * the recorded outcome instead of re-applying, which is what makes a flush
+ * exactly-once rather than at-least-once. `id` is the ULID itself, so the
+ * primary key alone is the uniqueness guarantee even under a genuine
+ * concurrent resend.
+ */
+export const appliedMutations = pgTable(
+  "applied_mutations",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    intentType: text("intent_type").notNull(),
+    status: text("status", { enum: ["applied", "rejected"] }).notNull(),
+    /** Present only when `status` is `rejected` — why, so the outcome is self-explaining on replay. */
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("applied_mutations_account_idx").on(table.mailAccountId)],
+);

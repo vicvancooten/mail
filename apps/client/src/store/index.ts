@@ -1,12 +1,14 @@
 /**
  * The `store` module: the only code in the Client that imports Dexie
- * (ADR-0010). Its surface is deliberately three separate things, and which
+ * (ADR-0010). Its surface is deliberately four separate things, and which
  * one you may call depends on what you are:
  *
- * - **Components** read through the hooks in `reads.ts` and pin opened
- *   Threads through `cache-pins.ts`. That is all they may touch.
+ * - **Components** read through the hooks in `reads.ts`, pin opened Threads
+ *   through `cache-pins.ts`, and queue an Optimistic Action through
+ *   `enqueueMutation` (`mutation-queue.ts`). That is all they may touch.
  * - **`sync/`** — and nothing else — writes base rows and reads state tokens
- *   through `server-writes.ts`.
+ *   through `server-writes.ts`, and flushes the Optimistic Action queue
+ *   through `mutation-queue.ts`'s other two exports.
  * - **Boot** opens the cache through `local-cache.ts`.
  *
  * The point of the seam is not testability: it is that the wrong move
@@ -20,6 +22,7 @@ export {
   type CacheSchemaOutcome,
   DEFAULT_VIEW,
   type ListWindow,
+  type PendingMutation,
   type ViewKey,
 } from "./db.js";
 export {
@@ -28,6 +31,13 @@ export {
   openLocalCache,
   reconcileCacheSchema,
 } from "./local-cache.js";
+export {
+  enqueueMutation,
+  listQueuedMutations,
+  type MutationRejection,
+  resolveMutationOutcomes,
+  subscribeMutationRejections,
+} from "./mutation-queue.js";
 export {
   readMailAccounts,
   readThreadWindow,

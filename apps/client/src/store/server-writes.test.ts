@@ -188,6 +188,7 @@ describe("the bounded working set", () => {
       mailAccountId: ACCOUNT,
       createdAt: minutesAfterEpoch(0),
       referencedThreadIds: ["t000001"],
+      intent: { type: "setStarred", threadId: "t000001", starred: true },
     });
 
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1, 100) }), {

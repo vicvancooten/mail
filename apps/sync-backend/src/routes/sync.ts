@@ -1,8 +1,10 @@
-import { type SyncResponse, syncRequestSchema, syncResponseSchema } from "@mail/shared";
+import type { MutationOutcome, SyncResponse } from "@mail/shared";
+import { syncRequestSchema, syncResponseSchema } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import { syncMailAccountCollection, syncThreadCollection } from "../sync/collection-sync.js";
+import { flushMutations } from "../sync/mutations.js";
 
 export interface SyncRoutesOptions {
   db: Db;
@@ -14,6 +16,12 @@ export interface SyncRoutesOptions {
  * a set of User-scoped collections. See `packages/shared/src/sync.ts` for
  * the wire contract this thinly wraps — everything below is request
  * plumbing and per-collection dispatch, no sync logic of its own.
+ *
+ * A Mail Account's `mutations` (#39) are flushed *before* its Thread delta
+ * is computed — ADR-0011's third divergence, "a mutation-flush response
+ * carries deltas too": applying the queue first means the very same round
+ * trip's Thread delta already reflects what those mutations just changed,
+ * with no second poll needed to see it confirmed.
  */
 export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions) {
   app.post("/sync", { preHandler: app.requireAuth }, async (request, reply) => {
@@ -32,22 +40,50 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
 
     const mailAccountsResult: SyncResponse["mailAccounts"] = {};
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {
-      if (requested.Thread === undefined) continue;
+      const wantsThread = requested.Thread !== undefined;
+      const queued = requested.mutations ?? [];
+      if (!wantsThread && queued.length === 0) continue;
 
       // Silently skipped rather than a 404/403: a Mail Account the Client
       // still has cached but no longer owns (or that never existed) is not
       // this Client's mistake to report on — the MailAccount collection is
-      // what tells it the account is gone.
+      // what tells it the account is gone. A queued mutation against it is
+      // rejected outright instead: nothing here will ever apply it, and
+      // holding it forever would starve the retry it deserves.
       const account = await getMailAccountForUser(db, userId, mailAccountId);
-      if (!account) continue;
+      if (!account) {
+        if (queued.length > 0) {
+          mailAccountsResult[mailAccountId] = {
+            mutations: queued.map(
+              (mutation): MutationOutcome => ({
+                id: mutation.id,
+                status: "rejected",
+                reason: "mail_account_not_found",
+              }),
+            ),
+          };
+        }
+        continue;
+      }
 
-      const delta = await syncThreadCollection(
-        db,
-        mailAccountId,
-        account.threadsEpoch,
-        requested.Thread,
-      );
-      if (delta) mailAccountsResult[mailAccountId] = { Thread: delta };
+      const mutationResults =
+        queued.length > 0 ? await flushMutations(db, mailAccountId, queued) : [];
+
+      const threadDelta = wantsThread
+        ? await syncThreadCollection(
+            db,
+            mailAccountId,
+            account.threadsEpoch,
+            requested.Thread ?? null,
+          )
+        : null;
+
+      if (threadDelta || mutationResults.length > 0) {
+        mailAccountsResult[mailAccountId] = {
+          ...(threadDelta ? { Thread: threadDelta } : {}),
+          ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),
+        };
+      }
     }
 
     return syncResponseSchema.parse({ user: userResult, mailAccounts: mailAccountsResult });
