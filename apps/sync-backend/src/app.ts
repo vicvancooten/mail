@@ -14,6 +14,7 @@ import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
+import { searchRoutes } from "./routes/search.js";
 import { sendSettingsRoutes } from "./routes/send-settings.js";
 import { syncRoutes } from "./routes/sync.js";
 import { totpRoutes } from "./routes/totp.js";
@@ -95,6 +96,7 @@ export function buildApp({
   });
   app.register(syncRoutes, { db });
   app.register(correspondentRoutes, { db });
+  app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });
   app.register(messageRoutes, { db, mailCredentialKey });
   app.register(composeConfigRoutes, { attachmentBudgetBytes });

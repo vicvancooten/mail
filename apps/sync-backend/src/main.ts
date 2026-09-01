@@ -7,6 +7,7 @@ import { loadEnv } from "./env.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
+import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
 
 const env = loadEnv();
 
@@ -66,6 +67,13 @@ const sendLoop = startSendLoop(db, {
   logger: app.log,
 });
 
+// The Search Index rebuild sweep (#50, ADR-0016): "a bumped index_version
+// triggers a background, batched, oldest-version-first rebuild while search
+// keeps serving old rows" — never a boot-time migration. Plain Postgres, no
+// IMAP connection, so unlike every loop above it isn't scoped to a Mail
+// Account or gated on its sync state.
+const searchIndexRebuildLoop = startSearchIndexRebuildLoop(db, { logger: app.log });
+
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
 // describes: stop every resident session (a polite IMAP LOGOUT, then close)
@@ -76,6 +84,7 @@ process.on("SIGTERM", () => {
     protocolWriteLoop.stop(),
     draftPushLoop.stop(),
     sendLoop.stop(),
+    searchIndexRebuildLoop.stop(),
   ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))
     .finally(() => process.exit(0));
