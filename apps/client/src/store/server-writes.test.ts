@@ -19,6 +19,7 @@ import {
   applyMailAccountDelta,
   applyThreadDelta,
   compositionTokenKey,
+  flushScheduledWindowTrims,
   getSyncToken,
   labelTokenKey,
   listCachedMailAccountIds,
@@ -113,6 +114,8 @@ describe("applyThreadDelta", () => {
     });
     const newest = `t${String(THREAD_WINDOW_HIGH_WATER).padStart(6, "0")}`;
 
+    await flushScheduledWindowTrims();
+
     // Its newest Message was deleted, so the rollup's date walks backwards
     // past the cutoff. Ignoring the update would leave a stale row on screen.
     await applyThreadDelta(
@@ -129,11 +132,19 @@ describe("applyThreadDelta", () => {
   });
 });
 
+/**
+ * Trimming itself runs off the idle-scheduled sweep `scheduleWindowTrim`
+ * queues rather than inline (ADR-0009, `server-writes.ts#trimWindow`), so
+ * every test below that asserts trimmed state calls `flushScheduledWindowTrims`
+ * — the test seam that runs a queued sweep right now instead of waiting on a
+ * real idle tick.
+ */
 describe("the bounded working set", () => {
   it("trims to the floor once the window passes its high water, and says the list is truncated", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
       replace: false,
     });
+    await flushScheduledWindowTrims();
 
     const page = await readThreadWindow(ACCOUNT, { limit: THREAD_WINDOW_HIGH_WATER + 1 });
     expect(page.threads).toHaveLength(THREAD_WINDOW_FLOOR);
@@ -143,12 +154,26 @@ describe("the bounded working set", () => {
     expect(await localCache().threads.count()).toBe(THREAD_WINDOW_FLOOR);
   });
 
+  it("does not trim inline — the sync write settles before any sweep runs", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
+      replace: false,
+    });
+
+    // Every row landed; nothing has been evicted yet.
+    expect(await localCache().threads.count()).toBe(THREAD_WINDOW_HIGH_WATER + 1);
+
+    await flushScheduledWindowTrims();
+
+    expect(await localCache().threads.count()).toBe(THREAD_WINDOW_FLOOR);
+  });
+
   it("holds the floor even against a Thread count far past it", async () => {
     for (let page = 0; page < 3; page++) {
       await applyThreadDelta(ACCOUNT, delta({ created: ladder(500, page * 500) }), {
         replace: false,
       });
     }
+    await flushScheduledWindowTrims();
 
     const page = await readThreadWindow(ACCOUNT, { limit: 5_000 });
     expect(page.threads.length).toBeGreaterThanOrEqual(THREAD_WINDOW_FLOOR);
@@ -159,6 +184,7 @@ describe("the bounded working set", () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
       replace: false,
     });
+    await flushScheduledWindowTrims();
     const before = await localCache().threads.count();
 
     await applyThreadDelta(
@@ -180,6 +206,7 @@ describe("the bounded working set", () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1, 100) }), {
       replace: false,
     });
+    await flushScheduledWindowTrims();
 
     // Retained as an entity, but out of the list window: a pin keeps a
     // Thread readable, it does not put it back in the list.
@@ -201,6 +228,7 @@ describe("the bounded working set", () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1, 100) }), {
       replace: false,
     });
+    await flushScheduledWindowTrims();
 
     expect(await localCache().threads.get("t000001")).toBeDefined();
     // Its unreferenced neighbour went, so this is retention, not a failed trim.
@@ -211,6 +239,7 @@ describe("the bounded working set", () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
       replace: false,
     });
+    await flushScheduledWindowTrims();
     expect((await windowRow())?.complete).toBe(false);
 
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(3), reset: true }), { replace: true });

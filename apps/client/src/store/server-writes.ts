@@ -179,10 +179,14 @@ export async function applyThreadDelta(
         await db.cachePins.bulkDelete(delta.destroyed);
       }
 
-      await trimWindow(db, window);
       await db.syncState.put({ key: threadTokenKey(mailAccountId), token: delta.newState });
     },
   );
+  // Outside the transaction, and not run inline: ADR-0009 asks for eviction
+  // to run on idle, not on this write path. `scheduleWindowTrim` only
+  // records that this window may be over its high water and coalesces the
+  // actual sweep onto the next idle tick — see its own doc comment.
+  scheduleWindowTrim(mailAccountId, view);
 }
 
 /**
@@ -389,11 +393,14 @@ async function pinnedThreadIds(db: LocalCache, mailAccountId: string): Promise<S
 }
 
 /**
- * Truncates a window's bottom back to the floor. This is a write-path job,
- * never a read-path one (ADR-0009) — it is what keeps a bootstrap of an
- * 80k-Thread Mail Account from ever materializing 80k rows. The byte-budgeted
- * LRU over bodies, which has nothing to evict until bodies are cached, is the
- * idle-time half of eviction.
+ * Truncates a window's bottom back to the floor — what keeps a bootstrap of
+ * an 80k-Thread Mail Account from ever materializing 80k rows. Never called
+ * synchronously off a sync write: ADR-0009 says "Eviction runs on idle,
+ * never on a read path", and `applyThreadDelta` only ever *schedules* this
+ * (`scheduleWindowTrim`, below) rather than awaiting it inline, so a sync
+ * round's own write transaction is never held up by a sweep. The
+ * byte-budgeted LRU over bodies, which has nothing to evict until bodies are
+ * cached, is the other idle-time half of eviction.
  *
  * Threads that fall out are
  * deleted outright *unless* the User has one open (a cache pin) or a queued
@@ -451,4 +458,103 @@ export function threadsInWindow(db: LocalCache, window: ListWindow) {
       true,
       true,
     );
+}
+
+/**
+ * `trimWindow`'s idle-time scheduler (ADR-0009: "Eviction runs on idle,
+ * never on a read path"). `applyThreadDelta` calls `scheduleWindowTrim`
+ * once per delta rather than awaiting `trimWindow` itself, so a sync round's
+ * write transaction never pays for a sweep; a paginated bootstrap that calls
+ * this many times in a row still only schedules one idle callback; and a
+ * window is re-loaded fresh (not the possibly-stale one the caller saw) once
+ * that callback actually runs.
+ *
+ * Falls back to `setTimeout` where `requestIdleCallback` doesn't exist
+ * (Safari, and every test environment) — a short fixed delay rather than a
+ * deadline, since there is no idle-deadline budget to honor there anyway.
+ */
+const IDLE_FALLBACK_DELAY_MS = 200;
+
+type IdleScheduler = (run: () => void) => unknown;
+type IdleCanceler = (handle: unknown) => void;
+
+function defaultIdleScheduler(): IdleScheduler {
+  const requestIdle = (globalThis as { requestIdleCallback?: (cb: () => void) => unknown })
+    .requestIdleCallback;
+  return requestIdle ? (run) => requestIdle(run) : (run) => setTimeout(run, IDLE_FALLBACK_DELAY_MS);
+}
+
+function defaultIdleCanceler(): IdleCanceler {
+  const cancelIdle = (globalThis as { cancelIdleCallback?: (handle: unknown) => void })
+    .cancelIdleCallback;
+  return cancelIdle ? (handle) => cancelIdle(handle) : (handle) => clearTimeout(handle as number);
+}
+
+const pendingTrims = new Map<string, { mailAccountId: string; view: ViewKey }>();
+let scheduledIdleHandle: unknown | null = null;
+
+/** Records that this window may be over its high water; coalesces into the next idle tick. */
+export function scheduleWindowTrim(mailAccountId: string, view: ViewKey = DEFAULT_VIEW): void {
+  pendingTrims.set(listWindowKey(mailAccountId, view), { mailAccountId, view });
+  if (scheduledIdleHandle !== null) return;
+  scheduledIdleHandle = defaultIdleScheduler()(() => {
+    scheduledIdleHandle = null;
+    void runPendingWindowTrims();
+  });
+}
+
+/**
+ * Runs whatever `scheduleWindowTrim` queued against whichever `LocalCache`
+ * handle is current *right now* — never the one open when the schedule was
+ * made. A trim queued against a handle that's since been replaced or closed
+ * (`openLocalCache`, a schema wipe) is stale: `cancelScheduledWindowTrims`
+ * is what the handle-swap path calls instead of letting this run against
+ * the wrong database, and a handle closed by some other means simply fails
+ * this cleanly rather than throwing unhandled — there is no User-visible
+ * eviction promise to keep once the cache itself is gone.
+ */
+async function runPendingWindowTrims(): Promise<void> {
+  const due = [...pendingTrims.values()];
+  pendingTrims.clear();
+  const db = localCache();
+  for (const { mailAccountId, view } of due) {
+    try {
+      const window = await loadWindow(db, mailAccountId, view);
+      await trimWindow(db, window);
+    } catch {
+      // The handle this was queued against is gone (closed outside
+      // `openLocalCache`, e.g. a test tearing down directly) — nothing left
+      // to trim, and nothing here is worth surfacing as a failure.
+    }
+  }
+}
+
+/**
+ * Test seam: runs whatever window trims `scheduleWindowTrim` has queued,
+ * right now, instead of waiting on a real idle tick or a faked timer. Tests
+ * that assert trimming behavior call this after the `applyThreadDelta` that
+ * should trigger it.
+ */
+export async function flushScheduledWindowTrims(): Promise<void> {
+  if (scheduledIdleHandle !== null) {
+    defaultIdleCanceler()(scheduledIdleHandle);
+    scheduledIdleHandle = null;
+  }
+  await runPendingWindowTrims();
+}
+
+/**
+ * Drops any queued-but-not-yet-run window trim without executing it.
+ * `openLocalCache` calls this when it swaps the handle (`local-cache.ts`):
+ * a trim scheduled against the cache being replaced would otherwise fire
+ * against whatever cache happens to be open once the idle tick arrives,
+ * which is never correct — the seam exists precisely so a test (or a
+ * schema wipe) can open a fresh database per case.
+ */
+export function cancelScheduledWindowTrims(): void {
+  if (scheduledIdleHandle !== null) {
+    defaultIdleCanceler()(scheduledIdleHandle);
+    scheduledIdleHandle = null;
+  }
+  pendingTrims.clear();
 }

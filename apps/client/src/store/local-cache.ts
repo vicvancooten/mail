@@ -5,6 +5,7 @@ import {
   ensureCacheSchema,
   LocalCache,
 } from "./db.js";
+import { cancelScheduledWindowTrims } from "./server-writes.js";
 
 /**
  * Owns the one open Local Cache handle. `ensureLocalCacheOpen()` is the boot
@@ -29,6 +30,10 @@ export interface OpenLocalCacheOptions {
  */
 export function openLocalCache(options: OpenLocalCacheOptions = {}): Promise<CacheSchemaOutcome> {
   if (cache) cache.close();
+  // A trim `scheduleWindowTrim` (server-writes.ts) queued against the
+  // handle being replaced would otherwise fire against whichever cache
+  // happens to be open once its idle tick arrives — never correct.
+  cancelScheduledWindowTrims();
   cache = new LocalCache(
     options.name ?? DEFAULT_CACHE_NAME,
     options.schemaVersion ?? CACHE_SCHEMA_VERSION,
