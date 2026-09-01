@@ -181,6 +181,11 @@ export function useSearchState(
         matchedMessageId: thread.lastMessageId ?? thread.id,
         headline: null,
         folder: { id: "", name: "", role: thread.inInbox ? "inbox" : null },
+        // The offline prefilter is a substring scan over the Local Cache,
+        // not a ranker (ADR-0016) — it can see this Thread's own Screening
+        // Hold, but nothing about a *sender* verdict, so `blocked` is not a
+        // badge it can honestly produce.
+        gatekeeper: thread.heldSender ? ("held" as const) : null,
       }),
     );
   }, [serverResponse, prefilterThreads]);

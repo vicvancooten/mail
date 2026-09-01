@@ -61,8 +61,19 @@ describe("pushPayloadSchema", () => {
     expect(pushPayloadSchema.safeParse({ kind: "new_mail", badgeCount: 0 }).success).toBe(false);
   });
 
+  it("accepts the Gatekeeper digest (#55)", () => {
+    const result = pushPayloadSchema.safeParse({
+      kind: "gatekeeper_digest",
+      mailAccountId: "acct-1",
+      senders: ["Ada Lovelace", "grace@example.com"],
+      count: 3,
+      badgeCount: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects an unknown kind", () => {
-    expect(pushPayloadSchema.safeParse({ kind: "gatekeeper_digest" }).success).toBe(false);
+    expect(pushPayloadSchema.safeParse({ kind: "snooze_expired" }).success).toBe(false);
   });
 });
 

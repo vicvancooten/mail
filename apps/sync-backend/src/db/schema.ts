@@ -252,6 +252,16 @@ export const mailAccounts = pgTable(
     signature: text("signature"),
     /** The notification on/off toggle (#54, poc-spec.md §Preferences) — the Mail-Account-scoped half of Preferences, alongside `signature`. */
     notificationsEnabled: boolean("notifications_enabled").notNull().default(true),
+    // Gatekeeper's opt-in and its Cutoff (#55, CONTEXT.md §Gatekeeper).
+    // Off by default: screening is opt-in per Mail Account, and an account
+    // added before this ticket existed must not start holding mail on
+    // upgrade. `gatekeeperCutoff` is stamped at enable and **kept** across a
+    // disable — re-enabling without a Reset would otherwise re-screen every
+    // stranger who wrote during the gap, which is precisely the "everything
+    // already in the mailbox is grandfathered" promise the Cutoff exists to
+    // make. `sync/gatekeeper/settings.ts` is the only writer.
+    gatekeeperEnabled: boolean("gatekeeper_enabled").notNull().default(false),
+    gatekeeperCutoff: timestamp("gatekeeper_cutoff", { withTimezone: true }),
     // The groundwork for ADR-0015's two-tier liveness (#35): the resident
     // sync loop (`sync/live-session.ts`) stamps `lastProgressAt` on every
     // IDLE keepalive or completed poll and `syncState` on every transition,
@@ -416,6 +426,22 @@ export const threads = pgTable(
     // mutations.ts` is the only writer; `labels` below is the id→name
     // collection those ids resolve against.
     labelIds: text("label_ids").array().notNull().default([]),
+    // The Screening Hold (#55, CONTEXT.md, ADR-0008): the normalized `From`
+    // address of the Unscreened Sender holding this Thread in the Screener,
+    // null when it is not held. An App Feature with no IMAP-side trace —
+    // ADR-0008 is explicit that only the *Blocked* branch touches IMAP, and
+    // that asymmetry is what makes Approve's "release with original received
+    // dates" free: the mail never moved, so `receivedAt` was never rewritten.
+    //
+    // On the Thread rather than the Message because the hold is only ever
+    // created by a message that *started* a Thread (poc-spec.md), so a
+    // Thread has exactly one holding sender or none, and the Screener's
+    // "one decision per stranger" grouping is a `GROUP BY` on this column.
+    // `sync/thread-rollup.ts` never touches it; `sync/gatekeeper/` is the
+    // only writer, the same way `inInbox`/`pinned` belong to
+    // `sync/mutations.ts` alone.
+    heldSender: text("held_sender"),
+    heldAt: timestamp("held_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // See `mailAccounts.syncRev`/`syncCreatedRev` above — same trigger, same
@@ -428,6 +454,13 @@ export const threads = pgTable(
   (table) => [
     index("threads_account_last_message_idx").on(table.mailAccountId, table.lastMessageAt),
     index("threads_sync_rev_idx").on(table.mailAccountId, table.syncRev),
+    // The Screener's own query (#55) and every hold-aware exclusion the
+    // badge/Inbox make: partial, because a held Thread is a rounding error
+    // against an 80k-thread account and a full index would be almost
+    // entirely `null` rows nobody ever looks up.
+    index("threads_held_sender_idx")
+      .on(table.mailAccountId, table.heldSender)
+      .where(sql`${table.heldSender} is not null`),
   ],
 );
 
@@ -852,6 +885,62 @@ export const protocolWrites = pgTable(
 );
 
 /**
+ * A Gatekeeper Verdict (#55, CONTEXT.md, ADR-0008): where one sender stands
+ * with Gatekeeper on **one** Mail Account. An App Feature — IMAP has no way
+ * to say "I don't want to hear from this person" — whose Blocked branch is
+ * the one narrow exception ADR-0008 carves out, a real `\Trash` move on
+ * arrival.
+ *
+ * Unscreened is the **absence of a row**, never a stored value: a sender the
+ * User has not decided on and one whose Verdict was cleared (a Reset, an
+ * unblock, a Deny) are the same state, and giving them two representations
+ * would eventually give them two behaviours. Every `verdict` here is
+ * therefore `approved` or `blocked`.
+ *
+ * `id` is deterministic (`@mail/shared`'s `gatekeeperVerdictId`, over
+ * `(mailAccountId, scope, value)`), which is what makes "verdicts never
+ * cross accounts" a property of the primary key rather than of every query
+ * remembering to filter — the same shape `labelId`/`correspondentId`
+ * already use. `source` and `updatedAt` are poc-spec.md's "source +
+ * timestamp recorded on every verdict": what made this sender Approved a
+ * year ago is answerable without a separate audit log.
+ *
+ * Not an ADR-0011 synced collection, deliberately. Enabling seeds one row
+ * per address in the User's whole Sent history — thousands on a real
+ * mailbox — and no Client surface renders that list: the Screener renders
+ * *held Threads* (which carry their own sender on `threads.held_sender`),
+ * and Settings renders only the Blocked list, which is small and reads
+ * through `GET /mail-accounts/:id/gatekeeper`.
+ */
+export const gatekeeperVerdicts = pgTable(
+  "gatekeeper_verdicts",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    scope: text("scope", { enum: ["address", "domain"] }).notNull(),
+    /** A normalized address (plus tag intact) or a bare domain — `@mail/shared`'s `normalizeSenderAddress`. */
+    value: text("value").notNull(),
+    verdict: text("verdict", { enum: ["approved", "blocked"] }).notNull(),
+    source: text("source", { enum: ["seed", "sent", "screener", "settings"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The resolution lookup: one round trip asking for this account's
+    // address row and domain row at once (`gatekeeper/verdicts.ts`).
+    index("gatekeeper_verdicts_lookup_idx").on(table.mailAccountId, table.scope, table.value),
+    // The Blocked Senders list, and nothing else — partial, because
+    // blocked rows are a handful against a seed of thousands of approvals.
+    index("gatekeeper_verdicts_blocked_idx")
+      .on(table.mailAccountId, table.updatedAt)
+      .where(sql`${table.verdict} = 'blocked'`),
+  ],
+);
+export type GatekeeperVerdictRow = typeof gatekeeperVerdicts.$inferSelect;
+
+/**
  * A Composition (#45, CONTEXT.md, ADR-0012/0013/0014): the App Feature
  * authoritative copy of a message being written. `id` is Client-generated
  * (a ULID, the same "offline-derivable" shape a Label's id has) so autosave
@@ -1096,7 +1185,7 @@ export const notifierOutbox = pgTable(
       .notNull()
       .references(() => mailAccounts.id, { onDelete: "cascade" }),
     kind: text("kind", {
-      enum: ["new_mail", "failed_send", "needs_reauth"],
+      enum: ["new_mail", "failed_send", "needs_reauth", "gatekeeper_digest"],
     }).notNull(),
     dedupKey: text("dedup_key").notNull(),
     /** The push payload's content, minus `badgeCount` — computed fresh at delivery time (ADR-0015: "at Notifier-fire time"), never stored stale. */
@@ -1127,4 +1216,5 @@ export type NotifierOutboxPayload =
       snippet: string | null;
     }
   | { kind: "failed_send"; compositionId: string; subject: string; detail: string }
-  | { kind: "needs_reauth"; emailAddress: string };
+  | { kind: "needs_reauth"; emailAddress: string }
+  | { kind: "gatekeeper_digest"; senders: string[]; count: number };

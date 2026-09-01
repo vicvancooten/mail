@@ -2,7 +2,8 @@ import { searchRequestSchema, searchResponseSchema } from "@mail/shared";
 import { inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
-import { folders, threads } from "../db/schema.js";
+import { folders, messages, threads } from "../db/schema.js";
+import { resolveVerdicts, verdictFor } from "../gatekeeper/verdicts.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import { runSearch } from "../sync/search-query.js";
 import { toWireThread } from "../sync/thread-projection.js";
@@ -50,12 +51,27 @@ export async function searchRoutes(app: FastifyInstance, { db }: SearchRoutesOpt
     // handful of folder ids, never one lookup per row.
     const threadIds = [...new Set(rows.map((row) => row.threadId))];
     const folderIds = [...new Set(rows.map((row) => row.folderId))];
-    const [threadRows, folderRows] = await Promise.all([
+    const matchedIds = [...new Set(rows.map((row) => row.matchedMessageId))];
+    const [threadRows, folderRows, matchedRows] = await Promise.all([
       db.select().from(threads).where(inArray(threads.id, threadIds)),
       db.select().from(folders).where(inArray(folders.id, folderIds)),
+      // The `Blocked` badge is a fact about the matched message's *sender*,
+      // not about its Thread (`@mail/shared`'s `searchResultSchema`), so the
+      // `From` has to come off the message — one batched read for the whole
+      // page, alongside the two projections above.
+      db
+        .select({ id: messages.id, fromAddress: messages.fromAddress })
+        .from(messages)
+        .where(inArray(messages.id, matchedIds)),
     ]);
     const threadById = new Map(threadRows.map((row) => [row.id, row as ThreadRow]));
     const folderById = new Map(folderRows.map((row) => [row.id, row]));
+    const senderByMessageId = new Map(matchedRows.map((row) => [row.id, row.fromAddress]));
+    const verdicts = await resolveVerdicts(
+      db,
+      account.id,
+      matchedRows.map((row) => row.fromAddress ?? ""),
+    );
 
     const results = rows.flatMap((row) => {
       const thread = threadById.get(row.threadId);
@@ -64,12 +80,22 @@ export async function searchRoutes(app: FastifyInstance, { db }: SearchRoutesOpt
       // query above and these lookups — dropped rather than erroring; the
       // next search reconciles it.
       if (!thread || !folder) return [];
+      // Held wins over Blocked when both somehow apply: a Thread sitting in
+      // the Screener is the state the User can still act on, and it is the
+      // one the badge should send them to.
+      const gatekeeper = thread.heldSender
+        ? ("held" as const)
+        : verdictFor(verdicts, senderByMessageId.get(row.matchedMessageId) ?? null).verdict ===
+            "blocked"
+          ? ("blocked" as const)
+          : null;
       return [
         {
           thread: toWireThread(thread),
           matchedMessageId: row.matchedMessageId,
           headline: row.headline,
           folder: { id: folder.id, name: folder.name, role: folder.role },
+          gatekeeper,
         },
       ];
     });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -12,6 +13,7 @@ import {
   threads,
   users,
 } from "../db/schema.js";
+import { setVerdict } from "../gatekeeper/verdicts.js";
 import { buildImageProxyPath, deriveImageProxyKey } from "../sync/image-proxy.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { decodeQuotedPrintable, decodeTransferEncoding } from "./messages.js";
@@ -84,24 +86,39 @@ interface SeedMessageInput {
   fromAddress?: string | null;
 }
 
+let nextUid = 1;
+
 /** Seeds one Thread with one Message whose body is already "fetched" — the common, sweep-already-ran case. */
 async function seedMessage(input: SeedMessageInput): Promise<string> {
   await db.insert(threads).values({ id: input.threadId, mailAccountId: input.mailAccountId });
-  const folderId = randomUUID();
-  await db.insert(folders).values({
-    id: folderId,
-    mailAccountId: input.mailAccountId,
-    path: "INBOX",
-    name: "INBOX",
-    role: "inbox",
-  });
+  // One INBOX per Mail Account, however many times this is called — the
+  // `(mail_account_id, path)` unique index is the real folder identity.
+  await db
+    .insert(folders)
+    .values({
+      id: randomUUID(),
+      mailAccountId: input.mailAccountId,
+      path: "INBOX",
+      name: "INBOX",
+      role: "inbox",
+    })
+    .onConflictDoNothing({ target: [folders.mailAccountId, folders.path] });
+  const [folder] = await db
+    .select({ id: folders.id })
+    .from(folders)
+    .where(and(eq(folders.mailAccountId, input.mailAccountId), eq(folders.path, "INBOX")))
+    .limit(1);
+  if (!folder) throw new Error("INBOX was not seeded");
+  const folderId = folder.id;
   const messageId = randomUUID();
   await db.insert(messages).values({
     id: messageId,
     mailAccountId: input.mailAccountId,
     threadId: input.threadId,
     folderId,
-    uid: 1,
+    // Unique per seeded Message: `(folder_id, uid)` is its real identity,
+    // and one test seeds several into the same INBOX.
+    uid: nextUid++,
     subject: "Hello",
     fromName: input.fromName ?? "Ada",
     fromAddress: input.fromAddress ?? "ada@example.test",
@@ -240,6 +257,46 @@ describe("GET /threads/:threadId/messages", () => {
     // filtering it out of the *panel* is a Client-side rendering concern.
     expect(message.attachments).toHaveLength(2);
     expect(message.attachments.map((a) => a.filename)).toEqual(["photo.png", null]);
+  });
+
+  it("allows remote images only for an Approved Sender — the Gatekeeper verdict is the permission (#55)", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const accountId = await createOwnedMailAccount(app, cookie);
+
+    const strangerThread = randomUUID();
+    await seedMessage({
+      mailAccountId: accountId,
+      threadId: strangerThread,
+      fromAddress: "stranger@example.test",
+    });
+    const friendThread = randomUUID();
+    await seedMessage({
+      mailAccountId: accountId,
+      threadId: friendThread,
+      fromAddress: "friend@example.test",
+    });
+    await setVerdict(
+      db,
+      accountId,
+      { scope: "address", value: "friend@example.test" },
+      "approved",
+      "screener",
+    );
+
+    async function remoteImagesAllowed(threadId: string): Promise<boolean> {
+      const response = await app.inject({
+        method: "GET",
+        url: `/threads/${threadId}/messages`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { messages: { remoteImagesAllowed: boolean }[] };
+      return body.messages[0]?.remoteImagesAllowed ?? false;
+    }
+
+    expect(await remoteImagesAllowed(strangerThread)).toBe(false);
+    expect(await remoteImagesAllowed(friendThread)).toBe(true);
   });
 });
 

@@ -23,9 +23,14 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     attachments: [],
     bodyText: "hi",
     bodyHtml: "<p>hi</p>",
+    remoteImagesAllowed: false,
     ...overrides,
   };
 }
+
+/** A body whose only remote reference is an already-proxy-rewritten `<img src>` (`sync/image-proxy.ts`). */
+const PROXIED_IMAGE_HTML =
+  '<img src="/messages/msg-1/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">';
 
 afterEach(() => {
   cleanup();
@@ -46,12 +51,18 @@ describe("MessageBody", () => {
     expect(screen.queryByRole("button", { name: /load remote images/i })).toBeNull();
   });
 
+  it("loads remote images straight away for an Approved Sender (#55)", () => {
+    render(
+      <MessageBody
+        message={makeMessage({ bodyHtml: PROXIED_IMAGE_HTML, remoteImagesAllowed: true })}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /load remote images/i })).toBeNull();
+  });
+
   it("blocks a proxied remote image until the User clicks 'Load remote images'", async () => {
     const user = userEvent.setup();
-    const message = makeMessage({
-      bodyHtml:
-        '<img src="/messages/msg-1/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">',
-    });
+    const message = makeMessage({ bodyHtml: PROXIED_IMAGE_HTML });
     render(<MessageBody message={message} />);
 
     const iframe = document.querySelector("iframe") as HTMLIFrameElement;

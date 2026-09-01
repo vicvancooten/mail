@@ -12,6 +12,7 @@ import { authRoutes } from "./routes/auth.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
 import { eventsRoutes } from "./routes/events.js";
+import { gatekeeperRoutes } from "./routes/gatekeeper.js";
 import { healthRoutes } from "./routes/health.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
@@ -116,6 +117,7 @@ export function buildApp({
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });
+  app.register(gatekeeperRoutes, { db });
   app.register(messageRoutes, { db, mailCredentialKey });
   app.register(composeConfigRoutes, { attachmentBudgetBytes });
   app.register(attachmentRoutes, { db, attachmentBudgetBytes });

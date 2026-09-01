@@ -29,6 +29,7 @@ const VALID_THREAD = {
   inInbox: true,
   pinned: false,
   labelIds: ["account-1:Work"],
+  heldSender: null,
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
 
@@ -59,6 +60,14 @@ describe("threadSchema", () => {
     expect(threadSchema.safeParse(withoutPinned).success).toBe(false);
     const { labelIds, ...withoutLabelIds } = VALID_THREAD;
     expect(threadSchema.safeParse(withoutLabelIds).success).toBe(false);
+  });
+
+  it("requires heldSender, and takes an address for a Screening Hold (#55)", () => {
+    const { heldSender, ...withoutHeldSender } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutHeldSender).success).toBe(false);
+    expect(
+      threadSchema.safeParse({ ...VALID_THREAD, heldSender: "stranger@example.com" }).success,
+    ).toBe(true);
   });
 
   it("accepts an empty labelIds array", () => {

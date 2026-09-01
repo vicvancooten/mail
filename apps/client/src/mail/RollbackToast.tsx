@@ -48,6 +48,17 @@ function describeIntent(intent: MutationIntent): string | null {
     case "setSignature":
     case "setNotificationsEnabled":
       return null;
+    // The Gatekeeper decisions (#55). Unlike the two groups above these have
+    // no other surface that would report a failure — the Screener row simply
+    // comes back — so they say so here.
+    case "approveSender":
+      return "Couldn't approve — the sender is still waiting in the Screener.";
+    case "denySender":
+      return "Couldn't deny — the sender is still waiting in the Screener.";
+    case "blockSender":
+      return "Couldn't block — the sender is still waiting in the Screener.";
+    case "unblockSender":
+      return "Couldn't unblock — they are still blocked.";
   }
 }
 

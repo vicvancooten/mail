@@ -11,6 +11,7 @@ import {
   protocolWrites,
   threads,
 } from "../db/schema.js";
+import { resolveVerdict } from "../gatekeeper/verdicts.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -417,5 +418,84 @@ describe("flushMutations — labels (#43)", () => {
       { id: "01MISSING", intent: { type: "applyLabel", threadId: "does-not-exist", name: "Work" } },
     ]);
     expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+});
+
+describe("flushMutations — the Gatekeeper decisions (#55)", () => {
+  /** Puts one Thread on hold, the way `gatekeeper/screening.ts` would have. */
+  async function seedHeldThread(heldSender: string): Promise<string> {
+    const threadId = await seedThread();
+    await db
+      .update(threads)
+      .set({ heldSender, heldAt: new Date() })
+      .where(eq(threads.id, threadId));
+    return threadId;
+  }
+
+  it("approves a sender and releases every Thread they were holding", async () => {
+    const threadId = await seedHeldThread("stranger@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01APPROVE",
+        intent: {
+          type: "approveSender",
+          sender: { scope: "address", value: "Stranger@Example.test" },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01APPROVE", status: "applied" }]);
+    expect((await threadRow(threadId))?.heldSender).toBeNull();
+    expect((await resolveVerdict(db, account.id, "stranger@example.test")).verdict).toBe(
+      "approved",
+    );
+  });
+
+  it("replays a retried decision from the ledger instead of applying it twice", async () => {
+    await seedHeldThread("stranger@example.test");
+    const intent = {
+      type: "blockSender" as const,
+      sender: { scope: "address" as const, value: "stranger@example.test" },
+    };
+
+    await flushMutations(db, account.id, [{ id: "01BLOCK", intent }]);
+    // The sender is now Blocked and nothing is held — a second apply would
+    // find no held Threads and quietly do nothing, so the ledger is what
+    // actually proves this replayed.
+    await flushMutations(db, account.id, [{ id: "01BLOCK", intent }]);
+
+    const ledger = await db
+      .select()
+      .from(appliedMutations)
+      .where(eq(appliedMutations.id, "01BLOCK"));
+    expect(ledger).toHaveLength(1);
+    expect((await resolveVerdict(db, account.id, "stranger@example.test")).verdict).toBe("blocked");
+  });
+
+  it("rejects a domain decision aimed at a public provider, permanently", async () => {
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01BARRED",
+        intent: { type: "blockSender", sender: { scope: "domain", value: "gmail.com" } },
+      },
+    ]);
+    expect(outcomes).toEqual([
+      { id: "01BARRED", status: "rejected", reason: "barred_verdict_domain" },
+    ]);
+  });
+
+  it("unblocks back to Unscreened, never to Approved", async () => {
+    await flushMutations(db, account.id, [
+      {
+        id: "01B",
+        intent: { type: "blockSender", sender: { scope: "address", value: "v@example.test" } },
+      },
+      {
+        id: "01U",
+        intent: { type: "unblockSender", sender: { scope: "address", value: "v@example.test" } },
+      },
+    ]);
+    expect((await resolveVerdict(db, account.id, "v@example.test")).verdict).toBe("unscreened");
   });
 });

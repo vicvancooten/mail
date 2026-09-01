@@ -26,8 +26,9 @@ export interface NotificationContent {
 
 /**
  * One push payload's `showNotification` content. A coalesced digest
- * (`new_mail_burst`) carries **no actions** — the sender is ambiguous,
- * mirroring the Gatekeeper digest's own rule (ADR-0015).
+ * (`new_mail_burst`, `gatekeeper_digest`) carries **no actions** — the
+ * sender is ambiguous, which is ADR-0015's own rule for the Gatekeeper
+ * digest and reads the same way for a burst.
  */
 export function buildNotificationContent(payload: PushPayload): NotificationContent {
   switch (payload.kind) {
@@ -56,7 +57,25 @@ export function buildNotificationContent(payload: PushPayload): NotificationCont
         body: `${payload.emailAddress} needs your password again.`,
         tag: `mail-needs-reauth-${payload.mailAccountId}`,
       };
+    case "gatekeeper_digest":
+      // "3 held: A, B, C" (poc-scope.md), with the tail elided once the
+      // backend's cap bites. One tag per Mail Account, so a second digest
+      // four hours later replaces the first rather than stacking — the
+      // Screener, not the notification shade, is where the list lives.
+      return {
+        title: `${payload.count} held in the Screener`,
+        body: describeHeldSenders(payload.senders, payload.count),
+        tag: `mail-gatekeeper-${payload.mailAccountId}`,
+      };
   }
+}
+
+/** "Ada, Grace and 2 more" — never the bare count on its own, since recognizing a name is the whole reason to look. */
+function describeHeldSenders(senders: string[], count: number): string {
+  if (senders.length === 0) return "Tap to review who's waiting.";
+  const remaining = count - senders.length;
+  const named = senders.join(", ");
+  return remaining > 0 ? `${named} and ${remaining} more` : named;
 }
 
 /** The slice of `WindowClient` a suppression check needs — narrowed so a test double beats casting a fake. */

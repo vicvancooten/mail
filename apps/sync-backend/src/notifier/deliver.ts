@@ -188,5 +188,13 @@ function toPayload(row: NotifierOutboxRow, badgeCount: number): PushPayload {
         emailAddress: payload.emailAddress,
         badgeCount,
       };
+    case "gatekeeper_digest":
+      return {
+        kind: "gatekeeper_digest",
+        mailAccountId: row.mailAccountId,
+        senders: payload.senders,
+        count: payload.count,
+        badgeCount,
+      };
   }
 }

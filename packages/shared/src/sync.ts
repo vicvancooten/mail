@@ -5,6 +5,7 @@ import {
   compositionSchema,
   undoSendDelaySchema,
 } from "./compose.js";
+import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema } from "./mail-accounts.js";
 
 /**
@@ -74,6 +75,27 @@ export const threadSchema = z.object({
    * projection.
    */
   labelIds: z.array(z.string()),
+  /**
+   * The Screening Hold (#55, CONTEXT.md): the normalized `From` address of
+   * the Unscreened Sender whose mail is holding this Thread in the Screener,
+   * or `null` when the Thread is not held — which is every Thread on a Mail
+   * Account with Gatekeeper switched off.
+   *
+   * One nullable address rather than a `held` boolean beside a sender field,
+   * because a hold only ever exists for a message that *started* a Thread
+   * (poc-spec.md) — so there is exactly one sender to name, and the two can
+   * never disagree. The Screener groups its rows by this value; the Inbox
+   * filters on it; `inInbox` deliberately stays `true` throughout, because a
+   * held Thread is Inbox mail the User has not been shown yet, not mail that
+   * has been archived.
+   *
+   * An App Feature with no IMAP-side trace (ADR-0008: "The Screening Hold
+   * itself stays an App Feature ... held mail is filtered out of the Inbox
+   * view, never moved"), which is also what makes Approve's "release with
+   * original received dates" free: nothing ever moved, so nothing has a date
+   * to restore.
+   */
+  heldSender: z.string().nullable(),
   updatedAt: z.iso.datetime(),
 });
 export type Thread = z.infer<typeof threadSchema>;
@@ -315,6 +337,34 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `setSignature`/`setNotificationsEnabled` (#54) are the Mail-Account-scoped
  * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
  * above for why they ride this queue rather than a new collection.
+ *
+ * The four Gatekeeper intents (#55) are the Screener's decisions and the
+ * Blocked Senders list's undo. They ride this queue rather than their own
+ * routes because CONTEXT.md files "approve/block senders" under **Triage**:
+ * they are decisions the User makes while processing the list, and they want
+ * the same durable, offline-survivable, ULID-idempotent delivery every other
+ * triage action has. Each names a *sender* (an address, or a whole domain as
+ * poc-spec.md's overflow convenience), never a Thread — one decision per
+ * stranger, not per message — and each acts on every Thread that sender is
+ * currently holding:
+ *
+ * - `approveSender` releases them with their original received dates and
+ *   records an Approved Verdict, which is also the image-loading permission
+ *   (`poc-scope.md`: "the Gatekeeper verdict *is* the image-loading
+ *   permission").
+ * - `denySender` trashes the held Threads and leaves the sender
+ *   **Unscreened** — the next message from them is held again.
+ * - `blockSender` trashes them and records a Blocked Verdict, after which
+ *   every future arrival is moved to the real `\\Trash` folder on arrival
+ *   (ADR-0008). It is the sole off-switch for an Approved sender.
+ * - `unblockSender` clears a Blocked Verdict back to Unscreened. Future-only
+ *   by construction: ADR-0008 is explicit that unblocking "stops the
+ *   bleeding but recovers nothing".
+ *
+ * A domain-scoped intent for a public provider (`gatekeeper.ts`'s
+ * `BARRED_VERDICT_DOMAINS`) is `rejected` rather than silently downgraded to
+ * an address — the Client should never have offered the button, and a
+ * rejection says so.
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
@@ -328,6 +378,10 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cancelSend"), compositionId: z.string() }),
   z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
   z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
+  z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),
+  z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
+  z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),
+  z.object({ type: z.literal("unblockSender"), sender: gatekeeperSenderSchema }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 

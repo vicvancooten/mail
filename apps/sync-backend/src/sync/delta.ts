@@ -3,7 +3,7 @@ import type { FetchMessageObject, ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, messages } from "../db/schema.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
-import { recordNewMailNotifications } from "../notifier/record.js";
+import { handleNewArrivals } from "./arrivals.js";
 import type { FolderRow } from "./folders.js";
 import { applyUidValidity, ingestFolder, storeMessage } from "./ingest.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -164,14 +164,15 @@ export async function applyFolderDelta(
       createdMessageIds.push(newlyStored.id);
       created += 1;
     }
-    // The Notifier hook (#53, ADR-0015): this loop is exactly "arrived via
-    // IDLE/delta on an already-live folder" — the backfill/UIDVALIDITY-rebuild
-    // branch above returns before reaching here, so nothing from that path
-    // ever notifies. Skipped entirely when nothing was created, so the
-    // ordinary no-op delta pass never pays for the account lookup below.
+    // The Gatekeeper + Notifier hook (#55, #53, ADR-0015): this loop is
+    // exactly "arrived via IDLE/delta on an already-live folder" — the
+    // backfill/UIDVALIDITY-rebuild branch above returns before reaching here,
+    // so nothing from that path is ever screened or notified. Skipped
+    // entirely when nothing was created, so the ordinary no-op delta pass
+    // never pays for the account lookup below.
     if (createdMessageIds.length > 0) {
       const account = await getMailAccountById(db, folder.mailAccountId);
-      if (account) await recordNewMailNotifications(db, folder, account, createdMessageIds);
+      if (account) await handleNewArrivals(db, folder, account, createdMessageIds);
     }
   }
 

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
 import { folders, messages, threads } from "../db/schema.js";
+import { setVerdict } from "../gatekeeper/verdicts.js";
 import { reindexMessages } from "../sync/search-index.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 
@@ -83,23 +85,35 @@ async function createOwnedMailAccount(app: FastifyInstance, cookie: string): Pro
   return (response.json().mailAccount as { id: string }).id;
 }
 
+/** Unique per seeded message: `(folder_id, uid)` is the Message's real identity, and one test seeds several. */
+let nextUid = 1;
+
 async function seedInboxMessage(
   mailAccountId: string,
   overrides: { subject?: string; fromAddress?: string; bodyText?: string | null } = {},
 ): Promise<{ threadId: string; folderId: string }> {
   const threadId = randomUUID();
-  const folderId = randomUUID();
   await db.insert(threads).values({ id: threadId, mailAccountId });
+  // One INBOX per Mail Account, however many times this is called — the
+  // `(mail_account_id, path)` unique index is the real folder identity.
   await db
     .insert(folders)
-    .values({ id: folderId, mailAccountId, path: "INBOX", name: "INBOX", role: "inbox" });
+    .values({ id: randomUUID(), mailAccountId, path: "INBOX", name: "INBOX", role: "inbox" })
+    .onConflictDoNothing({ target: [folders.mailAccountId, folders.path] });
+  const [folder] = await db
+    .select({ id: folders.id })
+    .from(folders)
+    .where(and(eq(folders.mailAccountId, mailAccountId), eq(folders.path, "INBOX")))
+    .limit(1);
+  if (!folder) throw new Error("INBOX was not seeded");
+  const folderId = folder.id;
   const messageId = randomUUID();
   await db.insert(messages).values({
     id: messageId,
     mailAccountId,
     threadId,
     folderId,
-    uid: 1,
+    uid: nextUid++,
     subject: overrides.subject ?? "Quarterly budget",
     fromName: "Vic van Cooten",
     fromAddress: overrides.fromAddress ?? "vic.van.cooten@a-insights.eu",
@@ -175,6 +189,53 @@ describe("POST /search", () => {
     expect(body.results[0]?.folder).toEqual({ id: folderId, name: "INBOX", role: "inbox" });
     expect(body.cursor).toBeNull();
     expect(body.indexWatermark).toEqual({ coveredSince: null, complete: false });
+  });
+
+  it("badges a held Thread and a Blocked Sender's mail (#55, docs/search-ux-spec.md §The row)", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const mailAccountId = await createOwnedMailAccount(app, cookie);
+
+    const held = await seedInboxMessage(mailAccountId, {
+      subject: "Held stranger",
+      fromAddress: "stranger@example.test",
+    });
+    await db
+      .update(threads)
+      .set({ heldSender: "stranger@example.test", heldAt: new Date() })
+      .where(eq(threads.id, held.threadId));
+
+    const blocked = await seedInboxMessage(mailAccountId, {
+      subject: "Blocked villain",
+      fromAddress: "villain@example.test",
+    });
+    await setVerdict(
+      db,
+      mailAccountId,
+      { scope: "address", value: "villain@example.test" },
+      "blocked",
+      "screener",
+    );
+
+    const plain = await seedInboxMessage(mailAccountId, {
+      subject: "Ordinary correspondent",
+      fromAddress: "colleague@example.test",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/search",
+      headers: { cookie },
+      payload: { mailAccountId, text: "", from: "example.test" },
+    });
+    expect(response.statusCode).toBe(200);
+    const results = (
+      response.json() as { results: { thread: { id: string }; gatekeeper: string | null }[] }
+    ).results;
+    const badgeByThread = new Map(results.map((row) => [row.thread.id, row.gatekeeper]));
+    expect(badgeByThread.get(held.threadId)).toBe("held");
+    expect(badgeByThread.get(blocked.threadId)).toBe("blocked");
+    expect(badgeByThread.get(plain.threadId)).toBeNull();
   });
 
   it("returns no results, not an error, for a query nothing matches", async () => {

@@ -9,6 +9,7 @@ import {
   compositions,
   correspondents,
   folders,
+  gatekeeperVerdicts,
   labels,
   loginChallenges,
   mailAccounts,
@@ -68,6 +69,7 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(attachmentBlobs);
   await db.delete(compositions);
   await db.delete(protocolWrites);
+  await db.delete(gatekeeperVerdicts);
   await db.delete(messageSearch);
   await db.delete(messages);
   await db.delete(threadMessageIds);

@@ -25,6 +25,10 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
     },
     signature: row.signature,
     notificationsEnabled: row.notificationsEnabled,
+    gatekeeper: {
+      enabled: row.gatekeeperEnabled,
+      cutoff: row.gatekeeperCutoff?.toISOString() ?? null,
+    },
     createdAt: row.createdAt.toISOString(),
   };
 }

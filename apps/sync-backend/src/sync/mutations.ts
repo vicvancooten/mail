@@ -1,4 +1,5 @@
 import type {
+  GatekeeperSender,
   MutationIntent,
   MutationOutcome,
   QueuedMutation,
@@ -24,6 +25,7 @@ import {
   threads,
   users,
 } from "../db/schema.js";
+import { approveSender, blockSender, denySender, unblockSender } from "../gatekeeper/decisions.js";
 import {
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
@@ -127,6 +129,18 @@ async function applyIntent(
     await updateMailAccountNotificationsEnabled(db, mailAccountId, intent.enabled);
     return { ok: true };
   }
+  // The Screener's decisions (#55). Like the two above they name no Thread —
+  // "one decision per stranger, not per message" (poc-spec.md) — so they are
+  // dispatched here, ahead of the Thread lookup, and `gatekeeper/decisions.ts`
+  // resolves the sender to whatever Threads they are currently holding.
+  if (
+    intent.type === "approveSender" ||
+    intent.type === "denySender" ||
+    intent.type === "blockSender" ||
+    intent.type === "unblockSender"
+  ) {
+    return applyGatekeeperIntent(db, mailAccountId, intent);
+  }
 
   const [thread] = await db
     .select({ id: threads.id, labelIds: threads.labelIds })
@@ -222,6 +236,34 @@ async function applyIntent(
       // already have for a Thread already in the requested state.
       return { ok: true };
     }
+  }
+}
+
+/**
+ * The four Gatekeeper intents (#55, poc-spec.md §Gatekeeper v1). Thin
+ * dispatch over `gatekeeper/decisions.ts`, which owns what each decision
+ * actually does to the held Threads and to the Verdict table.
+ *
+ * The only rejection any of them can produce is `barred_verdict_domain` — a
+ * domain-scoped decision aimed at a public provider (`@mail/shared`'s
+ * `BARRED_VERDICT_DOMAINS`). Permanent, correctly: no retry of the same
+ * intent will ever make `gmail.com` a sensible thing to approve or block
+ * wholesale.
+ */
+async function applyGatekeeperIntent(
+  db: Db,
+  mailAccountId: string,
+  intent: Extract<MutationIntent, { sender: GatekeeperSender }>,
+): Promise<IntentResult> {
+  switch (intent.type) {
+    case "approveSender":
+      return approveSender(db, mailAccountId, intent.sender);
+    case "denySender":
+      return denySender(db, mailAccountId, intent.sender);
+    case "blockSender":
+      return blockSender(db, mailAccountId, intent.sender);
+    case "unblockSender":
+      return unblockSender(db, mailAccountId, intent.sender);
   }
 }
 
