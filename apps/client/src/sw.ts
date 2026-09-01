@@ -296,14 +296,15 @@ async function handleSubscriptionChange(event: PushSubscriptionChangeEvent): Pro
 /**
  * "A click always lands where the next decision is" (ADR-0015): every kind
  * focuses (or opens) the one window this Client stacks every section into
- * (`AppShell` has no router) — `new_mail` additionally posts which Thread to
- * select, via `notification-router.ts` on the main thread. Opening a fresh
+ * (`AppShell` has no router) — `new_mail`, `failed_send`, and `needs_reauth`
+ * additionally post what to land on (a Thread, a Composition, a Mail
+ * Account) via `notification-router.ts` on the main thread. Opening a fresh
  * window (nothing was already open) lands on the app's default view rather
- * than deep-linking into a specific Thread — a known simplification: there
- * is no `postMessage` recipient to hand the Thread id to until that window
- * has loaded and subscribed, and this repo has no thread-addressable route
- * to open straight into instead (`MailSection`'s own doc comment — thread
- * selection is plain React state, not a URL).
+ * than deep-linking into a specific target — a known simplification: there
+ * is no `postMessage` recipient to hand the target to until that window has
+ * loaded and subscribed, and this repo has no addressable route to open
+ * straight into instead (`MailSection`'s own doc comment — routing is plain
+ * React state, not a URL).
  */
 async function focusOrOpenClient(payload: PushPayload | null): Promise<void> {
   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
@@ -316,12 +317,8 @@ async function focusOrOpenClient(payload: PushPayload | null): Promise<void> {
   await existing.focus();
   if (!payload) return;
   const target = notificationClickTarget(payload);
-  if (target.kind === "thread") {
-    existing.postMessage({
-      type: "notification-click",
-      target: { mailAccountId: target.mailAccountId, threadId: target.threadId },
-    });
-  }
+  if (target.kind === "focus-only") return;
+  existing.postMessage({ type: "notification-click", target });
 }
 
 function pushPayloadFromNotificationData(data: unknown): PushPayload | null {

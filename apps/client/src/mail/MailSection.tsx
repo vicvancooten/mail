@@ -9,6 +9,7 @@ import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
+import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   enqueueUserMutation,
@@ -193,15 +194,30 @@ export function MailSection() {
   // A notification click landing here (#53, ADR-0015: "a click always
   // lands where the next decision is"): the service worker only knows how
   // to focus/open this one window, so `notification-router.ts` is what
-  // turns "which Thread" into React state once the click actually reaches
-  // this component.
+  // turns "which Thread / Composition / Mail Account" into React state (or,
+  // for `needs-reauth`, a DOM scroll into `MailAccountsSection`'s
+  // always-rendered list — this Client has no router to navigate with)
+  // once the click actually reaches this component.
   useEffect(() => {
     return subscribeNotificationTarget((target) => {
-      if (target.mailAccountId !== accountId) selectAccount(target.mailAccountId);
-      setLabelFilter(null);
-      setSelectedThreadId(target.threadId);
+      switch (target.kind) {
+        case "thread":
+          if (target.mailAccountId !== accountId) selectAccount(target.mailAccountId);
+          setLabelFilter(null);
+          setSelectedThreadId(target.threadId);
+          return;
+        case "failed-send":
+          // Same "Open draft" path `SendFailureBanner`'s own click uses —
+          // the restored Draft in the composer, per ADR-0015.
+          if (target.mailAccountId !== accountId) selectAccount(target.mailAccountId);
+          reopenCompose(target.compositionId);
+          return;
+        case "needs-reauth":
+          scrollToMailAccountSettings(target.mailAccountId);
+          return;
+      }
     });
-  }, [accountId, selectAccount]);
+  }, [accountId, selectAccount, reopenCompose]);
 
   const selectLabelFilter = useCallback((labelId: string | null) => {
     setLabelFilter(labelId);

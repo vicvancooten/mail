@@ -99,11 +99,12 @@ export function NewMailToast({
 
   function openThread(payload: PushPayload): void {
     const target = notificationClickTarget(payload);
-    // A burst/failed-send/needs-reauth toast has nowhere narrower to land
-    // than the window it's already showing in — same as a real
-    // notification click on those kinds (`push-decisions.ts`).
-    if (target.kind === "thread") {
-      publishNotificationTarget({ mailAccountId: target.mailAccountId, threadId: target.threadId });
+    // A collapsed-burst/digest toast has nowhere narrower to land than the
+    // window it's already showing in — same as a real notification click on
+    // those two kinds (`push-decisions.ts`). The other three route exactly
+    // as a real notification click would.
+    if (target.kind !== "focus-only") {
+      publishNotificationTarget(target);
     }
     setEntries([]);
     setCollapsedCount(null);

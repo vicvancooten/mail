@@ -5,6 +5,26 @@ import { AddMailAccountForm } from "./AddMailAccountForm.js";
 import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
 
 /**
+ * The DOM anchor a `needs_reauth` notification click scrolls to (#53,
+ * ADR-0015: "that Mail Account's settings ... for Needs Reauth"). There is
+ * no router here (`AppShell`'s own doc comment), so "navigate to this Mail
+ * Account's settings" means scrolling this always-rendered section's
+ * matching row into view rather than changing a URL — see
+ * `scrollToMailAccountSettings` below, called from `MailSection.tsx`'s
+ * notification-target effect.
+ */
+export function mailAccountSettingsAnchorId(mailAccountId: string): string {
+  return `mail-account-${mailAccountId}`;
+}
+
+/** Scrolls a `needs_reauth` notification click's target Mail Account row into view — a no-op if `MailAccountsSection` hasn't rendered it (yet, or at all). */
+export function scrollToMailAccountSettings(mailAccountId: string): void {
+  document
+    .getElementById(mailAccountSettingsAnchorId(mailAccountId))
+    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+/**
  * The account list UI (#33): every Mail Account this User owns
  * (ADR-0004 — never another User's), a Needs Reauth badge with its
  * re-enter-credentials form inline, and the add-a-Mail-Account flow. No
@@ -38,7 +58,7 @@ export function MailAccountsSection() {
       {accounts !== null && accounts.length > 0 && (
         <ul>
           {accounts.map((account) => (
-            <li key={account.id}>
+            <li key={account.id} id={mailAccountSettingsAnchorId(account.id)}>
               <strong>{account.emailAddress}</strong>
               {account.status === "needs_reauth" ? (
                 <>

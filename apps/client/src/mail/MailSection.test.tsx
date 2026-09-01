@@ -5,6 +5,7 @@ import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
+import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import {
   applyLabelDelta,
@@ -312,12 +313,46 @@ describe("MailSection", () => {
     expect(await screen.findByText("Account one thread")).toBeDefined();
 
     act(() => {
-      publishNotificationTarget({ mailAccountId: "acct-2", threadId: "t2" });
+      publishNotificationTarget({ kind: "thread", mailAccountId: "acct-2", threadId: "t2" });
     });
 
     expect(
       await screen.findByText("Account two thread", { selector: ".thread-detail-card h1" }),
     ).toBeDefined();
+    expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
+  });
+
+  it("a notification click on a failed send switches accounts and reopens its Composition (#53)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await saveComposition(
+      "comp-failed",
+      "acct-2",
+      { ...EMPTY_COMPOSE_CONTENT, subject: "Re: quarterly numbers" },
+      { force: true },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await waitFor(() => expect(screen.getByLabelText("Mail account")).toBeDefined());
+
+    act(() => {
+      publishNotificationTarget({
+        kind: "failed-send",
+        mailAccountId: "acct-2",
+        compositionId: "comp-failed",
+      });
+    });
+
+    const subject = (await screen.findByPlaceholderText("Subject")) as HTMLInputElement;
+    await waitFor(() => expect(subject.value).toBe("Re: quarterly numbers"));
     expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
   });
 

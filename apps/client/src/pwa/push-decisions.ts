@@ -97,20 +97,42 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
  * What a click on the notification's body (no action button) should do:
  * every kind focuses/opens the one window this Client already stacks every
  * section into (`AppShell`'s own doc comment — "there is no router in this
- * Client"), and `new_mail` additionally names which Thread to land on, so
- * the focused window can select it. The other three kinds have nothing
- * further to route to: Needs Reauth's banner and a failed send's badge are
- * already visible on that one page once it's focused.
+ * Client"), and three kinds additionally name what to land on inside it, so
+ * the focused window can route there (ADR-0015: "a click always lands where
+ * the next decision is"):
+ *
+ * - `new_mail` names the Thread to select.
+ * - `failed_send` names the Composition to reopen — the restored Draft in
+ *   the composer, per ADR-0015.
+ * - `needs_reauth` names the Mail Account whose settings/reauth form to
+ *   jump to.
+ *
+ * `new_mail_burst` and `gatekeeper_digest` stay `focus-only`: a coalesced
+ * digest deep-links to the Screener per ADR-0015, but that's its own,
+ * separate piece of work — out of scope here, so both fall back to the
+ * plain focus a click always gets at minimum.
  */
 export type NotificationClickTarget =
   | { kind: "thread"; mailAccountId: string; threadId: string }
+  | { kind: "failed-send"; mailAccountId: string; compositionId: string }
+  | { kind: "needs-reauth"; mailAccountId: string }
   | { kind: "focus-only" };
 
 export function notificationClickTarget(payload: PushPayload): NotificationClickTarget {
-  if (payload.kind === "new_mail") {
-    return { kind: "thread", mailAccountId: payload.mailAccountId, threadId: payload.threadId };
+  switch (payload.kind) {
+    case "new_mail":
+      return { kind: "thread", mailAccountId: payload.mailAccountId, threadId: payload.threadId };
+    case "failed_send":
+      return {
+        kind: "failed-send",
+        mailAccountId: payload.mailAccountId,
+        compositionId: payload.compositionId,
+      };
+    case "needs_reauth":
+      return { kind: "needs-reauth", mailAccountId: payload.mailAccountId };
+    default:
+      return { kind: "focus-only" };
   }
-  return { kind: "focus-only" };
 }
 
 /** The direct-POST body for the Archive action button — ADR-0015: "POST direct with a ULID key ... never through the overlay." */

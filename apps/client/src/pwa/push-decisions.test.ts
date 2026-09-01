@@ -128,7 +128,31 @@ describe("notificationClickTarget", () => {
     ).toEqual({ kind: "thread", mailAccountId: "acct-1", threadId: "thread-1" });
   });
 
-  it("is focus-only for the other three kinds — nothing else to route to on a stacked-section Client", () => {
+  it("names the Composition to reopen for a failed send", () => {
+    expect(
+      notificationClickTarget({
+        kind: "failed_send",
+        mailAccountId: "acct-1",
+        compositionId: "c",
+        subject: "",
+        detail: "",
+        badgeCount: 0,
+      }),
+    ).toEqual({ kind: "failed-send", mailAccountId: "acct-1", compositionId: "c" });
+  });
+
+  it("names the Mail Account whose settings/reauth screen to jump to for needs_reauth", () => {
+    expect(
+      notificationClickTarget({
+        kind: "needs_reauth",
+        mailAccountId: "acct-1",
+        emailAddress: "x@example.com",
+        badgeCount: 0,
+      }),
+    ).toEqual({ kind: "needs-reauth", mailAccountId: "acct-1" });
+  });
+
+  it("is focus-only for the two coalesced kinds — a digest/burst is ambiguous about which target to land on", () => {
     expect(
       notificationClickTarget({
         kind: "new_mail_burst",
@@ -139,19 +163,10 @@ describe("notificationClickTarget", () => {
     ).toEqual({ kind: "focus-only" });
     expect(
       notificationClickTarget({
-        kind: "failed_send",
+        kind: "gatekeeper_digest",
         mailAccountId: "acct-1",
-        compositionId: "c",
-        subject: "",
-        detail: "",
-        badgeCount: 0,
-      }),
-    ).toEqual({ kind: "focus-only" });
-    expect(
-      notificationClickTarget({
-        kind: "needs_reauth",
-        mailAccountId: "acct-1",
-        emailAddress: "x@example.com",
+        count: 2,
+        senders: ["Ada"],
         badgeCount: 0,
       }),
     ).toEqual({ kind: "focus-only" });

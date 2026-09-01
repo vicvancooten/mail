@@ -98,7 +98,7 @@ describe("NewMailToast", () => {
     container.emit({ type: "new-mail-toast", payload: newMailPayload() });
     fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 
-    expect(received).toEqual([{ mailAccountId: "acct-1", threadId: "thread-1" }]);
+    expect(received).toEqual([{ kind: "thread", mailAccountId: "acct-1", threadId: "thread-1" }]);
     expect(screen.queryByRole("status")).toBeNull();
     unsubscribe();
   });
@@ -117,6 +117,52 @@ describe("NewMailToast", () => {
 
     expect(listener).not.toHaveBeenCalled();
     expect(screen.queryByRole("status")).toBeNull();
+    unsubscribe();
+  });
+
+  it("routes a clicked failed_send toast the same as a real notification click (#53)", () => {
+    const container = fakeContainer();
+    const received: unknown[] = [];
+    const unsubscribe = subscribeNotificationTarget((target) => received.push(target));
+    render(<NewMailToast container={container} />);
+
+    container.emit({
+      type: "new-mail-toast",
+      payload: {
+        kind: "failed_send",
+        mailAccountId: "acct-1",
+        compositionId: "comp-1",
+        subject: "Re: hi",
+        detail: "550 mailbox unavailable",
+        badgeCount: 0,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Send failed/ }));
+
+    expect(received).toEqual([
+      { kind: "failed-send", mailAccountId: "acct-1", compositionId: "comp-1" },
+    ]);
+    unsubscribe();
+  });
+
+  it("routes a clicked needs_reauth toast the same as a real notification click (#53)", () => {
+    const container = fakeContainer();
+    const received: unknown[] = [];
+    const unsubscribe = subscribeNotificationTarget((target) => received.push(target));
+    render(<NewMailToast container={container} />);
+
+    container.emit({
+      type: "new-mail-toast",
+      payload: {
+        kind: "needs_reauth",
+        mailAccountId: "acct-1",
+        emailAddress: "vic@example.com",
+        badgeCount: 0,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Reconnect your account/ }));
+
+    expect(received).toEqual([{ kind: "needs-reauth", mailAccountId: "acct-1" }]);
     unsubscribe();
   });
 });
