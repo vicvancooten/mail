@@ -1,9 +1,8 @@
 import { AuthProvider } from "./auth/AuthContext.js";
 import { AuthGate } from "./auth/AuthGate.js";
 
-// The real triage UI lives on `prototype/triage-loop-ui` and lands here once
-// that ticket's direction is merged in; this is first-run claim, login, and
-// the authenticated shell (#31).
+// First-run claim, login, and the authenticated shell (#31); the real
+// triage UI it hosts (`AppShell` -> `MailSection`) is #40 and on.
 function App() {
   return (
     <AuthProvider>
