@@ -9,8 +9,9 @@ import {
   mailAccountListResponseSchema,
   mailAccountResponseSchema,
   type ReauthMailAccountRequest,
+  type UpdateMailAccountSignatureRequest,
 } from "@mail/shared";
-import { getJson, postJson } from "./auth.js";
+import { getJson, patchJson, postJson } from "./auth.js";
 
 export function fetchMailAccounts(): Promise<MailAccountListResponse> {
   return getJson("/mail-accounts", (data) => mailAccountListResponseSchema.parse(data));
@@ -33,6 +34,16 @@ export function reauthMailAccount(
   input: ReauthMailAccountRequest,
 ): Promise<MailAccountResponse> {
   return postJson(`/mail-accounts/${id}/reauth`, input, (data) =>
+    mailAccountResponseSchema.parse(data),
+  );
+}
+
+/** The per-account plain-text signature (#47, compose-spec §Signature). */
+export function updateMailAccountSignature(
+  id: string,
+  input: UpdateMailAccountSignatureRequest,
+): Promise<MailAccountResponse> {
+  return patchJson(`/mail-accounts/${id}/signature`, input, (data) =>
     mailAccountResponseSchema.parse(data),
   );
 }

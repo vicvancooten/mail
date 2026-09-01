@@ -271,3 +271,61 @@ describe("serializeComposePlaintext", () => {
     expect(serializeComposePlaintext(doc)).toBe("| A | B |");
   });
 });
+
+describe("mailQuote (#47)", () => {
+  const QUOTED_HTML = '<p>Original <b>content</b> — "quoted" & <i>kept</i>.</p>';
+
+  it("emits the quoted HTML verbatim inside a <blockquote>, never escaped or reformatted", () => {
+    const doc: ComposeDocument = {
+      type: "doc",
+      content: [{ type: "mailQuote", attrs: { html: QUOTED_HTML } }],
+    };
+    const html = serializeComposeHtml(doc);
+    expect(html).toMatch(/<blockquote[^>]*>/);
+    expect(html).toContain(`${QUOTED_HTML}</blockquote>`);
+  });
+
+  it("plaintext runs the quote through html-to-text and `> `-prefixes every line", () => {
+    const doc: ComposeDocument = {
+      type: "doc",
+      content: [
+        {
+          type: "mailQuote",
+          attrs: { html: "<p>Line one</p><p>Line two</p>" },
+        },
+      ],
+    };
+    const plain = serializeComposePlaintext(doc);
+    expect(plain.split("\n").every((line) => line.startsWith("> "))).toBe(true);
+    expect(plain).toContain("Line one");
+    expect(plain).toContain("Line two");
+  });
+});
+
+describe("mailSignature (#47)", () => {
+  it("renders as plain paragraphs in HTML — no special wrapper", () => {
+    const doc: ComposeDocument = {
+      type: "doc",
+      content: [
+        {
+          type: "mailSignature",
+          content: [{ type: "paragraph", content: [text("Ada Lovelace")] }],
+        },
+      ],
+    };
+    expect(serializeComposeHtml(doc)).toContain("Ada Lovelace");
+  });
+
+  it("plaintext is preceded by the RFC 3676 `-- ` sigdash", () => {
+    const doc: ComposeDocument = {
+      type: "doc",
+      content: [
+        {
+          type: "mailSignature",
+          content: [{ type: "paragraph", content: [text("Ada Lovelace")] }],
+        },
+      ],
+    };
+    expect(serializeComposePlaintext(doc)).toBe("-- \nAda Lovelace");
+  });
+});

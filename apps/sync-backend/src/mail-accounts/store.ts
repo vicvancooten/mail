@@ -23,6 +23,7 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
       coveredSince: row.bodyWatermark?.toISOString() ?? null,
       complete: row.bodySweepComplete,
     },
+    signature: row.signature,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -131,6 +132,22 @@ export async function setSyncStatus(
       ...(update.touchProgress ? { lastProgressAt: new Date() } : {}),
       updatedAt: new Date(),
     })
+    .where(eq(mailAccounts.id, id));
+}
+
+/**
+ * `PATCH /mail-accounts/:id/signature` (#47, compose-spec §Signature) — the
+ * inline column #54's Mail-Account-scoped preference collection eventually
+ * grows out of, same posture as `send-settings.ts`'s Undo Send delay.
+ */
+export async function updateMailAccountSignature(
+  db: Db,
+  id: string,
+  signature: string | null,
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ signature, updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
 }
 

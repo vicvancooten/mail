@@ -243,6 +243,7 @@ function toWireMessage(row: MessageRow, imageProxyKey: Buffer) {
     threadId: row.threadId,
     mailAccountId: row.mailAccountId,
     messageIdHeader: row.messageIdHeader,
+    references: row.references,
     subject: row.subject,
     from: toAddress(row.fromName, row.fromAddress),
     to: row.toAddresses,

@@ -229,8 +229,18 @@ function mergeComposition(
           to: local.to,
           cc: local.cc,
           bcc: local.bcc,
+          inReplyTo: local.inReplyTo,
+          references: local.references,
         }
-      : { subject: wire.subject, document: wire.document, to: wire.to, cc: wire.cc, bcc: wire.bcc };
+      : {
+          subject: wire.subject,
+          document: wire.document,
+          to: wire.to,
+          cc: wire.cc,
+          bcc: wire.bcc,
+          inReplyTo: wire.inReplyTo,
+          references: wire.references,
+        };
   return {
     id: wire.id,
     mailAccountId: wire.mailAccountId,

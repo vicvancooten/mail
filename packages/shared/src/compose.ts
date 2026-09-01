@@ -127,6 +127,17 @@ export const composeSaveSchema = z.object({
   to: z.array(recipientSchema),
   cc: z.array(recipientSchema),
   bcc: z.array(recipientSchema),
+  /**
+   * The reply/forward threading headers (#47, compose-spec §Threading
+   * headers), computed once client-side against "the specific message the
+   * User had open" the moment the composer opens and carried through every
+   * autosave unchanged — never recomputed at submission, so switching the
+   * From account mid-compose "does not rewrite an existing reply's threading
+   * headers" (compose-spec §Composer surface & keys). `null`/`[]` for an
+   * ordinary new-compose Composition.
+   */
+  inReplyTo: z.string().nullable().default(null),
+  references: z.array(z.string()).default([]),
 });
 export type ComposeSave = z.infer<typeof composeSaveSchema>;
 
@@ -290,6 +301,9 @@ export const compositionSchema = z.object({
   to: z.array(recipientSchema),
   cc: z.array(recipientSchema),
   bcc: z.array(recipientSchema),
+  /** The threading headers (#47) this Composition's send will carry — see `composeSaveSchema`'s field of the same name. */
+  inReplyTo: z.string().nullable(),
+  references: z.array(z.string()),
   version: z.number().int().nonnegative(),
   submitAfter: z.iso.datetime().nullable(),
   sendError: z.string().nullable(),

@@ -49,6 +49,8 @@ async function queueComposeSave(): Promise<void> {
     to: [],
     cc: [],
     bcc: [],
+    inReplyTo: null,
+    references: [],
     queuedAt: "2026-06-01T12:00:00.000Z",
   });
 }

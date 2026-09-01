@@ -1,5 +1,6 @@
 import { Pin } from "lucide-react";
 import type { CachedThread } from "../store/index.js";
+import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
 import { PINNED_GROUP_LABEL, timeGroupLabel } from "./time-groups.js";
@@ -22,6 +23,7 @@ export function StreamView({
   onSelect,
   onBack,
   triage,
+  onReply,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -30,6 +32,7 @@ export function StreamView({
   /** Present when the underlying view mode has a list to fall back to. */
   onBack?: () => void;
   triage: Triage;
+  onReply: OnReply;
 }) {
   const currentId = selectedThreadId ?? ids[0] ?? null;
   const currentThread = threads.find((thread) => thread.id === currentId) ?? null;
@@ -82,6 +85,7 @@ export function StreamView({
         onPrev={prevId ? () => onSelect(prevId) : undefined}
         onNext={nextId ? () => onSelect(nextId) : undefined}
         triage={triage}
+        onReply={onReply}
       />
     </div>
   );

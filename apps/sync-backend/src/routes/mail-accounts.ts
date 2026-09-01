@@ -6,6 +6,7 @@ import {
   mailAccountListResponseSchema,
   mailAccountResponseSchema,
   reauthMailAccountRequestSchema,
+  updateMailAccountSignatureRequestSchema,
 } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
@@ -17,6 +18,7 @@ import {
   listMailAccountsForUser,
   replaceMailAccountCredential,
   toWireMailAccount,
+  updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
@@ -127,6 +129,35 @@ export async function mailAccountRoutes(
     await syncManager.restart(id);
     return mailAccountResponseSchema.parse({ mailAccount: toWireMailAccount(updated) });
   });
+
+  // The per-Mail-Account plain-text signature (#47, compose-spec
+  // §Signature). A plain pair-of-fields route rather than a synced
+  // collection, same posture as `send-settings.ts`'s Undo Send delay: #54
+  // owns preference *storage* generally, this ticket needs exactly one
+  // value ahead of it.
+  app.patch(
+    "/mail-accounts/:id/signature",
+    { preHandler: app.requireAuth },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const row = await getMailAccountForUser(db, requireUser(request).id, id);
+      if (!row) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+
+      const body = updateMailAccountSignatureRequestSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.code(400).send({ error: "invalid_request", issues: body.error.issues });
+      }
+
+      await updateMailAccountSignature(db, id, body.data.signature);
+      const updated = await getMailAccountForUser(db, requireUser(request).id, id);
+      if (!updated) {
+        throw new Error("Mail Account disappeared between signature update and re-read.");
+      }
+      return mailAccountResponseSchema.parse({ mailAccount: toWireMailAccount(updated) });
+    },
+  );
 }
 
 function requireUser(request: { user: { id: string } | null }): { id: string } {

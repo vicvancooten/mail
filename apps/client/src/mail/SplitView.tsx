@@ -1,4 +1,5 @@
 import type { CachedThread } from "../store/index.js";
+import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
 import type { Triage } from "./useTriage.js";
@@ -23,6 +24,7 @@ export function SplitView({
   onClearSelection,
   onLoadMore,
   triage,
+  onReply,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -32,6 +34,7 @@ export function SplitView({
   onClearSelection: () => void;
   onLoadMore?: () => void;
   triage: Triage;
+  onReply: OnReply;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const prevId = neighborId(ids, selectedThreadId, -1);
@@ -62,6 +65,7 @@ export function SplitView({
             onPrev={prevId ? () => onSelect(prevId) : undefined}
             onNext={nextId ? () => onSelect(nextId) : undefined}
             triage={triage}
+            onReply={onReply}
           />
         ) : (
           <p className="mail-empty">Select a thread to read it.</p>

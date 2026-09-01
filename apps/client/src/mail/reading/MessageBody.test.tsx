@@ -10,6 +10,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     threadId: "thread-1",
     mailAccountId: "acct-1",
     messageIdHeader: "<msg-1@example.test>",
+    references: [],
     subject: "Hello",
     from: { name: "Ada", address: "ada@example.test" },
     to: [],

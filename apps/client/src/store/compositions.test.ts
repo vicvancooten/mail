@@ -339,6 +339,8 @@ describe("undoSecondsRemaining", () => {
     to: [],
     cc: [],
     bcc: [],
+    inReplyTo: null,
+    references: [],
     version: 1,
     sendError: null,
     sentAt: null,

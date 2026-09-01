@@ -1,3 +1,4 @@
+import type { Message } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
 import {
   Archive,
@@ -12,12 +13,16 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { ReplyMode } from "../compose/reply.js";
 import type { CachedThread } from "../store/index.js";
 import { useLabels } from "../store/index.js";
 import { LabelPicker } from "./LabelPicker.js";
 import { MessageList } from "./reading/MessageList.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import type { Triage } from "./useTriage.js";
+
+/** Reply / reply-all / forward, against one specific Message (compose-spec §Threading headers). */
+export type OnReply = (message: Message, mode: ReplyMode) => void;
 
 /**
  * The opened-Thread pane: everything the Local Cache already holds about a
@@ -46,6 +51,7 @@ export function ThreadDetailPane({
   onPrev,
   onNext,
   triage,
+  onReply,
 }: {
   thread: CachedThread;
   groupLabel?: string;
@@ -53,6 +59,7 @@ export function ThreadDetailPane({
   onPrev?: () => void;
   onNext?: () => void;
   triage: Triage;
+  onReply: OnReply;
 }) {
   const participants =
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
@@ -62,10 +69,15 @@ export function ThreadDetailPane({
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // `L` opens/closes the Label picker (#43) — its own window keydown
-  // listener, the same "one component owns one binding" shape
+  // `L` opens/closes the Label picker (#43), `r`/`a`/`f` reply/reply-all/
+  // forward (#47, compose-spec §Composer surface & keys) — one window
+  // keydown listener, the same "one component owns one binding" shape
   // `VirtualizedThreadList` already uses for `j`/`k`, rather than routing
-  // through `useTriage`'s scheme (which never needs to know *which* Label).
+  // through `useTriage`'s scheme (which never needs to know *which* Label,
+  // or *which* Message). `r`/`a`/`f` always act on the newest Message in the
+  // Thread — the reading pane's own per-Message Reply/Reply All/Forward
+  // buttons (`reading/MessageList.tsx`) are what reaches "the specific
+  // message the User had open" when that isn't the newest one.
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -73,11 +85,27 @@ export function ThreadDetailPane({
         target &&
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
       if (typing) return;
-      if (event.key === "L") setPickerOpen((open) => !open);
+      if (event.key === "L") {
+        setPickerOpen((open) => !open);
+        return;
+      }
+      const mode =
+        event.key === "r"
+          ? "reply"
+          : event.key === "a"
+            ? "replyAll"
+            : event.key === "f"
+              ? "forward"
+              : null;
+      if (!mode) return;
+      const newest = messages?.at(-1);
+      if (!newest) return;
+      event.preventDefault();
+      onReply(newest, mode);
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [messages, onReply]);
 
   return (
     <div className="thread-detail" key={thread.id}>
@@ -184,7 +212,7 @@ export function ThreadDetailPane({
             ) : null}
           </div>
         </div>
-        {messages ? <MessageList messages={messages} /> : null}
+        {messages ? <MessageList messages={messages} onReply={onReply} /> : null}
       </div>
     </div>
   );

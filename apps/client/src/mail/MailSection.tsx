@@ -1,11 +1,13 @@
-import type { Label } from "@mail/shared";
+import type { Label, Message } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
+import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import {
   newCompositionId,
+  saveComposition,
   THREAD_PAGE_SIZE,
   useLabels,
   useMailAccounts,
@@ -82,6 +84,27 @@ export function MailSection() {
   // on a failed send both land here.
   const reopenCompose = useCallback((compositionId: string) => setComposeId(compositionId), []);
   useComposeShortcut(openCompose, composeId !== null);
+
+  // Reply/reply-all/forward (#47): seeds a freshly-minted Composition
+  // (`compose/reply.ts#buildReplyContent`) *before* the composer ever
+  // mounts, `force`d the same way an attach-before-any-keystroke is
+  // (`store/compositions.ts#saveComposition`'s own doc comment) — so by the
+  // time `<Composer>` reads `useComposition(id)` on its first hydration
+  // effect, the row is already there to hydrate from. "One composer at a
+  // time" (compose-spec) is why this no-ops while one is already open,
+  // matching `useComposeShortcut`'s own suppression.
+  const openReply = useCallback(
+    (message: Message, mode: ReplyMode) => {
+      if (composeId !== null || !mailAccounts) return;
+      const account = mailAccounts.find((candidate) => candidate.id === message.mailAccountId);
+      if (!account) return;
+      const id = newCompositionId();
+      void saveComposition(id, account.id, buildReplyContent(mode, message, account), {
+        force: true,
+      }).then(() => setComposeId(id));
+    },
+    [composeId, mailAccounts],
+  );
 
   // Pick the active account once accounts are known: the remembered device
   // preference if it still names one of them, else the first by
@@ -200,6 +223,7 @@ export function MailSection() {
             selectedThreadId={selectedThreadId}
             onSelect={setSelectedThreadId}
             triage={triage}
+            onReply={openReply}
           />
         ) : viewMode === "split" ? (
           <SplitView
@@ -211,6 +235,7 @@ export function MailSection() {
             onClearSelection={() => setSelectedThreadId(null)}
             onLoadMore={loadMore}
             triage={triage}
+            onReply={openReply}
           />
         ) : (
           <ListView
@@ -222,6 +247,7 @@ export function MailSection() {
             onBack={() => setSelectedThreadId(null)}
             onLoadMore={loadMore}
             triage={triage}
+            onReply={openReply}
           />
         )}
       </div>

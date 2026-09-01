@@ -2,6 +2,7 @@ import type { AttachmentMeta, MailAccount } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { saveComposition } from "../store/compositions.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations } from "../store/mutation-queue.js";
 import { Composer } from "./Composer.js";
@@ -43,6 +44,7 @@ const ACCOUNT: MailAccount = {
   status: "active",
   sync: { state: "idle", lastProgressAt: null, lastError: null },
   indexWatermark: { coveredSince: null, complete: false },
+  signature: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
@@ -305,6 +307,79 @@ describe("Composer", () => {
     await waitFor(() => {
       const button = document.querySelector(".composer-send-button") as HTMLButtonElement;
       expect(button.disabled).toBe(false);
+    });
+  });
+
+  describe("reply/forward (#47)", () => {
+    it("hydrates a pre-seeded reply Composition and round-trips the quoted HTML byte-identically", async () => {
+      const quotedHtml = '<p>Weird &amp; <b>bold</b> "quoted" text.</p>';
+      await saveComposition(
+        "comp-1",
+        "acct-1",
+        {
+          subject: "Re: Lunch plans",
+          document: {
+            type: "doc",
+            content: [{ type: "paragraph" }, { type: "mailQuote", attrs: { html: quotedHtml } }],
+          },
+          to: [{ name: "Ada", address: "ada@example.test" }],
+          cc: [],
+          bcc: [],
+          inReplyTo: "original@example.test",
+          references: ["root@example.test", "original@example.test"],
+        },
+        { force: true },
+      );
+
+      render(
+        <Composer
+          compositionId="comp-1"
+          mailAccounts={[ACCOUNT]}
+          defaultMailAccountId="acct-1"
+          onClose={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect((screen.getByPlaceholderText("Subject") as HTMLInputElement).value).toBe(
+          "Re: Lunch plans",
+        );
+      });
+
+      // The hydrated editor round-trips through one more (no-op) edit and
+      // autosave — the quote's `html` attr must still be exactly what it was
+      // seeded with, and the threading headers must have survived untouched.
+      fireEvent.change(screen.getByPlaceholderText("Subject"), {
+        target: { value: "Re: Lunch plans " },
+      });
+      fireEvent.change(screen.getByPlaceholderText("Subject"), {
+        target: { value: "Re: Lunch plans" },
+      });
+
+      await waitFor(
+        async () => {
+          const row = await localCache().compositions.get("comp-1");
+          const quote = row?.document.content.find((node) => node.type === "mailQuote");
+          expect(quote?.attrs?.html).toBe(quotedHtml);
+          expect(row?.inReplyTo).toBe("original@example.test");
+          expect(row?.references).toEqual(["root@example.test", "original@example.test"]);
+        },
+        { timeout: 3000 },
+      );
+    });
+
+    it("a signed account's signature opens above the (empty) body on new mail too", async () => {
+      const signed = { ...ACCOUNT, signature: "Ada Lovelace" };
+      render(
+        <Composer
+          compositionId="comp-1"
+          mailAccounts={[signed]}
+          defaultMailAccountId="acct-1"
+          onClose={vi.fn()}
+        />,
+      );
+
+      expect(await screen.findByText("Ada Lovelace")).not.toBeNull();
     });
   });
 });

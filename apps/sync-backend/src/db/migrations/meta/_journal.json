@@ -92,6 +92,13 @@
       "when": 1788268776943,
       "tag": "0012_steep_miracleman",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788270662299,
+      "tag": "0013_spooky_silvermane",
+      "breakpoints": true
     }
   ]
 }

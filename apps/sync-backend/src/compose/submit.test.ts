@@ -41,6 +41,8 @@ const ROW = {
   toAddresses: [{ name: "Ada", address: "ada@example.test" }],
   ccAddresses: [{ name: null, address: "cc@example.test" }],
   bccAddresses: [{ name: null, address: "hidden@example.test" }],
+  inReplyTo: null,
+  references: [],
   messageId: "minted-id@example.test",
   imapDraftUid: null,
   sendAttempts: 1,
@@ -94,6 +96,26 @@ describe("submitComposition", () => {
     const wire = (await buildMime(transmitted ?? {})).toString("utf8");
     expect(wire).toContain("<minted-id@example.test>");
     expect(result.mime.toString("utf8")).toContain("<minted-id@example.test>");
+  });
+
+  it("carries In-Reply-To/References onto the wire when the Composition is a reply (#47)", async () => {
+    const threaded = {
+      ...ROW,
+      inReplyTo: "original@example.test",
+      references: ["root@example.test", "original@example.test"],
+    } as CompositionRow;
+    const { transmitted } = await captureSubmission(threaded);
+
+    const wire = (await buildMime(transmitted ?? {})).toString("utf8");
+    expect(wire).toContain("In-Reply-To: <original@example.test>");
+    expect(wire).toContain("References: <root@example.test> <original@example.test>");
+  });
+
+  it("omits threading headers entirely for an ordinary (non-reply) send", async () => {
+    const { transmitted } = await captureSubmission();
+    const wire = (await buildMime(transmitted ?? {})).toString("utf8");
+    expect(wire).not.toContain("In-Reply-To:");
+    expect(wire).not.toContain("References:");
   });
 
   it("pins one Date across both copies, so Sent is the message that was sent", async () => {
