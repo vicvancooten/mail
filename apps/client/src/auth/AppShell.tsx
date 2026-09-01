@@ -1,5 +1,6 @@
 import type { User } from "@mail/shared";
 import { useState } from "react";
+import { MailSection } from "../mail/MailSection.js";
 import { MailAccountsSection } from "../mail-accounts/MailAccountsSection.js";
 import { useAuth } from "./AuthContext.js";
 import { AuthMethodsSection } from "./AuthMethodsSection.js";
@@ -31,6 +32,7 @@ export function AppShell({ user }: { user: User }) {
       <button type="button" onClick={handleLogout} disabled={signingOut}>
         Log out
       </button>
+      <MailSection />
       <AuthMethodsSection />
       <MailAccountsSection />
     </div>

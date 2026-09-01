@@ -1,0 +1,266 @@
+import Dexie from "dexie";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  delta,
+  makeMailAccount,
+  makeThread,
+  minutesAfterEpoch,
+} from "../test-support/mail-fixtures.js";
+import { pinThreadIntoCache } from "./cache-pins.js";
+import { listWindowKey } from "./db.js";
+import { localCache, openLocalCache } from "./local-cache.js";
+import { readThreadWindow } from "./reads.js";
+import {
+  applyMailAccountDelta,
+  applyThreadDelta,
+  getSyncToken,
+  listCachedMailAccountIds,
+  MAIL_ACCOUNT_TOKEN_KEY,
+  pruneOrphanedMailAccountData,
+  THREAD_WINDOW_FLOOR,
+  THREAD_WINDOW_HIGH_WATER,
+  threadTokenKey,
+} from "./server-writes.js";
+
+/**
+ * The bounded working set (ADR-0009) as it is actually enforced: admission
+ * on the write path, trimming back to the floor, and the never-evictable set.
+ */
+
+const ACCOUNT = "acct-1";
+let counter = 0;
+const names: string[] = [];
+
+beforeEach(async () => {
+  const name = `server-writes-test-${counter++}`;
+  names.push(name);
+  await openLocalCache({ name, schemaVersion: 1 });
+});
+
+afterEach(async () => {
+  localCache().close();
+  for (const name of names.splice(0)) await Dexie.delete(name);
+});
+
+/** Threads dated one minute apart: index 0 oldest, index n-1 newest. */
+function ladder(count: number, offset = 0) {
+  return Array.from({ length: count }, (_, index) =>
+    makeThread(`t${String(offset + index).padStart(6, "0")}`, ACCOUNT, {
+      lastMessageAt: minutesAfterEpoch(offset + index),
+    }),
+  );
+}
+
+async function windowRow() {
+  return localCache().listWindows.get(listWindowKey(ACCOUNT, "all"));
+}
+
+describe("applyThreadDelta", () => {
+  it("stores a bootstrap page newest-first and advances the state token", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(3), newState: "state-7" }), {
+      replace: false,
+    });
+
+    const page = await readThreadWindow(ACCOUNT);
+    expect(page.threads.map((thread) => thread.id)).toEqual(["t000002", "t000001", "t000000"]);
+    expect(page.complete).toBe(true);
+    expect(await getSyncToken(threadTokenKey(ACCOUNT))).toBe("state-7");
+  });
+
+  it("removes destroyed Threads and their cache pin", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(2) }), { replace: false });
+    await pinThreadIntoCache("t000000");
+
+    await applyThreadDelta(ACCOUNT, delta({ destroyed: ["t000000"] }), { replace: false });
+
+    const page = await readThreadWindow(ACCOUNT);
+    expect(page.threads.map((thread) => thread.id)).toEqual(["t000001"]);
+    expect(await localCache().cachePins.get("t000000")).toBeUndefined();
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(2) }), { replace: false });
+
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({ created: [makeThread("fresh", ACCOUNT)], reset: true, hasMore: true }),
+      { replace: true },
+    );
+    // A later page of the same replay carries `reset` too and must merge.
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        created: [makeThread("also-fresh", ACCOUNT, { lastMessageAt: minutesAfterEpoch(9) })],
+        reset: true,
+      }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow(ACCOUNT);
+    expect(page.threads.map((thread) => thread.id).toSorted()).toEqual(["also-fresh", "fresh"]);
+  });
+
+  it("keeps an already-held Thread up to date even when its date moves below the window", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
+      replace: false,
+    });
+    const newest = `t${String(THREAD_WINDOW_HIGH_WATER).padStart(6, "0")}`;
+
+    // Its newest Message was deleted, so the rollup's date walks backwards
+    // past the cutoff. Ignoring the update would leave a stale row on screen.
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        updated: [
+          makeThread(newest, ACCOUNT, { subject: "Rewound", lastMessageAt: minutesAfterEpoch(0) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await localCache().threads.get(newest))?.subject).toBe("Rewound");
+  });
+});
+
+describe("the bounded working set", () => {
+  it("trims to the floor once the window passes its high water, and says the list is truncated", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
+      replace: false,
+    });
+
+    const page = await readThreadWindow(ACCOUNT, { limit: THREAD_WINDOW_HIGH_WATER + 1 });
+    expect(page.threads).toHaveLength(THREAD_WINDOW_FLOOR);
+    expect(page.complete).toBe(false);
+    // Contiguous from newest: the floor's worth of newest Threads, nothing older.
+    expect(page.threads[0]?.id).toBe(`t${String(THREAD_WINDOW_HIGH_WATER).padStart(6, "0")}`);
+    expect(await localCache().threads.count()).toBe(THREAD_WINDOW_FLOOR);
+  });
+
+  it("holds the floor even against a Thread count far past it", async () => {
+    for (let page = 0; page < 3; page++) {
+      await applyThreadDelta(ACCOUNT, delta({ created: ladder(500, page * 500) }), {
+        replace: false,
+      });
+    }
+
+    const page = await readThreadWindow(ACCOUNT, { limit: 5_000 });
+    expect(page.threads.length).toBeGreaterThanOrEqual(THREAD_WINDOW_FLOOR);
+    expect(page.threads.length).toBeLessThanOrEqual(THREAD_WINDOW_HIGH_WATER);
+  });
+
+  it("ignores a delta for a Thread below the window rather than growing the cache", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
+      replace: false,
+    });
+    const before = await localCache().threads.count();
+
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        created: [makeThread("ancient", ACCOUNT, { lastMessageAt: minutesAfterEpoch(-1) })],
+      }),
+      { replace: false },
+    );
+
+    expect(await localCache().threads.get("ancient")).toBeUndefined();
+    expect(await localCache().threads.count()).toBe(before);
+  });
+
+  it("keeps an opened Thread in the entity cache when it ages out of the window", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(10) }), { replace: false });
+    await pinThreadIntoCache("t000000");
+
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1, 100) }), {
+      replace: false,
+    });
+
+    // Retained as an entity, but out of the list window: a pin keeps a
+    // Thread readable, it does not put it back in the list.
+    expect(await localCache().threads.get("t000000")).toBeDefined();
+    const page = await readThreadWindow(ACCOUNT, { limit: 5_000 });
+    expect(page.threads.map((thread) => thread.id)).not.toContain("t000000");
+  });
+
+  it("keeps a Thread a queued Optimistic Action references", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(10) }), { replace: false });
+    await localCache().pendingMutations.put({
+      id: "01JQUEUED",
+      mailAccountId: ACCOUNT,
+      createdAt: minutesAfterEpoch(0),
+      referencedThreadIds: ["t000001"],
+    });
+
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1, 100) }), {
+      replace: false,
+    });
+
+    expect(await localCache().threads.get("t000001")).toBeDefined();
+    // Its unreferenced neighbour went, so this is retention, not a failed trim.
+    expect(await localCache().threads.get("t000002")).toBeUndefined();
+  });
+
+  it("reopens the window on a reset replay", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
+      replace: false,
+    });
+    expect((await windowRow())?.complete).toBe(false);
+
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(3), reset: true }), { replace: true });
+
+    const row = await windowRow();
+    expect(row?.complete).toBe(true);
+    expect(row?.oldestHeldSort).toBeNull();
+  });
+});
+
+describe("applyMailAccountDelta", () => {
+  it("stores accounts and reports them as what to ask Thread deltas about", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1"), makeMailAccount("acct-2")] }),
+      { replace: false },
+    );
+
+    expect((await listCachedMailAccountIds()).toSorted()).toEqual(["acct-1", "acct-2"]);
+    expect(await getSyncToken(MAIL_ACCOUNT_TOKEN_KEY)).toBe("state-1");
+  });
+
+  it("cascades a destroyed Mail Account to its Threads, window, pins and token", async () => {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount(ACCOUNT)] }), { replace: false });
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(3) }), { replace: false });
+    await pinThreadIntoCache("t000000");
+
+    await applyMailAccountDelta(delta({ destroyed: [ACCOUNT] }), { replace: false });
+
+    expect(await localCache().threads.count()).toBe(0);
+    expect(await localCache().cachePins.count()).toBe(0);
+    expect(await windowRow()).toBeUndefined();
+    expect(await getSyncToken(threadTokenKey(ACCOUNT))).toBeNull();
+  });
+});
+
+describe("pruneOrphanedMailAccountData", () => {
+  it("drops data for an account a reset replay no longer lists", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount(ACCOUNT), makeMailAccount("acct-2")] }),
+      { replace: false },
+    );
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(2) }), { replace: false });
+
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-2")], reset: true }), {
+      replace: true,
+    });
+    await pruneOrphanedMailAccountData();
+
+    expect(await localCache().threads.count()).toBe(0);
+    expect(await windowRow()).toBeUndefined();
+  });
+
+  it("does nothing before the MailAccount collection has ever synced", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(2) }), { replace: false });
+
+    await pruneOrphanedMailAccountData();
+
+    // An empty `mailAccounts` table means "not synced yet", not "no accounts".
+    expect(await localCache().threads.count()).toBe(2);
+  });
+});
