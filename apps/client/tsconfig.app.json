@@ -9,6 +9,10 @@
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
+    /* Matches `resolve.alias` in vite.config.ts. No `baseUrl`: TS 6
+       deprecates it, and `paths` resolves relative to this file without it. */
+    "paths": { "@/*": ["./src/*"] },
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,

@@ -1,12 +1,21 @@
 /// <reference types="vitest/config" />
+import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vite.dev/config/
 export default defineConfig({
+  resolve: {
+    // `@/…` is the import root shadcn's generator emits and what the design
+    // system's own modules use; `tsconfig.app.json` carries the matching
+    // `paths` entry so `tsc -b` resolves it the same way.
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   plugins: [
     react(),
+    tailwindcss(),
     // #44: manifest + installability + the app-shell-only service worker
     // (ADR-0009-client). `injectManifest` (not `generateSW`) so `src/sw.ts`
     // owns the actual fetch/cache logic by hand — see its docstring for why
