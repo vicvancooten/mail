@@ -58,6 +58,10 @@ pnpm dev:backend               # separate terminal
 pnpm dev:client                 # separate terminal
 ```
 
+Postgres's host port defaults to `5432`; if that's taken locally, set `POSTGRES_PORT` in `.env`
+before bringing the stack up and update `DATABASE_URL`'s port to match — it's a plain connection
+string, not composed from `POSTGRES_PORT`.
+
 GreenMail (`greenmail/standalone:2.1.8`) accepts any `user@localhost` / any password over IMAP
 (`localhost:3143`, no TLS) and SMTP (`localhost:3025`) — point a Mail Account's autodiscover-manual
 entry at it to develop sync against real IMAP traffic without touching privateemail. It supports
