@@ -1,4 +1,4 @@
-import { Pin } from "lucide-react";
+import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
@@ -63,7 +63,7 @@ export function StreamView({
               className={`chip${thread.id === currentThread.id ? " current" : ""}${thread.pinned ? " pinned" : ""}`}
               onClick={() => onSelect(thread.id)}
             >
-              {thread.pinned ? <Pin size={11} fill="currentColor" /> : null}
+              {thread.pinned ? <Pictogram name="pin" size={11} /> : null}
               {thread.participants[0]?.name ?? thread.participants[0]?.address ?? "(no sender)"}
             </button>
           ))}

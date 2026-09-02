@@ -1,0 +1,18 @@
+{
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/brand/brand.css"
+        ],
+        "createdAt": "2026-09-02T20:18:00.153Z",
+        "reason": "The Impeccable finish reviewer (seed 8b0f0098) required a drawn left stile as material fix 3 and scored it resolved. It is the direction contract's governing axis, rendered as a fixed 3px pseudo-element member on .app-shell and .auth-frame, and repeated on the social card and the README banner. This rule targets a thick accent border on a card, callout, alert or list item; brand.css contains the app frame's structural members only, and no card in the system takes a coloured edge."
+      }
+    ]
+  }
+}

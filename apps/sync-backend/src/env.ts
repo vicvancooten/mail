@@ -1,4 +1,14 @@
+import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
+
+// Dev convenience only: populate process.env from the repo-root .env before
+// validating it below. compose.dev.yaml also reads that file directly for
+// the Postgres/GreenMail containers, so this is the app's own copy of that
+// load — a value already set in the environment (e.g. by a container
+// orchestrator in production) always wins, since dotenv never overrides
+// existing process.env entries. Missing file is fine; quiet keeps that case
+// silent instead of logging "file not found".
+loadDotenv({ path: new URL("../../../.env", import.meta.url).pathname, quiet: true });
 
 /**
  * Fail-closed config per ADR-0009: PUBLIC_URL and MAIL_CREDENTIAL_KEY have no

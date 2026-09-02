@@ -1,8 +1,8 @@
 import { generateJSON, Node, type NodeViewProps } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import DOMPurify from "dompurify";
-import { ChevronRight, PenLine } from "lucide-react";
 import { useState } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 
 /**
  * The Quoted Original (#47, ADR-0013, CONTEXT.md): "the earlier message
@@ -83,11 +83,11 @@ function MailQuoteView({ node, editor, getPos }: NodeViewProps) {
           className="mail-quote-toggle"
           onClick={() => setExpanded((value) => !value)}
         >
-          <ChevronRight size={14} className={expanded ? "expanded" : ""} />
+          <Pictogram name="chevron-right" size={14} className={expanded ? "expanded" : ""} />
           {expanded ? "Hide quoted text" : "···"}
         </button>
         <button type="button" className="mail-quote-edit" onClick={editQuotedText}>
-          <PenLine size={12} /> Edit quoted text
+          <Pictogram name="pen" size={12} /> Edit quoted text
         </button>
       </div>
       {expanded ? (

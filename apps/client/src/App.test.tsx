@@ -24,7 +24,8 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Claim this instance" })).toBeDefined();
-    expect(screen.getByRole("heading", { name: "Mail" })).toBeDefined();
+    // The pre-session plate carries the product's only `<h1>` (`brand/AuthPlate.tsx`).
+    expect(screen.getByRole("heading", { name: "Wicket", level: 1 })).toBeDefined();
   });
 
   it("claims the instance and lands in the authenticated shell", async () => {

@@ -1,29 +1,8 @@
 import { COMPOSE_HIGHLIGHT_COLORS, COMPOSE_TEXT_COLORS } from "@mail/shared";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  Bold,
-  Code,
-  Heading1,
-  Heading2,
-  Heading3,
-  Highlighter,
-  Italic,
-  Link2,
-  List,
-  ListChecks,
-  ListOrdered,
-  Minus,
-  Palette,
-  Quote,
-  Strikethrough,
-  Table,
-  Underline,
-} from "lucide-react";
 import { useState } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 
 /**
  * The composer's authoring surface (compose-spec §Editor): a fixed toolbar
@@ -42,7 +21,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
         active={editor.isActive("heading", { level: 1 })}
       >
-        <Heading1 size={16} />
+        <Pictogram name="heading-1" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -50,7 +29,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         active={editor.isActive("heading", { level: 2 })}
       >
-        <Heading2 size={16} />
+        <Pictogram name="heading" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -58,7 +37,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         active={editor.isActive("heading", { level: 3 })}
       >
-        <Heading3 size={16} />
+        <Pictogram name="heading-3" size={16} />
       </ToolbarButton>
       <Divider />
       <ToolbarButton
@@ -67,7 +46,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         active={editor.isActive("bulletList")}
       >
-        <List size={16} />
+        <Pictogram name="list" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -75,7 +54,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         active={editor.isActive("orderedList")}
       >
-        <ListOrdered size={16} />
+        <Pictogram name="list-ordered" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -83,7 +62,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleTaskList().run()}
         active={editor.isActive("taskList")}
       >
-        <ListChecks size={16} />
+        <Pictogram name="list-checks" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -91,7 +70,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         active={editor.isActive("blockquote")}
       >
-        <Quote size={16} />
+        <Pictogram name="quote" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -99,14 +78,14 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         active={editor.isActive("codeBlock")}
       >
-        <Code size={16} />
+        <Pictogram name="code" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
         label="Divider"
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
       >
-        <Minus size={16} />
+        <Pictogram name="rule" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -115,7 +94,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
           editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()
         }
       >
-        <Table size={16} />
+        <Pictogram name="table" size={16} />
       </ToolbarButton>
       <Divider />
       <ToolbarButton
@@ -124,7 +103,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().setTextAlign("left").run()}
         active={editor.isActive({ textAlign: "left" })}
       >
-        <AlignLeft size={16} />
+        <Pictogram name="align-left" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -132,7 +111,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().setTextAlign("center").run()}
         active={editor.isActive({ textAlign: "center" })}
       >
-        <AlignCenter size={16} />
+        <Pictogram name="align-center" size={16} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -140,7 +119,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().setTextAlign("right").run()}
         active={editor.isActive({ textAlign: "right" })}
       >
-        <AlignRight size={16} />
+        <Pictogram name="align-right" size={16} />
       </ToolbarButton>
       <Divider />
       <ColorPicker editor={editor} />
@@ -159,7 +138,7 @@ export function ComposeBubbleMenu({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleBold().run()}
         active={editor.isActive("bold")}
       >
-        <Bold size={14} />
+        <Pictogram name="bold" size={14} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -167,7 +146,7 @@ export function ComposeBubbleMenu({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleItalic().run()}
         active={editor.isActive("italic")}
       >
-        <Italic size={14} />
+        <Pictogram name="italic" size={14} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -175,7 +154,7 @@ export function ComposeBubbleMenu({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleUnderline().run()}
         active={editor.isActive("underline")}
       >
-        <Underline size={14} />
+        <Pictogram name="underline" size={14} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -183,7 +162,7 @@ export function ComposeBubbleMenu({ editor }: { editor: Editor }) {
         onClick={() => editor.chain().focus().toggleStrike().run()}
         active={editor.isActive("strike")}
       >
-        <Strikethrough size={14} />
+        <Pictogram name="strikethrough" size={14} />
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
@@ -191,7 +170,7 @@ export function ComposeBubbleMenu({ editor }: { editor: Editor }) {
         onClick={() => insertLink(editor)}
         active={editor.isActive("link")}
       >
-        <Link2 size={14} />
+        <Pictogram name="link" size={14} />
       </ToolbarButton>
     </BubbleMenu>
   );
@@ -249,7 +228,7 @@ function ColorPicker({ editor }: { editor: Editor }) {
   return (
     <div className="compose-swatch-picker">
       <ToolbarButton editor={editor} label="Text colour" onClick={() => setOpen((o) => !o)}>
-        <Palette size={16} />
+        <Pictogram name="palette" size={16} />
       </ToolbarButton>
       {open && (
         <div className="compose-swatch-menu" role="menu">
@@ -289,7 +268,7 @@ function HighlightPicker({ editor }: { editor: Editor }) {
   return (
     <div className="compose-swatch-picker">
       <ToolbarButton editor={editor} label="Highlight" onClick={() => setOpen((o) => !o)}>
-        <Highlighter size={16} />
+        <Pictogram name="highlight" size={16} />
       </ToolbarButton>
       {open && (
         <div className="compose-swatch-menu" role="menu">

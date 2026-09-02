@@ -1,0 +1,144 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  @font-face {
+    font-family: "Archivo Variable";
+    src: url("file:///home/vic/dev/personal/mail/apps/client/node_modules/@fontsource-variable/archivo/files/archivo-latin-standard-normal.woff2") format("woff2-variations");
+    font-weight: 100 900;
+    font-stretch: 62% 125%;
+  }
+  @font-face {
+    font-family: "Martian Mono Variable";
+    src: url("file:///home/vic/dev/personal/mail/apps/client/node_modules/@fontsource-variable/martian-mono/files/martian-mono-latin-standard-normal.woff2") format("woff2-variations");
+    font-weight: 100 800;
+    font-stretch: 75% 112.5%;
+  }
+
+  :root {
+    --frame: #1a1611;
+    --panel: #221e18;
+    --rule: #4a4238;
+    --ink: #ede7da;
+    --ink-2: #a79c89;
+    --ink-3: #948a75;
+    --aniline: #a98cd9;
+    --fluor: #ff5a0f;
+  }
+
+  html, body { margin: 0; padding: 0; }
+
+  .card {
+    width: 1200px;
+    height: 630px;
+    box-sizing: border-box;
+    background: var(--frame);
+    color: var(--ink);
+    font-family: "Archivo Variable", sans-serif;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    /* The frame's own left stile: everything registers to one axis. */
+    border-left: 10px solid var(--aniline);
+  }
+
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 26px 54px 22px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--panel);
+  }
+
+  .head .legend {
+    font-stretch: 78%;
+    font-weight: 640;
+    font-size: 15px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .spacer { flex: 1; }
+
+  .held {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--fluor);
+    color: #1f1d18;
+    padding: 6px 13px;
+    border-radius: 2px;
+    font-stretch: 78%;
+    font-weight: 750;
+    font-size: 15px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .body { padding: 46px 54px 0; }
+
+  .mark { color: var(--aniline); display: block; }
+
+  h1 {
+    margin: 26px 0 0;
+    font-stretch: 118%;
+    font-weight: 800;
+    font-size: 132px;
+    line-height: 0.86;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
+  }
+
+  .strap {
+    margin: 20px 0 0;
+    font-stretch: 92%;
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.25;
+    color: var(--ink-2);
+    max-width: 24ch;
+  }
+
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    padding: 20px 54px 24px;
+    border-top: 1px solid var(--rule);
+    font-family: "Martian Mono Variable", monospace;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+
+  .aspect { display: inline-flex; align-items: center; gap: 9px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+</style>
+
+<div class="card">
+  <div class="head">
+    <span class="legend">Self-hosted · IMAP + SMTP · PWA</span>
+    <span class="spacer"></span>
+    <span class="held">4 held</span>
+  </div>
+
+  <div class="body">
+    <svg class="mark" width="112" height="112" viewBox="0 0 128 128" aria-hidden="true">
+      <circle cx="44" cy="64" r="32" fill="none" stroke="currentColor" stroke-width="8.5"
+              stroke-dasharray="161 40" transform="rotate(171 44 64)"/>
+      <rect x="72" y="47.75" width="48" height="8.5" rx="1" fill="currentColor"/>
+      <rect x="72" y="59.75" width="48" height="8.5" rx="1" fill="currentColor"/>
+      <rect x="72" y="71.75" width="48" height="8.5" rx="1" fill="currentColor"/>
+    </svg>
+    <h1>Wicket</h1>
+    <p class="strap">Mail from strangers waits at the window until you rule on it.</p>
+  </div>
+
+  <div class="foot">
+    <span class="aspect"><span class="dot" style="background:#ff5a0f"></span>Held</span>
+    <span class="aspect"><span class="dot" style="background:#5cc98a"></span>Approved</span>
+    <span class="aspect"><span class="dot" style="background:#f2685e"></span>Blocked</span>
+    <span class="spacer"></span>
+    <span>docker compose up -d</span>
+  </div>
+</div>

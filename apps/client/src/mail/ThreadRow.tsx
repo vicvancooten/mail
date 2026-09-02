@@ -1,14 +1,13 @@
 import type { ThreadParticipant } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import { Archive, Pin, Star, Trash2 } from "lucide-react";
 import type { CSSProperties } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { parseHeadline } from "./search/headline.js";
 import { formatRowTime } from "./time-groups.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "./useSwipeToTriage.js";
 
-const MAX_STAGGER = 8; // caps the list-load stagger at 8 * --stagger-row (see index.css)
 /** How many Label chips a row shows before collapsing the rest into a "+N" — keeps a heavily-labeled Thread's row one line. */
 const MAX_ROW_LABEL_CHIPS = 2;
 
@@ -45,7 +44,6 @@ export function ThreadRow({
   onSelect,
   onArchive,
   onTrash,
-  index = 0,
   headline = null,
   folderPill = null,
   actionBadge = null,
@@ -56,8 +54,6 @@ export function ThreadRow({
   onSelect: () => void;
   onArchive?: () => void;
   onTrash?: () => void;
-  /** Position within the visible page — drives the one-shot list-load stagger. */
-  index?: number;
   /** The `ts_headline` fragment (search-ux-spec.md §The row), pre-parsed for `<mark>` rendering. `null`/`undefined`: keep the ordinary Snippet. */
   headline?: string | null;
   /** The non-Inbox folder pill (search-ux-spec.md: "Search crosses folders, and 'where did this end up' is half the question"). */
@@ -85,7 +81,6 @@ export function ThreadRow({
       className={`thread-row${unread ? " unread" : ""}${selected ? " selected" : ""}${thread.pinned ? " pinned" : ""}`}
       style={
         {
-          "--i": Math.min(index, MAX_STAGGER),
           transform: swipe.offsetX ? `translateX(${swipe.offsetX}px)` : undefined,
           transition: swipe.settling ? undefined : "none",
         } as CSSProperties
@@ -95,8 +90,7 @@ export function ThreadRow({
       aria-selected={selected}
       {...swipe.handlers}
     >
-      <span className={`unread-dot${unread ? "" : " hidden"}`} />
-      <Avatar name={participantLabel} />
+      <Avatar name={participantLabel} unread={unread} />
       <span className="sender">{participantLabel}</span>
       <span className="subject-line">
         <span className="subject">{thread.subject || "(no subject)"}</span>
@@ -133,8 +127,8 @@ export function ThreadRow({
           {gatekeeperBadge === "held" ? "Held" : "Blocked"}
         </span>
       ) : null}
-      {thread.pinned ? <Pin size={13} className="pin" fill="currentColor" /> : null}
-      {thread.starred ? <Star size={13} className="star" fill="currentColor" /> : null}
+      {thread.pinned ? <Pictogram name="pin" size={13} className="pin" /> : null}
+      {thread.starred ? <Pictogram name="star" size={13} className="star" /> : null}
       <span className="time">{formatRowTime(thread.lastMessageAt)}</span>
     </button>
   );
@@ -150,11 +144,11 @@ export function ThreadRow({
       >
         {swipe.revealing === "trash" ? (
           <span className="swipe-reveal-trash">
-            <Trash2 size={16} /> Trash
+            <Pictogram name="trash" size={16} /> Trash
           </span>
         ) : (
           <span className="swipe-reveal-archive">
-            <Archive size={16} /> Archive
+            <Pictogram name="archive" size={16} /> Archive
           </span>
         )}
       </div>

@@ -2,10 +2,10 @@ import type { ComposeDocument, MailAccount, Recipient } from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { AlertTriangle, Maximize2, Minimize2, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl } from "../api/attachments.js";
+import { Pictogram } from "../brand/Pictogram.js";
 import { clearOpenComposerId, writeOpenComposerId } from "../mail/device-preferences.js";
 import {
   type CachedComposition,
@@ -412,17 +412,21 @@ export function Composer({
             aria-label={expanded ? "Collapse" : "Expand"}
             onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            {expanded ? (
+              <Pictogram name="collapse" size={14} />
+            ) : (
+              <Pictogram name="expand" size={14} />
+            )}
           </button>
           <button type="button" aria-label="Close" onClick={flushAndClose}>
-            <X size={14} />
+            <Pictogram name="close" size={14} />
           </button>
         </div>
       </div>
 
       {conflictVersion !== null && (
         <div className="composer-conflict-banner" role="alert">
-          <AlertTriangle size={14} />
+          <Pictogram name="warning" size={14} />
           <span>This draft changed on another device.</span>
           <div className="composer-conflict-actions">
             <button type="button" onClick={keepMine}>

@@ -1,9 +1,8 @@
 # Dev infra only — Postgres and a local IMAP/SMTP test server (GreenMail).
 # The app itself runs on the host for a fast reload loop:
 #
-#   docker compose -f compose.dev.yaml up -d
 #   cp .env.example .env   # once
-#   pnpm db:migrate
+#   pnpm dev:infra:up      # up -d + wait for postgres + db:migrate
 #   pnpm dev:backend        # Fastify on MAIL_BIND, tsx watch
 #   pnpm dev:client          # Vite dev server, separate port
 #

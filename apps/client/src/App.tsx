@@ -6,12 +6,16 @@ import { UpdateBanner } from "./pwa/UpdateBanner.js";
 // triage UI it hosts (`AppShell` -> `MailSection`) is #40 and on. The
 // reload-prompt banner (#44) sits above both — a stale-bundle warning is
 // as relevant on the login screen as it is mid-triage.
+//
+// The `<h1>` lives inside `AuthGate`'s branches rather than here: signed
+// out it belongs to the plate (`brand/AuthPlate.tsx`), signed in it belongs
+// to the header rail (`auth/AppShell.tsx`), and there is exactly one of it
+// either way.
 function App() {
   return (
     <AuthProvider>
       <UpdateBanner />
-      <main>
-        <h1>Mail</h1>
+      <main className="app-frame">
         <AuthGate />
       </main>
     </AuthProvider>

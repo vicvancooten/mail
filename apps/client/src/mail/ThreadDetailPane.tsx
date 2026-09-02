@@ -1,18 +1,7 @@
 import type { Message } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import {
-  Archive,
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  Mail,
-  MailOpen,
-  Pin,
-  Star,
-  Tag,
-  Trash2,
-} from "lucide-react";
 import { useEffect, useState } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 import type { ReplyMode } from "../compose/reply.js";
 import type { CachedThread } from "../store/index.js";
 import { useLabels } from "../store/index.js";
@@ -118,16 +107,16 @@ export function ThreadDetailPane({
       <div className="thread-detail-nav">
         {onBack ? (
           <button type="button" className="back-pill" onClick={onBack}>
-            <ArrowLeft size={15} /> Back to list
+            <Pictogram name="arrow-left" size={15} /> Back to list
           </button>
         ) : null}
         {onPrev || onNext ? (
           <div className="chevrons">
             <button type="button" onClick={onPrev} disabled={!onPrev} title="Previous thread">
-              <ChevronLeft size={18} />
+              <Pictogram name="chevron-left" size={18} />
             </button>
             <button type="button" onClick={onNext} disabled={!onNext} title="Next thread">
-              <ChevronRight size={18} />
+              <Pictogram name="chevron-right" size={18} />
             </button>
           </div>
         ) : null}
@@ -136,8 +125,8 @@ export function ThreadDetailPane({
         {groupLabel ? <div className="group-label">{groupLabel}</div> : null}
         <div className="thread-detail-header">
           <span className="sender">{participants}</span>
-          {thread.pinned ? <Pin size={14} className="pin" fill="currentColor" /> : null}
-          {thread.starred ? <Star size={14} className="star" fill="currentColor" /> : null}
+          {thread.pinned ? <Pictogram name="pin" size={14} className="pin" /> : null}
+          {thread.starred ? <Pictogram name="star" size={14} className="star" /> : null}
         </div>
         <h1>{thread.subject || "(no subject)"}</h1>
         <p className="thread-detail-meta">
@@ -164,14 +153,7 @@ export function ThreadDetailPane({
           ))}
         <div className="thread-detail-actions">
           <button type="button" onClick={() => triage.archive(thread.id)} title="Archive (e)">
-            <Archive size={14} /> Archive
-          </button>
-          <button
-            type="button"
-            onClick={() => triage.trash(thread.id)}
-            title="Trash (# / Backspace)"
-          >
-            <Trash2 size={14} /> Trash
+            <Pictogram name="archive" size={14} /> Archive
           </button>
           <button
             type="button"
@@ -179,7 +161,7 @@ export function ThreadDetailPane({
             onClick={() => triage.toggleStar(thread.id)}
             title="Toggle star (s)"
           >
-            <Star size={14} fill={thread.starred ? "currentColor" : "none"} />
+            <Pictogram name="star" size={14} />
             {thread.starred ? "Unstar" : "Star"}
           </button>
           <button
@@ -187,7 +169,11 @@ export function ThreadDetailPane({
             onClick={() => triage.toggleRead(thread.id)}
             title="Toggle read/unread (u)"
           >
-            {unread ? <MailOpen size={14} /> : <Mail size={14} />}
+            {unread ? (
+              <Pictogram name="opened" size={14} />
+            ) : (
+              <Pictogram name="compose" size={14} />
+            )}
             {unread ? "Mark read" : "Mark unread"}
           </button>
           <button
@@ -196,7 +182,7 @@ export function ThreadDetailPane({
             onClick={() => triage.togglePin(thread.id)}
             title="Toggle pin (p)"
           >
-            <Pin size={14} fill={thread.pinned ? "currentColor" : "none"} />
+            <Pictogram name="pin" size={14} />
             {thread.pinned ? "Unpin" : "Pin"}
           </button>
           <div className="label-picker-anchor">
@@ -206,7 +192,7 @@ export function ThreadDetailPane({
               onClick={() => setPickerOpen((open) => !open)}
               title="Apply/remove label (L)"
             >
-              <Tag size={14} /> Label
+              <Pictogram name="label" size={14} /> Label
             </button>
             {pickerOpen ? (
               <LabelPicker
@@ -217,6 +203,17 @@ export function ThreadDetailPane({
               />
             ) : null}
           </div>
+          {/* Last in the run, and outline until reached for: Trash is one
+              keystroke away everywhere else, so here it keeps its distance
+              (`.thread-detail-actions button.destructive` in mail.css). */}
+          <button
+            type="button"
+            className="destructive"
+            onClick={() => triage.trash(thread.id)}
+            title="Trash (# / Backspace)"
+          >
+            <Pictogram name="trash" size={14} /> Trash
+          </button>
         </div>
         {messages ? (
           <MessageList

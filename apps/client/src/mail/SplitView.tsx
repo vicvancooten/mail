@@ -1,3 +1,4 @@
+import { Mark } from "../brand/Mark.js";
 import type { CachedThread } from "../store/index.js";
 import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
@@ -76,7 +77,24 @@ export function SplitView({
             onReply={onReply}
           />
         ) : (
-          <p className="mail-empty">Select a thread to read it.</p>
+          <div className="pane-empty">
+            <Mark size={34} />
+            <p>Nothing open</p>
+            <dl className="pane-keys">
+              <dt>J</dt>
+              <dd>next thread</dd>
+              <dt>K</dt>
+              <dd>previous</dd>
+              <dt>E</dt>
+              <dd>archive</dd>
+              <dt>S</dt>
+              <dd>star</dd>
+              <dt>L</dt>
+              <dd>label</dd>
+              <dt>C</dt>
+              <dd>compose</dd>
+            </dl>
+          </div>
         )}
       </div>
     </div>

@@ -1,6 +1,16 @@
-# Mail (working title)
+<p align="center">
+  <img src="docs/brand/wicket-social-card.png" alt="Wicket — self-hosted mail, with a door on it" width="820">
+</p>
 
-A fast, modern, self-hosted email client.
+# Wicket
+
+A fast, modern, self-hosted email client. Mail from a stranger waits in the
+**Screener** until you rule on it — one decision per sender, not per message —
+and the server it waits on is yours.
+
+Named for the post-office service window, and for the small gate beside a large
+one that people pass through single file. The visual system is documented in
+[`docs/design/wicket-identity.html`](docs/design/wicket-identity.html).
 
 ## Getting started
 

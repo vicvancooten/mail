@@ -31,3 +31,13 @@ coverage/
 
 # corpus-bench run output (regenerate with `pnpm --filter @mail/corpus-bench bench:all`)
 apps/corpus-bench/results/
+
+# Impeccable working state. The durable design artifacts — the surface briefs
+# under `.impeccable/surfaces/` and `.impeccable/config.json` — stay tracked;
+# these are per-run evidence and caches that would only bloat history.
+**/.impeccable/review/
+**/.impeccable/mocks/
+**/.impeccable/build/
+**/.impeccable/questions/
+**/.impeccable/hook.cache.json
+**/.impeccable/config.local.json

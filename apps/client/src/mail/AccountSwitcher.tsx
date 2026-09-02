@@ -1,5 +1,5 @@
 import type { MailAccount } from "@mail/shared";
-import { Mail } from "lucide-react";
+import { Pictogram } from "../brand/Pictogram.js";
 
 /**
  * Per-account inboxes with an account switcher (#40's first acceptance
@@ -21,7 +21,7 @@ export function AccountSwitcher({
 
   return (
     <label className="account-switcher">
-      <Mail size={14} />
+      <Pictogram name="compose" size={14} />
       <select
         aria-label="Mail account"
         value={selectedId ?? ""}

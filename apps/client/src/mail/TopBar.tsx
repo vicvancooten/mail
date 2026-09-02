@@ -1,19 +1,6 @@
 import type { AutoAdvanceDirection, Label, MailAccount } from "@mail/shared";
-import {
-  ArrowDown,
-  ArrowUp,
-  Clock,
-  Columns2,
-  Layers,
-  List as ListIcon,
-  PenSquare,
-  Rows3,
-  Search,
-  ShieldAlert,
-  Tag,
-  X,
-} from "lucide-react";
 import { type RefObject, useState } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 import { AccountSwitcher } from "./AccountSwitcher.js";
 import type { ListDensity, ViewMode } from "./device-preferences.js";
 
@@ -45,7 +32,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
 
   return (
     <div className="mail-search-field">
-      <Search size={14} className="mail-search-icon" />
+      <Pictogram name="search" size={14} className="mail-search-icon" />
       <input
         ref={search.inputRef}
         type="text"
@@ -86,7 +73,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
           title="Clear"
           onClick={() => search.onChange("")}
         >
-          <X size={13} />
+          <Pictogram name="close" size={13} />
         </button>
       ) : null}
       {showRecent ? (
@@ -104,7 +91,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
                 search.onRunRecent(query);
               }}
             >
-              <Clock size={12} /> {query}
+              <Pictogram name="snooze" size={12} /> {query}
             </button>
           ))}
           <button
@@ -128,7 +115,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
  * toggle, the auto-advance direction toggle (#42), the filter-by-label
  * picker (#43, hidden until the account has at least one Label — no point
  * showing an empty filter), the search field (#51), and the account
- * switcher. Icons via lucide-react, icon+label buttons in the shadcn
+ * switcher. Icons are Wicket pictograms (`brand/Pictogram.tsx`), icon+label buttons in the shadcn
  * convention — the commitments `prototype/triage-loop-ui` settled on (its
  * README), adopted here without pulling in the full shadcn component
  * library the real app doesn't otherwise use.
@@ -182,8 +169,20 @@ export function TopBar({
   screener: { count: number; onOpen: () => void };
   search: TopBarSearch;
 }) {
+  const account = accounts.find((candidate) => candidate.id === selectedAccountId) ?? null;
+  const activeLabel = labelFilter ? labels.find((l) => l.id === labelFilter) : null;
+
   return (
     <div className="mail-topbar">
+      {/* The tray label: a compartment says what is filed in it. Without this
+          nothing on the triage screen names the Folder or the Mail Account. */}
+      <p className="mail-legend">
+        <span className="mail-legend-folder">{activeLabel ? activeLabel.name : "Inbox"}</span>
+        {account ? <span className="mail-legend-account">{account.emailAddress}</span> : null}
+      </p>
+
+      <div className="divider" />
+
       <div className={`segmented${streamMode || search.active ? " muted" : ""}`}>
         <button
           type="button"
@@ -191,7 +190,7 @@ export function TopBar({
           onClick={() => onViewMode("split")}
           title="Split view"
         >
-          <Columns2 size={14} /> Split
+          <Pictogram name="split" size={14} /> Split
         </button>
         <button
           type="button"
@@ -199,7 +198,7 @@ export function TopBar({
           onClick={() => onViewMode("list")}
           title="List view"
         >
-          <ListIcon size={14} /> List
+          <Pictogram name="rows" size={14} /> List
         </button>
       </div>
 
@@ -211,7 +210,7 @@ export function TopBar({
         onClick={() => onStreamMode(!streamMode)}
         title="Opt-in: replaces Split/List with one-thread-at-a-time browsing"
       >
-        <Layers size={14} /> Stream mode
+        <Pictogram name="stream" size={14} /> Stream mode
       </button>
 
       <div className="divider" />
@@ -222,7 +221,7 @@ export function TopBar({
         onClick={() => onDensity(density === "compact" ? "comfortable" : "compact")}
         title="Thread list row density — this device only"
       >
-        <Rows3 size={14} /> {density === "compact" ? "Compact" : "Comfortable"}
+        <Pictogram name="rows" size={14} /> {density === "compact" ? "Compact" : "Comfortable"}
       </button>
 
       <div className="divider" />
@@ -233,7 +232,11 @@ export function TopBar({
         onClick={() => onDirection(direction === "older" ? "newer" : "older")}
         title="After archive/trash, which neighbor gets selected?"
       >
-        {direction === "older" ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
+        {direction === "older" ? (
+          <Pictogram name="arrow-down" size={14} />
+        ) : (
+          <Pictogram name="arrow-up" size={14} />
+        )}
         Next: {direction === "older" ? "Older" : "Newer"}
       </button>
 
@@ -241,7 +244,7 @@ export function TopBar({
         <>
           <div className="divider" />
           <label className="label-filter" title="Filter by label (#43)">
-            <Tag size={14} />
+            <Pictogram name="label" size={14} />
             <select
               value={labelFilter ?? ""}
               onChange={(event) => onLabelFilter(event.target.value || null)}
@@ -261,8 +264,15 @@ export function TopBar({
       {screener.count > 0 ? (
         <>
           <div className="divider" />
-          <button type="button" className="toggle screener-entry" onClick={screener.onOpen}>
-            <ShieldAlert size={14} /> Screener ({screener.count})
+          {/* The held plate: `--w-fluor` is reserved for this one state, and
+              this is the only place it reaches the triage screen. */}
+          <button
+            type="button"
+            className="held-plate screener-entry"
+            data-count={screener.count}
+            onClick={screener.onOpen}
+          >
+            <Pictogram name="held" size={13} /> {screener.count} held
           </button>
         </>
       ) : null}
@@ -273,7 +283,7 @@ export function TopBar({
       <div className="topbar-spacer" />
 
       <button type="button" className="compose-button" onClick={onCompose} title="Compose (c)">
-        <PenSquare size={14} /> Compose
+        <Pictogram name="pen-square" size={14} /> Compose
       </button>
 
       <AccountSwitcher

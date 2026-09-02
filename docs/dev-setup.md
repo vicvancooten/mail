@@ -43,6 +43,9 @@ pnpm dev:backend          # tsx watch src/main.ts
 
 pnpm db:generate           # drizzle-kit generate, from apps/sync-backend/src/db/schema.ts
 pnpm db:migrate              # runs the same boot-path migrator the app uses (advisory-locked)
+
+pnpm dev:infra:up             # brings compose.dev.yaml up, waits for postgres, then db:migrate
+pnpm dev:infra:down             # tears the compose.dev.yaml stack back down
 ```
 
 ## Dev environment
@@ -52,11 +55,15 @@ app itself, so the edit-save-reload loop never waits on a container rebuild:
 
 ```sh
 cp .env.example .env          # once; fill in real values if PUBLIC_URL/MAIL_CREDENTIAL_KEY matter to you locally
-docker compose -f compose.dev.yaml up -d
-pnpm db:migrate
+pnpm dev:infra:up
 pnpm dev:backend               # separate terminal
 pnpm dev:client                 # separate terminal
 ```
+
+`dev:infra:up` runs `docker compose -f compose.dev.yaml up -d`, polls `pg_isready` inside the
+`postgres` container (`scripts/wait-for-postgres.sh` — the service has no compose healthcheck to
+wait on), then runs `pnpm db:migrate`. Safe to re-run; migrations are advisory-locked and
+idempotent.
 
 Postgres's host port defaults to `5432`; if that's taken locally, set `POSTGRES_PORT` in `.env`
 before bringing the stack up and update `DATABASE_URL`'s port to match — it's a plain connection
