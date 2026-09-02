@@ -12,4 +12,4 @@ Run typechecking regularly, single test files regularly, and the full test suite
 
 Once done, use /code-review to review the work.
 
-Commit your work to the current branch.
+Commit your work to the current branch: **one ticket, one commit**, written as a [Conventional Commit](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:` …) closing the ticket it resolves. No agent self-attribution in the message — no `Co-Authored-By` trailer, no "generated with" footer. Don't push; the human handles that.

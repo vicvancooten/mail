@@ -1,0 +1,145 @@
+import type { Message } from "@mail/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type CidBlob, findCidReferences, resolveCidBlobs, revokeCidBlobs } from "./cid.js";
+import { generateNonce } from "./nonce.js";
+import { buildMessageDocument, hasProxiedImages } from "./sandbox-document.js";
+
+/** Clamp posted heights to something sane — a hostile/misbehaving script inside the frame gets ignored, not trusted. */
+const MIN_HEIGHT = 40;
+const MAX_HEIGHT = 20_000;
+const DEFAULT_HEIGHT = 120;
+
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState(
+    () =>
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => setDark(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return dark;
+}
+
+/**
+ * The reading pane's sandboxed message body (#41): re-sanitizes
+ * (`sandbox-document.ts`) immediately before every `srcdoc` write, resolves
+ * `cid:` references against fetched attachment bytes, sizes itself via
+ * `ResizeObserver` + `postMessage`, and keeps remote images blocked until
+ * the User opts in for this one message — unless the sender is an Approved
+ * Sender, in which case they load straight away (#55, poc-scope.md: "the
+ * Gatekeeper verdict *is* the image-loading permission"). The verdict
+ * arrives per message on `remoteImagesAllowed`, resolved server-side on
+ * every read (`routes/messages.ts`), so approving someone in the Screener
+ * takes effect the next time their mail is opened.
+ *
+ * No sandbox token besides `allow-scripts` is ever granted — never
+ * `allow-same-origin` together with it (that combination lets the framed
+ * document remove its own sandbox), never `allow-forms`/`allow-popups`/
+ * `allow-top-navigation`. The frame's origin stays opaque; the CSP nonce is
+ * the only thing that can ever execute inside it.
+ *
+ * The caller must render this with `key={message.id}` (the same convention
+ * `ThreadDetailPane` already uses for `key={thread.id}`): the "load images"
+ * override and the measured height are this component's own local state,
+ * and a fresh mount per Message is what resets both when the User moves to
+ * a different one, rather than an effect keyed on `message.id` that lint
+ * would (correctly) flag as depending on something its body never reads.
+ */
+export function MessageBody({ message }: { message: Message }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [cidBlobs, setCidBlobs] = useState<CidBlob[]>([]);
+  // Seeded from the sender's Verdict, then the User's own per-message
+  // override on top. A fresh mount per Message (see `key={message.id}`
+  // above) is what re-reads the seed when they move to another one.
+  const [imagesLoaded, setImagesLoaded] = useState(message.remoteImagesAllowed);
+  const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const darkMode = usePrefersDark();
+
+  const bodyHtml = message.bodyHtml ?? "";
+
+  useEffect(() => {
+    let cancelled = false;
+    const contentIds = findCidReferences(bodyHtml);
+    if (contentIds.length === 0) {
+      setCidBlobs((prev) => {
+        revokeCidBlobs(prev);
+        return [];
+      });
+      return;
+    }
+    resolveCidBlobs(message.id, contentIds, message.attachments).then((blobs) => {
+      if (cancelled) {
+        revokeCidBlobs(blobs);
+        return;
+      }
+      setCidBlobs((prev) => {
+        revokeCidBlobs(prev);
+        return blobs;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [message.id, bodyHtml, message.attachments]);
+
+  // Blob URLs are only ever read while this component is mounted; release them on unmount too.
+  useEffect(() => () => revokeCidBlobs(cidBlobs), [cidBlobs]);
+
+  const srcDoc = useMemo(() => {
+    return buildMessageDocument({
+      html: bodyHtml,
+      cidBlobUrls: new Map(cidBlobs.map((blob) => [blob.contentId, blob.blobUrl])),
+      imagesLoaded,
+      darkMode,
+      nonce: generateNonce(),
+      origin: window.location.origin,
+    });
+  }, [bodyHtml, cidBlobs, imagesLoaded, darkMode]);
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as unknown;
+      if (
+        data &&
+        typeof data === "object" &&
+        (data as { type?: unknown }).type === "mail-body-resize" &&
+        typeof (data as { height?: unknown }).height === "number" &&
+        Number.isFinite((data as { height: number }).height)
+      ) {
+        const next = (data as { height: number }).height;
+        setHeight(Math.min(Math.max(next, MIN_HEIGHT), MAX_HEIGHT));
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  const showLoadImages = !imagesLoaded && hasProxiedImages(bodyHtml);
+
+  return (
+    <div className="message-body">
+      {showLoadImages ? (
+        <button
+          type="button"
+          className="message-body-load-images"
+          onClick={() => setImagesLoaded(true)}
+        >
+          Load remote images
+        </button>
+      ) : null}
+      <iframe
+        ref={iframeRef}
+        title={`Message body from ${message.from?.name ?? message.from?.address ?? "unknown sender"}`}
+        sandbox="allow-scripts"
+        srcDoc={srcDoc}
+        className="message-body-frame"
+        style={{ height }}
+      />
+    </div>
+  );
+}

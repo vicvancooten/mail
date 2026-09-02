@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.sw.tsbuildinfo",
+    "target": "es2023",
+    // WebWorker, not DOM: the service worker global scope (`self`,
+    // `ServiceWorkerGlobalScope`, `caches`, …) conflicts with `dom.d.ts`'s
+    // shape for the same globals, so this file gets its own tsconfig
+    // rather than sharing `tsconfig.app.json`'s lib list.
+    "lib": ["ES2023", "WebWorker"],
+    "module": "esnext",
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/sw.ts", "src/sw-env.d.ts"]
+}

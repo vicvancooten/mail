@@ -1,0 +1,29 @@
+{
+  "name": "@mail/corpus-bench",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "generate": "tsx src/run.ts generate",
+    "load:postgres": "tsx src/run.ts load:postgres",
+    "load:imap": "tsx src/run.ts load:imap",
+    "bench:postgres": "tsx src/run.ts bench:postgres",
+    "bench:shapes": "tsx src/run.ts bench:shapes",
+    "bench:client": "tsx src/run.ts bench:client",
+    "bench:all": "tsx src/run.ts bench:all",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "imapflow": "^1.0.191",
+    "minisearch": "^7.2.0",
+    "postgres": "^3.4.9",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.11"
+  }
+}

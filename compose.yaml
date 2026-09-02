@@ -1,0 +1,48 @@
+# Production stack (ADR-0009). Pulls published images — never builds. The
+# operator brings their own reverse proxy and TLS; this stack only needs
+# `pgdata` and `.env` backed up.
+#
+#   docker compose pull && docker compose up -d
+#
+# Upgrade ritual: pg_dump the running `postgres` service, `pull`, `up -d`.
+# Migrations are forward-only and run in the app's own boot path.
+
+services:
+  app:
+    image: ghcr.io/vicvancooten/mail:${MAIL_VERSION:-edge}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL is required}
+      MAIL_CREDENTIAL_KEY: ${MAIL_CREDENTIAL_KEY:?MAIL_CREDENTIAL_KEY is required}
+      # Always all-interfaces *inside* the container: the container's network
+      # namespace is already isolated by Docker, so this is only ever reached
+      # through the `ports:` mapping below. MAIL_BIND itself governs that
+      # host-side exposure (loopback-only by default per ADR-0009) — binding
+      # the app inside the container to MAIL_BIND's value directly would make
+      # it listen on its own loopback, which Docker's published port cannot
+      # forward to.
+      MAIL_BIND: 0.0.0.0:3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-mail}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-mail}
+    ports:
+      - "${MAIL_BIND:-127.0.0.1:3000}:3000"
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-mail}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mail} -d ${POSTGRES_DB:-mail}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

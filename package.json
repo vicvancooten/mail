@@ -1,0 +1,27 @@
+{
+  "name": "mail",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "postinstall": "pnpm --filter @mail/shared build",
+    "dev:client": "pnpm --filter @mail/client dev",
+    "dev:backend": "pnpm --filter @mail/sync-backend dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "db:migrate": "pnpm --filter @mail/sync-backend db:migrate",
+    "db:generate": "pnpm --filter @mail/sync-backend db:generate"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "typescript": "^6.0.2"
+  }
+}

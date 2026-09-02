@@ -1,0 +1,624 @@
+/*
+ * The docked composer (compose-spec §Composer surface & keys): bottom-right
+ * overlay, expandable to full screen. Reuses `mail.css`'s custom properties
+ * (`--mail-*`) rather than redefining a second palette.
+ */
+
+.composer {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: min(560px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+  overflow: hidden;
+}
+
+.composer.expanded {
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  top: 16px;
+  width: auto;
+  height: auto;
+}
+
+.composer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--mail-bg-elevated);
+  border-bottom: 1px solid var(--mail-border);
+  font-size: 13px;
+  color: var(--mail-text-dim);
+}
+
+.composer-from {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.composer-header-actions button,
+.composer-show-ccbcc {
+  background: none;
+  border: none;
+  color: var(--mail-text-dim);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.composer-header-actions button:hover,
+.composer-show-ccbcc:hover {
+  background: var(--mail-bg-hover);
+}
+
+.composer-recipients {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--mail-border);
+}
+
+.recipient-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--mail-border);
+  position: relative;
+}
+.recipient-field:last-child {
+  border-bottom: none;
+}
+.recipient-field-label {
+  font-size: 13px;
+  color: var(--mail-text-faint);
+  padding-top: 4px;
+  width: 28px;
+  flex-shrink: 0;
+}
+.recipient-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+.recipient-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mail-bg-selected);
+  border-radius: 12px;
+  padding: 2px 6px 2px 10px;
+  font-size: 13px;
+}
+.recipient-chip.invalid {
+  outline: 1px solid #d64545;
+}
+.recipient-chip button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--mail-text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.recipient-input {
+  flex: 1;
+  min-width: 80px;
+  position: relative;
+}
+.recipient-input input {
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--mail-text);
+  font-size: 13px;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.recipient-suggestions {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.recipient-suggestions button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--mail-text);
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+.recipient-suggestions button.highlighted,
+.recipient-suggestions button:hover {
+  background: var(--mail-bg-selected);
+}
+
+.composer-subject {
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--mail-text);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mail-border);
+}
+
+.compose-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mail-border);
+}
+.compose-toolbar-button {
+  background: none;
+  border: none;
+  color: var(--mail-text-dim);
+  border-radius: 4px;
+  padding: 4px;
+  display: flex;
+  cursor: pointer;
+}
+.compose-toolbar-button:hover {
+  background: var(--mail-bg-hover);
+}
+.compose-toolbar-button.active {
+  background: var(--mail-bg-selected);
+  color: var(--mail-text);
+}
+.compose-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--mail-border);
+  margin: 0 4px;
+}
+
+.compose-swatch-picker {
+  position: relative;
+}
+.compose-swatch-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 6px;
+  background: var(--mail-bg-elevated);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  z-index: 60;
+}
+.compose-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--mail-border);
+  cursor: pointer;
+  padding: 0;
+}
+.compose-swatch-clear {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--mail-text-dim);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.compose-bubble-menu {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--mail-bg-elevated);
+  border: 1px solid var(--mail-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/*
+ * The Notion-style slash menu (`slash-menu.tsx`): mounted at the document
+ * root by `@tiptap/suggestion`'s own managed positioning, so this cannot
+ * assume `.composer`'s stacking context — its own `z-index` has to clear it.
+ */
+.slash-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--mail-bg-elevated);
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--mail-text);
+  cursor: pointer;
+  text-align: left;
+}
+.slash-menu-item:hover,
+.slash-menu-item.active {
+  background: var(--mail-bg-hover);
+}
+
+.slash-menu-empty {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--mail-text-faint);
+}
+
+.composer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+.composer-body .tiptap {
+  outline: none;
+  min-height: 100%;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--mail-text);
+}
+.composer-body .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--mail-text-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.composer-body .tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.composer-body .tiptap td,
+.composer-body .tiptap th {
+  border: 1px solid var(--mail-border);
+  padding: 4px 8px;
+}
+
+/*
+ * The send control (#46): the button, its warn-once label, and the Undo Send
+ * window picker, pinned to the bottom of the composer.
+ */
+.composer-send {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--mail-border);
+  background: var(--mail-bg-elevated);
+}
+
+.composer-send-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--mail-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.composer-send-button:disabled {
+  background: var(--mail-border);
+  color: var(--mail-text-faint);
+  cursor: not-allowed;
+}
+
+.composer-send-delay {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--mail-text-dim);
+}
+
+.composer-send-delay select {
+  background: var(--mail-bg);
+  border: 1px solid var(--mail-border);
+  border-radius: 4px;
+  color: var(--mail-text-dim);
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+/*
+ * The Undo Send countdown (ADR-0007). Bottom-left rather than bottom-right:
+ * it must stay readable and clickable while the composer is docked, and it
+ * outlives the composer by design.
+ */
+.pending-send-bar {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+
+.pending-send {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--mail-border);
+  border-radius: 8px;
+  background: var(--mail-bg-elevated);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  color: var(--mail-text);
+}
+
+.pending-send-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-send-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/*
+ * The version-conflict banner (finding #1, ADR-0012/ADR-0014): a minimal
+ * "the User picks a side" prompt, not a diff view — two buttons, no more.
+ */
+.composer-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: light-dark(#fff8e6, #332a12);
+  color: var(--mail-text);
+  font-size: 13px;
+  border-bottom: 1px solid var(--mail-border);
+}
+
+.composer-conflict-banner span {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-conflict-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.composer-conflict-actions button {
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--mail-text);
+}
+.composer-conflict-actions button:hover {
+  background: var(--mail-bg-hover);
+}
+
+/*
+ * The persistent send-failure banner (compose-spec): not dismissible, and it
+ * shows the SMTP rejection verbatim in a monospace run so `550 5.7.1 relay
+ * denied` is readable as the server's own words.
+ */
+.send-failure-banner {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--mail-border);
+}
+
+.send-failure {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: light-dark(#fff4f4, #2a1a1c);
+  color: var(--mail-text);
+  font-size: 13px;
+}
+
+.send-failure-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.send-failure-subject,
+.send-failure-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.send-failure-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--mail-text-dim);
+}
+
+.send-failure-open {
+  flex: none;
+  background: none;
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* #47: the Quoted Original and the per-account signature */
+
+.mail-quote {
+  margin: 4px 0 1em 0;
+}
+.mail-quote-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mail-quote-toggle,
+.mail-quote-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mail-bg-hover);
+  border: 1px solid var(--mail-border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: var(--mail-text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.mail-quote-toggle svg {
+  transition: transform 0.1s ease;
+}
+.mail-quote-toggle svg.expanded {
+  transform: rotate(90deg);
+}
+.mail-quote-preview {
+  margin-top: 6px;
+  padding-left: 1em;
+  border-left: 3px solid var(--mail-border);
+  color: var(--mail-text-dim);
+  font-size: 13px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.mail-signature {
+  margin: 0 0 1em 0;
+  padding-top: 4px;
+  color: var(--mail-text-dim);
+}
+
+/* #48: attachments */
+
+.attachments-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--mail-border);
+}
+
+.attachments-budget-error {
+  font-size: 12px;
+  color: light-dark(#b91c1c, #f87171);
+}
+
+.attachments-budget-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mail-border);
+  overflow: hidden;
+}
+
+.attachments-budget-bar-fill {
+  height: 100%;
+  background: var(--mail-accent);
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--mail-text);
+}
+
+.attachment-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.attachment-row-size,
+.attachment-row-progress {
+  color: var(--mail-text-dim);
+  flex: none;
+}
+
+.attachment-row-error {
+  color: light-dark(#b91c1c, #f87171);
+  flex: none;
+}
+
+.attachment-row button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--mail-text-dim);
+  display: flex;
+  align-items: center;
+}

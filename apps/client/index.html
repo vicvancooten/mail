@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      `viewport-fit=cover` lets the layout paint under the iOS notch/home
+      indicator instead of stopping short of it; `mail.css`'s safe-area
+      padding (#44) is what actually keeps content clear of that area.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#7e14ff" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!--
+      iOS/iPadOS ignore `display: standalone` in the manifest below this
+      version boundary and rely on these older meta tags instead (still
+      honored on current iOS too) — homescreen install is what makes Web
+      Push possible there at all (docs/research/0006-ios-pwa-push-badging-constraints.md).
+    -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Mail" />
+    <title>Mail</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
