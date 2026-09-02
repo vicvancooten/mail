@@ -1,0 +1,1205 @@
+<title>Wicket Identity</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Martian+Mono:wght@300..700&display=swap">
+<style>
+  /* ============================================================
+     WICKET — identity specification
+     The sorting office: frame, label stock, and struck ink.
+     Every token is declared here in bare :root (complete light
+     palette) and redefined only in the two dark blocks below.
+     ============================================================ */
+  :root {
+    /* --- stock: the day bench, painted institutional grey-green --- */
+    --frame:      #D5D8CE;
+    --panel:      #E7E8E0;
+    --panel-2:    #DDDFD5;
+    --panel-sunk: #C9CDC1;
+    --rule:       #BEC2B5;
+    --rule-hard:  #9AA093;
+
+    /* --- ink: warm near-black on stock --- */
+    --ink:    #1F1D18;
+    --ink-2:  #5A574C;
+    --ink-3:  #65624F;
+
+    /* --- the four role inks --- */
+    --aniline:      #5B3E8C;  /* brand ink, primary action, focus */
+    --aniline-flat: #5B3E8C;  /* fill behind bone text */
+    --fluor:        #B33800;  /* HELD — text tint on stock */
+    --fluor-flat:   #FF5A0F;  /* HELD — the drenched ground itself */
+    --postal:       #B0231C;  /* RETURNED, BLOCKED, failed */
+    --phosphor:     #256B42;  /* ADMITTED, SENT, confirmed */
+    --bone:         #F4F2E9;  /* label stock / text on flat ink */
+
+    /* --- the strike --- */
+    --strike-blend: multiply;
+    --strike-wet:   0.42;
+    --strike-set:   0.86;
+
+    /* --- frame geometry: rules, not gaps; square, not soft --- */
+    --r-plate: 2px;
+    --r-band: 1px;
+    --hair: 1px;
+    --lift: 0 10px 30px -10px rgb(31 29 24 / 0.38), 0 2px 4px -2px rgb(31 29 24 / 0.24);
+
+    /* --- type --- */
+    --sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --mono: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    /* --- motion --- */
+    --ease-strike: cubic-bezier(0.16, 0.9, 0.12, 1);
+    --dur-strike: 190ms;
+    --dur-press: 120ms;
+
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --frame:      #1A1611;
+      --panel:      #221E18;
+      --panel-2:    #2B2620;
+      --panel-sunk: #38312A;
+      --rule:       #332D25;
+      --rule-hard:  #4A4238;
+
+      --ink:    #EDE7DA;
+      --ink-2:  #A79C89;
+      --ink-3:  #948A75;
+
+      --aniline:      #A98CD9;
+      --aniline-flat: #6B4AAF;
+      --fluor:        #FF7A3C;
+      --fluor-flat:   #FF5A0F;
+      --postal:       #F2685E;
+      --phosphor:     #5CC98A;
+      --bone:         #F4F2E9;
+
+      --strike-blend: plus-lighter;
+      --strike-wet:   0.34;
+      --strike-set:   0.78;
+
+      --lift: 0 12px 34px -10px rgb(0 0 0 / 0.66), 0 2px 6px -2px rgb(0 0 0 / 0.5);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --frame:      #1A1611;
+    --panel:      #221E18;
+    --panel-2:    #2B2620;
+    --panel-sunk: #38312A;
+    --rule:       #332D25;
+    --rule-hard:  #4A4238;
+
+    --ink:    #EDE7DA;
+    --ink-2:  #A79C89;
+    --ink-3:  #948A75;
+
+    --aniline:      #A98CD9;
+    --aniline-flat: #6B4AAF;
+    --fluor:        #FF7A3C;
+    --fluor-flat:   #FF5A0F;
+    --postal:       #F2685E;
+    --phosphor:     #5CC98A;
+    --bone:         #F4F2E9;
+
+    --strike-blend: plus-lighter;
+    --strike-wet:   0.34;
+    --strike-set:   0.78;
+
+    --lift: 0 12px 34px -10px rgb(0 0 0 / 0.66), 0 2px 6px -2px rgb(0 0 0 / 0.5);
+    color-scheme: dark;
+  }
+
+  /* ---------- browser surfaces belong to the design system ---------- */
+  ::selection { background: var(--aniline); color: var(--bone); }
+  * { scrollbar-color: var(--rule-hard) transparent; }
+  :focus-visible {
+    outline: 2px solid var(--aniline);
+    outline-offset: 2px;
+  }
+
+  body {
+    background: var(--frame);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-variation-settings: "wdth" 100, "wght" 400;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    caret-color: var(--aniline);
+  }
+
+  /* ============================================================
+     THE FRAME
+     A run of compartments divided by hairline rules that meet at
+     the corners. Not cards: no gap between them, no shadow, and
+     the outer members are heavier than the inner ones — the way a
+     sorting frame is actually built.
+     ============================================================ */
+  .frame {
+    max-width: 1180px;
+    margin: 0 auto;
+    border: var(--hair) solid var(--rule-hard);
+    border-bottom: 0;
+    background: var(--panel);
+  }
+  .cmp {
+    border-bottom: var(--hair) solid var(--rule-hard);
+    padding: 0;
+  }
+  .cmp__body {
+    padding: 26px 30px 34px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  /* ---------- the label holder: an inset plate, and the only heading
+       a compartment gets. No eyebrow above it, ever. ---------- */
+  .plate {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 9px 30px 8px;
+    background: var(--panel-sunk);
+    border-bottom: var(--hair) solid var(--rule-hard);
+    font-family: var(--sans);
+    font-variation-settings: "wdth" 78, "wght" 650;
+    font-size: 11.5px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .plate b {
+    font-variation-settings: "wdth" 78, "wght" 650;
+    font-weight: inherit;
+  }
+  .plate span {
+    font-variation-settings: "wdth" 78, "wght" 400;
+    letter-spacing: 0.07em;
+    color: var(--ink-3);
+    text-transform: none;
+  }
+  .plate code {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0;
+    color: var(--ink-3);
+    text-transform: none;
+  }
+
+  /* ---------- the stile: one governing left axis ---------- */
+  .stile {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+    gap: 0 26px;
+    align-items: start;
+  }
+  .stile > dt {
+    font-variation-settings: "wdth" 78, "wght" 620;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 9px 0 9px;
+    border-top: var(--hair) solid var(--rule);
+  }
+  .stile > dd {
+    margin: 0;
+    padding: 8px 0 9px;
+    border-top: var(--hair) solid var(--rule);
+    color: var(--ink-2);
+    font-size: 14px;
+    max-width: 68ch;
+  }
+  .stile > dd strong { color: var(--ink); font-weight: 600; }
+  .stile > dt:first-of-type, .stile > dd:first-of-type { border-top: 0; padding-top: 0; }
+
+  p { margin: 0; max-width: 68ch; }
+  .lede {
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--ink);
+    max-width: 60ch;
+    text-wrap: pretty;
+  }
+  .note { font-size: 13px; color: var(--ink-3); max-width: 74ch; }
+  .note b { color: var(--ink-2); font-weight: 600; }
+  a { color: var(--aniline); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+  /* ============================================================
+     MASTHEAD
+     ============================================================ */
+  .head { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 34px; align-items: start; }
+  .mark-lg { width: 132px; height: 132px; flex: none; }
+  h1 {
+    margin: 0 0 4px;
+    font-variation-settings: "wdth" 118, "wght" 800;
+    font-size: clamp(46px, 9vw, 86px);
+    line-height: 0.88;
+    letter-spacing: -0.028em;
+    text-transform: uppercase;
+    text-wrap: balance;
+  }
+  .sub {
+    font-variation-settings: "wdth" 84, "wght" 500;
+    font-size: clamp(15px, 2.1vw, 20px);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin-bottom: 20px;
+  }
+
+  /* ============================================================
+     STOCK + INK SWATCHES
+     ============================================================ */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); border: var(--hair) solid var(--rule-hard); }
+  .sw { border-right: var(--hair) solid var(--rule-hard); }
+  .sw:last-child { border-right: 0; }
+  .sw__chip { height: 88px; border-bottom: var(--hair) solid var(--rule-hard); display: flex; align-items: flex-end; padding: 8px 10px; }
+  .sw__chip b {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  .sw__meta { padding: 9px 11px 12px; display: flex; flex-direction: column; gap: 3px; }
+  .sw__role { font-variation-settings: "wdth" 78, "wght" 640; font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; }
+  .sw__use { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+  .sw__cr { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); font-weight: 500; }
+
+  /* ============================================================
+     TYPE SPECIMENS
+     ============================================================ */
+  .specs { display: flex; flex-direction: column; border: var(--hair) solid var(--rule-hard); }
+  .spec { display: grid; grid-template-columns: 168px minmax(0,1fr); align-items: center; gap: 22px; padding: 15px 18px; border-bottom: var(--hair) solid var(--rule); }
+  .spec:last-child { border-bottom: 0; }
+  .spec__key { font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--ink-3); line-height: 1.5; }
+  .spec__key em { display: block; font-style: normal; font-family: var(--sans); font-variation-settings: "wdth" 78, "wght" 640; font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink); }
+  .spec__art { min-width: 0; overflow-x: auto; }
+
+  /* ============================================================
+     THE STRIKE — struck ink over the item, never a badge beside it
+     ============================================================ */
+  .strike {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    mix-blend-mode: var(--strike-blend);
+    opacity: 0;
+    transition: opacity var(--dur-strike) var(--ease-strike);
+  }
+  .strike b {
+    font-variation-settings: "wdth" 70, "wght" 800;
+    font-size: 22px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 2px 12px;
+    border: 2.5px solid currentColor;
+    border-radius: var(--r-plate);
+    transform: rotate(var(--tilt, -5deg)) scale(1.06);
+    transition: transform var(--dur-strike) var(--ease-strike);
+    white-space: nowrap;
+  }
+  .is-wet .strike { opacity: var(--strike-wet); }
+  .is-set .strike { opacity: var(--strike-set); }
+  .is-wet .strike b, .is-set .strike b { transform: rotate(var(--tilt, -5deg)) scale(1); }
+
+  .strike-sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); border: var(--hair) solid var(--rule-hard); }
+  .strike-cell { position: relative; border-right: var(--hair) solid var(--rule-hard); border-bottom: var(--hair) solid var(--rule-hard); padding: 22px 16px 16px; overflow: hidden; }
+  .strike-cell__what { font-size: 13px; color: var(--ink-2); }
+  .strike-cell__what b { display: block; font-variation-settings: "wdth" 100, "wght" 620; color: var(--ink); font-size: 14px; }
+  .strike-cell__ink { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); margin-top: 8px; font-weight: 500; }
+
+  /* ============================================================
+     SPECIMEN: THE TIMETABLE (the thread list)
+     ============================================================ */
+  .demo { border: var(--hair) solid var(--rule-hard); background: var(--panel); }
+  .demo__bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px;
+    background: var(--panel-sunk);
+    border-bottom: var(--hair) solid var(--rule-hard);
+  }
+  .legend { font-variation-settings: "wdth" 78, "wght" 660; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .legend em { font-style: normal; color: var(--ink-3); font-variation-settings: "wdth" 78, "wght" 400; }
+  .spacer { flex: 1; }
+  .held-plate {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--fluor-flat); color: #1F1D18;
+    padding: 3px 9px 3px 7px; border-radius: var(--r-plate);
+    font-variation-settings: "wdth" 78, "wght" 700;
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .acct {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--ink-2);
+  }
+
+  .band-day {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 12px 5px;
+    border-bottom: var(--hair) solid var(--rule);
+    background: var(--panel-2);
+    font-variation-settings: "wdth" 78, "wght" 640;
+    font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .band-day .spacer { border-top: var(--hair) solid var(--rule); }
+
+  .row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 30px minmax(120px, 176px) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px;
+    height: 58px;
+    border-bottom: var(--hair) solid var(--rule);
+    background: var(--panel);
+    /* transform and opacity only: the strike may never animate a layout
+       property, and the list's own reflow is instant by contract. */
+    transition: background var(--dur-press) linear,
+                transform var(--dur-strike) var(--ease-strike),
+                opacity var(--dur-strike) var(--ease-strike);
+    overflow: hidden;
+  }
+  .row:hover { background: var(--panel-2); }
+  .row.is-sel { background: var(--panel-sunk); }
+  .row.is-leaving { opacity: 0; transform: translateX(-14px); }
+  .row.is-gone { display: none; }
+
+  /* the kraft initial plate, on the stile */
+  .plq {
+    width: 26px; height: 26px; flex: none;
+    display: grid; place-items: center;
+    border-radius: var(--r-plate);
+    background: var(--panel-sunk);
+    border: var(--hair) solid var(--rule-hard);
+    font-variation-settings: "wdth" 84, "wght" 680;
+    font-size: 10.5px; letter-spacing: 0.02em;
+    color: var(--ink-2);
+  }
+  .row__who { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .row__who b { font-variation-settings: "wdth" 92, "wght" 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row__who i { font-style: normal; font-family: var(--mono); font-size: 9px; font-weight: 400; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row__what { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .row__what b { font-variation-settings: "wdth" 96, "wght" 400; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.is-unread .row__what b { font-variation-settings: "wdth" 96, "wght" 680; }
+  .row__what i { font-style: normal; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row__when { display: flex; align-items: center; gap: 10px; }
+  .row__when time { font-family: var(--mono); font-size: 10px; font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+  /* A Label is a bundle band: its colour is the tint of the stock the band is
+     printed on, the whole way round. Never a stripe down one edge. */
+  .band {
+    --band-ink: var(--ink-2);
+    display: inline-block;
+    padding: 1.5px 6px;
+    border-radius: var(--r-band);
+    background: color-mix(in oklab, var(--band-ink) 17%, var(--panel));
+    border: var(--hair) solid color-mix(in oklab, var(--band-ink) 45%, var(--rule-hard));
+    font-variation-settings: "wdth" 78, "wght" 640;
+    font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: color-mix(in oklab, var(--band-ink) 72%, var(--ink));
+    white-space: nowrap;
+  }
+  .band--fin { --band-ink: var(--aniline); }
+  .band--ops { --band-ink: var(--phosphor); }
+
+  .act {
+    appearance: none; border: 0; background: transparent; cursor: pointer;
+    width: 26px; height: 26px; display: grid; place-items: center;
+    border-radius: var(--r-plate); color: var(--ink-3);
+    transition: color var(--dur-press) linear, background var(--dur-press) linear, transform var(--dur-press) var(--ease-strike);
+  }
+  .act:hover { color: var(--ink); background: var(--panel-sunk); }
+  .act:active { transform: scale(0.94); }
+  .act svg { width: 17px; height: 17px; display: block; }
+
+  .row--compact { height: 38px; }
+  .row--compact .plq { width: 20px; height: 20px; font-size: 9px; }
+  .row--compact .row__who i, .row--compact .row__what i { display: none; }
+  .row--compact { grid-template-columns: 24px minmax(110px, 156px) minmax(0,1fr) auto; }
+  .row--compact .row__who b, .row--compact .row__what b { font-size: 12.5px; }
+
+  /* ============================================================
+     SPECIMEN: THE HELD BAY — the one drenched room
+     ============================================================ */
+  .bay { background: var(--fluor-flat); border: var(--hair) solid var(--rule-hard); color: #1F1D18; }
+  .bay__bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 13px;
+    border-bottom: 1.5px solid rgb(31 29 24 / 0.34);
+    font-variation-settings: "wdth" 78, "wght" 720;
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .bay__bar em { font-style: normal; font-variation-settings: "wdth" 78, "wght" 400; opacity: 0.72; letter-spacing: 0.06em; }
+  .slip {
+    display: grid;
+    grid-template-columns: 44px minmax(0,1fr) auto;
+    gap: 14px; align-items: center;
+    padding: 13px;
+    border-bottom: 1px solid rgb(31 29 24 / 0.24);
+  }
+  .slip:last-child { border-bottom: 0; }
+  .slip__who b { display: block; font-variation-settings: "wdth" 96, "wght" 700; font-size: 15px; }
+  .slip__who i { font-style: normal; font-family: var(--mono); font-size: 10px; font-weight: 500; opacity: 0.78; }
+  .slip__who p { font-size: 12.5px; margin-top: 3px; opacity: 0.82; max-width: 52ch; }
+  .verdict { display: flex; gap: 8px; }
+  .vbtn {
+    appearance: none; cursor: pointer;
+    font-family: var(--sans);
+    font-variation-settings: "wdth" 78, "wght" 700;
+    font-size: 11px; letter-spacing: 0.11em; text-transform: uppercase;
+    padding: 7px 13px; border-radius: var(--r-plate);
+    transition: transform var(--dur-press) var(--ease-strike), background var(--dur-press) linear;
+  }
+  .vbtn:active { transform: scale(0.96); }
+  .vbtn--admit { background: #1F1D18; color: var(--bone); border: 1.5px solid #1F1D18; }
+  .vbtn--return { background: transparent; color: #1F1D18; border: 1.5px solid rgb(31 29 24 / 0.5); }
+  .vbtn--return:hover { background: rgb(31 29 24 / 0.09); }
+  .bay :focus-visible { outline-color: #1F1D18; }
+
+  /* the CDS franking mark */
+  .cds { width: 44px; height: 44px; flex: none; }
+
+  /* ============================================================
+     PICTOGRAMS
+     ============================================================ */
+  .picto { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); border: var(--hair) solid var(--rule-hard); }
+  .picto figure { margin: 0; padding: 14px 8px 11px; display: flex; flex-direction: column; align-items: center; gap: 9px; border-right: var(--hair) solid var(--rule); border-bottom: var(--hair) solid var(--rule); }
+  .picto svg { width: 26px; height: 26px; color: var(--ink); }
+  .picto figcaption { font-variation-settings: "wdth" 78, "wght" 600; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-3); text-align: center; }
+
+  /* ============================================================
+     REFUSALS + REACH
+     ============================================================ */
+  .refuse { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); border: var(--hair) solid var(--rule-hard); }
+  .refuse div { padding: 15px 16px; border-right: var(--hair) solid var(--rule); border-bottom: var(--hair) solid var(--rule); }
+  .refuse b { display: block; font-variation-settings: "wdth" 88, "wght" 660; font-size: 13.5px; margin-bottom: 4px; }
+  .refuse s { text-decoration-color: var(--postal); text-decoration-thickness: 2px; }
+  .refuse p { font-size: 12.5px; color: var(--ink-3); max-width: none; }
+
+  .icons { display: flex; flex-wrap: wrap; gap: 0; border: var(--hair) solid var(--rule-hard); }
+  .icons figure { margin: 0; padding: 18px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; border-right: var(--hair) solid var(--rule); }
+  .icons figcaption { font-family: var(--mono); font-size: 9px; font-weight: 500; color: var(--ink-3); text-align: center; }
+  .app-icon { border-radius: 22%; overflow: hidden; display: block; }
+
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    appearance: none; cursor: pointer; font-family: var(--sans);
+    font-variation-settings: "wdth" 80, "wght" 660;
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 7px 13px; border-radius: var(--r-plate);
+    background: var(--aniline-flat); color: var(--bone); border: 1.5px solid var(--aniline-flat);
+    transition: transform var(--dur-press) var(--ease-strike), filter var(--dur-press) linear;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn:hover { filter: brightness(1.1); }
+  .btn--quiet { background: transparent; color: var(--ink-2); border-color: var(--rule-hard); }
+  .btn--quiet:hover { color: var(--ink); background: var(--panel-2); filter: none; }
+  /* destructive: deliberate distance, outline until focused */
+  .btn--danger { background: transparent; color: var(--postal); border-color: var(--rule-hard); margin-left: 26px; }
+  .btn--danger:hover, .btn--danger:focus-visible { border-color: var(--postal); background: color-mix(in oklab, var(--postal) 12%, transparent); filter: none; }
+
+  kbd {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    padding: 2px 5px; border-radius: var(--r-plate);
+    background: var(--panel-sunk); border: var(--hair) solid var(--rule-hard);
+    border-bottom-width: 2px;
+    color: var(--ink-2);
+  }
+
+  .scroll { overflow-x: auto; }
+
+  footer {
+    max-width: 1180px; margin: 0 auto;
+    padding: 22px 30px 60px;
+    font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--ink-3);
+    display: flex; gap: 22px; flex-wrap: wrap;
+    border-top: var(--hair) solid var(--rule-hard);
+  }
+
+  @media (max-width: 720px) {
+    .head { grid-template-columns: 1fr; }
+    .mark-lg { width: 92px; height: 92px; }
+    .stile { grid-template-columns: 1fr; gap: 0; }
+    .stile > dt { border-top: var(--hair) solid var(--rule); padding-bottom: 0; }
+    .stile > dd { border-top: 0; padding-top: 2px; }
+    .stile > dd:first-of-type { padding-top: 2px; }
+    .cmp__body, .plate { padding-left: 16px; padding-right: 16px; }
+    .spec { grid-template-columns: 1fr; gap: 10px; }
+    .row { grid-template-columns: 26px minmax(0,1fr) auto; height: auto; padding: 9px 12px; }
+    .row__who { grid-column: 2; }
+    .row__what { grid-column: 2; }
+    .row__when { grid-column: 3; grid-row: 1; align-self: start; }
+    .slip { grid-template-columns: 34px minmax(0,1fr); }
+    .verdict { grid-column: 2; }
+    .btn--danger { margin-left: 0; margin-top: 14px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+    .strike b { transform: rotate(var(--tilt, -5deg)) scale(1) !important; }
+  }
+</style>
+
+<div class="frame">
+
+  <!-- ========================= MASTHEAD ========================= -->
+  <section class="cmp">
+    <div class="cmp__body">
+      <div class="head">
+        <div>
+          <h1>Wicket</h1>
+          <div class="sub">Self-hosted mail, with a door on it</div>
+          <p class="lede">A <em>wicket</em> is the post-office service window — and the small
+            gate beside a large one, that people pass through a single file. Both readings are
+            the product: mail from a stranger waits at the window until you rule on it, and
+            the window is on a server you own.</p>
+        </div>
+        <svg class="mark-lg" viewBox="0 0 128 128" role="img" aria-label="The Wicket postmark: a circular date stamp broken at the lower left, struck through by three killer bars.">
+          <!-- circular date stamp, broken at the lower left: the wicket itself.
+               A dashed circle rather than an arc path, so the gap's position is
+               a rotation and never drifts with the endpoints. -->
+          <circle cx="44" cy="64" r="32" fill="none" stroke="var(--aniline)" stroke-width="8.5"
+                  stroke-dasharray="161 40" transform="rotate(171 44 64)" />
+          <g fill="var(--aniline)">
+            <!-- killer bars, trailing the stamp rather than crossing it -->
+            <rect x="72" y="47.75" width="48" height="8.5" rx="1" />
+            <rect x="72" y="59.75" width="48" height="8.5" rx="1" />
+            <rect x="72" y="71.75" width="48" height="8.5" rx="1" />
+          </g>
+        </svg>
+      </div>
+
+      <dl class="stile">
+        <dt>Direction</dt>
+        <dd><strong>The Sorting Office.</strong> Not the philately of mail — stamps, envelopes,
+          air-mail chevrons — but the back-of-house room where mail is actually processed:
+          the sorting frame, the tray label, the facing slip, and the struck cancellation.</dd>
+
+        <dt>Thesis</dt>
+        <dd>The inbox is the <strong>room mail is processed in</strong>, not a feed of it.
+          Triage state is <strong>struck across the item</strong>, never badged beside it.
+          This refuses the arrangement every other client ships: rounded cards floating on grey
+          with one indigo accent.</dd>
+
+        <dt>Register</dt>
+        <dd>Calm on first open, expert underneath. Nothing here reads as a homelab tool, and
+          nothing is loud enough to tire you by four in the afternoon — except one room, on
+          purpose.</dd>
+
+        <dt>Scope</dt>
+        <dd>Every screen the client renders, plus the repo-facing marks: favicon set, PWA icons,
+          apple-touch-icon, preview card, README header. Built so a marketing surface can join
+          later without a rebrand.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ========================= STOCK ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Two stocks</b> <span>the ground is the frame, not the paper</span></h2>
+    <div class="cmp__body">
+      <p>In a real sorting office the dominant surface is not kraft paper — kraft is the
+        <em>item</em>. The room is painted steel and hardwood under fluorescent light. So the
+        app's ground is the <b>frame</b>, and content sits in its compartments.</p>
+      <div class="swatches">
+        <div class="sw">
+          <div class="sw__chip" style="background:#D5D8CE;color:#1F1D18"><b>#D5D8CE</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Day bench</div>
+            <div class="sw__use">Light ground. Institutional pale grey-green — the painted bench, deliberately not cream.</div>
+          </div>
+        </div>
+        <div class="sw">
+          <div class="sw__chip" style="background:#E7E8E0;color:#1F1D18"><b>#E7E8E0</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Compartment</div>
+            <div class="sw__use">Where content lives. One step up from the bench, no shadow.</div>
+            <div class="sw__cr">ink 15.9:1 · ink-2 5.7:1</div>
+          </div>
+        </div>
+        <div class="sw">
+          <div class="sw__chip" style="background:#1A1611;color:#EDE7DA"><b>#1A1611</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Night frame</div>
+            <div class="sw__use">Dark ground. Warm near-black — aged hardwood, never blue graphite.</div>
+          </div>
+        </div>
+        <div class="sw">
+          <div class="sw__chip" style="background:#221E18;color:#EDE7DA"><b>#221E18</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Compartment</div>
+            <div class="sw__use">Text on dark is warm bone <code style="font-family:var(--mono);font-size:9.5px">#EDE7DA</code>, the colour of label stock — not white.</div>
+            <div class="sw__cr">ink 13.4:1 · ink-2 6.0:1</div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Why both, fully:</b> the scene is a desk at nine in the morning and a
+        phone in the dark at eleven at night. Neither is the default, so both are built —
+        and light gets no less care, because a message body is third-party HTML that arrives
+        on a white ground whatever the app does.</p>
+    </div>
+  </section>
+
+  <!-- ========================= INK ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Four inks</b> <span>role-locked, the way a post office marks handling</span></h2>
+    <div class="cmp__body">
+      <p>A sorting office does not have a brand colour, it has <em>inks that mean things</em>.
+        Each of these appears only for its own job, so a row is never ambiguous. Ratios are
+        against the light compartment; every role has a matching tint on the dark frame.</p>
+      <div class="swatches">
+        <div class="sw">
+          <div class="sw__chip" style="background:#5B3E8C;color:#F4F2E9"><b>#5B3E8C · #A98CD9</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Aniline</div>
+            <div class="sw__use">The brand ink. Primary action, focus, selection, the mark. Rubber-stamp violet.</div>
+            <div class="sw__cr">6.6:1 · bone on flat 6.6:1</div>
+          </div>
+        </div>
+        <div class="sw">
+          <div class="sw__chip" style="background:#FF5A0F;color:#1F1D18"><b>#FF5A0F · #B33800</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Fluorescent</div>
+            <div class="sw__use">HELD, and nothing else. From the phosphor tagging bar a sorting machine reads. Drenches the Screener.</div>
+            <div class="sw__cr">ink on flat 5.4:1 · tint 4.9:1</div>
+          </div>
+        </div>
+        <div class="sw">
+          <div class="sw__chip" style="background:#B0231C;color:#F4F2E9"><b>#B0231C · #F2685E</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Postal red</div>
+            <div class="sw__use">RETURNED, BLOCKED, failed send. Destructive only — never decorative.</div>
+            <div class="sw__cr">5.5:1 · dark tint 5.3:1</div>
+          </div>
+        </div>
+        <div class="sw">
+          <div class="sw__chip" style="background:#256B42;color:#F4F2E9"><b>#256B42 · #5CC98A</b></div>
+          <div class="sw__meta">
+            <div class="sw__role">Phosphor</div>
+            <div class="sw__use">ADMITTED, SENT, confirmed. Appears at the moment something completes, then leaves.</div>
+            <div class="sw__cr">5.2:1 · dark tint 7.9:1</div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Deployment:</b> restrained everywhere the visitor works — neutrals plus
+        an ink at small scale — and <b>drenched in exactly one room</b>, the Screener. One
+        saturated surface you visit for fifteen seconds a day is what keeps the system from
+        being timid without making it unlivable.</p>
+    </div>
+  </section>
+
+  <!-- ========================= TYPE ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>One face, many label stocks</b> <span>Archivo variable · Martian Mono</span></h2>
+    <div class="cmp__body">
+      <p>A sorting office sets the same words on different label stock: narrow on a tray label,
+        normal on a routing slip, wide on the bay sign. <strong>Archivo</strong> has a real
+        width axis, so the whole system is one face at four widths — the discipline, not four
+        fonts. <strong>Martian Mono</strong> appears only for genuine machine artifacts:
+        routing codes, message ids, addresses, keycaps.</p>
+      <div class="specs">
+        <div class="spec">
+          <div class="spec__key"><em>Bay sign</em>wdth 118 · wght 800<br>caps · −0.028em</div>
+          <div class="spec__art" style="font-variation-settings:'wdth' 118,'wght' 800;font-size:44px;line-height:1;letter-spacing:-0.028em;text-transform:uppercase">Held for you</div>
+        </div>
+        <div class="spec">
+          <div class="spec__key"><em>Tray label</em>wdth 78 · wght 650<br>11.5px caps · +0.11em</div>
+          <div class="spec__art" style="font-variation-settings:'wdth' 78,'wght' 650;font-size:11.5px;letter-spacing:0.11em;text-transform:uppercase">Inbox · vic@vtvc.nl · 24 threads · 3 held</div>
+        </div>
+        <div class="spec">
+          <div class="spec__key"><em>Sender</em>wdth 92 · wght 600<br>13.5px</div>
+          <div class="spec__art" style="font-variation-settings:'wdth' 92,'wght' 600;font-size:13.5px">Rekeningen — Vattenfall Klantenservice</div>
+        </div>
+        <div class="spec">
+          <div class="spec__key"><em>Subject &amp; snippet</em>wdth 96 · wght 400/680<br>13.5px · 12px</div>
+          <div class="spec__art">
+            <div style="font-variation-settings:'wdth' 96,'wght' 680;font-size:13.5px">Jaarafrekening 2026 staat voor je klaar</div>
+            <div style="font-variation-settings:'wdth' 96,'wght' 400;font-size:12px;color:var(--ink-3)">Je verbruik over het afgelopen jaar is verwerkt. Je krijgt €61,40 terug…</div>
+          </div>
+        </div>
+        <div class="spec">
+          <div class="spec__key"><em>Machine</em>Martian Mono 500<br>codes · ids · keycaps</div>
+          <div class="spec__art" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+            <span style="font-family:var(--mono);font-size:11px;font-weight:500;font-variant-numeric:tabular-nums">09:41 · 14 Feb · UID 208417</span>
+            <span style="font-family:var(--mono);font-size:10px;font-weight:400;color:var(--ink-3)">&lt;CAF4b8%3Dq7@mail.vtvc.nl&gt;</span>
+            <span><kbd>J</kbd> <kbd>K</kbd> <kbd>E</kbd> <kbd>⇧U</kbd></span>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Self-hosted, so self-hosted:</b> both faces ship from the app's own
+        origin via <code style="font-family:var(--mono);font-size:11px">@fontsource-variable</code>.
+        A mail client that promises you own your server has no business calling Google on
+        every cold start.</p>
+    </div>
+  </section>
+
+  <!-- ========================= THE STRIKE ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>The strike</b> <span>the signature — state is struck across the item</span></h2>
+    <div class="cmp__body">
+      <p class="lede">Every other client tells you what happened to a thread by putting a chip
+        beside it. A sorting office strikes the item itself.</p>
+      <p>A triage decision lands as an off-register overprint, blended into the row with
+        <code style="font-family:var(--mono);font-size:12px">mix-blend-mode</code> so it reads
+        as ink on stock rather than a sticker on glass. The tilt is derived from the thread id,
+        so it never jitters between renders.</p>
+      <p><strong>Wet, then set.</strong> An Optimistic Action strikes <em>wet</em> — faint,
+        because the Sync Backend has not answered yet. When the server confirms, the ink
+        <em>sets</em>. On rollback it lifts. The product's optimistic model, legible in the
+        material.</p>
+      <p><strong>Where it may appear, and where it may not.</strong> Only on state that
+        <em>persists</em>: a search result you have already acted on, a held or blocked sender,
+        a failed send, and the rollback toast where ink comes off. A triage keystroke strikes
+        <em>nothing</em> — <code style="font-family:var(--mono);font-size:12px">store/reads.ts</code>
+        drops an archived Thread from the list the moment the mutation is queued, so there is no
+        row left to ink, and holding one open to show ink would tax the one thing that has to
+        stay snap-instant. Read, star, pin and label are silent too: they happen constantly and
+        reverse freely. Ink never accumulates down a list.</p>
+      <div class="strike-sheet" id="sheet">
+        <div class="strike-cell is-set" style="--tilt:-6deg">
+          <div class="strike-cell__what"><b>Archive</b>The item leaves the frame.</div>
+          <div class="strike-cell__ink">SET · aniline</div>
+          <div class="strike" style="color:var(--aniline)"><b>Archived</b></div>
+        </div>
+        <div class="strike-cell is-wet" style="--tilt:4deg">
+          <div class="strike-cell__what"><b>Trash, in flight</b>Queued, server silent.</div>
+          <div class="strike-cell__ink">WET · postal red</div>
+          <div class="strike" style="color:var(--postal)"><b>Returned</b></div>
+        </div>
+        <div class="strike-cell is-set" style="--tilt:-3deg">
+          <div class="strike-cell__what"><b>Screening hold</b>Waiting on your verdict.</div>
+          <div class="strike-cell__ink">SET · fluorescent</div>
+          <div class="strike" style="color:var(--fluor)"><b>Held</b></div>
+        </div>
+        <div class="strike-cell is-set" style="--tilt:5deg">
+          <div class="strike-cell__what"><b>Sender approved</b>Their mail lands normally now.</div>
+          <div class="strike-cell__ink">SET · phosphor</div>
+          <div class="strike" style="color:var(--phosphor)"><b>Admitted</b></div>
+        </div>
+        <div class="strike-cell is-set" style="--tilt:-5deg">
+          <div class="strike-cell__what"><b>Snooze</b>Returns as new at the stated hour.</div>
+          <div class="strike-cell__ink">SET · ink-2</div>
+          <div class="strike" style="color:var(--ink-2)"><b>Hold 09:00</b></div>
+        </div>
+        <div class="strike-cell is-set" style="--tilt:3deg">
+          <div class="strike-cell__what"><b>Send failed</b>Names the problem, offers the retry.</div>
+          <div class="strike-cell__ink">SET · postal red</div>
+          <div class="strike" style="color:var(--postal)"><b>Not sent</b></div>
+        </div>
+      </div>
+      <p class="note"><b>What the strike may never cost:</b> a frame. It animates transform and
+        opacity only, on the outgoing row, and never delays the next keystroke — press
+        <kbd>E</kbd> four times fast and you get four instant advances with ink landing behind
+        you. Under <code style="font-family:var(--mono);font-size:11px">prefers-reduced-motion</code>
+        it appears at its final state with no rotation. In compact density it fades rather than
+        tilts, because there is no room to tilt in.</p>
+    </div>
+  </section>
+
+  <!-- ========================= THE FRAME ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>The frame</b> <span>rules, not gaps · plates, not cards</span></h2>
+    <div class="cmp__body">
+      <dl class="stile">
+        <dt>Division</dt>
+        <dd>Compartments meet on <strong>1px hairline rules</strong> that touch at the corners.
+          Outer members are heavier than inner ones. There is no gutter between compartments and
+          no shadow under them — a frame is joinery, not floating cards. <em>This page is built
+          that way; the app is the same frame.</em></dd>
+
+        <dt>Corners</dt>
+        <dd><strong>2px on plates, 1px on bands, 0 on the frame.</strong> Metal label holders and
+          wooden compartments have square corners. Nothing in this system is soft, and that one
+          decision is most of what stops it reading as another SaaS inbox.</dd>
+
+        <dt>Heads</dt>
+        <dd>Every region is headed by an <strong>inset label-holder plate</strong> — recessed
+          stock, condensed caps, a hairline under it. It is the whole heading; nothing sits
+          above it.</dd>
+
+        <dt>Elevation</dt>
+        <dd>One shadow exists in the entire system, for things that genuinely float above the
+          frame — popovers, dialogs, the label picker. It carries a real offset and a soft blur.
+          Nothing else is lifted.</dd>
+
+        <dt>Rank</dt>
+        <dd>Importance is shown by <strong>inversion, not by brightness</strong>. The selected
+          row and the primary action invert their stock; controls take no ink colour at all,
+          only relief and rule. Borrowed as a discipline from the depot destination blind, where
+          the lead panel alone prints dark on pale cloth.</dd>
+
+        <dt>Destruction</dt>
+        <dd>Trash and Block are one keystroke away in a triage app, so the design owes them
+          distance: destructive controls sit in <strong>deliberate empty space</strong> and stay
+          outline until focused.</dd>
+      </dl>
+      <div class="toolbar">
+        <button type="button" class="btn">Send</button>
+        <button type="button" class="btn btn--quiet">Save draft</button>
+        <button type="button" class="btn btn--danger">Block sender</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================= SPECIMEN: TIMETABLE ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Specimen</b> <span>the thread list, comfortable density</span> <code>try the archive control</code></h2>
+    <div class="cmp__body">
+      <div class="demo scroll">
+        <div class="demo__bar">
+          <span class="legend">Inbox <em>· 24</em></span>
+          <span class="acct">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18v3H3zM3 10.5h18v3H3zM3 16h18v3H3z"/></svg>
+            vic@vtvc.nl
+          </span>
+          <span class="spacer"></span>
+          <span class="held-plate">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3h14v6.5a7 7 0 0 1-14 0zM5 21h14v-6.5a7 7 0 0 0-14 0z"/></svg>
+            3 held
+          </span>
+        </div>
+
+        <div class="band-day">Today <span class="spacer"></span> 6</div>
+
+        <div class="row is-unread is-sel" style="--tilt:-6deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">VK</span>
+          <span class="row__who"><b>Vattenfall Klantenservice</b><i>klantenservice@vattenfall.nl</i></span>
+          <span class="row__what"><b>Jaarafrekening 2026 staat voor je klaar</b><i>Je verbruik over het afgelopen jaar is verwerkt. Je krijgt €61,40 terug…</i></span>
+          <span class="row__when">
+            <span class="band band--fin">Rekeningen</span>
+            <time datetime="2026-09-02T09:41">09:41</time>
+            <button type="button" class="act" title="Archive (E)" aria-label="Archive">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4h20v4H2zM4 9.5h16V21H4zm3.5 3v2.2h9V12.5z"/></svg>
+            </button>
+          </span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+
+        <div class="row is-unread" style="--tilt:4deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">MJ</span>
+          <span class="row__who"><b>Maartje de Vries</b><i>maartje@studiodev.nl</i></span>
+          <span class="row__what"><b>Re: sorting frame — de hairlines kloppen nu</b><i>Heb de compartimenten opnieuw uitgelijnd op de stijl. Kijk even naar…</i></span>
+          <span class="row__when">
+            <time datetime="2026-09-02T09:12">09:12</time>
+            <button type="button" class="act" title="Archive (E)" aria-label="Archive">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4h20v4H2zM4 9.5h16V21H4zm3.5 3v2.2h9V12.5z"/></svg>
+            </button>
+          </span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+
+        <div class="row" style="--tilt:-3deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">GH</span>
+          <span class="row__who"><b>GitHub</b><i>notifications@github.com</i></span>
+          <span class="row__what"><b>[vicvancooten/mail] Deploy rollback probed GHCR (#63)</b><i>vicvancooten merged 1 commit into main from fix/ci-rollback…</i></span>
+          <span class="row__when">
+            <span class="band band--ops">Ops</span>
+            <time datetime="2026-09-02T08:47">08:47</time>
+            <button type="button" class="act" title="Archive (E)" aria-label="Archive">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4h20v4H2zM4 9.5h16V21H4zm3.5 3v2.2h9V12.5z"/></svg>
+            </button>
+          </span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+
+        <div class="band-day">Yesterday <span class="spacer"></span> 11</div>
+
+        <div class="row" style="--tilt:5deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">PE</span>
+          <span class="row__who"><b>Private Email Support</b><i>support@privateemail.com</i></span>
+          <span class="row__what"><b>Your IMAP app password was rotated</b><i>The application password ending 4f19 was replaced on 1 Sept at 22:04…</i></span>
+          <span class="row__when">
+            <time datetime="2026-09-01T22:04">22:04</time>
+            <button type="button" class="act" title="Archive (E)" aria-label="Archive">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4h20v4H2zM4 9.5h16V21H4zm3.5 3v2.2h9V12.5z"/></svg>
+            </button>
+          </span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+      </div>
+
+      <p class="note"><b>Reading it:</b> the kraft initial plate registers to the stile — the one
+        governing left axis every level of the app aligns to. Sender and subject run the middle,
+        Labels are <b>bundle bands</b> (printed paper wrapped round a bundle, not a pill), and
+        the time lands hard right in tabular figures. Day dividers are <b>facing bands</b>, the
+        slip that faces a bundle in one direction. No avatar photographs: the product blocks
+        remote images by default, so a correspondent's face is drawn, never fetched.</p>
+
+      <p class="note"><b>Folded, below 520px.</b> The split list is 380px and a phone is 390px:
+        a single-line row cannot hold a 148px sender column and a legible subject at once, so
+        under a container query the row folds to two lines — sender and time above, subject and
+        Snippet below — and finally uses the 60px it already occupied. Same row height, same
+        virtualisation, twice the readable text.</p>
+
+      <h3 class="plate" style="margin:8px -30px 0;border-top:var(--hair) solid var(--rule-hard)"><b>Same rows, compact density</b> <span>a Device Preference — never synced</span></h3>
+      <div class="demo scroll" style="margin-top:22px">
+        <div class="row row--compact is-unread" style="--tilt:-4deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">VK</span>
+          <span class="row__who"><b>Vattenfall Klantenservice</b></span>
+          <span class="row__what"><b>Jaarafrekening 2026 staat voor je klaar</b></span>
+          <span class="row__when"><span class="band band--fin">Rekeningen</span><time datetime="2026-09-02T09:41">09:41</time></span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+        <div class="row row--compact is-unread" style="--tilt:3deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">MJ</span>
+          <span class="row__who"><b>Maartje de Vries</b></span>
+          <span class="row__what"><b>Re: sorting frame — de hairlines kloppen nu</b></span>
+          <span class="row__when"><time datetime="2026-09-02T09:12">09:12</time></span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+        <div class="row row--compact" style="--tilt:-2deg" data-strike="Archived" data-ink="aniline">
+          <span class="plq">GH</span>
+          <span class="row__who"><b>GitHub</b></span>
+          <span class="row__what"><b>[vicvancooten/mail] Deploy rollback probed GHCR (#63)</b></span>
+          <span class="row__when"><span class="band band--ops">Ops</span><time datetime="2026-09-02T08:47">08:47</time></span>
+          <span class="strike" style="color:var(--aniline)"><b>Archived</b></span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="btn btn--quiet" id="reset">Restore the rows</button>
+      </div>
+      <p class="note">Example correspondence, written for this specimen — not real mail.</p>
+    </div>
+  </section>
+
+  <!-- ========================= SPECIMEN: HELD BAY ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Specimen</b> <span>the Screener — the one drenched room</span></h2>
+    <div class="cmp__body">
+      <p>The Screener lists <em>Unscreened Senders</em>, not messages: one decision per stranger.
+        So it is not a list of mail at all — it is a bay of <strong>facing slips</strong>, and it
+        is the only surface in the product saturated end to end. You are in it for fifteen
+        seconds a day, which is exactly why it can afford to be loud.</p>
+      <div class="bay">
+        <div class="bay__bar">
+          Held for you <em>· 3 senders · 7 items · since the cutoff on 14 Feb</em>
+        </div>
+        <div class="slip">
+          <svg class="cds" viewBox="0 0 64 64" role="img" aria-label="Franking mark for hallo at bakkerijjansen dot nl">
+            <circle cx="32" cy="32" r="27" fill="none" stroke="#1F1D18" stroke-width="3.5" stroke-dasharray="140 30" transform="rotate(118 32 32)"/>
+            <text x="32" y="38" text-anchor="middle" fill="#1F1D18" style="font-family:var(--sans);font-variation-settings:'wdth' 88,'wght' 700;font-size:19px">BJ</text>
+          </svg>
+          <div class="slip__who">
+            <b>Bakkerij Jansen</b>
+            <i>hallo@bakkerijjansen.nl · 4 items</i>
+            <p>Newest: “Zaterdag hebben we weer desem” — first seen 28 Aug.</p>
+          </div>
+          <div class="verdict">
+            <button type="button" class="vbtn vbtn--admit">Approve</button>
+            <button type="button" class="vbtn vbtn--return">Block</button>
+          </div>
+        </div>
+        <div class="slip">
+          <svg class="cds" viewBox="0 0 64 64" role="img" aria-label="Franking mark for no-reply at deals dot shopmail dot io">
+            <circle cx="32" cy="32" r="27" fill="none" stroke="#1F1D18" stroke-width="3.5" stroke-dasharray="140 30" transform="rotate(212 32 32)"/>
+            <text x="32" y="38" text-anchor="middle" fill="#1F1D18" style="font-family:var(--sans);font-variation-settings:'wdth' 88,'wght' 700;font-size:19px">DS</text>
+          </svg>
+          <div class="slip__who">
+            <b>deals.shopmail.io</b>
+            <i>no-reply@deals.shopmail.io · 2 items · whole domain</i>
+            <p>Returning this blocks the domain: new mail goes straight to Trash on arrival.</p>
+          </div>
+          <div class="verdict">
+            <button type="button" class="vbtn vbtn--admit">Approve</button>
+            <button type="button" class="vbtn vbtn--return">Block</button>
+          </div>
+        </div>
+        <div class="slip">
+          <svg class="cds" viewBox="0 0 64 64" role="img" aria-label="Franking mark for r dot okafor at gmail dot com">
+            <circle cx="32" cy="32" r="27" fill="none" stroke="#1F1D18" stroke-width="3.5" stroke-dasharray="140 30" transform="rotate(44 32 32)"/>
+            <text x="32" y="38" text-anchor="middle" fill="#1F1D18" style="font-family:var(--sans);font-variation-settings:'wdth' 88,'wght' 700;font-size:19px">RO</text>
+          </svg>
+          <div class="slip__who">
+            <b>Rita Okafor</b>
+            <i>r.okafor@gmail.com · 1 item</i>
+            <p>Newest: “Vraag over de verhuizing” — first seen this morning.</p>
+          </div>
+          <div class="verdict">
+            <button type="button" class="vbtn vbtn--admit">Approve</button>
+            <button type="button" class="vbtn vbtn--return">Block</button>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Correspondent marks:</b> a <b>circular date stamp</b> — a broken ring with
+        initials, rotated deterministically from the address, so the same person carries the same
+        mark forever. Drawn, never fetched: remote images are blocked until a sender is Approved,
+        which makes a fetched avatar a contradiction. In the list this collapses to the small
+        kraft plate on the stile; here it gets its full size.</p>
+      <p class="note"><b>Copy discipline:</b> “Approve” and “Block” are the product’s own words for a Verdict, and the glossary outranks brand copy — “Admit” and “Return” read better and mean nothing in <code style="font-family:var(--mono);font-size:11px">CONTEXT.md</code>. The domain
+        slip states the consequence before you act, because a Verdict on a whole domain routes
+        future mail to Trash. Product vocabulary from <code style="font-family:var(--mono);font-size:11px">CONTEXT.md</code>
+        is binding: Thread, Mail Account, Screener, Verdict — never conversation, mailbox, or quarantine.</p>
+    </div>
+  </section>
+
+  <!-- ========================= PICTOGRAMS ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Pictograms</b> <span>drawn solid on a 24 grid, not a line-icon set</span></h2>
+    <div class="cmp__body">
+      <p>Signage pictograms are solid and heavy so they survive being small, dirty and far away.
+        The core triage actions get authored glyphs in that grammar — a tray, not an inbox arrow;
+        a grommet, not a pushpin. Lucide stays installed for the long tail, and never appears
+        beside one of these.</p>
+      <div class="picto">
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4h20v4H2zM4 9.5h16V21H4zm3.5 3v2.2h9V12.5z"/></svg><figcaption>Archive</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2h6l1 2h5v3H3V4h5zM5 8.5h14L17.6 22H6.4z"/></svg><figcaption>Return</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3h14v6.5a7 7 0 0 1-14 0zM5 21h14v-6.5a7 7 0 0 0-14 0z"/></svg><figcaption>Held</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a4 4 0 0 1 4 4 4 4 0 0 1-2.4 3.67L14.8 22h-5.6l1.2-12.33A4 4 0 0 1 8 6a4 4 0 0 1 4-4zm0 3a1.4 1.4 0 1 0 0 2.8A1.4 1.4 0 0 0 12 5z"/></svg><figcaption>Pin</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 15 9h7l-5.6 4.4L18.6 21 12 16.6 5.4 21l2.2-7.6L2 9h7z"/></svg><figcaption>Star</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 7h13l7 5-7 5H2zM5 10.4v3.2h8v-3.2z"/></svg><figcaption>Label</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm1.4 4h-2.8v7.2l5.5 3.3 1.4-2.4-4.1-2.4z"/></svg><figcaption>Snooze</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 3v4.6C4.9 8.5 2 12.4 2 18v3l2.3-2.3A9 9 0 0 1 10 16.2V21l9-9z"/></svg><figcaption>Reply</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 3v4.6c5.1.9 8 4.8 8 10.4v3l-2.3-2.3A9 9 0 0 0 14 16.2V21L5 12z"/></svg><figcaption>Forward</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 4h20v3.2L12 14 2 7.2zM2 10.3l10 6.8 10-6.8V20H2z"/></svg><figcaption>Compose</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-2.4 2.4-5.4-5.4A8 8 0 1 1 10 2zm0 3.2a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6z"/></svg><figcaption>Search</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 11 20 3l2 2.6L9.6 22 7 20l3.7-6.6z"/></svg><figcaption>Dispatch</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 10h11V4l8 8-8 8v-6H3z"/></svg><figcaption>Admit</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 3.4a6.6 6.6 0 0 0-4.2 1.5l9.3 9.3A6.6 6.6 0 0 0 12 5.4zm-6.1 3.4a6.6 6.6 0 0 0 9.3 9.3z"/></svg><figcaption>Block</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.8 2.6a5 5 0 0 1 7 7L13 19.5a3.4 3.4 0 0 1-4.8-4.8l8.4-8.4 2 2-8.4 8.4a.6.6 0 0 0 .8.8l9.8-9.9a2.2 2.2 0 0 0-3.1-3.1L5.6 15.4a5.7 5.7 0 0 0 8 8l6-6 2 2-6 6a8.5 8.5 0 0 1-12-12z"/></svg><figcaption>Attach</figcaption></figure>
+        <figure><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 3h16v3H4zm0 5.5h16v3H4zm0 5.5h10v3H4zm12.5 0H20v7h-3.5z"/></svg><figcaption>Frame</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================= REPO-FACING MARKS ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Repo-facing marks</b> <span>judged before the app is ever run</span></h2>
+    <div class="cmp__body">
+      <p>Someone decides whether to trust this with fifteen years of correspondence from a
+        repository page, a GHCR listing, and a link preview in a chat app. So the postmark
+        ships in four lockups, and the placeholder <code style="font-family:var(--mono);font-size:11px">V</code>
+        icons and the unowned electric purple both go.</p>
+      <div class="icons scroll">
+        <figure>
+          <svg class="app-icon" width="88" height="88" viewBox="0 0 128 128" aria-label="App icon, aniline on bone">
+            <rect width="128" height="128" fill="#F4F2E9"/>
+            <circle cx="54" cy="64" r="40" fill="none" stroke="#5B3E8C" stroke-width="9" stroke-dasharray="205 46" transform="rotate(168 54 64)"/>
+            <g fill="#5B3E8C"><rect x="74" y="45.5" width="52" height="9" rx="1"/><rect x="74" y="59.5" width="52" height="9" rx="1"/><rect x="74" y="73.5" width="52" height="9" rx="1"/></g>
+          </svg>
+          <figcaption>icon-512 · any</figcaption>
+        </figure>
+        <figure>
+          <svg class="app-icon" width="88" height="88" viewBox="0 0 128 128" aria-label="App icon, bone on night frame">
+            <rect width="128" height="128" fill="#1A1611"/>
+            <circle cx="54" cy="64" r="40" fill="none" stroke="#EDE7DA" stroke-width="9" stroke-dasharray="205 46" transform="rotate(168 54 64)"/>
+            <g fill="#EDE7DA"><rect x="74" y="45.5" width="52" height="9" rx="1"/><rect x="74" y="59.5" width="52" height="9" rx="1"/><rect x="74" y="73.5" width="52" height="9" rx="1"/></g>
+          </svg>
+          <figcaption>apple-touch-icon</figcaption>
+        </figure>
+        <figure>
+          <svg width="88" height="88" viewBox="0 0 128 128" aria-label="Maskable icon, safe zone respected">
+            <rect width="128" height="128" fill="#5B3E8C"/>
+            <g transform="translate(64 64) scale(0.68) translate(-64 -64)">
+              <circle cx="54" cy="64" r="40" fill="none" stroke="#F4F2E9" stroke-width="9" stroke-dasharray="205 46" transform="rotate(168 54 64)"/>
+              <g fill="#F4F2E9"><rect x="74" y="45.5" width="52" height="9" rx="1"/><rect x="74" y="59.5" width="52" height="9" rx="1"/><rect x="74" y="73.5" width="52" height="9" rx="1"/></g>
+            </g>
+          </svg>
+          <figcaption>maskable · 70% safe zone</figcaption>
+        </figure>
+        <figure>
+          <svg width="88" height="88" viewBox="0 0 32 32" aria-label="Favicon at 16 pixels, doubled">
+            <rect width="32" height="32" fill="#F4F2E9"/>
+            <circle cx="13.5" cy="16" r="10" fill="none" stroke="#5B3E8C" stroke-width="3.2" stroke-dasharray="51.3 11.5" transform="rotate(168 13.5 16)"/>
+            <g fill="#5B3E8C"><rect x="18.5" y="11.2" width="13" height="3.2" rx="0.4"/><rect x="18.5" y="17.6" width="13" height="3.2" rx="0.4"/></g>
+          </svg>
+          <figcaption>favicon · 2 bars at 16px</figcaption>
+        </figure>
+      </div>
+      <p class="note"><b>The mark:</b> a <b>circular date stamp broken at the lower left</b> — the
+        wicket you pass through single file — <b>struck by killer bars</b>, the cancellation that
+        marks an item as accepted and processed. It is the mechanism, not a picture of an
+        envelope, and at 16px it drops to two bars so the gap survives. The preview card is a
+        tray label: the postmark on the night frame, the name at wdth 118, and one line of what
+        it is.</p>
+    </div>
+  </section>
+
+  <!-- ========================= REFUSALS ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Refusals</b> <span>what this system will not do, however convenient</span></h2>
+    <div class="cmp__body">
+      <div class="refuse">
+        <div><b><s>Rounded cards on grey</s></b><p>The frame divides on hairline rules that meet at the corners. Radius stays at 2px, and no compartment floats.</p></div>
+        <div><b><s>A chip beside the row</s></b><p>State is struck across the item. A row restyles inside its own columns and never grows chrome next to it.</p></div>
+        <div><b><s>A coloured left border</s></b><p>No exception, not even for Labels. A bundle band's colour is the tint of the stock it is printed on, the whole way round — a stripe down one edge is the tell, not the material.</p></div>
+        <div><b><s>Fetched avatars</s></b><p>Remote images are blocked until a sender is Approved. Correspondent marks are drawn from the address.</p></div>
+        <div><b><s>A floating compose button</s></b><p>Compose is a plate on the frame, where the room's own controls live.</p></div>
+        <div><b><s>Motion on repeated actions</s></b><p>No entrance stagger on list rows, no animated reflow when a page grows. Those happen hundreds of times a session.</p></div>
+        <div><b><s>Monospace as costume</s></b><p>Martian Mono appears for codes, ids, addresses, timestamps and keycaps. Never for prose that wants to look technical.</p></div>
+        <div><b><s>A font CDN</s></b><p>Both faces are self-hosted from the app's origin. The product's promise is that nothing phones home.</p></div>
+        <div><b><s>Electric purple #7E14FF</s></b><p>The placeholder theme colour and the periwinkle <code style="font-family:var(--mono);font-size:11px">--mail-accent</code> both go. Aniline violet is chosen, not inherited.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================= MOTION ========================= -->
+  <section class="cmp">
+    <h2 class="plate"><b>Motion</b> <span>one authored moment, and a hard floor under it</span></h2>
+    <div class="cmp__body">
+      <dl class="stile">
+        <dt>The moment</dt>
+        <dd>The strike, and only the strike. <code style="font-family:var(--mono);font-size:11px">190ms</code>
+          on <code style="font-family:var(--mono);font-size:11px">cubic-bezier(.16,.9,.12,1)</code>,
+          transform and opacity only, on the row that is leaving.</dd>
+        <dt>Never animated</dt>
+        <dd><kbd>J</kbd>/<kbd>K</kbd> navigation, list reflow when a page grows, density changes,
+          and anything that happens more than a few times a minute. Speed here is the product,
+          and the existing row-entrance stagger is removed for this reason.</dd>
+        <dt>Press</dt>
+        <dd>Controls take a <code style="font-family:var(--mono);font-size:11px">120ms</code>
+          scale to 0.96 — kept from the current build, because a physical control that gives
+          nothing back feels broken.</dd>
+        <dt>Reduced motion</dt>
+        <dd>The strike appears at its final state with no rotation and no scale. Nothing is
+          hidden by animation timing, so nothing can go missing.</dd>
+      </dl>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <span>WICKET · IDENTITY SPECIFICATION</span>
+  <span>DIRECTION: THE SORTING OFFICE</span>
+  <span>SEED 8b0f0098 · CODE-LED</span>
+  <span>IMPLEMENTED IN apps/client — THIS PAGE DESCRIBES THE SHIPPED SYSTEM</span>
+</footer>
+
+<script>
+  // The strike, demonstrated: press archive, the ink lands wet, sets when the
+  // (imagined) Sync Backend confirms, and the row leaves the frame.
+  const rows = [];
+  document.querySelectorAll(".row").forEach((row) => {
+    rows.push(row);
+    const btn = row.querySelector(".act");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      if (row.classList.contains("is-wet") || row.classList.contains("is-gone")) return;
+      row.classList.add("is-wet");
+      window.setTimeout(() => {
+        row.classList.remove("is-wet");
+        row.classList.add("is-set");
+      }, 520);
+      // The row leaves on transform and opacity, then drops out of flow
+      // instantly. The list never animates its own reflow.
+      window.setTimeout(() => row.classList.add("is-leaving"), 900);
+      window.setTimeout(() => row.classList.add("is-gone"), 1100);
+    });
+  });
+
+  document.getElementById("reset").addEventListener("click", () => {
+    rows.forEach((row) => row.classList.remove("is-wet", "is-set", "is-leaving", "is-gone"));
+  });
+</script>

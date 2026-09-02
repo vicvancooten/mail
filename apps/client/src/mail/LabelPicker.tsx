@@ -1,7 +1,7 @@
 import type { Label } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import { Check, Tag } from "lucide-react";
 import { useState } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import type { Triage } from "./useTriage.js";
 
@@ -65,7 +65,11 @@ export function LabelPicker({
                   role="menuitemcheckbox"
                   aria-checked={applied}
                 >
-                  {applied ? <Check size={12} /> : <Tag size={12} />}
+                  {applied ? (
+                    <Pictogram name="check" size={12} />
+                  ) : (
+                    <Pictogram name="label" size={12} />
+                  )}
                   {name}
                 </button>
               </li>

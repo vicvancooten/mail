@@ -45,6 +45,11 @@ export default defineConfig({
     // the API is always same-origin. Dev runs the Vite server and
     // `pnpm dev:backend` on separate ports (docs/dev-setup.md); proxying
     // keeps requests same-origin here too, which the session cookie needs.
+    // Every prefix `apps/sync-backend/src/app.ts` registers has to be listed
+    // here. A missing one is invisible in production (Fastify serves the
+    // bundle itself, so the API is same-origin) but in `vite dev` the request
+    // is answered by Vite with `index.html`, and the client fails on
+    // "Unexpected token '<'" while the panel shows "Couldn't load …".
     proxy: {
       "/auth": "http://127.0.0.1:3000",
       "/sync": "http://127.0.0.1:3000",
@@ -53,6 +58,20 @@ export default defineConfig({
       // /messages/:id/image-proxy.
       "/threads": "http://127.0.0.1:3000",
       "/messages": "http://127.0.0.1:3000",
+      // Mail Account management (#33) and Gatekeeper (#56), whose routes are
+      // all nested under `/mail-accounts/:id/gatekeeper`.
+      "/mail-accounts": "http://127.0.0.1:3000",
+      // Recipient suggestions (#48), search (#51), the signature/Undo Send
+      // settings (#46), Web Push and notification actions (ADR-0015), and the
+      // composer's attachment budget.
+      "/correspondents": "http://127.0.0.1:3000",
+      "/search": "http://127.0.0.1:3000",
+      "/send-settings": "http://127.0.0.1:3000",
+      "/push": "http://127.0.0.1:3000",
+      "/notifications": "http://127.0.0.1:3000",
+      "/compose-config": "http://127.0.0.1:3000",
+      // The Sync Hint stream (ADR-0015). SSE, so it must not be buffered.
+      "/events": "http://127.0.0.1:3000",
     },
   },
   test: {

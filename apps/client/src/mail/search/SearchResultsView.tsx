@@ -1,6 +1,6 @@
 import type { MailAccount } from "@mail/shared";
-import { X } from "lucide-react";
 import { useState } from "react";
+import { Pictogram } from "../../brand/Pictogram.js";
 import { ReauthMailAccountForm } from "../../mail-accounts/ReauthMailAccountForm.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
@@ -71,7 +71,7 @@ function ChipRow({
               else if (state.parsed.label) state.setOperator("label", null);
             }}
           >
-            <X size={11} />
+            <Pictogram name="close" size={11} />
           </button>
         ) : null}
       </span>
@@ -92,7 +92,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("from", null)}
           >
-            <X size={11} />
+            <Pictogram name="close" size={11} />
           </button>
         </span>
       ) : null}
@@ -104,7 +104,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("to", null)}
           >
-            <X size={11} />
+            <Pictogram name="close" size={11} />
           </button>
         </span>
       ) : null}
@@ -116,7 +116,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("has", null)}
           >
-            <X size={11} />
+            <Pictogram name="close" size={11} />
           </button>
         </span>
       ) : null}
@@ -128,7 +128,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("after", null)}
           >
-            <X size={11} />
+            <Pictogram name="close" size={11} />
           </button>
         </span>
       ) : null}
@@ -140,7 +140,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("before", null)}
           >
-            <X size={11} />
+            <Pictogram name="close" size={11} />
           </button>
         </span>
       ) : null}

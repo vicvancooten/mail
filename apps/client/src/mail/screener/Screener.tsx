@@ -1,5 +1,5 @@
-import { Ban, Check, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { Pictogram } from "../../brand/Pictogram.js";
 import {
   enqueueMutation,
   type ScreenerSenderGroup,
@@ -28,6 +28,9 @@ import {
  * screen owns its own small keyboard scheme instead of stretching that
  * hook to cover a shape it was never about.
  */
+/** How long a decided slip stays on screen carrying its ink. */
+const STRIKE_HOLD_MS = 900;
+
 export function Screener({
   mailAccountId,
   onClose,
@@ -51,11 +54,30 @@ export function Screener({
     }
   }, [groups, selectedAddress]);
 
+  /**
+   * Rows that have just been decided. The Optimistic Action is queued
+   * immediately and `store/reads.ts`'s overlay drops the sender from
+   * `groups` on the same tick, so this holds the row's last known state for
+   * long enough to strike it — the Verdict lands as ink on the slip, the way
+   * a decision lands on a real one. Nothing is delayed: the write has already
+   * happened, and this layer is purely what you see it happen as.
+   */
+  const [struck, setStruck] = useState<{ group: ScreenerSenderGroup; verdict: string }[]>([]);
+
   const decide = useCallback(
     (type: "approveSender" | "denySender" | "blockSender", address: string) => {
+      const group = groups.find((candidate) => candidate.address === address);
       void enqueueMutation({ type, sender: { scope: "address", value: address } }, mailAccountId);
+      if (!group) return;
+      const verdict =
+        type === "approveSender" ? "Approved" : type === "blockSender" ? "Blocked" : "Returned";
+      setStruck((current) => [...current, { group, verdict }]);
+      window.setTimeout(
+        () => setStruck((current) => current.filter((row) => row.group.address !== address)),
+        STRIKE_HOLD_MS,
+      );
     },
-    [mailAccountId],
+    [groups, mailAccountId],
   );
 
   useEffect(() => {
@@ -113,7 +135,7 @@ export function Screener({
         </button>
       </div>
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && struck.length === 0 ? (
         <p className="mail-empty">Nothing waiting — new strangers show up here.</p>
       ) : (
         <ul className="screener-list" aria-label="Held senders">
@@ -128,8 +150,27 @@ export function Screener({
               onBlock={() => decide("blockSender", group.address)}
             />
           ))}
+          {struck.map(({ group, verdict }) => (
+            <ScreenerRow
+              key={`struck-${group.address}`}
+              group={group}
+              selected={false}
+              struck={verdict}
+              onSelect={() => {}}
+              onApprove={() => {}}
+              onDeny={() => {}}
+              onBlock={() => {}}
+            />
+          ))}
         </ul>
       )}
+      {/* The bay states its own rule at the foot: a Verdict is scoped to one
+          Mail Account and decides a sender, not a message (CONTEXT.md). */}
+      <p className="screener-rule">
+        One decision per sender, not per message. Approving lets their mail through and loads their
+        remote images; blocking sends future mail straight to Trash. Either way it applies to this
+        Mail Account only.
+      </p>
     </section>
   );
 }
@@ -137,6 +178,7 @@ export function Screener({
 function ScreenerRow({
   group,
   selected,
+  struck = null,
   onSelect,
   onApprove,
   onDeny,
@@ -144,6 +186,8 @@ function ScreenerRow({
 }: {
   group: ScreenerSenderGroup;
   selected: boolean;
+  /** The Verdict just applied, struck across the slip while the ink sets. */
+  struck?: string | null;
   onSelect: () => void;
   onApprove: () => void;
   onDeny: () => void;
@@ -151,8 +195,10 @@ function ScreenerRow({
 }) {
   return (
     <li
-      className={`screener-row${selected ? " selected" : ""}`}
-      onMouseEnter={onSelect}
+      className={`screener-row${selected ? " selected" : ""}${struck ? " strike is-struck" : ""}`}
+      data-strike={struck ?? undefined}
+      aria-hidden={struck ? true : undefined}
+      onMouseEnter={struck ? undefined : onSelect}
       aria-label={group.name ?? group.address}
     >
       <div className="screener-row-sender">
@@ -168,13 +214,13 @@ function ScreenerRow({
       </div>
       <div className="screener-row-actions">
         <button type="button" className="screener-approve" onClick={onApprove} title="Approve (a)">
-          <Check size={14} /> Approve
+          <Pictogram name="check" size={14} /> Approve
         </button>
         <button type="button" className="screener-deny" onClick={onDeny} title="Deny (d)">
-          <X size={14} /> Deny
+          <Pictogram name="close" size={14} /> Deny
         </button>
         <button type="button" className="screener-block" onClick={onBlock} title="Block (b)">
-          <Ban size={14} /> Block
+          <Pictogram name="block" size={14} /> Block
         </button>
       </div>
     </li>

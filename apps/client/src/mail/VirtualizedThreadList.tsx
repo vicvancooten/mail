@@ -214,7 +214,6 @@ export function VirtualizedThreadList({
                   onSelect={() => onSelect(item.thread.id)}
                   onArchive={triage ? () => triage.archive(item.thread.id) : undefined}
                   onTrash={triage ? () => triage.trash(item.thread.id) : undefined}
-                  index={item.index}
                   headline={extra?.headline}
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}

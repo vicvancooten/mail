@@ -1,5 +1,5 @@
-import { Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedComposition } from "../store/index.js";
 import { requestCancelSend, undoSecondsRemaining, usePendingSends } from "../store/index.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
@@ -106,7 +106,7 @@ function PendingSendRow({
       <span className="pending-send-label">{label(row, remaining)}</span>
       {cancellable && (
         <button type="button" className="pending-send-undo" onClick={cancel}>
-          <Undo2 size={13} />
+          <Pictogram name="undo" size={13} />
           Undo
         </button>
       )}

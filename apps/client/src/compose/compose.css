@@ -1,7 +1,8 @@
 /*
  * The docked composer (compose-spec §Composer surface & keys): bottom-right
- * overlay, expandable to full screen. Reuses `mail.css`'s custom properties
- * (`--mail-*`) rather than redefining a second palette.
+ * overlay, expandable to full screen. Reads Wicket's tokens (`src/index.css`)
+ * rather than redefining a second palette. The docked layout is unchanged;
+ * the material is not.
  */
 
 .composer {
@@ -12,10 +13,10 @@
   height: min(560px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
-  background: var(--mail-bg);
-  border: 1px solid var(--mail-border);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  background: var(--w-panel);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  box-shadow: var(--w-lift);
   z-index: 50;
   overflow: hidden;
 }
@@ -34,10 +35,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: var(--mail-bg-elevated);
-  border-bottom: 1px solid var(--mail-border);
+  background: var(--w-panel-2);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
   font-size: 13px;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
 }
 
 .composer-from {
@@ -55,20 +56,20 @@
 .composer-show-ccbcc {
   background: none;
   border: none;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--w-r-plate);
 }
 .composer-header-actions button:hover,
 .composer-show-ccbcc:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
 
 .composer-recipients {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--mail-border);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
 .recipient-field {
@@ -76,7 +77,7 @@
   align-items: flex-start;
   gap: 6px;
   padding: 4px 12px;
-  border-bottom: 1px solid var(--mail-border);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
   position: relative;
 }
 .recipient-field:last-child {
@@ -84,7 +85,7 @@
 }
 .recipient-field-label {
   font-size: 13px;
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
   padding-top: 4px;
   width: 28px;
   flex-shrink: 0;
@@ -102,19 +103,19 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--mail-bg-selected);
-  border-radius: 12px;
+  background: var(--w-panel-sunk);
+  border-radius: var(--w-r-plate);
   padding: 2px 6px 2px 10px;
   font-size: 13px;
 }
 .recipient-chip.invalid {
-  outline: 1px solid #d64545;
+  outline: 1px solid var(--w-postal);
 }
 .recipient-chip button {
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   font-size: 14px;
   line-height: 1;
   padding: 0 2px;
@@ -128,7 +129,7 @@
   border: none;
   outline: none;
   background: none;
-  color: var(--mail-text);
+  color: var(--w-ink);
   font-size: 13px;
   width: 100%;
   padding: 4px 0;
@@ -143,10 +144,10 @@
   margin: 2px 0 0;
   padding: 4px;
   list-style: none;
-  background: var(--mail-bg);
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: var(--w-panel);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  box-shadow: var(--w-lift);
 }
 .recipient-suggestions button {
   display: block;
@@ -155,25 +156,25 @@
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--mail-text);
+  color: var(--w-ink);
   font-size: 13px;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: var(--w-r-plate);
 }
 .recipient-suggestions button.highlighted,
 .recipient-suggestions button:hover {
-  background: var(--mail-bg-selected);
+  background: var(--w-panel-sunk);
 }
 
 .composer-subject {
   border: none;
   outline: none;
   background: none;
-  color: var(--mail-text);
+  color: var(--w-ink);
   font-size: 14px;
   font-weight: 500;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--mail-border);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
 .compose-toolbar {
@@ -182,28 +183,28 @@
   flex-wrap: wrap;
   gap: 2px;
   padding: 4px 8px;
-  border-bottom: 1px solid var(--mail-border);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 .compose-toolbar-button {
   background: none;
   border: none;
-  color: var(--mail-text-dim);
-  border-radius: 4px;
+  color: var(--w-ink-2);
+  border-radius: var(--w-r-plate);
   padding: 4px;
   display: flex;
   cursor: pointer;
 }
 .compose-toolbar-button:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
 .compose-toolbar-button.active {
-  background: var(--mail-bg-selected);
-  color: var(--mail-text);
+  background: var(--w-panel-sunk);
+  color: var(--w-ink);
 }
 .compose-toolbar-divider {
   width: 1px;
   height: 18px;
-  background: var(--mail-border);
+  background: var(--w-rule-hard);
   margin: 0 4px;
 }
 
@@ -218,16 +219,16 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 6px;
-  background: var(--mail-bg-elevated);
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
+  background: var(--w-panel-2);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
   z-index: 60;
 }
 .compose-swatch {
   width: 18px;
   height: 18px;
-  border-radius: 4px;
-  border: 1px solid var(--mail-border);
+  border-radius: var(--w-r-plate);
+  border: var(--w-hair) solid var(--w-rule-hard);
   cursor: pointer;
   padding: 0;
 }
@@ -236,7 +237,7 @@
   font-size: 12px;
   background: none;
   border: none;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   cursor: pointer;
   padding: 2px;
 }
@@ -245,10 +246,10 @@
   display: flex;
   gap: 2px;
   padding: 4px;
-  background: var(--mail-bg-elevated);
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  background: var(--w-panel-2);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  box-shadow: var(--w-lift);
 }
 
 /*
@@ -261,10 +262,10 @@
   flex-direction: column;
   min-width: 160px;
   padding: 4px;
-  background: var(--mail-bg-elevated);
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  background: var(--w-panel-2);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  box-shadow: var(--w-lift);
   z-index: 100;
 }
 
@@ -274,22 +275,22 @@
   gap: 8px;
   background: none;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--w-r-plate);
   padding: 6px 8px;
   font-size: 13px;
-  color: var(--mail-text);
+  color: var(--w-ink);
   cursor: pointer;
   text-align: left;
 }
 .slash-menu-item:hover,
 .slash-menu-item.active {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
 
 .slash-menu-empty {
   padding: 6px 8px;
   font-size: 13px;
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
 }
 
 .composer-body {
@@ -303,11 +304,11 @@
   min-height: 100%;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--mail-text);
+  color: var(--w-ink);
 }
 .composer-body .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
   float: left;
   height: 0;
   pointer-events: none;
@@ -318,7 +319,7 @@
 }
 .composer-body .tiptap td,
 .composer-body .tiptap th {
-  border: 1px solid var(--mail-border);
+  border: var(--w-hair) solid var(--w-rule-hard);
   padding: 4px 8px;
 }
 
@@ -331,8 +332,8 @@
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  border-top: 1px solid var(--mail-border);
-  background: var(--mail-bg-elevated);
+  border-top: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-panel-2);
 }
 
 .composer-send-button {
@@ -341,17 +342,17 @@
   gap: 6px;
   padding: 6px 14px;
   border: none;
-  border-radius: 6px;
-  background: var(--mail-accent);
-  color: #fff;
+  border-radius: var(--w-r-plate);
+  background: var(--w-aniline);
+  color: var(--w-bone);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .composer-send-button:disabled {
-  background: var(--mail-border);
-  color: var(--mail-text-faint);
+  background: var(--w-rule-hard);
+  color: var(--w-ink-3);
   cursor: not-allowed;
 }
 
@@ -360,14 +361,14 @@
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
 }
 
 .composer-send-delay select {
-  background: var(--mail-bg);
-  border: 1px solid var(--mail-border);
-  border-radius: 4px;
-  color: var(--mail-text-dim);
+  background: var(--w-panel);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  color: var(--w-ink-2);
   font-size: 12px;
   padding: 2px 4px;
 }
@@ -393,12 +394,12 @@
   gap: 12px;
   max-width: min(420px, calc(100vw - 32px));
   padding: 8px 12px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  box-shadow: var(--w-lift);
   font-size: 13px;
-  color: var(--mail-text);
+  color: var(--w-ink);
 }
 
 .pending-send-label {
@@ -413,10 +414,10 @@
   gap: 4px;
   flex: none;
   background: none;
-  border: 1px solid var(--mail-border);
-  border-radius: 5px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
   padding: 3px 8px;
-  color: var(--mail-accent);
+  color: var(--w-aniline);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -431,10 +432,10 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: light-dark(#fff8e6, #332a12);
-  color: var(--mail-text);
+  background: color-mix(in oklab, var(--w-fluor-flat) 13%, var(--w-panel));
+  color: var(--w-ink);
   font-size: 13px;
-  border-bottom: 1px solid var(--mail-border);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
 .composer-conflict-banner span {
@@ -450,15 +451,15 @@
 
 .composer-conflict-actions button {
   background: none;
-  border: 1px solid var(--mail-border);
-  border-radius: 5px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
   padding: 3px 8px;
   font-size: 12px;
   cursor: pointer;
-  color: var(--mail-text);
+  color: var(--w-ink);
 }
 .composer-conflict-actions button:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
 
 /*
@@ -469,7 +470,7 @@
 .send-failure-banner {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--mail-border);
+  border-top: var(--w-hair) solid var(--w-rule-hard);
 }
 
 .send-failure {
@@ -477,8 +478,8 @@
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: light-dark(#fff4f4, #2a1a1c);
-  color: var(--mail-text);
+  background: color-mix(in oklab, var(--w-postal) 12%, var(--w-panel));
+  color: var(--w-ink);
   font-size: 13px;
 }
 
@@ -500,16 +501,16 @@
 .send-failure-detail {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
 }
 
 .send-failure-open {
   flex: none;
   background: none;
-  border: 1px solid var(--mail-border);
-  border-radius: 5px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
   padding: 3px 8px;
-  color: var(--mail-accent);
+  color: var(--w-aniline);
   font-size: 12px;
   cursor: pointer;
 }
@@ -529,11 +530,11 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--mail-bg-hover);
-  border: 1px solid var(--mail-border);
-  border-radius: 5px;
+  background: var(--w-panel-2);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
   padding: 3px 8px;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   font-size: 12px;
   cursor: pointer;
 }
@@ -546,8 +547,11 @@
 .mail-quote-preview {
   margin-top: 6px;
   padding-left: 1em;
-  border-left: 3px solid var(--mail-border);
-  color: var(--mail-text-dim);
+  /* A quotation rule, in the frame's own neutral rule colour — the Quoted
+     Original is carried into the reply exactly as it arrived, so it is set
+     off the way print sets off a quotation, not tinted or restyled. */
+  border-left: 2px solid var(--w-rule-hard);
+  color: var(--w-ink-2);
   font-size: 13px;
   max-height: 320px;
   overflow: auto;
@@ -556,7 +560,7 @@
 .mail-signature {
   margin: 0 0 1em 0;
   padding-top: 4px;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
 }
 
 /* #48: attachments */
@@ -566,24 +570,24 @@
   flex-direction: column;
   gap: 4px;
   padding: 6px 12px;
-  border-top: 1px solid var(--mail-border);
+  border-top: var(--w-hair) solid var(--w-rule-hard);
 }
 
 .attachments-budget-error {
   font-size: 12px;
-  color: light-dark(#b91c1c, #f87171);
+  color: var(--w-postal);
 }
 
 .attachments-budget-bar {
   height: 3px;
   border-radius: 2px;
-  background: var(--mail-border);
+  background: var(--w-rule-hard);
   overflow: hidden;
 }
 
 .attachments-budget-bar-fill {
   height: 100%;
-  background: var(--mail-accent);
+  background: var(--w-aniline);
 }
 
 .attachment-row {
@@ -591,7 +595,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--mail-text);
+  color: var(--w-ink);
 }
 
 .attachment-row-name {
@@ -605,12 +609,12 @@
 
 .attachment-row-size,
 .attachment-row-progress {
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   flex: none;
 }
 
 .attachment-row-error {
-  color: light-dark(#b91c1c, #f87171);
+  color: var(--w-postal);
   flex: none;
 }
 
@@ -618,7 +622,235 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   display: flex;
   align-items: center;
+}
+
+/* ============================================================================
+   WICKET — the composer as a routing slip clipped to the frame.
+   Overrides sit at the end so the layout above stays the authority on
+   geometry and this section only speaks to material.
+   ========================================================================= */
+
+/* The composer floats above the frame, so it is one of the few things in the
+   product entitled to the system's single shadow. */
+.composer {
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+}
+
+/* Its head is a tray label. */
+.composer-header {
+  background: var(--w-panel-sunk);
+  font-stretch: var(--w-wd-label);
+  font-weight: 640;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--w-ink);
+}
+
+.composer-from {
+  font-family: var(--w-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--w-ink-2);
+}
+
+.recipient-field-label,
+.composer-show-ccbcc {
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+/* A recipient is a Correspondent: an address the User has actually exchanged
+   mail with. It reads in the machine face, like every other address. */
+.recipient-chip {
+  border-radius: var(--w-r-band);
+  background: var(--w-panel-sunk);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  color: var(--w-ink);
+}
+
+.recipient-chip.invalid {
+  border-color: var(--w-postal);
+  color: var(--w-postal);
+}
+
+.composer-subject input,
+.composer-subject {
+  font-stretch: 96%;
+  font-weight: 660;
+}
+
+/* Toolbar controls take no ink colour — only relief and rule. The active one
+   inverts, the way every other control in the frame ranks itself. */
+.compose-toolbar {
+  background: var(--w-panel-2);
+}
+
+.compose-toolbar-button {
+  border-radius: var(--w-r-plate);
+  color: var(--w-ink-2);
+}
+
+.compose-toolbar-button:hover {
+  background: var(--w-panel-sunk);
+  color: var(--w-ink);
+}
+
+.compose-toolbar-button.active {
+  background: var(--w-ink);
+  color: var(--w-frame);
+}
+
+.compose-swatch-menu,
+.recipient-suggestions,
+.slash-menu,
+.compose-bubble-menu {
+  box-shadow: var(--w-lift);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  border: var(--w-hair) solid var(--w-rule-hard);
+}
+
+/* Send is the primary and inverts the stock. */
+.composer-send {
+  background: var(--w-panel-sunk);
+  border-top: var(--w-hair) solid var(--w-rule-hard);
+}
+
+.composer-send-button {
+  border-radius: var(--w-r-plate);
+  background: var(--w-aniline-flat);
+  border: 1.5px solid var(--w-aniline-flat);
+  color: var(--w-bone);
+  font-stretch: var(--w-wd-label);
+  font-weight: 680;
+  font-size: 11px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.composer-send-delay,
+.composer-send-delay select {
+  font-family: var(--w-mono);
+  font-size: 10px;
+  color: var(--w-ink-2);
+}
+
+/* Undo Send: a Pending Send is owned by the backend and survives the Client
+   closing, so the bar states the fact rather than counting at you. */
+.pending-send-bar {
+  background: var(--w-ink);
+  color: var(--w-frame);
+  border-radius: var(--w-r-plate);
+  box-shadow: var(--w-lift);
+}
+
+.pending-send-label {
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pending-send-undo {
+  border: 1.5px solid color-mix(in oklab, var(--w-frame) 45%, transparent);
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 660;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* A failed send persists in a changed state, so it is one of the places the
+   strike belongs: NOT SENT, struck in postal red. */
+.send-failure-banner {
+  background: color-mix(in oklab, var(--w-postal) 12%, var(--w-panel));
+  border: var(--w-hair) solid color-mix(in oklab, var(--w-postal) 42%, var(--w-rule-hard));
+  border-radius: var(--w-r-plate);
+}
+
+.send-failure-text::before {
+  content: "Not sent";
+  display: inline-block;
+  margin-right: 9px;
+  padding: 1px 6px;
+  border: 1.5px solid var(--w-postal);
+  border-radius: var(--w-r-plate);
+  color: var(--w-postal);
+  font-stretch: 74%;
+  font-weight: 780;
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  rotate: -3.5deg;
+}
+
+.send-failure-subject {
+  font-stretch: 96%;
+  font-weight: 640;
+}
+
+.send-failure-detail {
+  font-family: var(--w-mono);
+  font-size: 10px;
+}
+
+.composer-conflict-banner {
+  background: color-mix(in oklab, var(--w-fluor-flat) 14%, var(--w-panel));
+  border: var(--w-hair) solid color-mix(in oklab, var(--w-fluor-flat) 40%, var(--w-rule-hard));
+  border-radius: var(--w-r-plate);
+}
+
+/* Attachment sizes and the budget bar are measurement: machine face. */
+.attachment-row-size,
+.attachment-row-progress,
+.attachments-budget-error {
+  font-family: var(--w-mono);
+  font-size: 10px;
+}
+
+.attachments-budget-bar {
+  border-radius: var(--w-r-band);
+  background: var(--w-panel-sunk);
+}
+
+.attachments-budget-bar-fill {
+  background: var(--w-aniline);
+}
+
+.attachment-row-error {
+  color: var(--w-postal);
+  font-family: var(--w-mono);
+  font-size: 10px;
+}
+
+/* The Quoted Original is kept exactly as it arrived, never re-written into
+   the User's formatting — so it is set off by a rule, not restyled. */
+.mail-quote-preview {
+  border-left: 2px solid var(--w-rule-hard);
+  color: var(--w-ink-2);
+}
+
+.mail-quote-toggle,
+.mail-quote-edit {
+  border-radius: var(--w-r-plate);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }

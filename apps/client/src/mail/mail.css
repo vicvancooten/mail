@@ -1,29 +1,25 @@
-/*
- * The animation token set adopted from `prototype/triage-loop-ui`
- * (prototypes/triage-loop/src/styles.css): two easing curves, four
- * durations, one stagger increment. Deliberately not applied to j/k list
- * navigation or the list reflow after a page grows — those happen many
- * times a session and must stay snap-instant.
- */
-:root {
-  --mail-bg: light-dark(#ffffff, #0f1115);
-  --mail-bg-elevated: light-dark(#f5f6f8, #171a21);
-  --mail-bg-hover: light-dark(#eef0f4, #1f232c);
-  --mail-bg-selected: light-dark(#e4e9ff, #23283a);
-  --mail-border: light-dark(#dfe2e8, #2a2e38);
-  --mail-text: light-dark(#1a1d24, #e6e8ee);
-  --mail-text-dim: light-dark(#5b6270, #9aa0ad);
-  --mail-text-faint: light-dark(#8a909c, #666c78);
-  --mail-accent: #6c8cff;
+/* ============================================================================
+   WICKET — the mail frame.
+   Direction: The Sorting Office. Tokens live in `src/index.css`; the full
+   specification is `docs/design/wicket-identity.html`.
 
-  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-move: cubic-bezier(0.25, 1, 0.5, 1);
-  --dur-press: 130ms;
-  --dur-fast: 150ms;
-  --dur-base: 200ms;
-  --dur-move: 220ms;
-  --stagger-row: 28ms;
-}
+   Three rules govern everything below.
+   1. Compartments divide on hairline rules that meet at the corners. No
+      cards, no gaps between them, no shadows — a frame is joinery. The one
+      shadow in the system (`--w-lift`) is for things that genuinely float:
+      the label picker, the search history, toasts.
+   2. Rank is inversion, never brightness. The selected row inverts its
+      stock; controls take no ink colour, only relief and rule.
+   3. State is struck across the item, and only where a state *persists* —
+      a search row already acted on, a held or blocked sender, a failed
+      send. A triage keystroke strikes nothing: `store/reads.ts` drops an
+      archived Thread from the list the moment the mutation is queued, and
+      holding that row open to show ink would tax the one thing that has to
+      stay snap-instant.
+
+   Row geometry is load-bearing: 60 / 40 / 32px match `ROW_HEIGHT`,
+   `COMPACT_ROW_HEIGHT` and `HEADER_HEIGHT` in `VirtualizedThreadList.tsx`.
+   ========================================================================= */
 
 .mail-section {
   position: relative; /* anchors the rollback toast (#44) */
@@ -31,127 +27,221 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  color: var(--mail-text);
-  background: var(--mail-bg);
+  color: var(--w-ink);
+  background: var(--w-frame);
 }
 
 /* ---------- mobile layout / safe area (#44) ----------
  * `env(safe-area-inset-*)` is 0 on anything that isn't an installed
- * standalone app clear of a notch/home-indicator (a regular browser tab,
- * desktop), so these are unconditionally safe additions rather than a
- * `display-mode: standalone` media query around every one of them. */
+ * standalone app clear of a notch/home-indicator, so these are
+ * unconditionally safe additions rather than a `display-mode: standalone`
+ * media query around every one of them. */
 .mail-topbar {
-  padding-top: calc(8px + env(safe-area-inset-top));
   padding-left: calc(12px + env(safe-area-inset-left));
   padding-right: calc(12px + env(safe-area-inset-right));
 }
+
 .thread-list,
 .stream-view {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* A control that is pressed gives something back. Kept from the incumbent
+   build: a physical control that answers nothing feels broken. */
 .mail-section button {
-  transition: transform var(--dur-press) var(--ease-enter);
+  transition: transform var(--w-dur-press) var(--w-ease-strike);
 }
+
 .mail-section button:active {
   transform: scale(0.97);
 }
 
-/* ---------- top bar ---------- */
+/* ============================================================================
+   THE TRAY LABEL — the frame's head
+   ========================================================================= */
 
 .mail-topbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--mail-border);
+  padding: 7px 12px;
+  background: var(--w-panel-sunk);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
+/* The segmented control is a run of compartments, divided rather than
+   spaced, and the active one inverts. */
 .mail-topbar .segmented {
   display: flex;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
   overflow: hidden;
-  transition: opacity var(--dur-base) var(--ease-enter);
+  transition: opacity var(--w-dur-fast) var(--w-ease);
 }
+
 .mail-topbar .segmented.muted {
   opacity: 0.5;
 }
+
 .mail-topbar .segmented button {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 5px;
+  padding: 5px 10px;
   border: none;
-  background: transparent;
-  color: var(--mail-text-dim);
-  font-size: 13px;
+  border-right: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-panel);
+  color: var(--w-ink-3);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+
+.mail-topbar .segmented button:not(.active) {
+  color: var(--w-ink-2);
+}
+
+.mail-topbar .segmented button:last-child {
+  border-right: none;
+}
+
 .mail-topbar .segmented button.active {
-  background: var(--mail-bg-selected);
-  color: var(--mail-text);
+  background: var(--w-ink);
+  color: var(--w-frame);
 }
 
 .mail-topbar .divider {
-  width: 1px;
-  height: 20px;
-  background: var(--mail-border);
+  width: var(--w-hair);
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--w-rule-hard);
 }
 
 .mail-topbar .toggle {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--mail-text-dim);
-  font-size: 13px;
+  padding: 5px 10px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  color: var(--w-ink-3);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+
+.mail-topbar .toggle {
+  color: var(--w-ink-2);
+}
+
+.mail-topbar .toggle:hover {
+  color: var(--w-ink);
+}
+
 .mail-topbar .toggle.on {
-  background: var(--mail-bg-selected);
-  color: var(--mail-text);
-  border-color: var(--mail-accent);
+  background: var(--w-ink);
+  border-color: var(--w-ink);
+  color: var(--w-frame);
 }
 
 .topbar-spacer {
   flex: 1;
 }
 
-.account-switcher {
+/* The tray label: what is filed in this compartment. Set on the narrowest
+   label stock the type program has, the way a real one is. */
+.mail-legend {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--mail-text-dim);
-}
-.account-switcher select {
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  padding: 4px 6px;
-  font-size: 13px;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding-right: 2px;
+  flex-shrink: 0;
 }
 
+.mail-legend-folder {
+  font-stretch: var(--w-wd-label);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--w-ink);
+}
+
+.mail-legend-account {
+  font-family: var(--w-mono);
+  font-size: 9px;
+  /* Sunk stock is a step darker than the panel, and `--w-ink-3` measures
+     3.8:1 against it. Anything sitting on the head takes ink-2. */
+  color: var(--w-ink-2);
+}
+
+/* The held plate: the only place `--w-fluor` reaches the triage screen, and
+   the reason the Screener is worth opening. */
+.held-plate {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border: 1.5px solid var(--w-fluor);
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: var(--w-fluor);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 720;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.held-plate:hover {
+  background: color-mix(in oklab, var(--w-fluor-flat) 16%, transparent);
+}
+
+/* The account and label selects are routing slips: label above, value in a
+   recessed plate. */
+.account-switcher,
 .label-filter {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--mail-text-dim);
-}
-.label-filter select {
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  padding: 4px 6px;
-  font-size: 13px;
+  color: var(--w-ink-2);
+  font-stretch: var(--w-wd-label);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 
-/* ---------- body / view layouts ---------- */
+.account-switcher select,
+.label-filter select {
+  background: var(--w-panel);
+  color: var(--w-ink);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  padding: 4px 6px;
+  font-family: var(--w-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ============================================================================
+   BODY / VIEW LAYOUTS
+   ========================================================================= */
 
 .mail-body {
   flex: 1;
@@ -164,120 +254,197 @@
   height: 100%;
   min-height: 0;
 }
+
 .split-list {
-  width: 380px;
+  /* Wide enough at desktop for the single-line timetable the direction
+     contract describes: the row folds only under 520px, so a list pinned at
+     380px would never render the intended form at any viewport. */
+  width: clamp(360px, 36%, 620px);
   min-width: 280px;
-  max-width: 45%;
-  border-right: 1px solid var(--mail-border);
+  max-width: 52%;
+  border-right: var(--w-hair) solid var(--w-rule-hard);
   height: 100%;
   min-height: 0;
 }
+
 .split-pane {
   flex: 1;
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  background: var(--w-panel);
+}
+
+/* Past 1100px the list has to clear the 520px fold, or the single-line
+   timetable the direction contract describes never renders in the default
+   view at any viewport. */
+@media (min-width: 1100px) {
+  .split-list {
+    width: clamp(548px, 41%, 680px);
+  }
 }
 
 .mail-empty {
-  padding: 24px;
-  color: var(--mail-text-dim);
+  padding: 28px 22px;
+  color: var(--w-ink-3);
+  font-size: 13px;
+  max-width: 52ch;
 }
 
-/* ---------- list ---------- */
+/* ============================================================================
+   THE TIMETABLE — the thread list
+   ========================================================================= */
 
 .thread-list {
   height: 100%;
   overflow-y: auto;
+  background: var(--w-panel);
 }
 
+/* A day divider is a facing band: the slip that faces a bundle one way. */
 .group-header {
-  padding: 8px 16px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  height: 32px; /* HEADER_HEIGHT in VirtualizedThreadList.tsx */
+  box-sizing: border-box;
+  padding: 0 14px;
+  font-stretch: var(--w-wd-label);
+  font-weight: 640;
+  font-size: 10px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mail-text-faint);
-  background: var(--mail-bg);
+  color: var(--w-ink-2);
+  background: var(--w-panel-sunk);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
 .thread-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  height: 60px;
-  padding: 0 16px;
+  height: 60px; /* ROW_HEIGHT in VirtualizedThreadList.tsx */
+  box-sizing: border-box;
+  padding: 0 14px;
   border: none;
-  background: transparent;
-  color: var(--mail-text);
+  border-bottom: var(--w-hair) solid var(--w-rule);
+  background: var(--w-panel);
+  color: var(--w-ink);
   text-align: left;
   cursor: pointer;
+  font-family: inherit;
   font-size: 13px;
-  animation: row-enter var(--dur-base) var(--ease-enter) backwards;
-  animation-delay: calc(var(--i, 0) * var(--stagger-row));
+  /* No entrance animation and no stagger: a list that reflows hundreds of
+     times a session must never animate its own arrival. */
+  transition: background var(--w-dur-press) linear;
   /* #44: the pointer handlers live on this element (`useSwipeToTriage.ts`),
      so this is where `touch-action` needs to be set for the browser's own
      gesture recognition to honor it, not just on `.thread-row-swipe`. */
   touch-action: pan-y;
 }
-/* Compact list density (#54, Device Preference — never synced, CONTEXT.md): shrinks the row `VirtualizedThreadList` already sized to match via `rowHeight`. */
+
+/* Compact list density (#54, Device Preference — never synced, CONTEXT.md).
+   `VirtualizedThreadList` sizes the row to match via `rowHeight`. */
 .thread-list--compact .thread-row {
-  height: 40px;
+  height: 40px; /* COMPACT_ROW_HEIGHT */
   padding: 0 12px;
+  gap: 8px;
   font-size: 12px;
 }
+
 .thread-row:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
+
+/* Rank by inversion, not brightness: the selected row takes the ink. */
 .thread-row.selected {
-  background: var(--mail-bg-selected);
-}
-.thread-row.unread .subject {
-  font-weight: 600;
+  background: var(--w-ink);
+  color: var(--w-frame);
 }
 
-@keyframes row-enter {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.thread-row.selected .snippet,
+.thread-row.selected .time,
+.thread-row.selected .sender {
+  color: color-mix(in oklab, var(--w-frame) 72%, var(--w-ink));
 }
 
-.unread-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--mail-accent);
-  flex-shrink: 0;
-}
-.unread-dot.hidden {
-  visibility: hidden;
+/* Rank by inversion, never by weight or by a badge beside the item: an
+   unread Thread has not been cancelled yet, so its plate is still inked.
+   A read row steps back in tonal value instead of the unread row stepping
+   forward in weight. */
+.thread-row:not(.unread) .sender,
+.thread-row:not(.unread) .subject {
+  color: var(--w-ink-3);
 }
 
+.thread-row:not(.unread).selected .sender,
+.thread-row:not(.unread).selected .subject {
+  color: color-mix(in oklab, var(--w-frame) 62%, var(--w-ink));
+}
+
+.mail-avatar.unread {
+  background: var(--w-ink);
+  border-color: var(--w-ink);
+  color: var(--w-frame);
+}
+
+.thread-row.selected .mail-avatar.unread {
+  background: var(--w-frame);
+  border-color: var(--w-frame);
+  color: var(--w-ink);
+}
+
+/* A pinned Thread is grommeted to the frame: the item sits proud of the
+   stock rather than being tinted. */
+.thread-row.pinned {
+  background: var(--w-panel-2);
+  box-shadow: inset 3px 0 0 -1px var(--w-rule-hard);
+}
+
+.thread-row.pinned.selected {
+  background: var(--w-ink);
+}
+
+/* The kraft initial plate on the stile. Square, not a circle: the product
+   blocks remote images until a sender is Approved, so a correspondent's
+   mark is drawn from their address and never fetched. */
 .mail-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--w-r-plate);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
   flex-shrink: 0;
+  background: var(--w-panel-sunk);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  color: var(--w-ink-2);
+  font-stretch: 84%;
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.02em;
+}
+
+.thread-list--compact .mail-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+.thread-row.selected .mail-avatar {
+  background: transparent;
+  border-color: color-mix(in oklab, var(--w-frame) 45%, transparent);
+  color: var(--w-frame);
 }
 
 .thread-row .sender {
-  width: 140px;
+  width: 148px;
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-stretch: var(--w-wd-sender);
+  font-weight: 600;
 }
 
 .thread-row .subject-line {
@@ -287,58 +454,82 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .thread-row .snippet {
-  color: var(--mail-text-dim);
-  margin-left: 6px;
+  color: var(--w-ink-3);
+  margin-left: 7px;
 }
 
 .thread-row .star {
-  color: #e0b32c;
+  color: var(--w-ink);
   flex-shrink: 0;
-}
-.thread-row .pin {
-  color: var(--mail-accent);
-  flex-shrink: 0;
-}
-.thread-row.pinned {
-  background: color-mix(in srgb, var(--mail-accent) 6%, transparent);
 }
 
+.thread-row .pin {
+  color: var(--w-ink-2);
+  flex-shrink: 0;
+}
+
+.thread-row.selected .star,
+.thread-row.selected .pin {
+  color: var(--w-frame);
+}
+
+/* A Label is a bundle band: its colour is the tint of the stock it is
+   printed on, the whole way round. Never a stripe down one edge. */
 .row-labels {
   display: inline-flex;
   gap: 4px;
-  margin-left: 6px;
+  margin-left: 7px;
 }
+
 .label-chip {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--mail-border);
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text-dim);
-  font-size: 11px;
-  line-height: 1.6;
+  padding: 1px 6px;
+  border-radius: var(--w-r-band);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-panel-sunk);
+  color: var(--w-ink-2);
+  font-stretch: var(--w-wd-label);
+  font-weight: 640;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1.7;
   white-space: nowrap;
 }
+
 .label-chip.overflow {
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
+}
+
+.thread-row.selected .label-chip {
+  background: transparent;
+  border-color: color-mix(in oklab, var(--w-frame) 40%, transparent);
+  color: var(--w-frame);
 }
 
 .thread-row .time {
-  color: var(--mail-text-faint);
-  font-size: 12px;
+  color: var(--w-ink-3);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
 .mail-list-footer {
-  padding: 12px 16px;
-  color: var(--mail-text-faint);
+  padding: 12px 14px;
+  color: var(--w-ink-3);
   font-size: 12px;
+  border-bottom: var(--w-hair) solid var(--w-rule);
 }
 
-/* ---------- swipe-to-triage (#44, touch only) ---------- */
+/* ============================================================================
+   SWIPE-TO-TRIAGE (#44, touch only)
+   The reveal is the tray the item is being dropped into.
+   ========================================================================= */
 
 .thread-row-swipe {
   position: relative;
@@ -352,124 +543,219 @@
 .swipe-reveal {
   position: absolute;
   inset: 0;
+  /* Decorative and `aria-hidden`, but it covers the row it sits behind:
+     without this it hit-tests first and swallows every mouse click on a
+     Thread, so the list could only be opened from the keyboard. */
+  pointer-events: none;
   display: flex;
   align-items: center;
   padding: 0 20px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
+  font-stretch: var(--w-wd-label);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--w-bone);
 }
+
 .swipe-reveal.archive {
-  background: #2f9e58;
+  background: var(--w-aniline-flat);
   justify-content: flex-start;
 }
+
 .swipe-reveal.trash {
-  background: #c0392b;
+  background: var(--w-postal);
   justify-content: flex-end;
 }
+
 .swipe-reveal-archive,
 .swipe-reveal-trash {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 
-/* ---------- thread detail ---------- */
+/* ============================================================================
+   THREAD DETAIL
+   ========================================================================= */
 
 .thread-detail {
   height: 100%;
   overflow-y: auto;
-  padding: 16px 24px;
+  padding: 16px 22px;
   padding-bottom: max(16px, env(safe-area-inset-bottom)); /* #44: home-indicator clearance */
+  background: var(--w-panel);
 }
 
 .thread-detail-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .back-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--mail-border);
-  border-radius: 999px;
-  padding: 6px 12px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  padding: 6px 11px;
+  background: var(--w-panel-2);
+  color: var(--w-ink);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
+}
+
+.back-pill:hover {
+  background: var(--w-panel-sunk);
 }
 
 .chevrons {
   display: flex;
   gap: 4px;
 }
+
 .chevrons button {
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  padding: 4px;
+  display: flex;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink-2);
+  padding: 5px;
   cursor: pointer;
 }
+
+.chevrons button:hover:not(:disabled) {
+  color: var(--w-ink);
+  background: var(--w-panel-sunk);
+}
+
 .chevrons button:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: default;
 }
 
 .thread-detail-card {
   max-width: 720px;
-  animation: card-enter var(--dur-move) var(--ease-move);
-}
-
-@keyframes card-enter {
-  from {
-    opacity: 0;
-    filter: blur(4px);
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0);
-  }
 }
 
 .group-label {
-  font-size: 11px;
+  font-stretch: var(--w-wd-label);
+  font-size: 10px;
+  font-weight: 640;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--mail-text-faint);
-  margin-bottom: 4px;
+  letter-spacing: 0.14em;
+  color: var(--w-ink-3);
+  margin-bottom: 6px;
 }
 
 .thread-detail-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-3);
 }
+
 .thread-detail-header .star {
-  color: #e0b32c;
+  color: var(--w-ink);
 }
+
 .thread-detail-header .pin {
-  color: var(--mail-accent);
+  color: var(--w-ink-2);
+}
+
+.thread-detail-card h1 {
+  font-stretch: 96%;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  margin: 5px 0 8px;
+  text-wrap: balance;
+}
+
+.thread-detail-meta {
+  color: var(--w-ink-3);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  margin: 0 0 14px;
 }
 
 .thread-detail-labels {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
+}
+
+.thread-detail-snippet {
+  color: var(--w-ink);
+  line-height: 1.6;
+  max-width: 70ch;
+}
+
+.thread-detail-snippet.placeholder {
+  color: var(--w-ink-3);
+  font-style: italic;
+}
+
+.thread-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.thread-detail-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink-2);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.thread-detail-actions button:hover {
+  color: var(--w-ink);
+  background: var(--w-panel-sunk);
 }
 
 .thread-detail-actions button.on {
-  background: var(--mail-bg-selected);
-  border-color: var(--mail-accent);
-  color: var(--mail-text);
+  background: var(--w-ink);
+  border-color: var(--w-ink);
+  color: var(--w-frame);
 }
+
+/* Trash gets deliberate distance and stays outline until it is reached for:
+   in a triage app it is one keystroke away, so the design owes it room. */
+.thread-detail-actions button.destructive {
+  margin-left: 22px;
+  background: transparent;
+  color: var(--w-postal);
+}
+
+.thread-detail-actions button.destructive:hover,
+.thread-detail-actions button.destructive:focus-visible {
+  border-color: var(--w-postal);
+  background: color-mix(in oklab, var(--w-postal) 12%, transparent);
+  color: var(--w-postal);
+}
+
+/* ---------- label picker: floats, so it takes the one shadow ---------- */
 
 .label-picker-anchor {
   position: relative;
@@ -478,114 +764,114 @@
 
 .label-picker {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 5px);
   left: 0;
   z-index: 10;
-  min-width: 200px;
-  padding: 8px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  min-width: 210px;
+  padding: 7px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  box-shadow: var(--w-lift);
 }
+
 .label-picker-list {
   list-style: none;
   margin: 0 0 6px;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   max-height: 200px;
   overflow-y: auto;
 }
+
 .label-picker-empty {
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
   font-size: 12px;
   margin: 0 0 6px;
 }
+
 .label-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
-  padding: 5px 6px;
+  padding: 5px 7px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--w-r-plate);
   background: transparent;
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
+  font-family: inherit;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
+
 .label-toggle:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
+
 .label-toggle.on {
-  color: var(--mail-text);
-  font-weight: 600;
+  color: var(--w-ink);
+  font-weight: 640;
 }
+
 .label-picker-new {
   display: flex;
   gap: 6px;
-  border-top: 1px solid var(--mail-border);
-  padding-top: 6px;
+  border-top: var(--w-hair) solid var(--w-rule);
+  padding-top: 7px;
 }
+
 .label-picker-new input {
   flex: 1;
   min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  background: var(--mail-bg);
-  color: var(--mail-text);
+  padding: 4px 7px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-frame);
+  color: var(--w-ink);
+  font-family: inherit;
   font-size: 13px;
 }
+
 .label-picker-new button {
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  background: var(--mail-bg);
-  color: var(--mail-text);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink);
   padding: 4px 10px;
-  font-size: 13px;
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+
 .label-picker-new button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-.thread-detail-card h1 {
-  font-size: 20px;
-  margin: 4px 0 8px;
-}
-
-.thread-detail-meta {
-  color: var(--mail-text-faint);
-  font-size: 12px;
-  margin: 0 0 12px;
-}
-
-.thread-detail-snippet {
-  color: var(--mail-text);
-  line-height: 1.5;
-}
-.thread-detail-snippet.placeholder {
-  color: var(--mail-text-faint);
-  font-style: italic;
-}
-
-/* ---------- reading pane: message bodies & attachments (#41) ---------- */
+/* ============================================================================
+   READING PANE: message bodies & attachments (#41)
+   The message body is third-party HTML in a sandboxed iframe. The design
+   system stops at that boundary — it may not restyle what a sender wrote.
+   ========================================================================= */
 
 .message-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 12px;
+  gap: 18px;
+  margin-top: 14px;
 }
 
 .message-item {
-  border-top: 1px solid var(--mail-border);
-  padding-top: 12px;
+  border-top: var(--w-hair) solid var(--w-rule);
+  padding-top: 13px;
 }
 
 .message-item-header {
@@ -593,107 +879,127 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
   font-size: 13px;
 }
+
 .message-item-sender {
-  font-weight: 600;
-  color: var(--mail-text);
+  font-stretch: var(--w-wd-sender);
+  font-weight: 660;
+  color: var(--w-ink);
 }
+
 .message-item-date {
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
+  font-family: var(--w-mono);
+  font-size: 10px;
   white-space: nowrap;
 }
 
-/* #47: per-Message Reply / Reply All / Forward — "the specific message the User had open". */
+/* #47: per-Message Reply / Reply All / Forward. */
 .message-item-reply-actions {
   display: flex;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
+
 .message-item-reply-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: none;
-  border: 1px solid var(--mail-border);
-  border-radius: 5px;
-  padding: 3px 8px;
-  color: var(--mail-text-dim);
-  font-size: 12px;
+  gap: 5px;
+  background: var(--w-panel-2);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  padding: 4px 9px;
+  color: var(--w-ink-2);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+
 .message-item-reply-actions button:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-sunk);
+  color: var(--w-ink);
 }
 
 .message-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 
 .message-body-load-images {
   align-self: flex-start;
-  border: 1px solid var(--mail-border);
-  border-radius: 6px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text-dim);
-  padding: 5px 10px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink-2);
+  padding: 6px 11px;
+  font-family: inherit;
   font-size: 12px;
   cursor: pointer;
 }
+
 .message-body-load-images:hover {
-  background: var(--mail-bg-hover);
-  color: var(--mail-text);
+  background: var(--w-panel-sunk);
+  color: var(--w-ink);
 }
 
+/* The sender's own ground, not ours: a white frame under a dark app is
+   correct here, because that is the mail. */
 .message-body-frame {
   display: block;
   width: 100%;
-  border: none;
-  background: var(--mail-bg);
-  transition: height 0.15s ease-out;
+  border: var(--w-hair) solid var(--w-rule);
+  border-radius: var(--w-r-plate);
+  background: #ffffff;
+  /* No transition on `height`: the iframe is measured once as the sanitized
+     body lays out, so animating it buys a layout-thrashing reflow for a
+     change the reader never sees mid-flight. */
 }
 
 .attachment-list {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .attachment-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   width: 140px;
   padding: 8px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
 }
 
 .attachment-preview-image {
   width: 100%;
   height: 90px;
   object-fit: cover;
-  border-radius: 4px;
-  background: var(--mail-bg);
+  border-radius: var(--w-r-band);
+  background: var(--w-frame);
 }
 
 .attachment-pdf-preview {
   width: 100%;
   max-height: 160px;
-  border: 1px solid var(--mail-border);
-  border-radius: 4px;
-  background: #fff;
+  border: var(--w-hair) solid var(--w-rule);
+  border-radius: var(--w-r-band);
+  background: #ffffff;
 }
 
 .attachment-pdf-fallback {
   display: block;
   font-size: 12px;
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
 }
 
 .attachment-meta {
@@ -702,48 +1008,67 @@
   gap: 2px;
   font-size: 11px;
 }
+
 .attachment-filename {
-  color: var(--mail-text);
-  font-weight: 500;
+  color: var(--w-ink);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .attachment-size {
-  color: var(--mail-text-faint);
-}
-.attachment-download {
-  color: var(--mail-accent);
+  color: var(--w-ink-3);
+  font-family: var(--w-mono);
+  font-size: 10px;
 }
 
-/* ---------- stream mode ---------- */
+.attachment-download {
+  color: var(--w-aniline);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   STREAM MODE
+   ========================================================================= */
 
 .stream-view {
   height: 100%;
   overflow-y: auto;
   position: relative;
+  background: var(--w-panel);
 }
 
 .queue-peek {
   display: flex;
-  gap: 6px;
-  padding: 10px 16px 0;
+  gap: 5px;
+  padding: 10px 14px 0;
   overflow-x: auto;
 }
+
 .queue-peek .chip {
-  border: 1px solid var(--mail-border);
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 12px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text-dim);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  padding: 4px 9px;
+  font-family: inherit;
+  font-size: 11px;
+  background: var(--w-panel-2);
+  color: var(--w-ink-3);
   cursor: pointer;
   flex-shrink: 0;
+  white-space: nowrap;
 }
+
 .queue-peek .chip.current {
-  border-color: var(--mail-accent);
-  color: var(--mail-text);
+  background: var(--w-ink);
+  border-color: var(--w-ink);
+  color: var(--w-frame);
 }
+
 .queue-peek .chip.pinned {
   display: inline-flex;
   align-items: center;
@@ -756,53 +1081,69 @@
   display: none;
 }
 
-@media (max-width: 700px) {
-  /* Split collapses to List's own "one pane at a time" behavior: there's
-     no room for list + reading pane side by side on a phone. `has-selection`
-     (set in `SplitView.tsx`) is the same signal List already gets for free
-     by unmounting one side entirely — Split keeps both mounted (so
-     `useTriage`'s single keydown listener and any in-flight swipe never
-     un-mount mid-gesture), just visually hides one. */
-  .split-view {
-    position: relative;
-  }
-  .split-list,
-  .split-pane {
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    border-right: none;
-  }
-  .split-view:not(.has-selection) .split-pane {
-    display: none;
-  }
-  .split-view.has-selection .split-list {
-    display: none;
-  }
-  .split-pane .back-pill {
-    display: flex;
-  }
+/* ============================================================================
+   TOASTS — the only things that float, so the only things with a shadow
+   ========================================================================= */
 
-  .thread-row .sender {
-    width: 96px;
-  }
-}
-
-/* ---------- rollback toast (#44) ---------- */
-
-.rollback-toast {
+.rollback-toast,
+.notification-offer-banner {
   position: absolute;
   left: 50%;
   bottom: calc(16px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
-  padding: 8px 16px;
-  border-radius: 8px;
-  background: light-dark(#1a1d24, #23283a);
-  color: #fff;
+  padding: 9px 15px;
+  border-radius: var(--w-r-plate);
+  background: var(--w-ink);
+  color: var(--w-frame);
   font-size: 13px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
-  animation: toast-enter var(--dur-base) var(--ease-enter);
+  box-shadow: var(--w-lift);
+  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
   z-index: 20;
+}
+
+/* Rollback is where the ink *lifts*: the Sync Backend refused, so the strike
+   comes off and the item comes back. */
+.rollback-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: none;
+}
+
+.rollback-toast::before {
+  content: "Lifted";
+  font-stretch: 72%;
+  font-weight: 780;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--w-postal);
+  border: 1.5px solid currentColor;
+  border-radius: var(--w-r-plate);
+  padding: 1px 6px;
+  rotate: -4deg;
+}
+
+.notification-offer-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.notification-offer-banner button,
+.rollback-toast button {
+  padding: 4px 10px;
+  border: 1.5px solid color-mix(in oklab, var(--w-frame) 45%, transparent);
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 640;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
 }
 
 @keyframes toast-enter {
@@ -816,25 +1157,13 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .mail-section button,
-  .mail-section .thread-row,
-  .mail-section .thread-detail-card {
-    animation-duration: 0.001ms;
-    animation-delay: 0ms;
-    transition-duration: 0.001ms;
-  }
-}
-
-/* ---------- new-mail toast (#53, ADR-0015) ---------- */
-
 .new-mail-toast-stack {
   position: absolute;
-  top: calc(16px + env(safe-area-inset-top));
-  right: 16px;
+  top: calc(14px + env(safe-area-inset-top));
+  right: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   z-index: 20;
   max-width: 320px;
 }
@@ -843,24 +1172,27 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 14px;
+  padding: 10px 13px;
   border: none;
-  border-radius: 8px;
-  background: light-dark(#1a1d24, #23283a);
-  color: #fff;
-  font-size: 13px;
+  border-radius: var(--w-r-plate);
+  background: var(--w-ink);
+  color: var(--w-frame);
+  font-family: inherit;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
-  animation: toast-enter var(--dur-base) var(--ease-enter);
+  box-shadow: var(--w-lift);
+  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
 }
 
 .new-mail-toast strong {
+  font-stretch: var(--w-wd-sender);
+  font-weight: 660;
   font-size: 13px;
 }
 
 .new-mail-toast span {
-  opacity: 0.85;
+  opacity: 0.8;
   white-space: pre-line;
 }
 
@@ -868,64 +1200,55 @@
   cursor: default;
 }
 
-/* ---------- notification offer banner (#53, ADR-0015) ---------- */
-
-.notification-offer-banner {
-  position: absolute;
-  left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  background: light-dark(#1a1d24, #23283a);
-  color: #fff;
-  font-size: 13px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
-  animation: toast-enter var(--dur-base) var(--ease-enter);
-  z-index: 20;
-}
-
-/* ---------- search (#51) ---------- */
+/* ============================================================================
+   SEARCH (#51)
+   ========================================================================= */
 
 .mail-search-field {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex: 1;
   min-width: 120px;
   max-width: 360px;
-  padding: 6px 10px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text-dim);
+  padding: 5px 9px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  color: var(--w-ink-3);
 }
+
+.mail-search-field:focus-within {
+  border-color: var(--w-aniline);
+}
+
 .mail-search-field input {
   flex: 1;
   min-width: 0;
   border: none;
   background: transparent;
-  color: var(--mail-text);
+  color: var(--w-ink);
+  font-family: inherit;
   font-size: 13px;
   outline: none;
 }
+
 .mail-search-field input::placeholder {
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
 }
+
 .mail-search-clear {
   display: flex;
   border: none;
   background: transparent;
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
   cursor: pointer;
   padding: 0;
 }
+
 .mail-search-clear:hover {
-  color: var(--mail-text-dim);
+  color: var(--w-ink);
 }
 
 .mail-search-recent {
@@ -936,12 +1259,13 @@
   z-index: 20;
   display: flex;
   flex-direction: column;
-  background: var(--mail-bg);
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  background: var(--w-panel);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  box-shadow: var(--w-lift);
   overflow: hidden;
 }
+
 .mail-search-recent-item {
   display: flex;
   align-items: center;
@@ -949,32 +1273,42 @@
   padding: 8px 10px;
   border: none;
   background: transparent;
-  color: var(--mail-text);
+  color: var(--w-ink);
+  font-family: inherit;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
+
 .mail-search-recent-item:hover {
-  background: var(--mail-bg-hover);
+  background: var(--w-panel-2);
 }
+
 .mail-search-recent-clear {
-  padding: 8px 10px;
+  padding: 7px 10px;
   border: none;
-  border-top: 1px solid var(--mail-border);
+  border-top: var(--w-hair) solid var(--w-rule);
   background: transparent;
-  color: var(--mail-text-faint);
-  font-size: 12px;
+  color: var(--w-ink-3);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   text-align: left;
   cursor: pointer;
 }
+
 .mail-search-recent-clear:hover {
-  color: var(--mail-text-dim);
+  color: var(--w-ink);
 }
 
 .search-results-view.split-view .split-list {
   display: flex;
   flex-direction: column;
 }
+
 .search-results-list {
   display: flex;
   flex-direction: column;
@@ -988,23 +1322,31 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--mail-border);
+  background: var(--w-panel-2);
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
+
 .search-chip {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--mail-border);
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text-dim);
-  font-size: 12px;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--w-r-band);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-panel);
+  color: var(--w-ink-2);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
+
 .search-chip-scope.seeded {
   border-style: dashed;
-  color: var(--mail-text-faint);
+  color: var(--w-ink-3);
 }
+
 .search-chip-remove {
   display: flex;
   border: none;
@@ -1013,110 +1355,176 @@
   cursor: pointer;
   padding: 0;
 }
+
 button.search-chip-toggle {
   cursor: pointer;
+  font-family: inherit;
 }
+
 button.search-chip-toggle.on {
-  background: var(--mail-bg-selected);
-  color: var(--mail-text);
-  border-color: var(--mail-accent);
+  background: var(--w-ink);
+  border-color: var(--w-ink);
+  color: var(--w-frame);
 }
 
 .thread-row .folder-pill {
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text-faint);
-  font-size: 11px;
+  padding: 1.5px 6px;
+  border-radius: var(--w-r-band);
+  background: var(--w-panel-sunk);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  color: var(--w-ink-3);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
+
+/* THE STRIKE, in the one list place it belongs: a search result you have
+   already acted on stays in place, visibly changed
+   (docs/search-ux-spec.md §Acting on a result). */
 .thread-row .action-badge {
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--mail-accent) 14%, transparent);
-  color: var(--mail-accent);
-  font-size: 11px;
+  display: inline-block;
+  padding: 1.5px 6px;
+  border-radius: var(--w-r-plate);
+  border: 1.5px solid var(--w-aniline);
+  color: var(--w-aniline);
+  background: transparent;
+  font-stretch: 74%;
+  font-weight: 750;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  rotate: -3.5deg;
   white-space: nowrap;
 }
+
 .thread-row .gatekeeper-badge {
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-size: 11px;
+  display: inline-block;
+  padding: 1.5px 6px;
+  border-radius: var(--w-r-plate);
+  border: 1.5px solid currentColor;
+  background: transparent;
+  font-stretch: 74%;
+  font-weight: 750;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  rotate: -3deg;
   white-space: nowrap;
 }
+
 .gatekeeper-badge-held {
-  background: color-mix(in srgb, #d9a441 18%, transparent);
-  color: #a06a12;
+  color: var(--w-fluor);
 }
+
 .gatekeeper-badge-blocked {
-  background: color-mix(in srgb, #d1453b 16%, transparent);
-  color: #b33429;
+  color: var(--w-postal);
 }
+
+.thread-row.selected .action-badge,
+.thread-row.selected .gatekeeper-badge,
+.thread-row.selected .folder-pill {
+  color: var(--w-frame);
+  border-color: color-mix(in oklab, var(--w-frame) 55%, transparent);
+  background: transparent;
+}
+
 .snippet.headline mark {
-  background: color-mix(in srgb, var(--mail-accent) 24%, transparent);
-  color: var(--mail-text);
-  border-radius: 2px;
-  padding: 0 1px;
+  background: color-mix(in oklab, var(--w-fluor-flat) 34%, transparent);
+  color: var(--w-ink);
+  border-radius: var(--w-r-band);
+  padding: 0 2px;
+}
+
+.thread-row.selected .snippet.headline mark {
+  color: var(--w-ink);
 }
 
 .search-foot {
   padding: 10px 12px;
-  border-top: 1px solid var(--mail-border);
+  border-top: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-panel-2);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
+
 .search-load-older {
   align-self: flex-start;
   padding: 6px 12px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  font-size: 13px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  color: var(--w-ink);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+
 .search-load-older:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }
+
+/* The Index Watermark states its own partial coverage rather than silently
+   returning too few results — so it is set in the machine face. */
 .search-watermark {
-  color: var(--mail-text-faint);
-  font-size: 12px;
+  color: var(--w-ink-3);
+  font-family: var(--w-mono);
+  font-size: 10px;
   margin: 0;
 }
+
 .search-watermark.promoted {
-  font-size: 13px;
+  color: var(--w-ink-2);
+  font-size: 11px;
 }
+
 .search-offline-banner,
 .search-reauth-banner {
   margin: 0;
-  padding: 6px 10px;
-  border-radius: 6px;
+  padding: 7px 10px;
+  border-radius: var(--w-r-plate);
   font-size: 12px;
-  background: color-mix(in srgb, var(--mail-accent) 10%, transparent);
-  color: var(--mail-text-dim);
+  background: color-mix(in oklab, var(--w-fluor-flat) 14%, var(--w-panel));
+  border: var(--w-hair) solid color-mix(in oklab, var(--w-fluor-flat) 40%, var(--w-rule-hard));
+  color: var(--w-ink-2);
 }
+
 .search-reauth-banner {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 7px;
 }
+
 .search-reauth-banner p {
   margin: 0;
 }
+
 .search-reauth-button {
   padding: 6px 12px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  font-size: 13px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  color: var(--w-ink);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+
 .search-reauth-button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }
 
@@ -1124,32 +1532,48 @@ button.search-chip-toggle.on {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  padding: 24px 16px;
-  color: var(--mail-text-dim);
+  gap: 10px;
+  padding: 26px 16px;
+  color: var(--w-ink-2);
+  font-size: 13px;
 }
+
 .search-empty button {
   padding: 6px 12px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  font-size: 13px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
 
-/* ---------- Gatekeeper (#56) ---------- */
+/* ============================================================================
+   GATEKEEPER (#56) — the held bay, the one drenched room
+   You are in the Screener for fifteen seconds a day, which is exactly why it
+   can afford to be the only saturated surface in the product.
+   ========================================================================= */
 
 .gatekeeper-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--mail-border);
-  background: color-mix(in srgb, #d9a441 12%, transparent);
-  color: var(--mail-text);
-  font-size: 13px;
+  padding: 7px 12px;
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-fluor-flat);
+  color: #1f1d18;
+  font-stretch: var(--w-wd-label);
+  font-weight: 640;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
+
 .gatekeeper-banner span {
   flex: 1;
   min-width: 0;
@@ -1157,15 +1581,25 @@ button.search-chip-toggle.on {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .gatekeeper-banner button {
   padding: 5px 12px;
-  border: 1px solid var(--mail-accent);
-  border-radius: 8px;
-  background: var(--mail-accent);
-  color: #fff;
-  font-size: 13px;
+  border: 1.5px solid #1f1d18;
+  border-radius: var(--w-r-plate);
+  background: #1f1d18;
+  color: var(--w-bone);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 680;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.gatekeeper-banner :focus-visible {
+  outline-color: #1f1d18;
 }
 
 .screener {
@@ -1174,26 +1608,45 @@ button.search-chip-toggle.on {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  background: var(--w-fluor-flat);
+  color: #1f1d18;
 }
+
 .screener-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--mail-border);
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1.5px solid rgb(31 29 24 / 0.34);
 }
+
 .screener-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-stretch: var(--w-wd-label);
+  font-weight: 720;
+  font-size: 13px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
 }
+
 .screener-close {
   padding: 6px 12px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  font-size: 13px;
+  border: 1.5px solid rgb(31 29 24 / 0.5);
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: #1f1d18;
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 660;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
+}
+
+.screener-close:hover {
+  background: rgb(31 29 24 / 0.1);
 }
 
 .screener-list {
@@ -1201,108 +1654,564 @@ button.search-chip-toggle.on {
   margin: 0;
   padding: 0;
 }
+
+/* One facing slip per stranger: the Screener lists Unscreened Senders, not
+   messages — one decision per stranger, never one per message. */
 .screener-row {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--mail-border);
+  padding: 13px 16px;
+  border-bottom: 1px solid rgb(31 29 24 / 0.24);
 }
+
 .screener-row.selected {
-  background: var(--mail-bg-hover);
+  background: rgb(31 29 24 / 0.1);
 }
+
 .screener-row-sender {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  width: 200px;
+  width: 210px;
   flex-shrink: 0;
 }
+
 .screener-row-name {
-  font-weight: 600;
-  color: var(--mail-text);
+  font-stretch: var(--w-wd-sender);
+  font-weight: 720;
+  font-size: 16px;
+  color: #1f1d18;
 }
+
 .screener-row-address {
-  font-size: 12px;
-  color: var(--mail-text-faint);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  color: rgb(31 29 24 / 0.94);
 }
+
 .screener-row-count {
-  font-size: 12px;
-  color: var(--mail-text-dim);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  color: rgb(31 29 24 / 0.94);
 }
+
 .screener-row-peek {
   flex: 1;
   min-width: 0;
   display: flex;
   gap: 8px;
   overflow: hidden;
+  font-size: 13px;
 }
+
 .screener-row-subject {
-  color: var(--mail-text);
+  color: #1f1d18;
+  font-weight: 620;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .screener-row-snippet {
-  color: var(--mail-text-dim);
+  color: rgb(31 29 24 / 0.94);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .screener-row-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
 }
+
 .screener-row-actions button {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid var(--mail-border);
-  border-radius: 8px;
-  background: var(--mail-bg-elevated);
-  color: var(--mail-text);
-  font-size: 13px;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1.5px solid rgb(31 29 24 / 0.5);
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: #1f1d18;
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
   cursor: pointer;
 }
-.screener-approve:hover {
-  border-color: #2f9e58;
-  color: #2f9e58;
+
+/* Admit is the primary and inverts the slip. Return and Block stay outline —
+   and Block, which routes a sender's future mail to Trash on arrival, keeps
+   its distance. */
+.screener-approve {
+  background: #1f1d18;
+  border-color: #1f1d18;
+  color: var(--w-bone);
 }
+
 .screener-deny:hover {
-  border-color: var(--mail-text-dim);
+  background: rgb(31 29 24 / 0.1);
 }
-.screener-block:hover {
-  border-color: #d1453b;
-  color: #d1453b;
+
+.screener-block {
+  margin-left: 14px;
 }
+
+.screener-block:hover,
+.screener-block:focus-visible {
+  background: rgb(31 29 24 / 0.1);
+  border-color: #1f1d18;
+}
+
+.screener :focus-visible {
+  outline-color: #1f1d18;
+}
+
+.screener-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- Gatekeeper settings live in the ordinary frame, not the bay --- */
 
 .gatekeeper-settings {
   margin-top: 8px;
 }
+
 .gatekeeper-settings h4,
 .gatekeeper-settings h5 {
-  margin: 8px 0 4px;
+  margin: 10px 0 4px;
+  font-stretch: var(--w-wd-label);
+  font-weight: 660;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--w-ink);
 }
+
 .gatekeeper-settings-description {
-  color: var(--mail-text-dim);
+  color: var(--w-ink-2);
   font-size: 13px;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
+
 .gatekeeper-cutoff {
-  font-size: 12px;
-  color: var(--mail-text-faint);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  color: var(--w-ink-3);
 }
+
 .gatekeeper-blocked ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
+
 .gatekeeper-blocked li {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 0;
+  padding: 5px 0;
+}
+
+.gatekeeper-reset-confirm {
+  color: var(--w-postal);
+  font-size: 13px;
+}
+
+/* ============================================================================
+   NARROW VIEWPORT
+   ========================================================================= */
+
+@media (max-width: 700px) {
+  /* Split collapses to List's own "one pane at a time" behavior: there's
+     no room for list + reading pane side by side on a phone. `has-selection`
+     (set in `SplitView.tsx`) is the same signal List already gets for free
+     by unmounting one side entirely — Split keeps both mounted (so
+     `useTriage`'s single keydown listener and any in-flight swipe never
+     un-mount mid-gesture), just visually hides one. */
+  .split-view {
+    position: relative;
+  }
+
+  .split-list,
+  .split-pane {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+
+  .split-view:not(.has-selection) .split-pane {
+    display: none;
+  }
+
+  .split-view.has-selection .split-list {
+    display: none;
+  }
+
+  .split-pane .back-pill {
+    display: flex;
+  }
+
+  .thread-row .sender {
+    width: 104px;
+  }
+
+  .thread-detail {
+    padding: 14px 16px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  .screener-row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .screener-row-sender {
+    width: 100%;
+  }
+
+  .screener-row-peek {
+    flex-basis: 100%;
+  }
+
+  .screener-block {
+    margin-left: auto;
+  }
+
+  .new-mail-toast-stack {
+    left: 14px;
+    max-width: none;
+  }
+}
+
+/* ---------- the circular date stamp, where there is room for it ---------- */
+
+.mail-cds {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  color: var(--w-ink-2);
+}
+
+.mail-cds svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mail-cds-text {
+  font-family: var(--w-sans);
+  font-stretch: 88%;
+  font-weight: 700;
+  font-size: 21px;
+}
+
+.screener .mail-cds {
+  color: #1f1d18;
+}
+
+/* ============================================================================
+   THE ROW AT NARROW WIDTHS
+   The split list is 380px and a phone is 390px: a single-line timetable row
+   cannot hold a 148px sender column *and* a legible subject, so below ~520px
+   the row folds to two lines and finally uses the 60px it already occupied.
+   A container query, not a media query — the same list is narrow inside the
+   split and wide in List view at the same viewport.
+   ========================================================================= */
+
+.thread-list {
+  container-type: inline-size;
+}
+
+@container (max-width: 520px) {
+  .thread-list:not(.thread-list--compact) .thread-row {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 9px;
+    row-gap: 1px;
+  }
+
+  /* The plate spans both lines: it is the row's registration to the stile. */
+  .thread-list:not(.thread-list--compact) .mail-avatar {
+    grid-row: 1 / span 2;
+  }
+
+  .thread-list:not(.thread-list--compact) .sender {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+    font-size: 12px;
+  }
+
+  .thread-list:not(.thread-list--compact) .time {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .thread-list:not(.thread-list--compact) .subject-line {
+    grid-column: 2 / span 2;
+    grid-row: 2;
+  }
+
+  .thread-list:not(.thread-list--compact) .folder-pill,
+  .thread-list:not(.thread-list--compact) .action-badge,
+  .thread-list:not(.thread-list--compact) .gatekeeper-badge,
+  .thread-list:not(.thread-list--compact) .pin,
+  .thread-list:not(.thread-list--compact) .star {
+    grid-row: 1;
+    grid-column: 3;
+  }
+}
+
+/* ============================================================================
+   COMPOSE — a plate on the frame, never a floating button
+   ========================================================================= */
+
+/* Compose is the primary, so it inverts the stock. It takes no ink colour:
+   aniline is reserved for the mark, focus, selection and links, and a filled
+   violet button is the one thing here that would read as a generic inbox. */
+.compose-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1.5px solid var(--w-ink);
+  border-radius: var(--w-r-plate);
+  background: var(--w-ink);
+  color: var(--w-frame);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 680;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.compose-button:hover {
+  background: var(--w-ink-2);
+  border-color: var(--w-ink-2);
+}
+
+/* ============================================================================
+   THE EMPTY READING PANE
+   A compartment with nothing filed in it yet. Quiet, and centred on the
+   frame's own axis rather than stranded in the top-left corner.
+   ========================================================================= */
+
+.split-pane > .mail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-stretch: var(--w-wd-label);
+  font-weight: 550;
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+  max-width: none;
+}
+
+/* ============================================================================
+   THE TRAY LABEL AT PHONE WIDTH
+   The head is a run of controls, and a phone cannot hold all of them. It
+   scrolls sideways as one strip rather than wrapping into a second rail that
+   would eat the list's height.
+   ========================================================================= */
+
+@media (max-width: 700px) {
+  /* Wrapping, not scrolling: a horizontal strip hid Compose and the search
+     field entirely off the right edge with no affordance saying so. */
+  .mail-topbar {
+    flex-wrap: wrap;
+    gap: 7px;
+    row-gap: 8px;
+  }
+
+  .mail-topbar .divider {
+    display: none;
+  }
+
+  .mail-legend {
+    flex: 1 1 auto;
+  }
+
+  /* Labels go, pictograms stay: `font-size: 0` collapses the bare text
+     nodes these buttons carry beside their glyph without asking five
+     components for a mobile-only span. */
+  .mail-topbar .segmented button,
+  .mail-topbar .toggle,
+  .mail-topbar .held-plate,
+  .mail-topbar .compose-button {
+    font-size: 0;
+    gap: 0;
+    padding: 7px 9px;
+  }
+
+  .mail-topbar .held-plate::after {
+    content: attr(data-count);
+    font-size: 10px;
+    font-stretch: var(--w-wd-label);
+    font-weight: 720;
+    letter-spacing: 0.06em;
+    margin-left: 5px;
+  }
+
+  /* Search and Compose share the second row: a full-width search field
+     pushed Compose onto a third, and the head is already the most expensive
+     chrome on the surface that can least afford it. */
+  .mail-search-field {
+    order: 10;
+    flex: 1 1 180px;
+    max-width: none;
+  }
+
+  .mail-topbar .compose-button {
+    order: 11;
+    flex: none;
+  }
+
+  .topbar-spacer {
+    display: none;
+  }
+}
+
+/* The bay's own closing statement, so the drenched room ends on the rule it
+   enforces rather than on empty ground. */
+.screener-rule {
+  margin: 0;
+  padding: 16px;
+  max-width: 74ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgb(31 29 24 / 0.94);
+  border-top: 1px solid rgb(31 29 24 / 0.24);
+}
+
+/* Rank by inversion: Approve is the primary and takes the ink. Written at
+   the same specificity as `.screener-row-actions button`, which otherwise
+   wins on the cascade and leaves all three verdicts looking identical. */
+.screener-row-actions button.screener-approve {
+  background: #1f1d18;
+  border-color: #1f1d18;
+  color: var(--w-bone);
+}
+
+.screener-row-actions button.screener-block {
+  margin-left: 14px;
+}
+
+/* ============================================================================
+   THE STRIKE, ON A SCREENER VERDICT
+   The one place in the daily flow where a decision is slow enough to watch:
+   a Verdict is a few actions a day, not the hot triage loop, so the ink has
+   room to land. The write is already queued when this renders — the slip is
+   held on screen purely so the decision is legible as ink on the item.
+   ========================================================================= */
+
+.screener-row.is-struck {
+  pointer-events: none;
+  animation: slip-clear var(--w-dur-strike) var(--w-ease-strike) 700ms forwards;
+}
+
+.screener-row.is-struck::after {
+  /* On the drenched orange the ink is the bay's own near-black, not a role
+     colour: the verdict word carries the meaning, and multiply would muddy. */
+  mix-blend-mode: normal;
+  color: #1f1d18;
+  opacity: 0.92;
+  font-size: 27px;
+  rotate: -4deg;
+}
+
+.screener-row.is-struck > * {
+  opacity: 0.35;
+}
+
+@keyframes slip-clear {
+  to {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+/* ============================================================================
+   THE EMPTY COMPARTMENT
+   A reading pane with nothing filed in it says so, and spends the room
+   teaching the keyboard the product is built around rather than sitting
+   blank. Calm by default, expert underneath: this is where the second half
+   of that shows up.
+   ========================================================================= */
+
+.pane-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+  color: var(--w-ink-3);
+}
+
+.pane-empty > svg {
+  color: var(--w-rule-hard);
+}
+
+.pane-empty > p {
+  margin: 0;
+  font-stretch: var(--w-wd-label);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--w-ink-2);
+}
+
+.pane-keys {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 7px 11px;
+  align-items: center;
+  margin: 6px 0 0;
+  padding: 15px 20px 16px;
+  border-top: var(--w-hair) solid var(--w-rule);
+  border-bottom: var(--w-hair) solid var(--w-rule);
+}
+
+.pane-keys dt {
+  justify-self: end;
+  min-width: 21px;
+  padding: 2px 6px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom-width: 2px;
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink-2);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.pane-keys dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--w-ink-3);
 }

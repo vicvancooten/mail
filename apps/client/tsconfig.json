@@ -4,5 +4,13 @@
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },
     { "path": "./tsconfig.sw.json" }
-  ]
+  ],
+  // Not used for compilation (`files` is empty and the real settings live in
+  // the referenced configs) — this is here so tooling that reads the root
+  // tsconfig can resolve the `@/…` alias. The shadcn CLI is the one that
+  // matters: without it, `shadcn add` writes components into a literal `@/`
+  // directory instead of `src/`.
+  "compilerOptions": {
+    "paths": { "@/*": ["./src/*"] }
+  }
 }

@@ -1,0 +1,655 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-02T00:00:00.000Z",
+  "title": "Design System: Wicket",
+  "extensions": {
+    "scope": "Covers the client app (apps/client) and the repo-facing marks, which are part of the same system: apps/client/public/{favicon.svg,icon-192.png,icon-512.png,icon-maskable-192.png,icon-maskable-512.png,apple-touch-icon.png,manifest.webmanifest} and docs/brand/{wicket-social-card.png,social-card.source.html}. The sync backend has no UI.",
+    "themes": {
+      "light": "Bare :root is the light set (day bench), so nothing depends on a media query having matched.",
+      "dark": "@media (prefers-color-scheme: dark) :root:not(.light) and :root.dark carry the night frame. An explicit .light or .dark class always beats the OS.",
+      "darkOverrides": {
+        "frame": "#1a1611",
+        "panel": "#221e18",
+        "panel-2": "#2b2620",
+        "panel-sunk": "#38312a",
+        "rule": "#332d25",
+        "rule-hard": "#4a4238",
+        "ink": "#ede7da",
+        "ink-2": "#a79c89",
+        "ink-3": "#948a75",
+        "aniline": "#a98cd9",
+        "aniline-flat": "#6b4aaf",
+        "fluor": "#ff7a3c",
+        "fluor-flat": "#ff5a0f",
+        "postal": "#f2685e",
+        "phosphor": "#5cc98a"
+      },
+      "browserSurfaces": {
+        "themeColorLight": "#C9CDC1",
+        "themeColorDark": "#1A1611",
+        "manifestThemeColor": "#1A1611",
+        "manifestBackgroundColor": "#1A1611",
+        "selection": "aniline ground, bone text",
+        "scrollbar": "thin, thumb rule-hard on transparent track",
+        "caret": "aniline"
+      }
+    },
+    "colorMeta": {
+      "frame": {
+        "role": "neutral",
+        "displayName": "Day Bench",
+        "canonical": "#d5d8ce",
+        "cssVar": "--w-frame",
+        "tonalRamp": [
+          "#26281f",
+          "#3b3e32",
+          "#535747",
+          "#6d7160",
+          "#8b8f7e",
+          "#a9ad9d",
+          "#c4c8ba",
+          "#e9ebe3"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Bench Plate",
+        "canonical": "#e7e8e0",
+        "cssVar": "--w-panel",
+        "tonalRamp": [
+          "#282a22",
+          "#3d4034",
+          "#565949",
+          "#707463",
+          "#8e9281",
+          "#acb0a0",
+          "#c8cbbd",
+          "#eeefe8"
+        ]
+      },
+      "panel-2": {
+        "role": "neutral",
+        "displayName": "Raised Plate",
+        "canonical": "#dddfd5",
+        "cssVar": "--w-panel-2",
+        "tonalRamp": [
+          "#272a21",
+          "#3b3f33",
+          "#545848",
+          "#6e7262",
+          "#8c9080",
+          "#aaae9f",
+          "#c6cabc",
+          "#ecede6"
+        ]
+      },
+      "panel-sunk": {
+        "role": "neutral",
+        "displayName": "Sunk Plate",
+        "canonical": "#c9cdc1",
+        "cssVar": "--w-panel-sunk",
+        "tonalRamp": [
+          "#24271e",
+          "#383c30",
+          "#505546",
+          "#6a6f60",
+          "#888d7e",
+          "#a6ab9d",
+          "#c2c7ba",
+          "#e8ebe2"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Hairline Rule",
+        "canonical": "#bec2b5",
+        "cssVar": "--w-rule",
+        "tonalRamp": [
+          "#222519",
+          "#36392c",
+          "#4e5243",
+          "#686c5d",
+          "#868a7b",
+          "#a4a89a",
+          "#c0c4b7",
+          "#e6e9df"
+        ]
+      },
+      "rule-hard": {
+        "role": "neutral",
+        "displayName": "Hard Rule",
+        "canonical": "#9aa093",
+        "cssVar": "--w-rule-hard",
+        "tonalRamp": [
+          "#1f2318",
+          "#33372b",
+          "#4b5042",
+          "#656a5c",
+          "#83887a",
+          "#a1a698",
+          "#bdc2b5",
+          "#e3e8dd"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#1f1d18",
+        "cssVar": "--w-ink",
+        "tonalRamp": [
+          "#151310",
+          "#2a2721",
+          "#403c32",
+          "#585245",
+          "#736c5c",
+          "#918a78",
+          "#b3ad9e",
+          "#dbd7cd"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Ink 2",
+        "canonical": "#575349",
+        "cssVar": "--w-ink-2",
+        "note": "Darkened from the first build to clear 4.5:1 on sunk stock.",
+        "tonalRamp": [
+          "#17150f",
+          "#2b2820",
+          "#413d32",
+          "#575349",
+          "#726d60",
+          "#908a7c",
+          "#b1ac9f",
+          "#dad7ce"
+        ]
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Ink 3",
+        "canonical": "#65624f",
+        "cssVar": "--w-ink-3",
+        "note": "Panel stock only: measures 3.8:1 on sunk stock.",
+        "tonalRamp": [
+          "#191710",
+          "#2d2b20",
+          "#444131",
+          "#5b5843",
+          "#7a7660",
+          "#98947f",
+          "#b8b4a1",
+          "#dedbcf"
+        ]
+      },
+      "aniline": {
+        "role": "primary",
+        "displayName": "Aniline Violet",
+        "canonical": "#5b3e8c",
+        "cssVar": "--w-aniline",
+        "note": "--w-aniline-flat is the same value in light (#5b3e8c) and #6b4aaf in dark: the cut used as a ground behind bone text.",
+        "tonalRamp": [
+          "#1c1030",
+          "#2c1a4a",
+          "#3d2563",
+          "#4d317c",
+          "#5b3e8c",
+          "#7b62a8",
+          "#a48fc7",
+          "#d5c9e6"
+        ]
+      },
+      "fluor": {
+        "role": "secondary",
+        "displayName": "Fluorescent Held",
+        "canonical": "#9c3000",
+        "cssVar": "--w-fluor",
+        "note": "Darkened from the first build so HELD clears 4.5:1 on sunk stock. Tint use only.",
+        "tonalRamp": [
+          "#2e0e00",
+          "#4b1700",
+          "#672000",
+          "#842900",
+          "#9c3000",
+          "#c85a1f",
+          "#e4855c",
+          "#ffd8c2"
+        ]
+      },
+      "fluor-flat": {
+        "role": "secondary",
+        "displayName": "Fluorescent Drench",
+        "canonical": "#ff5a0f",
+        "cssVar": "--w-fluor-flat",
+        "note": "Ground use only, and only in the Screener bay and its entry banner.",
+        "tonalRamp": [
+          "#3b1300",
+          "#5c1e00",
+          "#7d2a00",
+          "#a03700",
+          "#c74600",
+          "#ff5a0f",
+          "#ff9166",
+          "#ffd5c2"
+        ]
+      },
+      "postal": {
+        "role": "tertiary",
+        "displayName": "Postal Red",
+        "canonical": "#b0231c",
+        "cssVar": "--w-postal",
+        "tonalRamp": [
+          "#330906",
+          "#530f0b",
+          "#721610",
+          "#911c16",
+          "#b0231c",
+          "#cf5148",
+          "#e5897f",
+          "#f7cdc8"
+        ]
+      },
+      "phosphor": {
+        "role": "tertiary",
+        "displayName": "Phosphor Green",
+        "canonical": "#256b42",
+        "cssVar": "--w-phosphor",
+        "tonalRamp": [
+          "#09200f",
+          "#0f351f",
+          "#164a2c",
+          "#1d5a37",
+          "#256b42",
+          "#4c9068",
+          "#82b899",
+          "#cde3d7"
+        ]
+      },
+      "bone": {
+        "role": "neutral",
+        "displayName": "Bone",
+        "canonical": "#f4f2e9",
+        "cssVar": "--w-bone",
+        "note": "Label stock: text and glyphs on a flat ink. Never a page ground.",
+        "tonalRamp": [
+          "#2a2820",
+          "#403d32",
+          "#585446",
+          "#736e5d",
+          "#918c79",
+          "#b0ab98",
+          "#d0ccbc",
+          "#f4f2e9"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The wordmark only: pre-session plate 27px, app rail 16px, bay signage. Width axis 118%."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The Thread subject in detail view, text-wrap: balance."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Pre-session form heading, Screener sender name, settings sub-heads."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running UI text; 46-74ch measure depending on compartment."
+      },
+      "sender": {
+        "displayName": "Sender",
+        "purpose": "The sender column and per-Message header; its own 92% width step so a column of names sets tighter than running text."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Every control, compartment head, chip, legend and empty-state line. Narrow (78%), tracked, uppercase. The most common type in the app."
+      },
+      "machine": {
+        "displayName": "Machine Face",
+        "purpose": "Anything a machine measured: timestamps, addresses, byte sizes, counts, key caps, the Index Watermark. Tabular figures."
+      },
+      "strike": {
+        "displayName": "Strike",
+        "purpose": "The struck verdict word printed across an item. Inline cut (.overprint) is 9.5px / width 74% / 1.5px rule / -3deg."
+      }
+    },
+    "fonts": {
+      "delivery": "Self-hosted from the app origin via @fontsource-variable, using the standard.css slice because it carries the wdth axis as well as wght. No font CDN, deliberately.",
+      "widthAxis": {
+        "label": "78%",
+        "sender": "92%",
+        "text": "100%",
+        "display": "118%"
+      }
+    },
+    "shadows": [
+      {
+        "name": "lift",
+        "value": "0 10px 30px -10px rgb(31 29 24 / 0.38), 0 2px 4px -2px rgb(31 29 24 / 0.24)",
+        "darkValue": "0 12px 34px -10px rgb(0 0 0 / 0.66), 0 2px 6px -2px rgb(0 0 0 / 0.5)",
+        "purpose": "The only shadow in the system. Popovers, dialogs, the label picker, search history, the composer and its menus, toasts, the pending-send bar."
+      },
+      {
+        "name": "grommet",
+        "value": "inset 3px 0 0 -1px var(--w-rule-hard)",
+        "purpose": "A pinned Thread only: the item sits proud of the stock rather than being tinted."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Default easing for opacity and disclosure changes."
+      },
+      {
+        "name": "ease-strike",
+        "value": "cubic-bezier(0.16, 0.9, 0.12, 1)",
+        "purpose": "Presses, toast entry, and the strike's clear."
+      },
+      {
+        "name": "dur-press",
+        "value": "120ms",
+        "purpose": "Press scale, colour and border-colour changes (linear)."
+      },
+      {
+        "name": "dur-fast",
+        "value": "150ms",
+        "purpose": "Toast entry, segmented opacity, disclosure rotation."
+      },
+      {
+        "name": "dur-strike",
+        "value": "190ms",
+        "purpose": "The Screener slip clearing after its 900ms replay (700ms delay + 190ms clear)."
+      },
+      {
+        "name": "reduced-motion-floor",
+        "value": "1ms",
+        "purpose": "prefers-reduced-motion: reduce clamps every animation and transition in the app."
+      }
+    ],
+    "strike": {
+      "blend": {
+        "light": "multiply",
+        "dark": "plus-lighter"
+      },
+      "wetOpacity": {
+        "light": 0.4,
+        "dark": 0.32
+      },
+      "setOpacity": {
+        "light": 0.84,
+        "dark": 0.76
+      },
+      "tilt": "-5deg (inline overprint -3deg)",
+      "contract": "Only on state that persists. Never on a triage keystroke: store/reads.ts drops an archived Thread the instant the mutation is queued. Its one daily home is the Screener verdict, where Screener.tsx replays the decided slip for 900ms after the write."
+    },
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "700px",
+        "note": "Split collapses to one pane; tray-label head wraps to two rows, controls go icon-only."
+      },
+      {
+        "name": "compact-rail",
+        "value": "640px",
+        "note": "Signed-in user block hides in the app rail."
+      },
+      {
+        "name": "wide",
+        "value": "1100px",
+        "note": "Split list widens to clamp(548px, 41%, 680px) so the single-line timetable renders."
+      },
+      {
+        "name": "row-fold",
+        "value": "520px (container query on .thread-list)",
+        "note": "The row folds to a two-line grid. Container, not media: the same list is narrow inside the split and wide in List view at one viewport."
+      }
+    ],
+    "pinnedGeometry": {
+      "ROW_HEIGHT": "60px",
+      "COMPACT_ROW_HEIGHT": "40px",
+      "HEADER_HEIGHT": "32px",
+      "note": "Shared contract with VirtualizedThreadList.tsx. Changing either side without the other breaks virtualisation."
+    },
+    "copy": {
+      "source": "CONTEXT.md is binding for UI copy.",
+      "terms": [
+        "Thread, not conversation",
+        "Mail Account, not mailbox",
+        "Screener, not quarantine or spam folder",
+        "Verdict: Unscreened / Approved / Blocked",
+        "Star and Pin are different features: a Star says 'this matters', a Pin says 'keep this in front of me'"
+      ]
+    },
+    "boundaries": [
+      "The message body is third-party HTML in a sandboxed iframe on its own white ground. The design system stops at that boundary and may not restyle what a sender wrote.",
+      "Remote images are blocked until a sender is Approved, which is why correspondent marks are square initial plates drawn from the address and never fetched.",
+      "Density and layout mode are Device Preferences and never sync."
+    ],
+    "detectorState": {
+      "clean": true,
+      "ignoreRules": [],
+      "ignoreFiles": [],
+      "ignoreValues": [
+        {
+          "rule": "side-tab",
+          "value": "*",
+          "files": [
+            "src/brand/brand.css"
+          ],
+          "reason": "The drawn left stile: a fixed 3px aniline pseudo-element member on .app-shell and .auth-frame, required by the finish reviewer as material fix 3 and scored resolved. The rule targets a thick accent border on a card, callout, alert or list item; brand.css contains the frame's structural members only, and no card in the system takes a coloured edge."
+        }
+      ],
+      "note": "detect.mjs is clean except this one persisted exemption, recorded in apps/client/.impeccable/config.json. No other ignores exist."
+    },
+    "finishReview": {
+      "rounds": 2,
+      "secondVerdict": "Six of eight material fixes resolved, one partial (contrast, on two measured pairs), three regressions raised.",
+      "postVerdictFixes": [
+        "The duplicated fluorescent statement: the tray-label head plate is now an outline marker and the Screener banner stays the solid statement.",
+        "The contrast pairs: --w-ink-2 darkened to #575349 and --w-fluor to #9c3000, so both clear 4.5:1 on sunk stock.",
+        "The phone head: icon-only controls on two wrapped rows."
+      ],
+      "notReScored": "These three fixes were applied after the second verdict and have NOT been re-scored by the finish reviewer. This system was recorded from the shipped code, not from a clean final review pass."
+    },
+    "notCanonized": [
+      "Resolved after documentation: the star gold #c8912a on .thread-row .star and .thread-detail-header .star was replaced with var(--w-ink). A Star is a Protocol Feature that round-trips as \\Flagged and its glyph shape carries the meaning, so it takes ink rather than standing as an undocumented fifth colour. The four role inks remain the whole palette.",
+      "The shadcn primitives in src/components/ui/ ship Lucide hairline glyphs. They are installed and themed but adopted by no screen. The hairline set is a dependency the build carries, never a second icon language: the first screen to adopt a primitive swaps its glyph for the matching Pictogram name."
+    ],
+    "typeRamp": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      16,
+      21,
+      27
+    ],
+    "senderGround": "#ffffff \u2014 the sandboxed message-body iframe and PDF preview keep the sender's own ground; the design system stops at that boundary."
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The primary action. Rank is inversion: it takes the ink and turns the stock inside out. Compose, Admit, the pre-session submit.",
+      "html": "<button class=\"ds-btn-primary\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M2 4h20v3.2L12 14 2 7.2zM2 10.3l10 6.8 10-6.8V20H2z\"/></svg>Compose</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1.5px solid var(--w-ink, #1f1d18); border-radius: var(--w-r-plate, 2px); background: var(--w-ink, #1f1d18); color: var(--w-frame, #d5d8ce); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 680; font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; cursor: pointer; white-space: nowrap; transition: background 120ms linear, transform 120ms cubic-bezier(0.16,0.9,0.12,1); } .ds-btn-primary:hover { background: var(--w-ink-2, #575349); border-color: var(--w-ink-2, #575349); } .ds-btn-primary:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: 1px; } .ds-btn-primary:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Every non-primary control in the frame. Relief and rule, no ink colour; hover fills to sunk stock.",
+      "html": "<button class=\"ds-btn-secondary\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M2 4h20v4H2zM4 9.5h16V21H4zm4 3v2.4h8V12.5z\"/></svg>Archive</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--w-rule-hard, #9aa093); border-radius: var(--w-r-plate, 2px); background: var(--w-panel-2, #dddfd5); color: var(--w-ink-2, #575349); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 620; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: background 120ms linear, color 120ms linear, transform 120ms cubic-bezier(0.16,0.9,0.12,1); } .ds-btn-secondary:hover { background: var(--w-panel-sunk, #c9cdc1); color: var(--w-ink, #1f1d18); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: 1px; } .ds-btn-secondary:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Trash, Block, remove a passkey. Outline in postal red, held at a deliberate 22px distance from the control beside it, taking colour only when reached for.",
+      "html": "<button class=\"ds-btn-destructive\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M9 2h6l1 2h5v3H3V4h5zM5 8.5h14L17.6 22H6.4z\"/></svg>Trash</button>",
+      "css": ".ds-btn-destructive { display: inline-flex; align-items: center; gap: 6px; margin-left: 22px; padding: 6px 11px; border: 1px solid var(--w-rule-hard, #9aa093); border-radius: var(--w-r-plate, 2px); background: transparent; color: var(--w-postal, #b0231c); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 620; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: background 120ms linear, border-color 120ms linear, transform 120ms cubic-bezier(0.16,0.9,0.12,1); } .ds-btn-destructive:hover, .ds-btn-destructive:focus-visible { border-color: var(--w-postal, #b0231c); background: color-mix(in oklab, var(--w-postal, #b0231c) 12%, transparent); } .ds-btn-destructive:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: 1px; } .ds-btn-destructive:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Held Plate",
+      "kind": "button",
+      "refersTo": "button-held",
+      "description": "The one place fluorescent reaches the triage screen: an outline marker on the tray-label head announcing senders waiting on a Verdict.",
+      "html": "<button class=\"ds-held-plate\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M5 3h14v6.5a7 7 0 0 1-14 0zM5 21h14v-6.5a7 7 0 0 0-14 0z\"/></svg>Held 7</button>",
+      "css": ".ds-held-plate { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1.5px solid var(--w-fluor, #9c3000); border-radius: var(--w-r-plate, 2px); background: transparent; color: var(--w-fluor, #9c3000); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 720; font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; cursor: pointer; white-space: nowrap; transition: background 120ms linear, transform 120ms cubic-bezier(0.16,0.9,0.12,1); } .ds-held-plate:hover { background: color-mix(in oklab, var(--w-fluor-flat, #ff5a0f) 16%, transparent); } .ds-held-plate:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: 1px; } .ds-held-plate:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "A routing slip: narrow tracked legend over an inset control on a stock one step below the plate it sits on. Focus takes the aniline rule.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-legend\">Mail Account</span><input class=\"ds-field-input\" type=\"text\" value=\"vic@example.org\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 5px; } .ds-field-legend { font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 640; font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--w-ink-3, #65624f); } .ds-field-input { box-sizing: border-box; padding: 9px 11px; background: var(--w-frame, #d5d8ce); border: 1px solid var(--w-rule-hard, #9aa093); border-radius: var(--w-r-plate, 2px); color: var(--w-ink, #1f1d18); caret-color: var(--w-aniline, #5b3e8c); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-size: 14px; transition: border-color 120ms linear; } .ds-field-input:hover { border-color: var(--w-ink-3, #65624f); } .ds-field-input:focus-visible { border-color: var(--w-aniline, #5b3e8c); outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: 1px; }"
+    },
+    {
+      "name": "Label Chip",
+      "kind": "chip",
+      "refersTo": "chip-label",
+      "description": "A bundle band: tinted the whole way round, never a stripe down one edge. Labels, folder pills, search scopes.",
+      "html": "<span class=\"ds-chip\">Invoices</span><button class=\"ds-chip ds-chip-toggle\">Unread</button>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: var(--w-r-band, 1px); border: 1px solid var(--w-rule-hard, #9aa093); background: var(--w-panel-sunk, #c9cdc1); color: var(--w-ink-2, #575349); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 640; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.7; white-space: nowrap; } .ds-chip-toggle { cursor: pointer; margin-left: 6px; } .ds-chip-toggle:hover { color: var(--w-ink, #1f1d18); } .ds-chip-toggle:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: 1px; } .ds-chip-toggle:active { background: var(--w-ink, #1f1d18); border-color: var(--w-ink, #1f1d18); color: var(--w-frame, #d5d8ce); }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "nav",
+      "refersTo": "plate-head",
+      "description": "In-frame navigation: a run of compartments divided by hairlines inside one plate. The active segment inverts.",
+      "html": "<div class=\"ds-seg\"><button class=\"ds-seg-btn ds-seg-on\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M2 4h9v16H2zm11 0h9v16h-9z\"/></svg>Split</button><button class=\"ds-seg-btn\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M2 4h20v4.6H2zm0 5.7h20v4.6H2zm0 5.7h20V20H2z\"/></svg>Rows</button><button class=\"ds-seg-btn\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 2 22.5 7.5 12 13 1.5 7.5zM3.9 11.4 12 15.6l8.1-4.2 2.4 1.2L12 18.2 1.5 12.6z\"/></svg>Stream</button></div>",
+      "css": ".ds-seg { display: inline-flex; border: 1px solid var(--w-rule-hard, #9aa093); border-radius: var(--w-r-plate, 2px); overflow: hidden; } .ds-seg-btn { display: flex; align-items: center; gap: 5px; padding: 5px 10px; border: none; border-right: 1px solid var(--w-rule-hard, #9aa093); background: var(--w-panel, #e7e8e0); color: var(--w-ink-2, #575349); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 78%; font-weight: 620; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: background 120ms linear, color 120ms linear; } .ds-seg-btn:last-child { border-right: none; } .ds-seg-btn:hover { color: var(--w-ink, #1f1d18); } .ds-seg-btn:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: -2px; } .ds-seg-on, .ds-seg-btn:active { background: var(--w-ink, #1f1d18); color: var(--w-frame, #d5d8ce); }"
+    },
+    {
+      "name": "Timetable Row",
+      "kind": "custom",
+      "refersTo": "row-thread",
+      "description": "The signature surface: a 60px single-line row with a square correspondent plate, a 148px sender column, a trailing snippet and a tabular monospace time. Hover raises the stock; selection inverts it.",
+      "html": "<div class=\"ds-rows\"><button class=\"ds-row\"><span class=\"ds-plate\">MK</span><span class=\"ds-sender\">Marion Keller</span><span class=\"ds-subject\">Quarterly filing is ready for review<span class=\"ds-snippet\">Everything from the third bay is boxed and</span></span><time class=\"ds-time\">09:14</time></button><button class=\"ds-row ds-row-selected\"><span class=\"ds-plate\">DP</span><span class=\"ds-sender\">Dispatch</span><span class=\"ds-subject\">Route change for the north bench<span class=\"ds-snippet\">Effective Monday the collection window</span></span><time class=\"ds-time\">08:02</time></button></div>",
+      "css": ".ds-rows { background: var(--w-panel, #e7e8e0); } .ds-row { display: flex; align-items: center; gap: 9px; width: 100%; height: 60px; box-sizing: border-box; padding: 0 14px; border: none; border-bottom: 1px solid var(--w-rule, #bec2b5); background: var(--w-panel, #e7e8e0); color: var(--w-ink, #1f1d18); text-align: left; cursor: pointer; font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-size: 13px; transition: background 120ms linear; } .ds-row:hover { background: var(--w-panel-2, #dddfd5); } .ds-row:focus-visible { outline: 2px solid var(--w-aniline, #5b3e8c); outline-offset: -2px; } .ds-plate { width: 26px; height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: var(--w-r-plate, 2px); background: var(--w-panel-sunk, #c9cdc1); border: 1px solid var(--w-rule-hard, #9aa093); color: var(--w-ink-2, #575349); font-stretch: 84%; font-size: 10px; font-weight: 680; } .ds-sender { width: 148px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-stretch: 92%; font-weight: 600; } .ds-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-snippet { color: var(--w-ink-3, #65624f); margin-left: 7px; } .ds-time { flex-shrink: 0; color: var(--w-ink-3, #65624f); font-family: var(--w-mono, ui-monospace, Menlo, monospace); font-size: 10px; font-variant-numeric: tabular-nums; } .ds-row-selected { background: var(--w-ink, #1f1d18); color: var(--w-frame, #d5d8ce); } .ds-row-selected:hover { background: var(--w-ink, #1f1d18); } .ds-row-selected .ds-snippet, .ds-row-selected .ds-time { color: color-mix(in oklab, var(--w-frame, #d5d8ce) 72%, var(--w-ink, #1f1d18)); } .ds-row-selected .ds-plate { background: transparent; border-color: color-mix(in oklab, var(--w-frame, #d5d8ce) 45%, transparent); color: var(--w-frame, #d5d8ce); }"
+    },
+    {
+      "name": "Struck Slip",
+      "kind": "custom",
+      "refersTo": "screener-surface",
+      "description": "The Screener verdict: a facing slip on the one drenched surface in the product, with the decision struck across it in the bay's own near-black.",
+      "html": "<div class=\"ds-bay\"><div class=\"ds-slip ds-slip-struck\" data-strike=\"Admitted\"><span class=\"ds-slip-name\">Marion Keller</span><span class=\"ds-slip-addr\">m.keller@bench.example</span></div><div class=\"ds-slip\"><span class=\"ds-slip-name\">Northbound Freight</span><span class=\"ds-slip-addr\">no-reply@nbfreight.example</span></div></div>",
+      "css": ".ds-bay { background: var(--w-fluor-flat, #ff5a0f); color: #1f1d18; font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); } .ds-slip { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 13px 16px; border-bottom: 1px solid rgb(31 29 24 / 0.24); } .ds-slip-name { font-stretch: 92%; font-weight: 720; font-size: 15px; } .ds-slip-addr { font-family: var(--w-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: rgb(31 29 24 / 0.94); } .ds-slip-struck > * { opacity: 0.35; } .ds-slip-struck::after { content: attr(data-strike); position: absolute; top: 50%; left: 50%; translate: -50% -50%; rotate: -4deg; pointer-events: none; color: #1f1d18; opacity: 0.92; font-stretch: 70%; font-weight: 800; font-size: 26px; letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap; padding: 1px 10px; border: 2.5px solid currentColor; border-radius: var(--w-r-plate, 2px); }"
+    },
+    {
+      "name": "Toast",
+      "kind": "card",
+      "refersTo": "toast",
+      "description": "The only floating surface class, so one of the few things entitled to the system's single shadow. The rollback toast leads with the LIFTED overprint, where the ink comes off.",
+      "html": "<div class=\"ds-toast\"><span class=\"ds-overprint\">Lifted</span><span>Archive failed \u2014 the Thread is back in Inbox.</span><button class=\"ds-toast-btn\">Retry</button></div>",
+      "css": ".ds-toast { display: inline-flex; align-items: center; gap: 10px; padding: 9px 15px; border-radius: var(--w-r-plate, 2px); background: var(--w-ink, #1f1d18); color: var(--w-frame, #d5d8ce); font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-size: 13px; box-shadow: 0 10px 30px -10px rgb(31 29 24 / 0.38), 0 2px 4px -2px rgb(31 29 24 / 0.24); animation: ds-toast-enter 150ms cubic-bezier(0.16,0.9,0.12,1); } .ds-overprint { display: inline-block; padding: 1px 6px; border: 1.5px solid currentColor; border-radius: var(--w-r-plate, 2px); color: var(--w-postal, #b0231c); font-stretch: 72%; font-weight: 780; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; rotate: -4deg; } .ds-toast-btn { padding: 4px 10px; border: 1.5px solid color-mix(in oklab, var(--w-frame, #d5d8ce) 45%, transparent); border-radius: var(--w-r-plate, 2px); background: transparent; color: inherit; font-family: inherit; font-stretch: 78%; font-weight: 640; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; } .ds-toast-btn:hover { background: rgb(244 242 233 / 0.16); } .ds-toast-btn:focus-visible { outline: 2px solid var(--w-frame, #d5d8ce); outline-offset: 1px; } @keyframes ds-toast-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }"
+    },
+    {
+      "name": "Postmark",
+      "kind": "custom",
+      "refersTo": "button-primary",
+      "description": "The mark: a circular date stamp broken at the lower left \u2014 the wicket you pass through single file \u2014 with killer bars trailing off it. Three bars at 26px and up, two below; the favicon ships the two-bar cut.",
+      "html": "<span class=\"ds-wordmark\"><svg viewBox=\"0 0 128 128\" width=\"26\" height=\"26\" aria-hidden=\"true\"><circle cx=\"44\" cy=\"64\" r=\"32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8.5\" stroke-dasharray=\"161 40\" transform=\"rotate(171 44 64)\"/><rect x=\"72\" y=\"47.75\" width=\"48\" height=\"8.5\" rx=\"1\" fill=\"currentColor\"/><rect x=\"72\" y=\"59.75\" width=\"48\" height=\"8.5\" rx=\"1\" fill=\"currentColor\"/><rect x=\"72\" y=\"71.75\" width=\"48\" height=\"8.5\" rx=\"1\" fill=\"currentColor\"/></svg><span class=\"ds-wordmark-name\">Wicket</span></span>",
+      "css": ".ds-wordmark { display: inline-flex; align-items: center; gap: 9px; color: var(--w-aniline, #5b3e8c); } .ds-wordmark-name { font-family: var(--w-sans, \"Archivo Variable\", Arial, sans-serif); font-stretch: 118%; font-weight: 800; font-size: 21px; line-height: 1; letter-spacing: -0.02em; text-transform: uppercase; color: var(--w-ink, #1f1d18); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Sorting Office",
+    "overview": "Wicket is a room, not a page. The ground is never paper: the light theme is the day bench \u2014 institutional pale grey-green enamel and painted steel \u2014 and the dark theme is the night frame, warm near-black aged hardwood with text in bone, the colour of label stock, never blue graphite and never white. Kraft is the item; the app is the joinery around it. Compartments divide on hairline rules that meet at the corners. There are no cards, no gaps between compartments, and only one shadow in the entire system.\n\nThe system ranks by inversion, never by brightness or by weight. A selected Thread takes the ink and turns its stock inside out; a read Thread steps back in tonal value rather than the unread one stepping forward in bold. Controls take no ink colour at all \u2014 relief and rule only. Colour is reserved for four role inks, each of which appears only for its own job, so a row is never ambiguous about what happened to it. The saturated fluorescent orange of the Screener exists because you are in that bay for fifteen seconds a day; that scarcity is what buys it the right to be drenched.\n\nState is struck across the item, never badged beside it. The .strike primitive prints an uppercase, tilted, ruled word over the thing whose state changed, blended into its stock. It is scoped by hard contract to state that persists, and its one home in the daily flow is the Screener verdict. Everything else the frame does is quiet: one authored motion moment, a 120\u2013190ms budget, no entrance animations, no stagger, and a hard reduced-motion floor under all of it.",
+    "keyCharacteristics": [
+      "Two stocks (day bench, night frame) and four role inks; no third palette.",
+      "Rank by inversion, never brightness, weight, or a coloured badge.",
+      "Hairline joinery: compartments meet, they do not float or gap.",
+      "One shadow in the whole system, for things that genuinely float.",
+      "One type family at four widths, plus a machine face for measured values.",
+      "State is struck across the item, and only where the state persists."
+    ],
+    "rules": [
+      {
+        "name": "The Four Inks Rule",
+        "body": "Aniline, fluorescent, postal, phosphor. Each appears only for its own job \u2014 brand/focus, held, destructive/failed, confirmed. A new state does not get a new colour; it gets one of these four or none.",
+        "section": "colors"
+      },
+      {
+        "name": "The Rank-By-Inversion Rule",
+        "body": "Rank is inversion, never brightness. A selected row, an active toggle, a primary button take the ink as ground and the frame as text. Controls take no ink colour: relief and rule only.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Drenched Room Rule",
+        "body": "Fluorescent as a ground belongs to the Screener and its entry banner and nowhere else. The tray-label head carries the outline Held plate; the bay carries the solid statement. Two fluorescent statements on one screen is a defect, not emphasis.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sunk Stock Contrast Rule",
+        "body": "Anything set on sunk stock takes ink-2 or darker. ink-3 measures 3.8:1 there and is reserved for panel stock.",
+        "section": "colors"
+      },
+      {
+        "name": "The Width-Axis Rule",
+        "body": "Hierarchy is carried by the width axis before size or weight. Label 78%, sender 92%, running text 100%, display 118%. Never substitute a non-variable fallback face and never simulate the narrow cut with letter-spacing alone.",
+        "section": "typography"
+      },
+      {
+        "name": "The Machine Face Rule",
+        "body": "Anything a machine measured or generated \u2014 a timestamp, an address, a byte count, a key cap, an index-coverage watermark \u2014 is set in Martian Mono. Anything a person wrote is set in Archivo.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tracked Label Rule",
+        "body": "Uppercase always comes with the narrow width and 0.10em+ tracking. Uppercase at 100% width with normal tracking is not part of this system.",
+        "section": "typography"
+      },
+      {
+        "name": "The Joinery Rule",
+        "body": "Compartments are divided, not spaced. No card, no gap, no drop shadow between two parts of the frame. If two regions need separating, they get a hairline rule that meets the corners.",
+        "section": "layout"
+      },
+      {
+        "name": "The Pinned Geometry Rule",
+        "body": "60 / 40 / 32 are contract values shared with VirtualizedThreadList.tsx. Change them in both places or not at all.",
+        "section": "layout"
+      },
+      {
+        "name": "The One Shadow Rule",
+        "body": "If it is part of the frame, it has no shadow. If it floats over the frame, it takes --w-lift \u2014 the same value, never a softer or harder variant.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do rank by inversion: ink ground, frame text, on the selected row, the active toggle, and the primary button.",
+      "Do divide compartments with hairline rules that meet at the corners (rule-hard between compartments, rule between rows).",
+      "Do carry hierarchy on the width axis first \u2014 label 78%, sender 92%, text 100%, display 118%.",
+      "Do set every machine-measured value (time, address, byte size, count, key cap) in Martian Mono with tabular figures.",
+      "Do put anything sitting on sunk stock in ink-2 or darker.",
+      "Do give destructive actions physical distance (22px in the frame, 14px in the bay) and leave them outline until reached for.",
+      "Do use the authored Pictogram set for every glyph the app renders, solid fill on the 24 grid.",
+      "Do use CONTEXT.md's vocabulary verbatim in UI copy: Thread not conversation, Mail Account not mailbox, Screener not quarantine or spam folder, Verdict as Unscreened / Approved / Blocked. Star and Pin are different features and their words are not interchangeable.",
+      "Do keep env(safe-area-inset-*) in every edge-touching pad.",
+      "Do self-host faces from the app's own origin."
+    ],
+    "donts": [
+      "Don't put a card, a gap, or a drop shadow between two parts of the frame. --w-lift is only for things that genuinely float.",
+      "Don't give a control an ink colour. Controls take relief and rule; colour belongs to state.",
+      "Don't use fluor-flat as a ground anywhere but the Screener and its entry banner \u2014 one fluorescent statement per screen.",
+      "Don't invent a fifth role ink, or reuse an existing one for a state it does not name.",
+      "Don't strike a triage keystroke, or any state that does not persist. The strike belongs to decided, durable state.",
+      "Don't mark unread with bold or a coloured dot; the read row steps back in tone instead.",
+      "Don't stripe a Label down one edge of a row \u2014 a Label is a band, tinted the whole way round.",
+      "Don't animate a list's arrival, stagger rows, or transition height.",
+      "Don't round past 2px, or reach for a Tailwind radius utility expecting a soft corner.",
+      "Don't fetch a correspondent's image or a font from a CDN; marks are drawn from the address and faces are self-hosted.",
+      "Don't mix hairline outline glyphs with the solid set \u2014 including inside an adopted shadcn primitive.",
+      "Don't restyle a message body. It is third-party HTML in a sandboxed iframe and the design system stops at that boundary."
+    ]
+  }
+}

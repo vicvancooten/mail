@@ -1,3 +1,5 @@
+import { AuthPlate } from "../brand/AuthPlate.js";
+import { Mark } from "../brand/Mark.js";
 import { AppShell } from "./AppShell.js";
 import { useAuth } from "./AuthContext.js";
 import { ClaimForm } from "./ClaimForm.js";
@@ -10,13 +12,35 @@ export function AuthGate() {
 
   switch (state.kind) {
     case "loading":
-      return <p>Loading…</p>;
+      // No spinner: the mark itself is the wait. Session resume is a single
+      // same-origin request, so anything more elaborate would be on screen
+      // for less time than it took to draw.
+      return (
+        <div className="auth-frame" aria-busy="true">
+          <p className="auth-waiting">
+            <Mark size={26} />
+            <span>Opening the frame…</span>
+          </p>
+        </div>
+      );
     case "unclaimed":
-      return <ClaimForm />;
+      return (
+        <AuthPlate>
+          <ClaimForm />
+        </AuthPlate>
+      );
     case "login-required":
-      return <LoginForm />;
+      return (
+        <AuthPlate>
+          <LoginForm />
+        </AuthPlate>
+      );
     case "totp-required":
-      return <TotpChallengeForm />;
+      return (
+        <AuthPlate>
+          <TotpChallengeForm />
+        </AuthPlate>
+      );
     case "authenticated":
       return <AppShell user={state.user} />;
   }

@@ -12,6 +12,8 @@
     "dev": "concurrently -n backend,client -c blue,green \"pnpm:dev:backend\" \"pnpm:dev:client\"",
     "dev:client": "pnpm --filter @mail/client dev",
     "dev:backend": "pnpm --filter @mail/sync-backend dev",
+    "dev:infra:up": "docker compose -f compose.dev.yaml up -d && ./scripts/wait-for-postgres.sh && pnpm db:migrate",
+    "dev:infra:down": "docker compose -f compose.dev.yaml down",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",

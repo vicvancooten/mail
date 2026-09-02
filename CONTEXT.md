@@ -1,6 +1,10 @@
-# Mail (working title)
+# Wicket
 
 A fast, modern, self-hosted email client: a companion Sync Backend that talks to the user's existing mail servers, and speed-obsessed Clients that talk only to the Sync Backend.
+
+Named for the post-office service window, and for the small gate beside a large one that people
+pass through single file — both readings are Gatekeeper. The visual system is
+`docs/design/wicket-identity.html`; the terms below remain binding in UI copy regardless of it.
 
 ## Language
 
