@@ -7,7 +7,16 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!.agents", "!.claude", "!**/public", "!**/db/migrations"]
+    "includes": [
+      "**",
+      "!.agents",
+      "!.claude",
+      "!.github/skills",
+      "!**/public",
+      "!**/db/migrations",
+      "!**/.impeccable",
+      "!docs/design"
+    ]
   },
   "formatter": {
     "enabled": true,
