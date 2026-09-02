@@ -16,9 +16,14 @@ instance, see [`dev-setup.md`](dev-setup.md).
 
 ## Quick start (try it locally)
 
+Mail's own source is never part of the running stack — `compose.yaml` only pulls published images
+(see [ADR-0009](adr/0009-deployment-is-a-single-image-two-service-compose.md)) — so you don't need a
+clone of this repo to run it. Two files are enough: `compose.yaml` and `.env`.
+
 ```sh
-git clone https://github.com/vicvancooten/mail.git
-cd mail
+mkdir mail && cd mail
+curl -fsSLO https://raw.githubusercontent.com/vicvancooten/mail/main/compose.yaml
+curl -fsSLO https://raw.githubusercontent.com/vicvancooten/mail/main/.env.example
 cp .env.example .env
 ```
 
@@ -37,6 +42,9 @@ docker compose pull
 docker compose up -d
 docker compose logs -f app
 ```
+
+(If you do have a clone of this repo already — e.g. for development — `compose.yaml` and
+`.env.example` are at its root, so skip the two `curl`s and start from `cp .env.example .env`.)
 
 Wait for the log line that says `listening` — that same startup log also prints the one-time claim
 link (see [First run: claiming the instance](#first-run-claiming-the-instance)). Open
