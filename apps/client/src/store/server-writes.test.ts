@@ -176,22 +176,18 @@ describe("the bounded working set", () => {
   // pass) is comfortably under vitest's default 5s timeout locally, but not
   // on GitHub Actions' slower shared runners against fake-indexeddb — bump
   // it rather than the suite's global default.
-  it(
-    "holds the floor even against a Thread count far past it",
-    async () => {
-      for (let page = 0; page < 3; page++) {
-        await applyThreadDelta(ACCOUNT, delta({ created: ladder(500, page * 500) }), {
-          replace: false,
-        });
-      }
-      await flushScheduledWindowTrims();
+  it("holds the floor even against a Thread count far past it", async () => {
+    for (let page = 0; page < 3; page++) {
+      await applyThreadDelta(ACCOUNT, delta({ created: ladder(500, page * 500) }), {
+        replace: false,
+      });
+    }
+    await flushScheduledWindowTrims();
 
-      const page = await readThreadWindow(ACCOUNT, { limit: 5_000 });
-      expect(page.threads.length).toBeGreaterThanOrEqual(THREAD_WINDOW_FLOOR);
-      expect(page.threads.length).toBeLessThanOrEqual(THREAD_WINDOW_HIGH_WATER);
-    },
-    20_000,
-  );
+    const page = await readThreadWindow(ACCOUNT, { limit: 5_000 });
+    expect(page.threads.length).toBeGreaterThanOrEqual(THREAD_WINDOW_FLOOR);
+    expect(page.threads.length).toBeLessThanOrEqual(THREAD_WINDOW_HIGH_WATER);
+  }, 20_000);
 
   it("ignores a delta for a Thread below the window rather than growing the cache", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
