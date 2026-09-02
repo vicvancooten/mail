@@ -133,9 +133,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Rollback below re-pins to the previous commit's already-published
-          # sha tag, which needs HEAD~1 to be resolvable.
-          fetch-depth: 2
+          # Rollback below walks back through ancestors looking for one
+          # with an already-published sha tag (a prior push's `test` job
+          # can fail before `docker` ever runs, so HEAD~1 alone isn't
+          # guaranteed to have an image — see rollback-target below).
+          fetch-depth: 20
 
       - uses: docker/login-action@v3
         with:
@@ -192,7 +194,21 @@ jobs:
 
       - id: rollback-target
         name: Resolve the last-known-good sha tag (README.md#rolling-back)
-        run: echo "value=sha-$(git rev-parse --short HEAD~1)" >> "$GITHUB_OUTPUT"
+        # HEAD~1 isn't guaranteed to have been published: a push's `test`
+        # job can fail before `docker` ever runs (as happened here), so
+        # walk back through ancestors and use the first one GHCR actually
+        # has an image for.
+        run: |
+          for i in $(seq 1 19); do
+            sha=$(git rev-parse --short "HEAD~$i" 2>/dev/null) || break
+            candidate="sha-${sha}"
+            if docker buildx imagetools inspect "ghcr.io/${{ github.repository }}:${candidate}" >/dev/null 2>&1; then
+              echo "value=${candidate}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no previously published sha tag found within the available git history" >&2
+          exit 1
 
       - name: Exercise rollback (re-pin the immutable sha tag)
         env:
