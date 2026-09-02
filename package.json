@@ -6,7 +6,7 @@
   "engines": {
     "node": ">=22 <23"
   },
-  "packageManager": "pnpm@11.13.0",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "postinstall": "pnpm --filter @mail/shared build",
     "dev:client": "pnpm --filter @mail/client dev",
