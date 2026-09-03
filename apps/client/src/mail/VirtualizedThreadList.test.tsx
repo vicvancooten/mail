@@ -22,6 +22,8 @@ function makeThreads(count: number): CachedThread[] {
       starred: false,
       hasAttachments: false,
       inInbox: true,
+      folderRole: "inbox",
+      hasSentMessage: false,
       pinned: false,
       labelIds: [],
       heldSender: null,

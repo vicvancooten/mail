@@ -507,9 +507,57 @@ describe("MailSection", () => {
       expect.stringContaining("Older thread"),
       expect.stringContaining("Newer thread"),
     ]);
-    expect(screen.getByText("Pinned")).toBeDefined(); // the synthetic group header
+    // Scoped to the list itself (#74's own sidebar has a "Pinned" nav entry too).
+    expect(within(screen.getByRole("listbox")).getByText("Pinned")).toBeDefined(); // the synthetic group header
+  });
+});
+
+describe("Sidebar (#74)", () => {
+  it("Archive shows only Threads real archived Threads, hiding the ordinary Inbox", async () => {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-inbox", "acct-1", { subject: "Inbox thread" }),
+          makeThread("t-archived", "acct-1", {
+            subject: "Archived thread",
+            inInbox: false,
+            folderRole: "archive",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Inbox thread");
+    expect(screen.queryByText("Archived thread")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByText("Archived thread")).toBeDefined();
+    expect(screen.queryByText("Inbox thread")).toBeNull();
   });
 
+  it("Screener opens from its sidebar entry, same as the Gatekeeper banner's own button", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: "Screener" }));
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(screen.queryByText("Newer thread")).toBeNull();
+  });
+});
+
+describe("MailSection", () => {
   it("lists a synced Label in the filter-by-label picker, hidden entirely when there are none", async () => {
     await seedTwoThreads();
     stubFetch(never);

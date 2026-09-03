@@ -217,7 +217,10 @@ describe("search (#51)", () => {
     // leaving the results list (search-ux-spec.md §The surface) — its
     // Archive button is triage's real mouse affordance today.
     fireEvent.click(screen.getByText("Remote result"));
-    const archiveButton = await screen.findByRole("button", { name: /Archive/ });
+    // `getByTitle`, not `getByRole(..., { name: /Archive/ })` — the sidebar
+    // (#74) has its own "Archive" nav entry now, and this is the one button
+    // `ThreadDetailPane`'s own tooltip text uniquely names.
+    const archiveButton = await screen.findByTitle("Archive (e)");
     fireEvent.click(archiveButton);
 
     // The row stays — still in the results list — but visibly changed.

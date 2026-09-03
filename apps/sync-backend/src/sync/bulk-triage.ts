@@ -105,7 +105,10 @@ export async function applyBulkTriageAction(
  * write-through outbox exactly like a single-Thread archive does.
  */
 async function applyDone(db: Db, mailAccountId: string, threadIds: string[]): Promise<void> {
-  await db.update(threads).set({ inInbox: false }).where(inArray(threads.id, threadIds));
+  await db
+    .update(threads)
+    .set({ inInbox: false, folderRole: "archive" })
+    .where(inArray(threads.id, threadIds));
 
   const inboxMessageIds = await db
     .select({ id: messages.id })
@@ -175,7 +178,10 @@ export async function undoBulkTriageAction(
   const messageIds = messageRows.map((row) => row.id);
 
   if (action === "done") {
-    await db.update(threads).set({ inInbox: true }).where(inArray(threads.id, threadIds));
+    await db
+      .update(threads)
+      .set({ inInbox: true, folderRole: "inbox" })
+      .where(inArray(threads.id, threadIds));
     if (messageIds.length > 0) {
       await db
         .delete(protocolWrites)

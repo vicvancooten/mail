@@ -414,6 +414,23 @@ export const threads = pgTable(
     // Optimistic Action's ack, and the folder move is the asynchronous
     // mirror of it (ADR-0006).
     inInbox: boolean("in_inbox").notNull().default(true),
+    // Sidebar folder destinations (#74): `folderRole` is `inInbox`'s own
+    // sibling, not a re-derivation of it — an App-owned field `sync/
+    // mutations.ts`'s `archive`/`trash` cases (and the Screener decisions
+    // and Bulk Triage's `done` action that share their effect) set directly,
+    // synchronously, the same "ack now, real IMAP MOVE follows async"
+    // reasoning `inInbox`'s own comment gives. Kept as a third state next to
+    // `inInbox` rather than derived from it (`inInbox: false` alone can't
+    // say which) because the Archive and Trash sidebar entries need to tell
+    // the two apart. `hasSentMessage` below is the opposite shape — a real
+    // rollup-computed signal, because Sent has no Optimistic Action of its
+    // own to flip a flag: a Thread lands there by actually containing a
+    // Message the Sync Backend ingested from the account's real `\Sent`
+    // folder, which the rollup already sees on every pass.
+    folderRole: text("folder_role", { enum: ["inbox", "archive", "trash"] })
+      .notNull()
+      .default("inbox"),
+    hasSentMessage: boolean("has_sent_message").notNull().default(false),
     // Pin (#43, CONTEXT.md): an App Feature, `sync/mutations.ts`'s own field
     // exactly like `inInbox` above — no rollup ever touches it, only a
     // `setPinned` intent does. Deliberately not the same thing as `starred`:

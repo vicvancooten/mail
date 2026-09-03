@@ -311,10 +311,140 @@
    BODY / VIEW LAYOUTS
    ========================================================================= */
 
+/* ============================================================================
+   THE SIDEBAR — folder destinations (#74)
+   ========================================================================= */
+
+.mail-frame {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.mail-sidebar-toggle {
+  display: none;
+}
+
+.mail-sidebar-scrim {
+  display: none;
+}
+
+.mail-sidebar {
+  flex: 0 0 auto;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0;
+  overflow-y: auto;
+  border-right: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-panel);
+}
+
+.mail-sidebar-compose {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--w-aniline);
+  color: var(--w-bone);
+  font-family: inherit;
+  font-weight: 620;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mail-sidebar-folders,
+.mail-sidebar-labels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mail-sidebar-heading {
+  margin: 12px 14px 2px;
+  color: var(--w-ink-3);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.mail-sidebar-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 14px;
+  border: none;
+  background: transparent;
+  color: var(--w-ink-2);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mail-sidebar-item[data-active="true"] {
+  background: var(--w-ink);
+  color: var(--w-frame);
+}
+
+.mail-sidebar-count {
+  font-size: 11px;
+  font-weight: 620;
+  color: inherit;
+}
+
 .mail-body {
   flex: 1;
   min-height: 0;
   position: relative;
+}
+
+/* Drafts (#74) and any other folder with nothing to show it. */
+.mail-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--w-ink-3);
+  font-size: 13px;
+}
+
+.draft-list {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.draft-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-bottom: var(--w-hair) solid var(--w-rule);
+  background: var(--w-frame);
+  color: var(--w-ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.draft-row .subject {
+  font-weight: 560;
+  font-size: 13px;
+}
+
+.draft-row .sender {
+  color: var(--w-ink-2);
+  font-size: 12px;
 }
 
 .split-view {
@@ -1898,6 +2028,54 @@ button.search-chip-toggle.on {
    ========================================================================= */
 
 @media (max-width: 700px) {
+  /* The Sidebar (#74): a permanent rail has no room on a phone, so it
+     becomes a bottom sheet instead, opened from its own toggle. `open`
+     slides it up from the bottom edge; the scrim behind it is what makes a
+     tap outside dismiss it, same as `LabelPicker`'s own popover. */
+  .mail-sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    width: 32px;
+    height: 32px;
+    border: var(--w-hair) solid var(--w-rule-hard);
+    background: var(--w-panel);
+    color: var(--w-ink);
+    cursor: pointer;
+  }
+
+  .mail-sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgb(0 0 0 / 40%);
+  }
+
+  .mail-sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 21;
+    width: auto;
+    max-height: 70vh;
+    border-right: none;
+    border-top: var(--w-hair) solid var(--w-rule-hard);
+    box-shadow: var(--w-lift);
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    transform: translateY(100%);
+    transition: transform var(--w-dur-fast) var(--w-ease);
+  }
+
+  .mail-sidebar.open {
+    transform: translateY(0);
+  }
+
   /* Split collapses to List's own "one pane at a time" behavior: there's
      no room for list + reading pane side by side on a phone. `has-selection`
      (set in `SplitView.tsx`) is the same signal List already gets for free

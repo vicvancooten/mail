@@ -213,6 +213,6 @@ async function trashHeldThreads(
 
   await db
     .update(threads)
-    .set({ heldSender: null, heldAt: null, inInbox: false })
+    .set({ heldSender: null, heldAt: null, inInbox: false, folderRole: "trash" })
     .where(inArray(threads.id, heldThreadIds));
 }

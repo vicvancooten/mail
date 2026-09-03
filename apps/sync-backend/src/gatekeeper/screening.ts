@@ -238,5 +238,8 @@ async function trashOnArrival(
     .limit(1);
   if (stillInInbox.length > 0) return;
 
-  await db.update(threads).set({ inInbox: false }).where(eq(threads.id, threadId));
+  await db
+    .update(threads)
+    .set({ inInbox: false, folderRole: "trash" })
+    .where(eq(threads.id, threadId));
 }

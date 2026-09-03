@@ -60,6 +60,28 @@ export const threadSchema = z.object({
    */
   inInbox: z.boolean(),
   /**
+   * The sidebar folder destination this Thread currently sits in (#74),
+   * beyond the plain "in the Inbox or not" `inInbox` above: `"archive"` and
+   * `"trash"` are what tell the two apart, App-owned exactly like `inInbox`
+   * — set synchronously by `archive`/`trash` (and the Screener decisions and
+   * Bulk Triage's `done` action that share their effect), the real IMAP
+   * `MOVE` following asynchronously after. One-directional today, the same
+   * as `inInbox`: nothing sets a Thread back to `"inbox"` from `"archive"`
+   * (there is no unarchive yet) except Bulk Triage's own Undo.
+   */
+  folderRole: z.enum(["inbox", "archive", "trash"]),
+  /**
+   * Whether this Thread has at least one Message the Sync Backend ingested
+   * from the account's real `\Sent` folder (#74) — unlike `folderRole`
+   * above, a real signal recomputed by `sync/thread-rollup.ts` on every
+   * pass, never an Optimistic Action's own field, because there is no
+   * "queue this to become Sent" intent: a Thread lands here by actually
+   * containing a sent Message. Independent of `folderRole`/`inInbox` — a
+   * sent reply can still be sitting in the Inbox, or since archived — and
+   * belongs in the Sent sidebar view either way.
+   */
+  hasSentMessage: z.boolean(),
+  /**
    * Whether this Thread is Pinned (#43): an App Feature, deliberately
    * distinct from `starred` (CONTEXT.md — a Star says "this matters", a Pin
    * says "keep this in front of me"). The Client sorts Pinned Threads to the

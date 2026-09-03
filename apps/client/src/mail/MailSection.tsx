@@ -15,6 +15,7 @@ import {
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
+  useDraftCompositions,
   useLabels,
   useMailAccounts,
   usePreference,
@@ -22,6 +23,7 @@ import {
   useThreadWindow,
 } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
+import { DraftsView } from "./DraftsView.js";
 import {
   type AccountScope as AccountScopeIds,
   readListDensity,
@@ -33,10 +35,12 @@ import {
   writeStreamMode,
   writeViewMode,
 } from "./device-preferences.js";
+import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
 import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
+import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
@@ -93,12 +97,18 @@ const Composer = lazy(() =>
  */
 export function MailSection({
   initialLabelFilter = null,
+  initialFolder,
   initialThreadId = null,
   onLocationChange,
 }: {
   initialLabelFilter?: string | null;
+  initialFolder?: FolderKey;
   initialThreadId?: string | null;
-  onLocationChange?: (location: { labelFilter: string | null; threadId: string | null }) => void;
+  onLocationChange?: (location: {
+    labelFilter: string | null;
+    folder: FolderKey;
+    threadId: string | null;
+  }) => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
@@ -117,13 +127,17 @@ export function MailSection({
   const accountId = accountScope[0] ?? null;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
-  // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen
-  // swap of `.mail-body`, the same shape `search.active` already uses below
-  // — deliberately still a boolean and a conditional render, not a route
-  // (#71 gives `/mail` a route, but the Screener is a working surface layered
-  // over it, the same reasoning ADR-0017 gives for search).
-  const [screenerOpen, setScreenerOpen] = useState(false);
+  // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`): the
+  // Screener is one of these entries too, so `screenerOpen` below is derived
+  // from it rather than a second, independently-toggled boolean — one state
+  // that both the Sidebar's "which entry is active" highlight and the body
+  // switch below read, never two that could disagree.
+  const [folder, setFolder] = useState<FolderKey>(initialFolder ?? DEFAULT_FOLDER);
+  // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen swap
+  // of `.mail-body`, the same shape `search.active` already uses below.
+  const screenerOpen = folder === "screener";
   const screenerSenders = useScreenerSenders(accountId) ?? [];
+  const draftCompositions = useDraftCompositions(accountId) ?? [];
   // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
   // User-scoped and synced — `usePreference()` already carries `base ⊕
   // pending`, so a change made offline (or on another device) is reflected
@@ -141,8 +155,8 @@ export function MailSection({
   // (#71); an unrouted caller (every test in this file) leaves it unset and
   // nothing happens.
   useEffect(() => {
-    onLocationChange?.({ labelFilter, threadId: selectedThreadId });
-  }, [labelFilter, selectedThreadId, onLocationChange]);
+    onLocationChange?.({ labelFilter, folder, threadId: selectedThreadId });
+  }, [labelFilter, folder, selectedThreadId, onLocationChange]);
 
   // One composer at a time (#45, compose-spec §Composer surface & keys).
   // Reads `readOpenComposerId()` once, at mount, so a composer left open
@@ -205,23 +219,25 @@ export function MailSection({
   // account still has to be picked out from the rest, the same "switch to
   // it" behavior the pre-Scope account switcher had. Resets the transient
   // view state the same way a User-driven Scope change to a new primary
-  // does (`changeAccountScope` below).
+  // does (`changeAccountScope` below) — including the folder (#74), since a
+  // narrowed Scope may not have the previous folder's contents at all.
   const narrowScopeTo = useCallback(
     (id: string) => {
       setAccountScope([id]);
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
       setLabelFilter(null);
+      setFolder(DEFAULT_FOLDER);
       setScreenerOpen(false);
     },
     [setAccountScope],
   );
 
   // The Account Scope control's own onChange (#73): the transient view
-  // state (selection, label filter, Screener, page size) only resets when
-  // the *primary* account (Scope's first member) actually changes — adding
-  // or removing a non-primary account from Scope shouldn't drop whatever
-  // the User was looking at.
+  // state (selection, label filter, folder, Screener, page size) only
+  // resets when the *primary* account (Scope's first member) actually
+  // changes — adding or removing a non-primary account from Scope shouldn't
+  // drop whatever the User was looking at.
   const changeAccountScope = useCallback(
     (ids: AccountScopeIds) => {
       const previousPrimary = accountId;
@@ -230,6 +246,7 @@ export function MailSection({
         setSelectedThreadId(null);
         setLimit(THREAD_PAGE_SIZE);
         setLabelFilter(null);
+        setFolder(DEFAULT_FOLDER);
         setScreenerOpen(false);
       }
     },
@@ -242,9 +259,26 @@ export function MailSection({
   const openScreener = useCallback(() => {
     if (!accountId) return;
     writeScreenerViewed(accountId);
-    setScreenerOpen(true);
+    setFolder("screener");
   }, [accountId]);
-  const closeScreener = useCallback(() => setScreenerOpen(false), []);
+  const closeScreener = useCallback(() => setFolder(DEFAULT_FOLDER), []);
+
+  // The Sidebar's folder destinations (#74): every entry but Screener lands
+  // here directly; Screener's own `writeScreenerViewed` side effect means it
+  // still goes through `openScreener` above rather than a bare `setFolder`.
+  const selectFolder = useCallback(
+    (next: FolderKey) => {
+      if (next === "screener") {
+        openScreener();
+        return;
+      }
+      setFolder(next);
+      setLabelFilter(null);
+      setSelectedThreadId(null);
+      setLimit(THREAD_PAGE_SIZE);
+    },
+    [openScreener],
+  );
 
   // A notification click landing here (#53, ADR-0015: "a click always
   // lands where the next decision is"): the service worker only knows how
@@ -260,6 +294,7 @@ export function MailSection({
         case "thread":
           if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
           setLabelFilter(null);
+          setFolder(DEFAULT_FOLDER);
           setSelectedThreadId(target.threadId);
           return;
         case "failed-send":
@@ -278,6 +313,7 @@ export function MailSection({
     setLabelFilter(labelId);
     setSelectedThreadId(null);
     setLimit(THREAD_PAGE_SIZE);
+    if (labelId !== null) setFolder(DEFAULT_FOLDER);
   }, []);
 
   const changeViewMode = useCallback((mode: typeof viewMode) => {
@@ -307,8 +343,8 @@ export function MailSection({
   );
 
   const view = useMemo(
-    () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : "all"),
-    [labelFilter],
+    () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : folderToView(folder)),
+    [labelFilter, folder],
   );
   // Account Scope (#73): merges every in-scope account's Threads into one
   // newest-first list (`useThreadWindow`'s own doc comment) — the acceptance
@@ -460,56 +496,74 @@ export function MailSection({
           wrote a fresh cursor — remounting is what picks it up, so the
           banner doesn't still claim "unseen" for holds it was just shown. */}
       {!screenerOpen && <GatekeeperBanner mailAccountId={accountId} onOpen={openScreener} />}
-      <div className="mail-body">
-        {screenerOpen && accountId ? (
-          <Screener mailAccountId={accountId} onClose={closeScreener} />
-        ) : search.active ? (
-          <SearchResultsView
-            viewMode={viewMode}
-            state={search}
-            triage={searchTriage}
-            onReply={openReply}
-            accounts={mailAccounts}
-            mailAccountId={accountId}
-          />
-        ) : streamMode ? (
-          <StreamView
-            threads={threads}
-            ids={ids}
-            selectedThreadId={selectedThreadId}
-            onSelect={setSelectedThreadId}
-            triage={triage}
-            onReply={openReply}
-          />
-        ) : viewMode === "split" ? (
-          <SplitView
-            threads={threads}
-            ids={ids}
-            complete={page.complete}
-            selectedThreadId={selectedThreadId}
-            onSelect={setSelectedThreadId}
-            onClearSelection={() => setSelectedThreadId(null)}
-            onLoadMore={loadMore}
-            triage={triage}
-            onReply={openReply}
-            initialScrollThreadId={selectedThreadId}
-            rowHeight={rowHeight}
-          />
-        ) : (
-          <ListView
-            threads={threads}
-            ids={ids}
-            complete={page.complete}
-            selectedThreadId={selectedThreadId}
-            onSelect={setSelectedThreadId}
-            onBack={() => setSelectedThreadId(null)}
-            onLoadMore={loadMore}
-            triage={triage}
-            onReply={openReply}
-            initialScrollThreadId={selectedThreadId}
-            rowHeight={rowHeight}
-          />
-        )}
+      <div className="mail-frame">
+        <Sidebar
+          folder={folder}
+          onSelectFolder={selectFolder}
+          labels={labelsForPicker}
+          labelFilter={labelFilter}
+          onSelectLabel={selectLabelFilter}
+          onCompose={openCompose}
+          screenerCount={screenerSenders.length}
+          draftsCount={draftCompositions.length}
+        />
+        <div className="mail-body">
+          {screenerOpen && accountId ? (
+            <Screener mailAccountId={accountId} onClose={closeScreener} />
+          ) : search.active ? (
+            <SearchResultsView
+              viewMode={viewMode}
+              state={search}
+              triage={searchTriage}
+              onReply={openReply}
+              accounts={mailAccounts}
+              mailAccountId={accountId}
+            />
+          ) : folder === "drafts" ? (
+            <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
+          ) : folder === "snoozed" ? (
+            <div className="mail-empty-state" role="status">
+              Nothing snoozed yet — Snooze lands in its own ticket.
+            </div>
+          ) : streamMode ? (
+            <StreamView
+              threads={threads}
+              ids={ids}
+              selectedThreadId={selectedThreadId}
+              onSelect={setSelectedThreadId}
+              triage={triage}
+              onReply={openReply}
+            />
+          ) : viewMode === "split" ? (
+            <SplitView
+              threads={threads}
+              ids={ids}
+              complete={page.complete}
+              selectedThreadId={selectedThreadId}
+              onSelect={setSelectedThreadId}
+              onClearSelection={() => setSelectedThreadId(null)}
+              onLoadMore={loadMore}
+              triage={triage}
+              onReply={openReply}
+              initialScrollThreadId={selectedThreadId}
+              rowHeight={rowHeight}
+            />
+          ) : (
+            <ListView
+              threads={threads}
+              ids={ids}
+              complete={page.complete}
+              selectedThreadId={selectedThreadId}
+              onSelect={setSelectedThreadId}
+              onBack={() => setSelectedThreadId(null)}
+              onLoadMore={loadMore}
+              triage={triage}
+              onReply={openReply}
+              initialScrollThreadId={selectedThreadId}
+              rowHeight={rowHeight}
+            />
+          )}
+        </div>
       </div>
       <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
       <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />

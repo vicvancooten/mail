@@ -27,6 +27,8 @@ const VALID_THREAD = {
   starred: false,
   hasAttachments: false,
   inInbox: true,
+  folderRole: "inbox",
+  hasSentMessage: false,
   pinned: false,
   labelIds: ["account-1:Work"],
   heldSender: null,
