@@ -17,40 +17,23 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================================
-   Local, literal tokens with no @mail/design-tokens equivalent: the strike
-   overprint (a Wicket-only affordance) and the interaction-motion constants
-   every surface's transitions share. Everything else — colour, radius, type
-   — comes straight from `@mail/design-tokens` above; nothing re-declares it
-   here any more (the `--w-*` compatibility aliases this block used to hold
-   are gone now that `src/mail`, `src/compose` and `src/brand` reference the
-   tokens directly, #83). The avatar tile palette the comp's correspondent
-   discs are drawn from lives in `@mail/design-tokens` too, as
-   `--tile-a-bg`…`--tile-e-ink` (#86).
+   The interaction-motion constants every surface's transitions share — the
+   comp's own three curves and two durations
+   (`docs/design/prototypes/the-instrument.html`), the only local tokens with
+   no `@mail/design-tokens` equivalent. Everything else — colour, radius,
+   type, the avatar tile palette — comes straight from that package above;
+   nothing re-declares it here (#83, #86).
    ========================================================================= */
 :root {
-  --strike-blend: multiply;
-  --strike-wet: 0.4;
-  --strike-set: 0.84;
-
-  --ease: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-strike: cubic-bezier(0.16, 0.9, 0.12, 1);
+  /* The default: a control answering a pointer. */
+  --ease: cubic-bezier(0.22, 0.8, 0.32, 1);
+  /* Something arriving or leaving — a toast, a panel, a row clearing. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Something growing into a target under the pointer: the row's Done
+     control, the group header's Done-all node. */
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
   --dur-press: 120ms;
-  --dur-fast: 150ms;
-  --dur-strike: 190ms;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) {
-    --strike-blend: plus-lighter;
-    --strike-wet: 0.32;
-    --strike-set: 0.76;
-  }
-}
-
-:root.dark {
-  --strike-blend: plus-lighter;
-  --strike-wet: 0.32;
-  --strike-set: 0.76;
+  --dur-fast: 190ms;
 }
 
 /* ==========================================================
@@ -217,78 +200,6 @@
   .lucide {
     stroke-width: 1.6;
   }
-}
-
-/* ============================================================================
-   THE STRIKE
-   State struck across the item, never badged beside it. Scoped by contract to
-   things that *persist* in a changed state — a search row you acted on, a
-   Screener slip, a held or blocked sender, a failed send, the rollback toast.
-   Never on a triage keystroke: `store/reads.ts` removes an archived Thread
-   from the list the instant the mutation is queued, and holding that row open
-   to show ink would tax the one thing that must stay snap-instant.
-   ========================================================================= */
-.strike {
-  position: relative;
-}
-
-.strike::after {
-  content: attr(data-strike);
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  translate: -50% -50%;
-  rotate: var(--strike-tilt, -5deg);
-  pointer-events: none;
-  mix-blend-mode: var(--strike-blend);
-  opacity: var(--strike-set);
-  color: var(--strike-ink, var(--color-accent));
-  font-family: var(--font-sans);
-  font-stretch: 70%;
-  font-weight: 800;
-  font-size: 21px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  padding: 1px 10px;
-  border: 2.5px solid currentColor;
-  border-radius: var(--radius-md);
-}
-
-/* Wet: the Sync Backend has not answered yet. It sets when the action is
-   confirmed, and lifts on rollback. */
-.strike[data-wet="true"]::after {
-  opacity: var(--strike-wet);
-}
-
-/* An inline overprint, for a badge-sized statement inside a row. */
-.overprint {
-  display: inline-block;
-  font-stretch: 74%;
-  font-weight: 750;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 1.5px 6px;
-  border-radius: var(--radius-md);
-  border: 1.5px solid currentColor;
-  rotate: var(--strike-tilt, -3deg);
-  color: var(--strike-ink, var(--color-ink-muted));
-  white-space: nowrap;
-}
-
-.overprint--held {
-  --strike-ink: var(--color-warn);
-}
-.overprint--blocked,
-.overprint--failed {
-  --strike-ink: var(--color-danger);
-}
-.overprint--done {
-  --strike-ink: var(--color-accent);
-}
-.overprint--admitted {
-  --strike-ink: var(--color-success);
 }
 
 /* ============================================================================

@@ -1,15 +1,25 @@
 /**
- * Geometry: rules divide regions, corners stay tight, and the one shadow in
- * the system is reserved for things that genuinely float above the ground
- * (popovers, dialogs) — nothing else casts one.
+ * Geometry: the comp's own radius ladder
+ * (`docs/design/prototypes/the-instrument.html`, `--r-control`/`--r-panel`/
+ * `--r-pill` plus the 10-11px it draws list rows at), and the one shadow in
+ * the system, reserved for things that genuinely float above the ground
+ * (popovers, dialogs, the composer) — nothing else casts one. Regions are
+ * separated by ground and gap, not by joinery, so `hairline` survives only
+ * for the few places a rule genuinely reads as structure.
  */
 export const hairline = "1px";
 
 export const radii = {
-  /** Inline controls: a pill toggle's inner slice, small chips. */
+  /** Inline controls: a chip, a keycap, a swatch. */
   sm: "6px",
-  /** The default: buttons, inputs, panels, the overlay layer. */
+  /** The default control corner: buttons, inputs, icon buttons. */
   md: "8px",
+  /** A list row or a menu item — the comp's own 10-11px row corner. */
+  row: "11px",
+  /** A floating panel: the Command Palette, a popover, the composer, a card. */
+  panel: "16px",
+  /** A pill: Compose, the global search entry, the primary Send. */
+  pill: "999px",
 } as const;
 
 export interface ShadowTheme {

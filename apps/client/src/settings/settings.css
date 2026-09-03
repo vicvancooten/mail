@@ -153,7 +153,7 @@
   text-transform: uppercase;
   transition:
     background var(--dur-press) linear,
-    transform var(--dur-press) var(--ease-strike);
+    transform var(--dur-press) var(--ease-out);
 }
 
 .settings-section button:hover:not(:disabled) {

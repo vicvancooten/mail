@@ -1,8 +1,13 @@
 /*
  * The docked composer (compose-spec §Composer surface & keys): bottom-right
- * overlay, expandable to full screen. Reads The Instrument's own tokens
- * (`@mail/design-tokens`, wired through `src/index.css`) directly — no `--w-*`
- * back-compat aliases left in this surface (#81).
+ * overlay, expandable to full screen. The comp does not render a composer,
+ * so #87 extended its own vocabulary rather than reaching back for the old
+ * system's: the composer is the one panel in Mail that genuinely floats, so
+ * it takes `--radius-panel` and the single `--shadow-overlay`, its regions
+ * are separated by ground and gap rather than by hairlines, its controls are
+ * transparent at rest / `--color-hover` under the pointer / accent-soft when
+ * active, and Send is an accent pill — the same primary treatment the folder
+ * rail's Compose already carries, because they are the two ends of one act.
  */
 
 .composer {
@@ -14,8 +19,8 @@
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
+  border: none;
+  border-radius: var(--radius-panel);
   box-shadow: var(--shadow-overlay);
   z-index: 50;
   overflow: hidden;
@@ -34,9 +39,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--color-surface-strong);
-  border-bottom: var(--hairline) solid var(--color-border);
+  gap: 10px;
+  padding: 12px 16px 8px;
+  background: transparent;
+  border-bottom: none;
   font-size: 13px;
   color: var(--color-ink-muted);
 }
@@ -61,6 +67,14 @@
   padding: 4px 6px;
   border-radius: var(--radius-md);
 }
+
+/* Cc/Bcc reveals two more fields, so it sits at the head of the column it
+   would add to rather than centred across it. */
+.composer-show-ccbcc {
+  align-self: flex-start;
+  margin: 0 12px 4px;
+  padding: 4px 8px;
+}
 .composer-header-actions button:hover,
 .composer-show-ccbcc:hover {
   background: var(--color-surface-strong);
@@ -69,15 +83,18 @@
 .composer-recipients {
   display: flex;
   flex-direction: column;
-  border-bottom: var(--hairline) solid var(--color-border);
+  border-bottom: none;
 }
 
 .recipient-field {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  padding: 4px 12px;
-  border-bottom: var(--hairline) solid var(--color-border);
+  gap: 8px;
+  margin: 0 12px 4px;
+  padding: 5px 8px;
+  border-bottom: none;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
   position: relative;
 }
 .recipient-field:last-child {
@@ -86,8 +103,8 @@
 .recipient-field-label {
   font-size: 13px;
   color: var(--color-ink-faint);
-  padding-top: 4px;
-  width: 28px;
+  padding-top: 5px;
+  width: 30px;
   flex-shrink: 0;
 }
 .recipient-chips {
@@ -171,10 +188,11 @@
   outline: none;
   background: none;
   color: var(--color-ink);
-  font-size: 14px;
-  font-weight: 500;
-  padding: 8px 12px;
-  border-bottom: var(--hairline) solid var(--color-border);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  padding: 10px 20px 8px;
+  border-bottom: none;
 }
 
 .compose-toolbar {
@@ -182,8 +200,8 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 2px;
-  padding: 4px 8px;
-  border-bottom: var(--hairline) solid var(--color-border);
+  padding: 4px 12px;
+  border-bottom: none;
 }
 .compose-toolbar-button {
   background: none;
@@ -201,11 +219,12 @@
   background: var(--color-field);
   color: var(--color-ink);
 }
+/* A run of controls is separated from the next by room, not by a rule. */
 .compose-toolbar-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--color-border);
-  margin: 0 4px;
+  width: 10px;
+  height: 1px;
+  background: transparent;
+  margin: 0;
 }
 
 .compose-swatch-picker {
@@ -323,6 +342,10 @@
   padding: 4px 8px;
 }
 
+.composer-body {
+  padding: 4px 20px 16px;
+}
+
 /*
  * The send control (#46): the button, its warn-once label, and the Undo Send
  * window picker, pinned to the bottom of the composer.
@@ -331,9 +354,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px;
-  border-top: var(--hairline) solid var(--color-border);
-  background: var(--color-surface-strong);
+  padding: 12px 16px;
+  border-top: none;
+  background: transparent;
 }
 
 .composer-send-button {
@@ -393,12 +416,12 @@
   align-items: center;
   gap: 12px;
   max-width: min(420px, calc(100vw - 32px));
-  padding: 8px 12px;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-strong);
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
   box-shadow: var(--shadow-overlay);
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--color-ink);
 }
 
@@ -506,12 +529,13 @@
 
 .send-failure-open {
   flex: none;
-  background: none;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 3px 8px;
+  background: var(--color-field);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
   color: var(--color-accent);
-  font-size: 12px;
+  font-weight: 600;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
@@ -529,14 +553,17 @@
 .mail-quote-edit {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: var(--color-surface-strong);
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 3px 8px;
+  gap: 5px;
+  background: var(--color-field);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 4px 11px;
   color: var(--color-ink-muted);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 .mail-quote-toggle svg {
   transition: transform 0.1s ease;
@@ -568,9 +595,9 @@
 .attachments-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 12px;
-  border-top: var(--hairline) solid var(--color-border);
+  gap: 5px;
+  padding: 8px 16px;
+  border-top: none;
 }
 
 .attachments-budget-error {
@@ -579,9 +606,9 @@
 }
 
 .attachments-budget-bar {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--color-border);
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
   overflow: hidden;
 }
 
@@ -628,41 +655,32 @@
 }
 
 /* ============================================================================
-   THE INSTRUMENT — material overrides.
-   Sit at the end so the layout above stays the authority on geometry and
-   this section only speaks to material: the tray-label header, the machine
-   face on addresses and send controls, rank-by-inversion on the primary and
-   active states.
+   THE INSTRUMENT — material.
+   Sits at the end so the layout above stays the authority on geometry and
+   this section only speaks to material: what is filled, what is quiet, and
+   which single control is the primary.
    ========================================================================= */
 
-/* The composer floats above the frame, so it is one of the few things in the
-   product entitled to the system's single shadow. */
-.composer {
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-/* Its head is a tray label. */
+/* The composer's head names the account it will send as, and nothing else —
+   it is not a label plate across the top of the panel. */
 .composer-header {
-  background: var(--color-field);
-  font-weight: 640;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-ink-faint);
 }
 
 .composer-from {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0;
-  text-transform: none;
+  font-size: 11.5px;
   color: var(--color-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* #81: the explicit From picker — several Scope accounts, no reply context.
-   A plain `<select>`, reset to the same machine-face reading `.composer-from`
-   already has, so choosing an account never looks like a different control. */
+   A plain `<select>`, reset to the same reading `.composer-from` already has,
+   so choosing an account never looks like a different control. */
 .composer-from-select {
   appearance: none;
   border: none;
@@ -671,154 +689,185 @@
   max-width: 200px;
 }
 
-.recipient-field-label,
+.composer-header-actions button,
 .composer-show-ccbcc {
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
-/* A recipient is a Correspondent: an address the User has actually exchanged
-   mail with. It reads in the machine face, like every other address. */
-.recipient-chip {
-  border-radius: var(--radius-sm);
-  background: var(--color-field);
-  border: var(--hairline) solid var(--color-border);
-  font-family: var(--font-mono);
-  font-size: 10px;
+.composer-header-actions button:hover,
+.composer-show-ccbcc:hover {
+  background: var(--color-hover);
   color: var(--color-ink);
 }
 
+/* A recipient is a Correspondent: an address the User has actually exchanged
+   mail with. It reads as a filled chip on the field it sits in, not as a
+   bordered plate. */
+.recipient-chip {
+  border-radius: var(--radius-pill);
+  background: var(--color-field-strong);
+  border: none;
+  color: var(--color-ink);
+  font-size: 12.5px;
+}
+
 .recipient-chip.invalid {
-  border-color: var(--color-danger);
+  background: color-mix(in oklab, var(--color-danger) 14%, transparent);
   color: var(--color-danger);
+  outline: none;
 }
 
-.composer-subject {
-  font-weight: 660;
+.recipient-suggestions,
+.compose-swatch-menu,
+.slash-menu,
+.compose-bubble-menu {
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  padding: 6px;
 }
 
-/* Toolbar controls take no ink colour — only relief and rule. The active one
-   inverts, the way every other control in the frame ranks itself. */
-.compose-toolbar {
-  background: var(--color-surface-strong);
+.recipient-suggestions button,
+.slash-menu-item {
+  border-radius: var(--radius-row);
 }
 
+.recipient-suggestions button.highlighted,
+.recipient-suggestions button:hover,
+.slash-menu-item:hover {
+  background: var(--color-hover);
+}
+
+.slash-menu-item.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* Toolbar controls are transparent at rest, filled under the pointer, and
+   accent-soft when the mark they apply is currently on — the same three
+   states every other control in the App has. */
 .compose-toolbar-button {
   border-radius: var(--radius-md);
   color: var(--color-ink-muted);
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
 .compose-toolbar-button:hover {
-  background: var(--color-field);
+  background: var(--color-hover);
   color: var(--color-ink);
 }
 
 .compose-toolbar-button.active {
-  background: var(--color-ink);
-  color: var(--color-bg);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
-.compose-swatch-menu,
-.recipient-suggestions,
-.slash-menu,
-.compose-bubble-menu {
-  box-shadow: var(--shadow-overlay);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  border: var(--hairline) solid var(--color-border);
+.compose-swatch {
+  border-radius: 50%;
+  border: none;
 }
 
-/* Send is the primary and inverts the stock. */
-.composer-send {
-  background: var(--color-field);
-  border-top: var(--hairline) solid var(--color-border);
-}
-
+/* Send is the primary, and the only filled control in the panel. */
 .composer-send-button {
-  border-radius: var(--radius-md);
+  height: 36px;
+  padding: 0 20px;
+  border-radius: var(--radius-pill);
   background: var(--color-accent);
-  border: 1.5px solid var(--color-accent);
+  border: none;
   color: var(--color-accent-foreground);
-  font-weight: 680;
-  font-size: 11px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 13.5px;
+  transition: filter var(--dur-press) var(--ease);
+}
+
+.composer-send-button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.composer-send-button:disabled {
+  background: var(--color-field);
+  color: var(--color-ink-faint);
 }
 
 .composer-send-delay,
 .composer-send-delay select {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12.5px;
   color: var(--color-ink-muted);
+}
+
+.composer-send-delay select {
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+  padding: 4px 8px;
 }
 
 /* Undo Send: a Pending Send is owned by the backend and survives the Client
    closing, so the bar states the fact rather than counting at you. */
-.pending-send-bar {
-  background: var(--color-ink);
-  color: var(--color-bg);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-overlay);
-}
-
 .pending-send-label {
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 13.5px;
+  color: var(--color-ink);
 }
 
 .pending-send-undo {
-  border: 1.5px solid color-mix(in oklab, var(--color-bg) 45%, transparent);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: inherit;
-  font-weight: 660;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-weight: 600;
+  font-size: 12.5px;
 }
 
-/* A failed send persists in a changed state, so it is one of the places the
-   strike belongs: NOT SENT, struck in postal red. */
+.pending-send-undo:hover {
+  filter: brightness(1.08);
+}
+
+/* A failed send persists in a changed state, so it says so plainly — a tint,
+   a danger dot and the SMTP detail verbatim. The old system overprinted
+   "NOT SENT" across it at an angle; nothing in The Instrument tilts. */
+.send-failure-banner,
+.composer-conflict-banner {
+  border: none;
+  border-radius: 14px;
+}
+
 .send-failure-banner {
   background: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
-  border: var(--hairline) solid color-mix(in oklab, var(--color-danger) 42%, var(--color-border));
-  border-radius: var(--radius-md);
-}
-
-.send-failure-text::before {
-  content: "Not sent";
-  display: inline-block;
-  margin-right: 9px;
-  padding: 1px 6px;
-  border: 1.5px solid var(--color-danger);
-  border-radius: var(--radius-md);
-  color: var(--color-danger);
-  font-stretch: 74%;
-  font-weight: 780;
-  font-size: 9px;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  rotate: -3.5deg;
-}
-
-.send-failure-subject {
-  font-stretch: 96%;
-  font-weight: 640;
-}
-
-.send-failure-detail {
-  font-family: var(--font-mono);
-  font-size: 10px;
 }
 
 .composer-conflict-banner {
   background: color-mix(in oklab, var(--color-warn) 14%, var(--color-surface));
-  border: var(--hairline) solid color-mix(in oklab, var(--color-warn) 40%, var(--color-border));
-  border-radius: var(--radius-md);
+}
+
+.send-failure-text::before {
+  content: "";
+  display: inline-block;
+  vertical-align: middle;
+  width: 8px;
+  height: 8px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--color-danger);
+}
+
+.send-failure-subject {
+  font-weight: 600;
+}
+
+.send-failure-detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 /* Attachment sizes and the budget bar are measurement: machine face. */
@@ -826,11 +875,12 @@
 .attachment-row-progress,
 .attachments-budget-error {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
 }
 
 .attachments-budget-bar {
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: var(--color-field);
 }
 
@@ -841,7 +891,7 @@
 .attachment-row-error {
   color: var(--color-danger);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* The Quoted Original is kept exactly as it arrived, never re-written into
@@ -853,9 +903,15 @@
 
 .mail-quote-toggle,
 .mail-quote-edit {
-  border-radius: var(--radius-md);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-weight: 500;
+  font-size: 12.5px;
+}
+
+.mail-quote-toggle:hover,
+.mail-quote-edit:hover {
+  background: var(--color-field-strong);
+  color: var(--color-ink);
 }
