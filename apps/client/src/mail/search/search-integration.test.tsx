@@ -150,7 +150,7 @@ describe("search (#51)", () => {
     // No Thread to wait for (deliberately none seeded) — wait for the top
     // bar itself to settle instead, or `/` can fire before `searchInputRef`
     // is attached to anything and land on nothing.
-    await screen.findByTitle("Compose (c)");
+    await screen.findByRole("button", { name: "Compose" });
     fireEvent.keyDown(window, { key: "/" });
     const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
     fireEvent.change(field, { target: { value: "nothing matches this" } });

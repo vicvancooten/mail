@@ -1,13 +1,35 @@
 import type { Label } from "@mail/shared";
+import type { LucideIcon } from "lucide-react";
+import {
+  Archive,
+  Clock,
+  Inbox,
+  PanelLeft,
+  Pencil,
+  Pin,
+  Plus,
+  Reply,
+  ShieldCheck,
+  Tag,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
-import { Pictogram } from "../brand/Pictogram.js";
 import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
 
 /**
- * The mail folder sidebar (#74): Compose, the fixed folder destinations in
- * `folders.ts#FOLDER_ORDER`, then the Mail Account's Labels — an
- * independently scrolling bounded pane (`mail.css`'s own `.mail-sidebar`
- * rule), not the thread list's own scroll container.
+ * The mail folder rail (#74, rebuilt against the comp in #86): a Compose
+ * pill, then the fixed folder destinations in `folders.ts#FOLDER_ORDER`,
+ * then the Mail Account's Labels — an independently scrolling bounded pane
+ * (`mail.css`'s own `.side-nav` rule), not the thread list's own scroll
+ * container.
+ *
+ * The comp's rail (`.side-nav` in
+ * `docs/design/prototypes/the-instrument.html`) is a run of transparent
+ * rounded rows on the page ground: no compartment head, no rules between
+ * entries, no inverted selection — the current entry is an `--accent-soft`
+ * tint with accent ink, and everything else is quiet until hovered. Each
+ * entry leads with a stroke icon, because a rail of bare words gives the eye
+ * nothing to aim at.
  *
  * Counts are a call to action, never decoration (the ticket's own
  * acceptance criterion): only the Screener's held count and Drafts' unsent
@@ -15,12 +37,23 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * `0` renders no badge at all.
  *
  * On phone this isn't a permanent rail: it's a bottom sheet, opened from its
- * own toggle (`.mail-sidebar-toggle`, shown only under the narrow-viewport
- * breakpoint `mail.css` already uses for Split/List) rather than the
- * header's hub mark — the App Switcher that mark opens is #72's own ticket,
- * landing in `router/RootLayout.tsx`; wiring the mark itself to this sheet
- * is a follow-up once that lands.
+ * own toggle (`.side-nav-toggle`, shown only under the narrow-viewport
+ * breakpoint `mail.css` already uses for Split/List). The header's hub mark
+ * stays the App Switcher at every width, as the comp has it — this sheet is
+ * Mail's own folder navigation, a different question.
  */
+
+const FOLDER_ICONS: Record<FolderKey, LucideIcon> = {
+  inbox: Inbox,
+  screener: ShieldCheck,
+  snoozed: Clock,
+  pinned: Pin,
+  drafts: Pencil,
+  sent: Reply,
+  archive: Archive,
+  trash: Trash2,
+};
+
 export function Sidebar({
   folder,
   onSelectFolder,
@@ -56,61 +89,56 @@ export function Sidebar({
     <>
       <button
         type="button"
-        className="mail-sidebar-toggle"
+        className="side-nav-toggle"
         onClick={() => setSheetOpen(true)}
         aria-label="Open folders"
         aria-expanded={sheetOpen}
       >
-        <Pictogram name="frame" size={18} />
+        <PanelLeft size={18} />
       </button>
       {sheetOpen ? (
-        <div
-          className="mail-sidebar-scrim"
-          onClick={() => setSheetOpen(false)}
-          aria-hidden="true"
-        />
+        <div className="side-nav-scrim" onClick={() => setSheetOpen(false)} aria-hidden="true" />
       ) : null}
-      <nav className={`mail-sidebar${sheetOpen ? " open" : ""}`} aria-label="Folders">
-        <button type="button" className="mail-sidebar-compose" onClick={onCompose}>
-          <Pictogram name="compose" size={16} />
+      <nav className={`side-nav${sheetOpen ? " open" : ""}`} aria-label="Folders">
+        <button type="button" className="compose-btn" onClick={onCompose}>
+          <Plus size={14} />
           Compose
         </button>
-        <ul className="mail-sidebar-folders">
+        <div className="nav-list">
           {FOLDER_ORDER.map((key) => {
             const count = key === "screener" ? screenerCount : key === "drafts" ? draftsCount : 0;
             const active = labelFilter === null && folder === key;
+            const Icon = FOLDER_ICONS[key];
             return (
-              <li key={key}>
-                <button
-                  type="button"
-                  className="mail-sidebar-item"
-                  data-active={active}
-                  onClick={() => selectFolder(key)}
-                >
-                  <span>{FOLDER_LABELS[key]}</span>
-                  {count > 0 ? <span className="mail-sidebar-count">{count}</span> : null}
-                </button>
-              </li>
+              <button
+                key={key}
+                type="button"
+                className={`nav-item${active ? " active" : ""}`}
+                onClick={() => selectFolder(key)}
+              >
+                <Icon size={15} />
+                <span className="nav-label">{FOLDER_LABELS[key]}</span>
+                {count > 0 ? <span className="nav-count tabular">{count}</span> : null}
+              </button>
             );
           })}
-        </ul>
+        </div>
         {labels.length > 0 ? (
           <>
-            <p className="mail-sidebar-heading">Labels</p>
-            <ul className="mail-sidebar-labels">
+            <p className="nav-heading">Labels</p>
+            <div className="nav-list">
               {labels.map((label) => (
-                <li key={label.id}>
-                  <button
-                    type="button"
-                    className="mail-sidebar-item"
-                    data-active={labelFilter === label.id}
-                    onClick={() => selectLabel(label.id)}
-                  >
-                    {label.name}
-                  </button>
-                </li>
+                <button
+                  key={label.id}
+                  type="button"
+                  className={`nav-item${labelFilter === label.id ? " active" : ""}`}
+                  onClick={() => selectLabel(label.id)}
+                >
+                  <Tag size={15} />
+                  <span className="nav-label">{label.name}</span>
+                </button>
               ))}
-            </ul>
+            </div>
           </>
         ) : null}
       </nav>

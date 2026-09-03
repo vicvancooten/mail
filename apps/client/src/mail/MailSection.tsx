@@ -39,7 +39,10 @@ import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { CommandPalette } from "./command-palette/CommandPalette.js";
-import { consumeGlobalPaletteOpenRequest } from "./command-palette/global-open.js";
+import {
+  consumeGlobalPaletteOpenRequest,
+  subscribeGlobalPaletteOpen,
+} from "./command-palette/global-open.js";
 import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
@@ -694,7 +697,7 @@ export function MailSection({
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
   // the same "nothing cached yet" shape `useThreadWindow` already handles.
-  // Stream is suppressed and the segmented control muted while searching
+  // Stream is suppressed and the view-mode pair muted while searching
   // (search-ux-spec.md §The surface) — `search.active` joins `composeId` in
   // disabling this hook's own keydown listener so a result row's `j`/`k`
   // (handled by `searchTriage` below) is the only scheme live at once.
@@ -745,6 +748,11 @@ export function MailSection({
   useEffect(() => {
     if (consumeGlobalPaletteOpenRequest()) setPaletteOpen(true);
   }, []);
+
+  // …and while it stays mounted, the header's own global search field
+  // (#86, `router/RootLayout.tsx`) raises the same request from a route
+  // that is already `/mail`, where no mount is coming to consume a flag.
+  useEffect(() => subscribeGlobalPaletteOpen(openPalette), [openPalette]);
 
   // Whichever Thread is actually open right now — the ordinary Inbox
   // pairing or Search's own, matching the same branch the JSX below already
@@ -814,7 +822,6 @@ export function MailSection({
         labels={labelsForPicker}
         labelFilter={labelFilter}
         onLabelFilter={selectLabelFilter}
-        onCompose={openCompose}
         screener={{ count: screenerSenderCount, onOpen: openScreener }}
         search={{
           active: search.active,

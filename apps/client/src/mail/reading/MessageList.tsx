@@ -1,6 +1,6 @@
 import type { Message } from "@mail/shared";
+import { Forward, Reply, ReplyAll } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { Pictogram } from "../../brand/Pictogram.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { AttachmentList } from "./AttachmentList.js";
 import { MessageBody } from "./MessageBody.js";
@@ -94,17 +94,17 @@ export function MessageList({
           <AttachmentList message={message} />
           <div className="message-item-reply-actions">
             <button type="button" onClick={() => onReply(message, "reply")} title="Reply (r)">
-              <Pictogram name="reply" size={13} /> Reply
+              <Reply size={13} /> Reply
             </button>
             <button
               type="button"
               onClick={() => onReply(message, "replyAll")}
               title="Reply all (a)"
             >
-              <Pictogram name="reply-all" size={13} /> Reply all
+              <ReplyAll size={13} /> Reply all
             </button>
             <button type="button" onClick={() => onReply(message, "forward")} title="Forward (f)">
-              <Pictogram name="forward" size={13} /> Forward
+              <Forward size={13} /> Forward
             </button>
           </div>
         </article>

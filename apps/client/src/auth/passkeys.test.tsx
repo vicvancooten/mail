@@ -66,7 +66,7 @@ describe("passkey login (#32)", () => {
 
     await user.click(screen.getByRole("button", { name: "Log in with a passkey" }));
 
-    expect(await screen.findByText(/Signed in as/)).toBeDefined();
+    expect(await screen.findByLabelText("Switch app")).toBeDefined();
   });
 
   it("still asks for a TOTP code when the owner has 2FA enrolled", async () => {
@@ -136,7 +136,7 @@ describe("passkey registration (#32)", () => {
     );
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));

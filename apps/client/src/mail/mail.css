@@ -1,21 +1,32 @@
 /* ============================================================================
-   WICKET — the mail frame.
-   Direction: The Sorting Office. Tokens live in `src/index.css`; the full
-   specification is `docs/design/wicket-identity.html`.
+   WICKET — the Mail App's own surface.
+   Direction: The Instrument. Tokens live in `@mail/design-tokens` (consumed
+   through `src/index.css`); the approved comp is
+   `docs/design/prototypes/the-instrument.html`.
 
-   Three rules govern everything below.
-   1. Compartments divide on hairline rules that meet at the corners. No
-      cards, no gaps between them, no shadows — a frame is joinery. The one
-      shadow in the system (`--shadow-overlay`) is for things that genuinely float:
-      the label picker, the search history, toasts.
-   2. Rank is inversion, never brightness. The selected row inverts its
-      stock; controls take no ink colour, only relief and rule.
-   3. State is struck across the item, and only where a state *persists* —
+   Rules for everything the shell rebuild (#86) has reached — the toolbar,
+   the folder rail, the correspondent tile:
+   1. Regions are separated by ground, not by joinery: a change of surface
+      colour or a gap, never a hairline box around a control. The one shadow
+      in the system (`--shadow-overlay`) is for things that genuinely float
+      — the label picker, the search history, toasts, popovers.
+   2. Rank is the accent, softly: a current control is `--color-accent-soft`
+      with accent ink, a hovered one is `--color-hover`, and everything at
+      rest is transparent. Nothing inverts to solid ink.
+   3. Icons are Lucide stroke glyphs at one weight (`src/index.css`'s own
+      `.lucide` rule). There is no solid pictogram set any more.
+   4. State is struck across the item, and only where a state *persists* —
       a search row already acted on, a held or blocked sender, a failed
       send. A triage keystroke strikes nothing: `store/reads.ts` drops an
       archived Thread from the list the moment the mutation is queued, and
       holding that row open to show ink would tax the one thing that has to
       stay snap-instant.
+
+   The Thread list rows and the reading pane below still carry the previous
+   direction's inverted-selection and hairline-compartment treatment; #87 is
+   the ticket that rebuilds them against the comp, and #84 regenerates
+   `DESIGN.md` from the result. Anything added before then should follow the
+   four rules above rather than the rows it sits next to.
 
    Row and header geometry is load-bearing, but no longer declared here
    (#75): every taper tier's row/header height lives once in `taper.ts` and
@@ -39,11 +50,6 @@
  * standalone app clear of a notch/home-indicator, so these are
  * unconditionally safe additions rather than a `display-mode: standalone`
  * media query around every one of them. */
-.mail-topbar {
-  padding-left: calc(12px + env(safe-area-inset-left));
-  padding-right: calc(12px + env(safe-area-inset-right));
-}
-
 .thread-list,
 .stream-view {
   padding-bottom: env(safe-area-inset-bottom);
@@ -60,188 +66,121 @@
 }
 
 /* ============================================================================
-   THE TRAY LABEL — the frame's head
+   MAIL'S TOOLBAR — the App's own view controls (#86)
+   The comp's global header carries four things (App Switcher, one centred
+   search entry, appearance, avatar) and none of the controls below; see
+   `TopBar.tsx`'s own doc comment for why they live in a second, quieter bar
+   here instead. The control language is the comp's: `--radius-md` icon
+   buttons, transparent at rest, `--color-hover` under the pointer,
+   `--color-accent-soft` with accent ink when current. No compartments, no
+   dividers, no uppercase letterspaced plates.
    ========================================================================= */
 
-.mail-topbar {
+.mail-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  background: var(--color-field);
-  border-bottom: var(--hairline) solid var(--color-border);
+  gap: 4px;
+  padding: 8px 14px;
+  padding-left: calc(14px + env(safe-area-inset-left));
+  padding-right: calc(14px + env(safe-area-inset-right));
+  background: var(--color-bg);
 }
 
-/* The segmented control is a run of compartments, divided rather than
-   spaced, and the active one inverts. */
-.mail-topbar .segmented {
+/* Split/List: two buttons that sit together as one choice, spaced rather
+   than divided — the gap between groups is what separates them from the
+   toggles beside them. */
+.toolbar-group {
   display: flex;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  align-items: center;
+  gap: 2px;
   transition: opacity var(--dur-fast) var(--ease);
 }
 
-.mail-topbar .segmented.muted {
-  opacity: 0.5;
+/* Stream mode or search has taken the view over; the underlying Split/List
+   choice stays visible and selectable, just no longer in charge. */
+.toolbar-group.muted {
+  opacity: 0.45;
 }
 
-.mail-topbar .segmented button {
+.toolbar-btn {
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border: none;
-  border-right: var(--hairline) solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-ink-faint);
-  font-family: inherit;
-  font-stretch: 100%;
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.mail-topbar .segmented button:not(.active) {
-  color: var(--color-ink-muted);
-}
-
-.mail-topbar .segmented button:last-child {
-  border-right: none;
-}
-
-.mail-topbar .segmented button.active {
-  background: var(--color-ink);
-  color: var(--color-bg);
-}
-
-.mail-topbar .divider {
-  width: var(--hairline);
-  align-self: stretch;
-  margin: 2px 2px;
-  background: var(--color-border);
-}
-
-.mail-topbar .toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-ink-faint);
-  font-family: inherit;
-  font-stretch: 100%;
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.mail-topbar .toggle {
-  color: var(--color-ink-muted);
-}
-
-.mail-topbar .toggle:hover {
-  color: var(--color-ink);
-}
-
-.mail-topbar .toggle.on {
-  background: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-bg);
-}
-
-.topbar-spacer {
-  flex: 1;
-}
-
-/* The tray label: what is filed in this compartment. Set on the narrowest
-   label stock the type program has, the way a real one is. */
-.mail-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding-right: 2px;
+  justify-content: center;
   flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
-.mail-legend-folder {
-  font-stretch: 100%;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+.toolbar-btn:hover {
+  background: var(--color-hover);
   color: var(--color-ink);
 }
 
-.mail-legend-account {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  /* Sunk stock is a step darker than the panel, and `--color-ink-faint` measures
-     3.8:1 against it. Anything sitting on the head takes ink-2. */
-  color: var(--color-ink-muted);
+.toolbar-btn.current {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
-/* The held plate: the only place `--color-warn` reaches the triage screen, and
-   the reason the Screener is worth opening. */
-.held-plate {
+/* The label filter (#43): a field, not a routing slip — same fill as every
+   other control's rest state, and it only exists once the account has a
+   Label to filter by. */
+.toolbar-select {
+  height: 32px;
+  max-width: 180px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.toolbar-select:hover {
+  background: var(--color-field-strong);
+}
+
+/* The Screener entry (#56): the one place `--color-warn` reaches the triage
+   screen, as a soft tinted chip — a count worth a click, not an alert. */
+.screener-chip {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
-  padding: 5px 10px;
-  border: 1.5px solid var(--color-warn);
-  border-radius: var(--radius-md);
-  background: transparent;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-warn) 15%, transparent);
   color: var(--color-warn);
   font-family: inherit;
-  font-stretch: 100%;
-  font-weight: 720;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--dur-press) var(--ease);
 }
 
-.held-plate:hover {
-  background: color-mix(in oklab, var(--color-warn) 16%, transparent);
+.screener-chip:hover {
+  background: color-mix(in oklab, var(--color-warn) 24%, transparent);
 }
 
-/* The label select is a routing slip: label above, value in a recessed plate. */
-.label-filter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-ink-muted);
-  font-stretch: 100%;
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+.toolbar-spacer {
+  flex: 1;
 }
 
-.label-filter select {
-  background: var(--color-surface);
-  color: var(--color-ink);
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 4px 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/* Account Scope (#73): a stacked-avatars toggle beside the search field that
-   discloses a checkbox per Mail Account — the multi-select the single
-   `<select>` it replaced (`AccountSwitcher`, #40) couldn't express. */
+/* Account Scope (#73): stacked round avatars that disclose a checkbox per
+   Mail Account — the multi-select the single `<select>` it replaced
+   (`AccountSwitcher`, #40) couldn't express. */
 .account-scope {
   position: relative;
   flex-shrink: 0;
@@ -250,63 +189,66 @@
 .account-scope-toggle {
   display: flex;
   align-items: center;
-  padding: 2px;
+  padding: 3px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
 }
 
 .account-scope-toggle:hover,
 .account-scope-toggle[aria-expanded="true"] {
-  background: var(--color-field);
+  background: var(--color-hover);
 }
 
 .account-scope-avatars {
   display: flex;
 }
 
+/* Each tile is knocked out of the bar's own ground, so a stack of them
+   reads as overlapping discs rather than as one blurred shape. */
 .account-scope-avatars .mail-avatar {
-  border: 2px solid var(--color-surface);
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+  box-shadow: 0 0 0 2px var(--color-bg);
 }
 
-.account-scope-avatars .mail-avatar + .mail-avatar {
+.account-scope-avatars .mail-avatar-wrap + .mail-avatar-wrap {
   margin-left: -8px;
 }
 
 .account-scope-panel {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   right: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 200px;
+  min-width: 220px;
   margin: 0;
-  padding: 8px 10px;
-  border: var(--hairline) solid var(--color-border);
+  padding: 10px 12px;
+  border: none;
   border-radius: var(--radius-md);
   background: var(--color-surface);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  box-shadow: var(--shadow-overlay);
 }
 
 .account-scope-panel legend {
-  padding: 0 0 2px;
-  color: var(--color-ink-muted);
-  font-stretch: 100%;
+  padding: 0 0 4px;
+  color: var(--color-ink-faint);
   font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .account-scope-panel label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -315,7 +257,11 @@
    ========================================================================= */
 
 /* ============================================================================
-   THE SIDEBAR — folder destinations (#74)
+   THE FOLDER RAIL (#74, rebuilt against the comp in #86)
+   The comp's `.side-nav`: a Compose pill and a run of transparent rounded
+   rows on the page ground. No compartment head, no rule down its edge, no
+   inverted selection — the current entry is an `--color-accent-soft` tint
+   with accent ink, and every other row is quiet until hovered.
    ========================================================================= */
 
 .mail-frame {
@@ -324,83 +270,128 @@
   min-height: 0;
 }
 
-.mail-sidebar-toggle {
+.side-nav-toggle {
   display: none;
 }
 
-.mail-sidebar-scrim {
+.side-nav-scrim {
   display: none;
 }
 
-.mail-sidebar {
+.side-nav {
   flex: 0 0 auto;
-  width: 200px;
+  width: 216px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 0;
+  gap: 0;
+  padding: 0 14px 16px;
   overflow-y: auto;
-  border-right: var(--hairline) solid var(--color-border);
-  background: var(--color-surface);
+  min-height: 0;
+  background: var(--color-bg);
 }
 
-.mail-sidebar-compose {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 10px 8px;
-  padding: 8px 10px;
-  border: var(--hairline) solid var(--color-border);
+/* Compose is the one filled control in the App, so it is the one control
+   that never has to compete: an accent pill at the head of the rail. The
+   plus rotates a quarter turn on hover — the comp's own answer to "this
+   opens something new". */
+.compose-btn {
+  height: 40px;
+  margin: 0 2px 18px;
+  padding: 0 17px;
+  border: none;
+  border-radius: 999px;
   background: var(--color-accent);
   color: var(--color-accent-foreground);
   font-family: inherit;
-  font-weight: 620;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.mail-sidebar-folders,
-.mail-sidebar-labels {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.mail-sidebar-heading {
-  margin: 12px 14px 2px;
-  color: var(--color-ink-faint);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.mail-sidebar-item {
+  font-weight: 600;
+  font-size: 13.5px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 14px;
+  justify-content: center;
+  gap: 7px;
+  flex: none;
+  cursor: pointer;
+  transition:
+    filter var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+
+.compose-btn:hover {
+  filter: brightness(1.08);
+}
+
+.compose-btn svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.compose-btn:hover svg {
+  transform: rotate(90deg);
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-heading {
+  margin: 18px 10px 6px;
+  color: var(--color-ink-faint);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 36px;
+  padding: 0 10px;
   border: none;
+  border-radius: 10px;
   background: transparent;
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
-.mail-sidebar-item[data-active="true"] {
-  background: var(--color-ink);
-  color: var(--color-bg);
+.nav-item svg {
+  flex: none;
 }
 
-.mail-sidebar-count {
-  font-size: 11px;
-  font-weight: 620;
-  color: inherit;
+.nav-item:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.nav-item.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A count is a call to action, never decoration (#74) — only Screener and
+   Drafts render one, and only when there is something to act on. */
+.nav-count {
+  font-size: 11.5px;
+  color: var(--color-ink-faint);
+}
+
+.nav-item.active .nav-count {
+  color: var(--color-accent);
 }
 
 .mail-body {
@@ -738,18 +729,6 @@
   color: color-mix(in oklab, var(--color-bg) 62%, var(--color-ink));
 }
 
-.mail-avatar.unread {
-  background: var(--color-ink);
-  border-color: var(--color-ink);
-  color: var(--color-bg);
-}
-
-.thread-row.selected .mail-avatar.unread {
-  background: var(--color-bg);
-  border-color: var(--color-bg);
-  color: var(--color-ink);
-}
-
 /* A pinned Thread is grommeted to the frame: the item sits proud of the
    stock rather than being tinted. */
 .thread-row.pinned {
@@ -761,36 +740,74 @@
   background: var(--color-ink);
 }
 
-/* The kraft initial plate on the stile. Square, not a circle: the product
-   blocks remote images until a sender is Approved, so a correspondent's
-   mark is drawn from their address and never fetched. */
+/* The correspondent's tile (#86, the comp's `.row-tile`): a round disc of
+   initials in one of five tinted fill/ink pairs, picked off the address in
+   `Avatar.tsx` so the same correspondent keeps the same tile forever. The
+   product blocks remote images until a sender is Approved, so this mark is
+   always drawn and never fetched.
+
+   The wrapper is what positions the unread dot; the tile itself carries the
+   diameter, so every surface can size it by targeting `.mail-avatar`
+   alone. */
+.mail-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .mail-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-md);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: var(--color-field);
-  border: var(--hairline) solid var(--color-border);
-  color: var(--color-ink-muted);
-  font-stretch: 84%;
-  font-size: 10px;
-  font-weight: 680;
-  letter-spacing: 0.02em;
+  background: var(--tile-a-bg);
+  color: var(--tile-a-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.mail-avatar[data-tile="b"] {
+  background: var(--tile-b-bg);
+  color: var(--tile-b-ink);
+}
+
+.mail-avatar[data-tile="c"] {
+  background: var(--tile-c-bg);
+  color: var(--tile-c-ink);
+}
+
+.mail-avatar[data-tile="d"] {
+  background: var(--tile-d-bg);
+  color: var(--tile-d-ink);
+}
+
+.mail-avatar[data-tile="e"] {
+  background: var(--tile-e-bg);
+  color: var(--tile-e-ink);
+}
+
+/* Unread is a dot pinned to the tile's corner, knocked out of the ground
+   behind it — the tile's own colour stays the correspondent's identity
+   rather than doubling as a read state. */
+.mail-avatar-unread {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-bg);
 }
 
 .thread-list--compact .mail-avatar {
-  width: 20px;
-  height: 20px;
-  font-size: 9px;
-}
-
-.thread-row.selected .mail-avatar {
-  background: transparent;
-  border-color: color-mix(in oklab, var(--color-bg) 45%, transparent);
-  color: var(--color-bg);
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
 }
 
 /* The taper's avatar scale (#75) — T1 is the loudest plate on screen, T4
@@ -798,20 +815,27 @@
    instead of) the compact override above: compact's own smaller base still
    applies, this just widens the spread between tiers within it. */
 .thread-row[data-tier="1"] .mail-avatar {
-  width: 32px;
-  height: 32px;
-  font-size: 11px;
+  width: 34px;
+  height: 34px;
+  font-size: 11.5px;
+}
+
+.thread-row[data-tier="2"] .mail-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
 }
 
 .thread-row[data-tier="3"] .mail-avatar {
-  width: 23px;
-  height: 23px;
+  width: 21px;
+  height: 21px;
+  font-size: 8.5px;
 }
 
 .thread-row[data-tier="4"] .mail-avatar {
-  width: 20px;
-  height: 20px;
-  font-size: 9px;
+  width: 19px;
+  height: 19px;
+  font-size: 8px;
 }
 
 /* Reserved space for the row's Done and Snooze controls (#66 user stories
@@ -1768,23 +1792,29 @@
    SEARCH (#51)
    ========================================================================= */
 
+/* Mail's own search field (#51): a real text input, unlike the header's
+   Palette entry beside it. Same fill language as the toolbar's other
+   controls — no outline at rest, `--color-field-strong` once it holds
+   focus, and a pill so it reads as a sibling of the header's field rather
+   than as a compartment. */
 .mail-search-field {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
-  flex: 1;
-  min-width: 120px;
-  max-width: 360px;
-  padding: 5px 9px;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  gap: 8px;
+  flex: 0 1 260px;
+  min-width: 150px;
+  height: 32px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-field);
   color: var(--color-ink-faint);
+  transition: background var(--dur-press) var(--ease);
 }
 
 .mail-search-field:focus-within {
-  border-color: var(--color-accent);
+  background: var(--color-field-strong);
 }
 
 .mail-search-field input {
@@ -1794,7 +1824,7 @@
   background: transparent;
   color: var(--color-ink);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   outline: none;
 }
 
@@ -1817,14 +1847,15 @@
 
 .mail-search-recent {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
+  padding: 5px;
   background: var(--color-surface);
-  border: var(--hairline) solid var(--color-border);
+  border: none;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-overlay);
   overflow: hidden;
@@ -1844,24 +1875,29 @@
   cursor: pointer;
 }
 
+.mail-search-recent-item {
+  border-radius: 8px;
+}
+
 .mail-search-recent-item:hover {
-  background: var(--color-surface-strong);
+  background: var(--color-hover);
 }
 
 .mail-search-recent-clear {
-  padding: 7px 10px;
+  margin-top: 3px;
+  padding: 8px 10px;
   border: none;
-  border-top: var(--hairline) solid var(--color-border);
+  border-radius: 8px;
   background: transparent;
   color: var(--color-ink-faint);
   font-family: inherit;
-  font-stretch: 100%;
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+
+.mail-search-recent-clear:hover {
+  background: var(--color-hover);
 }
 
 .mail-search-recent-clear:hover {
@@ -2443,11 +2479,11 @@ button.search-chip-toggle.on {
    ========================================================================= */
 
 @media (max-width: 700px) {
-  /* The Sidebar (#74): a permanent rail has no room on a phone, so it
+  /* The folder rail (#74): a permanent rail has no room on a phone, so it
      becomes a bottom sheet instead, opened from its own toggle. `open`
      slides it up from the bottom edge; the scrim behind it is what makes a
      tap outside dismiss it, same as `LabelPicker`'s own popover. */
-  .mail-sidebar-toggle {
+  .side-nav-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2457,21 +2493,23 @@ button.search-chip-toggle.on {
     z-index: 2;
     width: 32px;
     height: 32px;
-    border: var(--hairline) solid var(--color-border);
-    background: var(--color-surface);
-    color: var(--color-ink);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--color-field);
+    color: var(--color-ink-muted);
     cursor: pointer;
   }
 
-  .mail-sidebar-scrim {
+  .side-nav-scrim {
     display: block;
     position: fixed;
     inset: 0;
     z-index: 20;
-    background: rgb(0 0 0 / 40%);
+    background: rgb(0 0 0 / 34%);
+    backdrop-filter: blur(3px);
   }
 
-  .mail-sidebar {
+  .side-nav {
     position: fixed;
     left: 0;
     right: 0;
@@ -2479,15 +2517,15 @@ button.search-chip-toggle.on {
     z-index: 21;
     width: auto;
     max-height: 70vh;
-    border-right: none;
-    border-top: var(--hairline) solid var(--color-border);
+    padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    background: var(--color-surface);
     box-shadow: var(--shadow-overlay);
-    padding-bottom: calc(10px + env(safe-area-inset-bottom));
     transform: translateY(100%);
     transition: transform var(--dur-fast) var(--ease);
   }
 
-  .mail-sidebar.open {
+  .side-nav.open {
     transform: translateY(0);
   }
 
@@ -2564,32 +2602,6 @@ button.search-chip-toggle.on {
   }
 }
 
-/* ---------- the circular date stamp, where there is room for it ---------- */
-
-.mail-cds {
-  display: inline-flex;
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  color: var(--color-ink-muted);
-}
-
-.mail-cds svg {
-  width: 100%;
-  height: 100%;
-}
-
-.mail-cds-text {
-  font-family: var(--font-sans);
-  font-stretch: 88%;
-  font-weight: 700;
-  font-size: 21px;
-}
-
-.screener .mail-cds {
-  color: #1f1d18;
-}
-
 /* ============================================================================
    THE ROW AT NARROW WIDTHS
    The split list is 380px and a phone is 390px: a single-line timetable row
@@ -2622,8 +2634,8 @@ button.search-chip-toggle.on {
     grid-row: 1 / span 2;
   }
 
-  /* The plate spans both lines: it is the row's registration to the stile. */
-  .thread-list:not(.thread-list--compact) .mail-avatar {
+  /* The tile spans both lines, so the row reads as one block beside it. */
+  .thread-list:not(.thread-list--compact) .mail-avatar-wrap {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
@@ -2657,38 +2669,6 @@ button.search-chip-toggle.on {
 }
 
 /* ============================================================================
-   COMPOSE — a plate on the frame, never a floating button
-   ========================================================================= */
-
-/* Compose is the primary, so it inverts the stock. It takes no ink colour:
-   aniline is reserved for the mark, focus, selection and links, and a filled
-   violet button is the one thing here that would read as a generic inbox. */
-.compose-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border: 1.5px solid var(--color-ink);
-  border-radius: var(--radius-md);
-  background: var(--color-ink);
-  color: var(--color-bg);
-  font-family: inherit;
-  font-stretch: 100%;
-  font-weight: 680;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.compose-button:hover {
-  background: var(--color-ink-muted);
-  border-color: var(--color-ink-muted);
-}
-
-/* ============================================================================
    THE EMPTY READING PANE
    A compartment with nothing filed in it yet. Quiet, and centred on the
    frame's own axis rather than stranded in the top-left corner.
@@ -2712,65 +2692,31 @@ button.search-chip-toggle.on {
 }
 
 /* ============================================================================
-   THE TRAY LABEL AT PHONE WIDTH
-   The head is a run of controls, and a phone cannot hold all of them. It
-   scrolls sideways as one strip rather than wrapping into a second rail that
-   would eat the list's height.
+   THE TOOLBAR AT PHONE WIDTH
+   Mail's toolbar is a run of controls and a phone cannot hold all of them on
+   one line. It wraps rather than scrolling sideways: a horizontal strip hid
+   the search field entirely off the right edge with no affordance saying so.
    ========================================================================= */
 
 @media (max-width: 700px) {
-  /* Wrapping, not scrolling: a horizontal strip hid Compose and the search
-     field entirely off the right edge with no affordance saying so. */
-  .mail-topbar {
+  .mail-toolbar {
     flex-wrap: wrap;
-    gap: 7px;
     row-gap: 8px;
+    /* Room for the folder-rail toggle, which is absolutely positioned into
+       the same top-left corner at this width. */
+    padding-left: calc(48px + env(safe-area-inset-left));
   }
 
-  .mail-topbar .divider {
-    display: none;
-  }
-
-  .mail-legend {
-    flex: 1 1 auto;
-  }
-
-  /* Labels go, pictograms stay: `font-size: 0` collapses the bare text
-     nodes these buttons carry beside their glyph without asking five
-     components for a mobile-only span. */
-  .mail-topbar .segmented button,
-  .mail-topbar .toggle,
-  .mail-topbar .held-plate,
-  .mail-topbar .compose-button {
-    font-size: 0;
-    gap: 0;
-    padding: 7px 9px;
-  }
-
-  .mail-topbar .held-plate::after {
-    content: attr(data-count);
-    font-size: 10px;
-    font-stretch: 100%;
-    font-weight: 720;
-    letter-spacing: 0.06em;
-    margin-left: 5px;
-  }
-
-  /* Search and Compose share the second row: a full-width search field
-     pushed Compose onto a third, and the head is already the most expensive
-     chrome on the surface that can least afford it. */
+  /* Search takes the second row whole — the toolbar is the most expensive
+     chrome on the surface that can least afford height, so nothing shares
+     it. */
   .mail-search-field {
     order: 10;
-    flex: 1 1 180px;
+    flex: 1 1 100%;
     max-width: none;
   }
 
-  .mail-topbar .compose-button {
-    order: 11;
-    flex: none;
-  }
-
-  .topbar-spacer {
+  .toolbar-spacer {
     display: none;
   }
 }

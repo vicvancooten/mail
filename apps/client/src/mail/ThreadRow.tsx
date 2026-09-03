@@ -1,7 +1,7 @@
 import type { ThreadParticipant } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
+import { Check, Clock, Pin, Star } from "lucide-react";
 import { type CSSProperties, useState } from "react";
-import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
@@ -170,7 +170,7 @@ export function ThreadRow({
               onArchive();
             }}
           >
-            <Pictogram name="check" size={13} />
+            <Check size={13} />
           </button>
         ) : null}
         {onSnooze ? (
@@ -187,7 +187,7 @@ export function ThreadRow({
               setSnoozeMenuOpen((open) => !open);
             }}
           >
-            <Pictogram name="snooze" size={13} />
+            <Clock size={13} />
           </button>
         ) : null}
       </span>
@@ -229,8 +229,8 @@ export function ThreadRow({
           {gatekeeperBadge === "held" ? "Held" : "Blocked"}
         </span>
       ) : null}
-      {thread.pinned ? <Pictogram name="pin" size={13} className="pin" /> : null}
-      {thread.starred ? <Pictogram name="star" size={13} className="star" /> : null}
+      {thread.pinned ? <Pin size={13} className="pin" /> : null}
+      {thread.starred ? <Star size={13} className="star" /> : null}
       <span className="time">{formatRowTime(thread.lastMessageAt)}</span>
     </div>
   );
@@ -264,14 +264,14 @@ export function ThreadRow({
         >
           {swipe.revealing === "snooze" ? (
             <span className="swipe-reveal-snooze">
-              <Pictogram name="snooze" size={16} /> Snooze
+              <Clock size={16} /> Snooze
             </span>
           ) : (
             // "Done" (#66 user story 8) — the act, on the row a swipe commits
             // through `onArchive`; the destination it lands in stays named
             // Archive (story 9) wherever that's what the row is naming instead.
             <span className="swipe-reveal-archive">
-              <Pictogram name="check" size={16} /> Done
+              <Check size={16} /> Done
             </span>
           )}
         </div>

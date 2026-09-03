@@ -66,9 +66,10 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Password"), "a-long-enough-password");
     await user.click(screen.getByRole("button", { name: "Create Owner account" }));
 
-    expect(await screen.findByText(/Signed in as/)).toBeDefined();
-    expect(screen.getByText(/vic/)).toBeDefined();
-    expect(screen.getByText(/Owner/)).toBeDefined();
+    expect(await screen.findByLabelText("Switch app")).toBeDefined();
+    // The header names the User by their avatar, not in prose (#86) — the
+    // menu it opens is where the username and the Owner role are stated.
+    expect(screen.getByLabelText("Account menu for vic")).toBeDefined();
   });
 
   it("shows the login form once claimed but not signed in", async () => {
@@ -127,7 +128,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/Signed in as/)).toBeDefined();
+    expect(await screen.findByLabelText("Switch app")).toBeDefined();
   });
 
   it("logs out back to the login form", async () => {
@@ -152,7 +153,7 @@ describe("App", () => {
     );
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
 
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Log out" }));
@@ -198,7 +199,7 @@ describe("TOTP-gated login (#32)", () => {
     await user.type(screen.getByLabelText("6-digit code"), "123456");
     await user.click(screen.getByRole("button", { name: "Verify" }));
 
-    expect(await screen.findByText(/Signed in as/)).toBeDefined();
+    expect(await screen.findByLabelText("Switch app")).toBeDefined();
   });
 
   it("shows an error and stays on the code prompt after a wrong code", async () => {
@@ -262,7 +263,7 @@ describe("auth-methods management (#32)", () => {
     );
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
 
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
@@ -293,7 +294,7 @@ describe("auth-methods management (#32)", () => {
     );
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
@@ -324,7 +325,7 @@ describe("auth-methods management (#32)", () => {
     );
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
@@ -356,7 +357,7 @@ describe("auth-methods management (#32)", () => {
     );
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));

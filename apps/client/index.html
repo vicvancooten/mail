@@ -10,12 +10,15 @@
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <!--
-      The browser's own chrome continues the app's top rail rather than
-      advertising a brand colour that matches nothing on screen: the day
-      bench's sunk plate in light, the night frame in dark (src/index.css).
+      The browser's own chrome continues the app's own header rather than
+      advertising a brand colour that matches nothing on screen: these are
+      `--color-surface-strong` in each theme, the header's own ground
+      (@mail/design-tokens; `router/shell.css`'s `.app-header`). Literal
+      hex because a meta tag cannot read a custom property — keep them in
+      step with the token if it ever moves.
     -->
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#C9CDC1" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1A1611" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f5f8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#08090b" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!--

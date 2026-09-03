@@ -1,6 +1,6 @@
 import type { MailAccount } from "@mail/shared";
+import { Search, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Pictogram } from "../../brand/Pictogram.js";
 import type { CachedThread } from "../../store/index.js";
 import { useThreadMessages } from "../reading/useThreadMessages.js";
 import type { ViewOrigin } from "../search/scope.js";
@@ -209,7 +209,7 @@ export function CommandPalette({
     >
       <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
         <div className="command-palette-input-row">
-          <Pictogram name="search" size={15} className="command-palette-icon" />
+          <Search size={15} className="command-palette-icon" />
           <input
             ref={inputRef}
             type="text"
@@ -234,7 +234,7 @@ export function CommandPalette({
             onClick={onClose}
             aria-label="Close"
           >
-            <Pictogram name="close" size={13} />
+            <X size={13} />
           </button>
         </div>
 

@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Check, ChevronDown, ChevronUp, MailOpen } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -8,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import {
   DEFAULT_LIST_DENSITY,
@@ -479,7 +479,7 @@ function GroupHeaderCluster({
             bulk.onDoneAll();
           }}
         >
-          <Pictogram name="check" size={12} />
+          <Check size={12} />
         </button>
       ) : null}
       <span className="group-header-label">{label}</span>
@@ -495,7 +495,7 @@ function GroupHeaderCluster({
           onToggleCollapsed();
         }}
       >
-        <Pictogram name={collapsed ? "expand" : "collapse"} size={12} />
+        {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
       </button>
       {bulk ? (
         <button
@@ -508,7 +508,7 @@ function GroupHeaderCluster({
             bulk.onMarkAllRead();
           }}
         >
-          <Pictogram name="opened" size={12} />
+          <MailOpen size={12} />
         </button>
       ) : null}
     </div>

@@ -1,9 +1,10 @@
-"use client";
+import { Check, ChevronRight } from "lucide-react";
+
+("use client");
 
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
-import { Pictogram } from "../../brand/Pictogram.js";
 
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
@@ -95,7 +96,7 @@ function DropdownMenuCheckboxItem({
         data-slot="dropdown-menu-checkbox-item-indicator"
       >
         <DropdownMenuPrimitive.ItemIndicator>
-          <Pictogram name="check" size={12} />
+          <Check size={12} />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -132,7 +133,7 @@ function DropdownMenuRadioItem({
         data-slot="dropdown-menu-radio-item-indicator"
       >
         <DropdownMenuPrimitive.ItemIndicator>
-          <Pictogram name="check" size={12} />
+          <Check size={12} />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -209,7 +210,7 @@ function DropdownMenuSubTrigger({
       {...props}
     >
       {children}
-      <Pictogram name="chevron-right" size={12} className="ml-auto" />
+      <ChevronRight size={12} className="ml-auto" />
     </DropdownMenuPrimitive.SubTrigger>
   );
 }

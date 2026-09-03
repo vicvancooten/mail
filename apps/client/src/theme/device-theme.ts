@@ -70,3 +70,40 @@ export function useAppearance(): [Theme, (theme: Theme) => void] {
   const setTheme = useCallback((next: Theme) => writeTheme(next), []);
   return [theme, setTheme];
 }
+
+/**
+ * The header's own appearance toggle (#86, the comp's `#theme-toggle`): one
+ * button that flips between light and dark, rather than the three-way
+ * radio group `SettingsSection` and the avatar menu both render. `system`
+ * has no icon of its own to show, so the toggle reports the *resolved*
+ * appearance — what the User is actually looking at — and a press writes
+ * the opposite as an explicit choice, the same move the comp makes.
+ *
+ * Reads `prefers-color-scheme` only while the stored preference is
+ * `system`; an explicit `light`/`dark` answers without consulting the OS at
+ * all.
+ */
+export function useResolvedAppearance(): [boolean, () => void] {
+  const [theme, setTheme] = useAppearance();
+  const systemDark = useSyncExternalStore(subscribeSystemDark, readSystemDark, () => false);
+  const resolvedDark = theme === "system" ? systemDark : theme === "dark";
+  const toggle = useCallback(
+    () => setTheme(resolvedDark ? "light" : "dark"),
+    [resolvedDark, setTheme],
+  );
+  return [resolvedDark, toggle];
+}
+
+function systemDarkQuery(): MediaQueryList | null {
+  return globalThis.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
+}
+
+function readSystemDark(): boolean {
+  return systemDarkQuery()?.matches ?? false;
+}
+
+function subscribeSystemDark(listener: () => void): () => void {
+  const query = systemDarkQuery();
+  query?.addEventListener("change", listener);
+  return () => query?.removeEventListener("change", listener);
+}

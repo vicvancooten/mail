@@ -42,6 +42,15 @@ describe("buildTokensCss", () => {
     expect(lightClassBlock).toContain("color-scheme: light;");
   });
 
+  it("declares the avatar tile palette per theme", () => {
+    const root = css.slice(css.indexOf(":root {"), css.indexOf("@media"));
+    expect(root).toContain("--tile-a-bg: #e4e1fb;");
+    expect(root).toContain("--tile-e-ink: #33415c;");
+    const darkClassBlock = css.slice(css.indexOf(":root.dark {"), css.indexOf(":root.light {"));
+    expect(darkClassBlock).toContain("--tile-a-bg: #2a2360;");
+    expect(darkClassBlock).toContain("--tile-e-ink: #a9b8d6;");
+  });
+
   it("does not repeat the type, geometry or shadow tokens in a theme override", () => {
     const overrides = css.slice(css.indexOf("@media"));
     expect(overrides).not.toContain("--font-sans");

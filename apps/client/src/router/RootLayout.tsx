@@ -1,22 +1,34 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
+import { Moon, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
 import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
+import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
 import { rootRoute } from "./routes.js";
 import "./shell.css";
 
 /**
- * The viewport-owning shell (#71): the header rail plus whichever route is
- * current, in a bounded `.app-viewport` pane. `mail.css`'s `.app-shell` is
- * `100dvh` with `overflow: hidden` and nothing here fights that — every
- * routed screen (`MailRoute`, `SettingsRoute`, the App placeholders) is
- * itself a `height: 100%; min-height: 0` pane that scrolls on its own, so
- * the document never does, at any width (the two reported phone bugs: a
- * bounded-height ancestor missing under the virtualized Thread list, and
- * Settings unreachable below the fold).
+ * The viewport-owning shell (#71, rebuilt against the comp in #86): the
+ * global header plus whichever route is current, in a bounded
+ * `.app-viewport` pane. `.app-shell` is `100dvh` with `overflow: hidden` and
+ * nothing here fights that — every routed screen (`MailRoute`,
+ * `SettingsRoute`, the App placeholders) is itself a `height: 100%;
+ * min-height: 0` pane that scrolls on its own, so the document never does,
+ * at any width (the two reported phone bugs: a bounded-height ancestor
+ * missing under the virtualized Thread list, and Settings unreachable below
+ * the fold).
+ *
+ * The header is the comp's `.app-header`
+ * (`docs/design/prototypes/the-instrument.html`): a three-column grid whose
+ * outer columns are equal fractions, so the centred search field is centred
+ * on the *viewport* rather than on whatever is left over beside the
+ * switcher. Left is the App Switcher, centre the global search entry, right
+ * the appearance toggle and the User's avatar menu. Nothing here names the
+ * signed-in User in prose any more — the avatar and its menu carry that,
+ * the way the comp does.
  *
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
@@ -31,6 +43,7 @@ export function RootLayout() {
   // (matched against the pathname alone) covers directly.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = rootRoute.useNavigate();
+  const [resolvedDark, toggleAppearance] = useResolvedAppearance();
 
   // A `needs-reauth` notification click (#53, ADR-0015: "a click always
   // lands where the next decision is") names a Mail Account's *Settings* —
@@ -71,16 +84,46 @@ export function RootLayout() {
     void onLogout().finally(() => setSigningOut(false));
   }
 
+  // The header field is the comp's search *entry* — a button that raises the
+  // Command Palette, not a second text input beside Mail's own. Off `/mail`
+  // the request rides the same bridge `⌘K` does, navigating so there is a
+  // Palette to open; on `/mail` a mounted `MailSection` takes it directly
+  // (`global-open.ts`).
+  function openGlobalSearch() {
+    requestGlobalPaletteOpen();
+    if (!pathname.startsWith("/mail")) void navigate({ to: "/mail" });
+  }
+
   return (
     <div className="app-shell">
-      <header className="shell-rail">
-        <AppSwitcher pathname={pathname} />
-        <span className="shell-rail-spacer" />
-        <p className="shell-user">
-          Signed in as <strong>{user.username}</strong>
-          {user.role === "owner" ? <span className="shell-role">Owner</span> : null}
-        </p>
-        <AvatarMenu username={user.username} onLogout={handleLogout} signingOut={signingOut} />
+      <header className="app-header">
+        <div className="header-left">
+          <AppSwitcher pathname={pathname} />
+        </div>
+        <div className="header-center">
+          <button type="button" className="global-search" onClick={openGlobalSearch}>
+            <Search size={16} />
+            <span>Search everything…</span>
+            <kbd>⌘K</kbd>
+          </button>
+        </div>
+        <div className="header-right">
+          <button
+            type="button"
+            className="header-icon-btn"
+            title="Toggle appearance"
+            aria-label="Toggle appearance"
+            onClick={toggleAppearance}
+          >
+            {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <AvatarMenu
+            username={user.username}
+            role={user.role}
+            onLogout={handleLogout}
+            signingOut={signingOut}
+          />
+        </div>
       </header>
       <div className="app-viewport">
         <Outlet />
