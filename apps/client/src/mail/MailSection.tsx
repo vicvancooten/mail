@@ -1,10 +1,22 @@
-import type { AutoAdvanceDirection, Label, Message } from "@mail/shared";
+import type {
+  AutoAdvanceDirection,
+  BulkTriageAccountOutcome,
+  BulkTriageAction,
+  Label,
+  Message,
+} from "@mail/shared";
 import {
+  BULK_TRIAGE_UNDO_WINDOW_SECONDS,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
   labelNameFromId,
 } from "@mail/shared";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  countBulkTriageTarget,
+  runBulkTriageBatch,
+  undoBulkTriageBatch,
+} from "../api/bulk-triage.js";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
@@ -22,6 +34,8 @@ import {
   useScreenerSenders,
   useThreadWindow,
 } from "../store/index.js";
+import { generateUlid } from "../store/ulid.js";
+import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { DraftsView } from "./DraftsView.js";
 import {
@@ -36,6 +50,8 @@ import {
   writeViewMode,
 } from "./device-preferences.js";
 import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
+import { GroupBulkToast, type GroupBulkToastState } from "./GroupBulkToast.js";
+import { bulkTriageFolderRoleForFolder, bulkTriageTarget, groupDateRange } from "./group-target.js";
 import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
@@ -49,9 +65,20 @@ import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { TopBar } from "./TopBar.js";
+import { timeGroupLabel } from "./time-groups.js";
 import { useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
+import { GROUP_STAGGER_ROW_CAP, type GroupBulkController } from "./VirtualizedThreadList.js";
 import "./mail.css";
+
+/** The group header cluster's own stagger-then-collapse timing (#66, #77) —
+ * matches `mail.css`'s `.thread-list [data-clearing]` animation duration, so
+ * a Thread is only hidden from `threads` once its own leave animation has
+ * actually finished playing. */
+const GROUP_STAGGER_STEP_MS = 45;
+const GROUP_COLLAPSE_DURATION_MS = 260;
+/** How long a plain (non-undoable) group-bulk toast — a partial failure, a rollback — stays up. Shorter than the Undo toast's `BULK_TRIAGE_UNDO_WINDOW_SECONDS`, since there's nothing left to act on. */
+const GROUP_BULK_MESSAGE_TOAST_MS = 6_000;
 
 /**
  * Lazy-loaded (compose-spec §Editor: "TipTap v3 ... lazy-loaded so it never
@@ -377,6 +404,201 @@ export function MailSection({
     return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
   }, [labels, threads, accountId]);
 
+  // Group bulk Triage (#66, #67, #77): Done all / Mark all read on a whole
+  // date-group header, dispatched through the batch endpoint rather than
+  // `useTriage`'s Optimistic Action queue (#67 — "outside the Optimistic
+  // Action queue too: those name one Thread each, and a group can hold
+  // thousands the Client never loaded"). Only wired for the folders the
+  // batch endpoint's own wire vocabulary can name (`group-target.ts`), and
+  // never while a Label filter has narrowed what's actually on screen out
+  // from under `folder`.
+  const bulkFolderRole = useMemo(
+    () => (labelFilter === null ? bulkTriageFolderRoleForFolder(folder) : null),
+    [folder, labelFilter],
+  );
+  // A group's true total (`POST /bulk-triage/count`), keyed by its own
+  // label — fetched lazily, once per label, the first time its header is
+  // armed (`requestGroupCount` below), not eagerly for every header on
+  // every render.
+  const [groupCounts, setGroupCounts] = useState<Record<string, number>>({});
+  const requestedCountLabels = useRef<Set<string>>(new Set());
+  // Threads mid-stagger (leaving, not yet gone) and Threads already hidden
+  // once their own collapse finished — two states, not one, because the
+  // stagger animation (`mail.css`) needs to actually play before a Thread
+  // disappears from the list outright.
+  const [clearingThreadIds, setClearingThreadIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const [hiddenThreadIds, setHiddenThreadIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const [groupBulkToast, setGroupBulkToast] = useState<GroupBulkToastState | null>(null);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Switching what target set is even on screen — a different folder or a
+  // narrowed Account Scope — invalidates every count already fetched and
+  // abandons any mid-flight collapse; neither belongs to the new view.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: both deps are deliberately re-run triggers the body never reads — `accountScope` is a fresh array identity every render (`useAccountScope`) too, so comparing its primary id is what "the target set changed" means here, same posture `changeAccountScope` above already takes.
+  useEffect(() => {
+    setGroupCounts({});
+    requestedCountLabels.current = new Set();
+    setClearingThreadIds(new Set());
+    setHiddenThreadIds(new Set());
+    if (collapseTimer.current) {
+      clearTimeout(collapseTimer.current);
+      collapseTimer.current = null;
+    }
+  }, [bulkFolderRole, accountScope[0]]);
+
+  useEffect(() => {
+    return () => {
+      if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    };
+  }, []);
+
+  const requestGroupCount = useCallback(
+    (label: string) => {
+      if (!bulkFolderRole || requestedCountLabels.current.has(label)) return;
+      const range = groupDateRange(label);
+      if (!range) return;
+      requestedCountLabels.current.add(label);
+      void countBulkTriageTarget(bulkTriageTarget(accountScope, bulkFolderRole, range))
+        .then((response) => setGroupCounts((current) => ({ ...current, [label]: response.count })))
+        .catch(() => requestedCountLabels.current.delete(label));
+    },
+    [bulkFolderRole, accountScope],
+  );
+
+  const accountEmailById = useMemo(
+    () => new Map((mailAccounts ?? []).map((account) => [account.id, account.emailAddress])),
+    [mailAccounts],
+  );
+
+  /** "Done for 2 of 3 accounts — Personal needs reauth" (#67, #77's own acceptance line) — one rejected account's own share of a partial-failure toast. */
+  const describeRejectedAccount = useCallback(
+    (outcome: BulkTriageAccountOutcome): string => {
+      const name = accountEmailById.get(outcome.mailAccountId) ?? outcome.mailAccountId;
+      return outcome.reason === "needs_reauth" ? `${name} needs reauth` : name;
+    },
+    [accountEmailById],
+  );
+
+  const runGroupBulkAction = useCallback(
+    (label: string, action: BulkTriageAction) => {
+      if (!bulkFolderRole || accountScope.length === 0) return;
+      const range = groupDateRange(label);
+      if (!range) return; // Pinned/Undated: the cluster never renders for these (`VirtualizedThreadList`), so this is only a defensive no-op.
+      const target = bulkTriageTarget(accountScope, bulkFolderRole, range);
+
+      // Which *loaded* Threads belong to this group — for the optimistic
+      // stagger/collapse only. The batch itself targets the true set
+      // server-side (#67): an unloaded Thread is cleared right along with
+      // these even though nothing here ever names it.
+      const now = new Date();
+      const groupThreadIds =
+        action === "done"
+          ? threads
+              .filter(
+                (thread) =>
+                  !thread.pinned &&
+                  timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now) === label,
+              )
+              .map((thread) => thread.id)
+          : [];
+
+      if (groupThreadIds.length > 0) {
+        setClearingThreadIds(new Set(groupThreadIds));
+        const staggerRows = Math.min(groupThreadIds.length, GROUP_STAGGER_ROW_CAP);
+        if (collapseTimer.current) clearTimeout(collapseTimer.current);
+        collapseTimer.current = setTimeout(
+          () => {
+            setHiddenThreadIds((current) => new Set([...current, ...groupThreadIds]));
+            setClearingThreadIds(new Set());
+            collapseTimer.current = null;
+          },
+          GROUP_STAGGER_STEP_MS * staggerRows + GROUP_COLLAPSE_DURATION_MS,
+        );
+      }
+
+      const batchId = generateUlid();
+      void runBulkTriageBatch({ id: batchId, action, target })
+        .then((response) => {
+          requestSyncNow();
+          const failed = response.accounts.filter((account) => account.status === "rejected");
+          const verb = action === "done" ? "Done" : "Marked read";
+          const message =
+            failed.length === 0
+              ? `${verb}: ${response.affectedCount} in ${label}.`
+              : `${verb} for ${response.accounts.length - failed.length} of ${response.accounts.length} accounts — ${failed.map(describeRejectedAccount).join(", ")}.`;
+          const undoable = action === "done" && response.affectedCount > 0;
+          setGroupBulkToast({
+            message,
+            durationMs: undoable
+              ? BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000
+              : GROUP_BULK_MESSAGE_TOAST_MS,
+            onUndo: undoable
+              ? () => {
+                  void undoBulkTriageBatch({ batchId: response.batchId }).then((undoResponse) => {
+                    if (undoResponse.status === "undone") {
+                      setHiddenThreadIds((current) => {
+                        const next = new Set(current);
+                        for (const id of groupThreadIds) next.delete(id);
+                        return next;
+                      });
+                    }
+                    requestSyncNow();
+                  });
+                }
+              : undefined,
+          });
+        })
+        .catch(() => {
+          // Visibly returns to the list *and* raises a toast naming the
+          // failure — `RollbackToast`'s own posture for a single Optimistic
+          // Action, carried over to this path's own surface (#75, #77).
+          if (collapseTimer.current) {
+            clearTimeout(collapseTimer.current);
+            collapseTimer.current = null;
+          }
+          setClearingThreadIds(new Set());
+          setHiddenThreadIds((current) => {
+            const next = new Set(current);
+            for (const id of groupThreadIds) next.delete(id);
+            return next;
+          });
+          setGroupBulkToast({
+            message: `Couldn't clear ${label} — restored to the list.`,
+            durationMs: GROUP_BULK_MESSAGE_TOAST_MS,
+          });
+        });
+    },
+    [bulkFolderRole, accountScope, threads, describeRejectedAccount],
+  );
+
+  const groupBulk: GroupBulkController | undefined = bulkFolderRole
+    ? {
+        countFor: (label) => groupCounts[label] ?? null,
+        requestCount: requestGroupCount,
+        onDoneAll: (label) => runGroupBulkAction(label, "done"),
+        onMarkAllRead: (label) => runGroupBulkAction(label, "markRead"),
+        clearingThreadIds,
+      }
+    : undefined;
+
+  // The optimistic hide (#66, #77): a group's loaded Threads vanish from
+  // the list the instant their collapse finishes, well before the next sync
+  // round actually removes them from the Local Cache — `threads` itself
+  // stays the real, unfiltered read so `triage`/keyboard nav below are
+  // never quietly walking a shorter list than the one the rest of the app
+  // still thinks is current.
+  const visibleThreads = useMemo(
+    () =>
+      hiddenThreadIds.size === 0
+        ? threads
+        : threads.filter((thread) => !hiddenThreadIds.has(thread.id)),
+    [threads, hiddenThreadIds],
+  );
+
   // Search (#51, `docs/search-ux-spec.md`): one hook owns the route, the
   // parse, the prefilter + server round trip and the merged result set;
   // MailSection's only job is feeding it this account and wiring its own
@@ -528,7 +750,7 @@ export function MailSection({
             />
           ) : viewMode === "split" ? (
             <SplitView
-              threads={threads}
+              threads={visibleThreads}
               ids={ids}
               complete={page.complete}
               selectedThreadId={selectedThreadId}
@@ -539,10 +761,11 @@ export function MailSection({
               onReply={openReply}
               initialScrollThreadId={selectedThreadId}
               density={density}
+              groupBulk={groupBulk}
             />
           ) : (
             <ListView
-              threads={threads}
+              threads={visibleThreads}
               ids={ids}
               complete={page.complete}
               selectedThreadId={selectedThreadId}
@@ -553,6 +776,7 @@ export function MailSection({
               onReply={openReply}
               initialScrollThreadId={selectedThreadId}
               density={density}
+              groupBulk={groupBulk}
             />
           )}
         </div>
@@ -560,6 +784,7 @@ export function MailSection({
       <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
       <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />
       <RollbackToast />
+      <GroupBulkToast state={groupBulkToast} onDismiss={() => setGroupBulkToast(null)} />
       <NewMailToast />
       <NotificationOfferBanner />
       {composeId && accountId && (

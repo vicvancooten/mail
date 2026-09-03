@@ -27,21 +27,22 @@ const MONTH_NAMES = [
   "December",
 ];
 
-function startOfDay(date: Date): number {
+/** Exported for `group-target.ts`, which inverts these same boundaries (label → date range) rather than re-deriving them (#77). */
+export function startOfDay(date: Date): number {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
   return copy.getTime();
 }
 
 /** A month, named — qualified with its year once that year isn't `now`'s. */
-function monthLabel(monthStartMs: number, thisYear: number): string {
+export function monthLabel(monthStartMs: number, thisYear: number): string {
   const d = new Date(monthStartMs);
   const name = MONTH_NAMES[d.getMonth()] as string;
   return d.getFullYear() === thisYear ? name : `${name} ${d.getFullYear()}`;
 }
 
 /** The start-of-month timestamp `monthsAgo` months before `now`'s month. */
-function monthStartBefore(now: Date, monthsAgo: number): number {
+export function monthStartBefore(now: Date, monthsAgo: number): number {
   return new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1).getTime();
 }
 

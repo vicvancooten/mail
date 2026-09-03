@@ -5,7 +5,7 @@ import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
 import type { Triage } from "./useTriage.js";
-import { VirtualizedThreadList } from "./VirtualizedThreadList.js";
+import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 /**
  * Split view (default, `?variant=A` on the prototype branch): list and
@@ -29,6 +29,7 @@ export function SplitView({
   onReply,
   initialScrollThreadId,
   density,
+  groupBulk,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -43,6 +44,8 @@ export function SplitView({
   initialScrollThreadId?: string | null;
   /** Passed straight through to `VirtualizedThreadList` — the `compact` List Density Device Preference (#54, #75). */
   density?: ListDensity;
+  /** Passed straight through to `VirtualizedThreadList` — the group header cluster (#66, #77). */
+  groupBulk?: GroupBulkController;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const prevId = neighborId(ids, selectedThreadId, -1);
@@ -64,6 +67,7 @@ export function SplitView({
           triage={triage}
           initialScrollThreadId={initialScrollThreadId}
           density={density}
+          groupBulk={groupBulk}
         />
       </div>
       <div className="split-pane">

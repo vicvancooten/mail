@@ -1,7 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
-import { VirtualizedThreadList } from "./VirtualizedThreadList.js";
+import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 function makeThread(id: string, lastMessageAt: string): CachedThread {
   return {
@@ -214,5 +214,195 @@ describe("VirtualizedThreadList — the taper (#75)", () => {
     const mounted = screen.getAllByRole("option").length;
     expect(mounted).toBeGreaterThan(0);
     expect(mounted).toBeLessThan(150);
+  });
+});
+
+describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => {
+  const NOW = new Date("2026-06-25T12:00:00.000Z");
+
+  function makeController(overrides: Partial<GroupBulkController> = {}): GroupBulkController {
+    return {
+      countFor: () => null,
+      requestCount: vi.fn(),
+      onDoneAll: vi.fn(),
+      onMarkAllRead: vi.fn(),
+      clearingThreadIds: new Set(),
+      ...overrides,
+    };
+  }
+
+  function renderWithGroupBulk(groupBulk: GroupBulkController) {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const threads = [
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"),
+    ];
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+        groupBulk={groupBulk}
+      />,
+    );
+  }
+
+  it("renders Done all and Mark all read as real, always-tabbable controls naming their group", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    const doneAll = screen.getByRole("button", { name: "Done with Today" });
+    const markRead = screen.getByRole("button", { name: "Mark Today read" });
+    expect(doneAll).toBeDefined();
+    expect(markRead).toBeDefined();
+
+    fireEvent.click(doneAll);
+    expect(controller.onDoneAll).toHaveBeenCalledWith("Today");
+
+    fireEvent.click(markRead);
+    expect(controller.onMarkAllRead).toHaveBeenCalledWith("Today");
+  });
+
+  it("arms the cluster on hover, on focus, and on tap alike — real component state, not bare :hover", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    const cluster = document.querySelector(".group-header-cluster") as HTMLElement;
+    expect(cluster.getAttribute("data-armed")).toBe("false");
+
+    fireEvent.mouseEnter(cluster);
+    expect(cluster.getAttribute("data-armed")).toBe("true");
+    fireEvent.mouseLeave(cluster);
+    expect(cluster.getAttribute("data-armed")).toBe("false");
+
+    fireEvent.focus(cluster);
+    expect(cluster.getAttribute("data-armed")).toBe("true");
+    fireEvent.blur(cluster);
+    expect(cluster.getAttribute("data-armed")).toBe("false");
+
+    // Touch has no hover — tapping the header arms it the same way (#66's
+    // own acceptance bar).
+    fireEvent.click(cluster);
+    expect(cluster.getAttribute("data-armed")).toBe("true");
+  });
+
+  it("shows the group's true total once resolved, not the loaded count", () => {
+    const controller = makeController({ countFor: (label) => (label === "Today" ? 4200 : null) });
+    renderWithGroupBulk(controller);
+
+    // Two Threads loaded, but the true total from the Sync Backend wins.
+    expect(document.querySelector(".group-header-count")?.textContent).toBe("4200");
+  });
+
+  it("falls back to the loaded count until the true count resolves", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    expect(document.querySelector(".group-header-count")?.textContent).toBe("2");
+  });
+
+  it("requests the true count once the header is armed", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
+    expect(controller.requestCount).toHaveBeenCalledWith("Today");
+  });
+
+  it("hovering the header checkmark previews every row's own Done control in that group", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    const rows = screen.getAllByRole("option");
+    expect(rows.every((row) => row.getAttribute("data-group-preview") !== "true")).toBe(true);
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Done with Today" }));
+    expect(
+      screen
+        .getAllByRole("option")
+        .every((row) => row.getAttribute("data-group-preview") === "true"),
+    ).toBe(true);
+
+    fireEvent.mouseLeave(screen.getByRole("button", { name: "Done with Today" }));
+    expect(
+      screen
+        .getAllByRole("option")
+        .every((row) => row.getAttribute("data-group-preview") !== "true"),
+    ).toBe(true);
+  });
+
+  it("renders no cluster at all for Pinned or Undated — neither is a valid bulk-Triage target", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const pinned: CachedThread = {
+      ...makeThread("t-pinned", "2026-06-25T09:00:00.000Z"),
+      pinned: true,
+    };
+    const undated: CachedThread = {
+      ...makeThread("t-undated", "2026-06-25T09:00:00.000Z"),
+      lastMessageAt: null,
+      firstMessageAt: null,
+    };
+    render(
+      <VirtualizedThreadList
+        threads={[pinned, undated]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+        groupBulk={makeController()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Done with/ })).toBeNull();
+    const headers = Array.from(document.querySelectorAll(".group-header"));
+    expect(headers.map((h) => h.textContent)).toEqual(["Pinned", "Undated"]);
+  });
+
+  it("renders every group's own label plainly with no cluster at all when groupBulk is omitted", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    render(
+      <VirtualizedThreadList
+        threads={[makeThread("t1", "2026-06-25T09:00:00.000Z")]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(document.querySelector(".group-header-cluster")).toBeNull();
+    expect(document.querySelector(".group-header")?.textContent).toBe("Today");
+  });
+
+  it("marks a clearing Thread's row with its stagger index, capped at the row cap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const threads = Array.from({ length: 10 }, (_, i) =>
+      makeThread(`t-today-${i}`, "2026-06-25T09:00:00.000Z"),
+    );
+    const clearingThreadIds = new Set(threads.map((t) => t.id));
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+        groupBulk={makeController({ clearingThreadIds })}
+      />,
+    );
+
+    const rows = screen.getAllByRole("option");
+    expect(rows.every((row) => row.parentElement?.getAttribute("data-clearing") === "true")).toBe(
+      true,
+    );
+    const indices = rows.map((row) =>
+      (row.parentElement as HTMLElement).style.getPropertyValue("--group-clear-index"),
+    );
+    expect(indices.slice(0, 8)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
+    // Past the 8-row stagger cap, every remaining row shares the last index —
+    // still leaving with the group's own collapse, just not its own delay.
+    expect(indices.slice(8)).toEqual(["7", "7"]);
   });
 });
