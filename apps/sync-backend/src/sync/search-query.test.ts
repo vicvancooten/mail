@@ -45,6 +45,8 @@ afterAll(async () => {
 });
 
 interface SeedInput {
+  /** Defaults to the shared `account` — an Account Scope (#68) test overrides it to seed a second account. */
+  mailAccountId?: string;
   folderId?: string;
   subject?: string;
   fromName?: string | null;
@@ -63,16 +65,17 @@ async function seedMessage(
 ): Promise<{ threadId: string; messageId: string }> {
   const threadId = randomUUID();
   const messageId = randomUUID();
+  const mailAccountId = input.mailAccountId ?? account.id;
   uidCounter += 1;
 
   await db.insert(threads).values({
     id: threadId,
-    mailAccountId: account.id,
+    mailAccountId,
     labelIds: input.labelIds ?? [],
   });
   await db.insert(messages).values({
     id: messageId,
-    mailAccountId: account.id,
+    mailAccountId,
     threadId,
     folderId: input.folderId ?? inboxId,
     uid: uidCounter,
@@ -97,16 +100,16 @@ describe("runSearch — free text", () => {
       subject: "no relevant words here",
     });
 
-    const byLocalPart = await runSearch(db, { mailAccountId: account.id, text: "kowalski0" });
+    const byLocalPart = await runSearch(db, { mailAccountIds: [account.id], text: "kowalski0" });
     expect(byLocalPart.rows.map((r) => r.threadId)).toEqual([threadId]);
 
-    const byDomainLabel = await runSearch(db, { mailAccountId: account.id, text: "insights" });
+    const byDomainLabel = await runSearch(db, { mailAccountIds: [account.id], text: "insights" });
     expect(byDomainLabel.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
   it("supports type-ahead prefix matching on the trailing token (≥3 chars)", async () => {
     const { threadId } = await seedMessage({ subject: "Quarterly roadmap" });
-    const result = await runSearch(db, { mailAccountId: account.id, text: "quarte" });
+    const result = await runSearch(db, { mailAccountIds: [account.id], text: "quarte" });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
@@ -120,7 +123,7 @@ describe("runSearch — free text", () => {
       bodyText: "nothing relevant in the body",
     });
 
-    const result = await runSearch(db, { mailAccountId: account.id, text: "quarterly" });
+    const result = await runSearch(db, { mailAccountIds: [account.id], text: "quarterly" });
     const byMessage = new Map(result.rows.map((row) => [row.matchedMessageId, row.headline]));
     expect(byMessage.get(bodyMatchId)).toContain("quarterly");
     expect(byMessage.get(subjectMatchId)).toBeNull();
@@ -128,7 +131,7 @@ describe("runSearch — free text", () => {
 
   it("returns nothing below its own default scope when there is no match at all", async () => {
     await seedMessage({ subject: "hello" });
-    const result = await runSearch(db, { mailAccountId: account.id, text: "nomatch" });
+    const result = await runSearch(db, { mailAccountIds: [account.id], text: "nomatch" });
     expect(result).toEqual({ rows: [], cursor: null });
   });
 });
@@ -141,10 +144,10 @@ describe("runSearch — structured filters", () => {
     });
     await seedMessage({ fromName: "Bo Beckett", fromAddress: "bo@example.com" });
 
-    const byName = await runSearch(db, { mailAccountId: account.id, text: "", from: "Chen" });
+    const byName = await runSearch(db, { mailAccountIds: [account.id], text: "", from: "Chen" });
     expect(byName.rows.map((r) => r.threadId)).toEqual([threadId]);
 
-    const byAddress = await runSearch(db, { mailAccountId: account.id, text: "", from: "ann@" });
+    const byAddress = await runSearch(db, { mailAccountIds: [account.id], text: "", from: "ann@" });
     expect(byAddress.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
@@ -152,7 +155,7 @@ describe("runSearch — structured filters", () => {
     const { threadId } = await seedMessage({
       ccAddresses: [{ name: "Hidden Cc", address: "cc@example.com" }],
     });
-    const result = await runSearch(db, { mailAccountId: account.id, text: "", to: "Hidden Cc" });
+    const result = await runSearch(db, { mailAccountIds: [account.id], text: "", to: "Hidden Cc" });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
@@ -160,7 +163,7 @@ describe("runSearch — structured filters", () => {
     const { threadId } = await seedMessage({ hasAttachments: true });
     await seedMessage({ hasAttachments: false });
     const result = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       hasAttachment: true,
     });
@@ -173,14 +176,18 @@ describe("runSearch — structured filters", () => {
     const { threadId } = await seedMessage({ labelIds: [labelId] });
     await seedMessage({});
 
-    const result = await runSearch(db, { mailAccountId: account.id, text: "", label: "INVOICES" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      text: "",
+      label: "INVOICES",
+    });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
   it("label: naming nothing this account has returns empty, not an error", async () => {
     await seedMessage({});
     const result = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       label: "no-such-label",
     });
@@ -191,14 +198,14 @@ describe("runSearch — structured filters", () => {
     const { threadId } = await seedMessage({ sentAt: new Date("2024-06-15T00:00:00Z") });
 
     const inRange = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       after: "2024-01-01",
     });
     expect(inRange.rows.map((r) => r.threadId)).toEqual([threadId]);
 
     const outOfRange = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       before: "2024-01-01",
     });
@@ -210,7 +217,7 @@ describe("runSearch — structured filters", () => {
     const { threadId: nextDay } = await seedMessage({ sentAt: new Date("2024-06-16T00:01:00Z") });
 
     const result = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       before: "2024-06-15",
     });
@@ -225,11 +232,11 @@ describe("runSearch — folder scope (ADR-0016 default: every folder but Trash/J
   it("excludes Trash by default, and in:trash is the escape that finds it", async () => {
     const { threadId } = await seedMessage({ folderId: trashId });
 
-    const defaultScope = await runSearch(db, { mailAccountId: account.id, text: "" });
+    const defaultScope = await runSearch(db, { mailAccountIds: [account.id], text: "" });
     expect(defaultScope.rows).toEqual([]);
 
     const trashScope = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       folder: "trash",
     });
@@ -243,13 +250,21 @@ describe("runSearch — folder scope (ADR-0016 default: every folder but Trash/J
       .values({ id: customId, mailAccountId: account.id, path: "Projects", name: "Projects" });
     const { threadId } = await seedMessage({ folderId: customId });
 
-    const result = await runSearch(db, { mailAccountId: account.id, text: "", folder: "projects" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      text: "",
+      folder: "projects",
+    });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
   it("in: naming a folder this account doesn't have returns empty, not an error", async () => {
     await seedMessage({});
-    const result = await runSearch(db, { mailAccountId: account.id, text: "", folder: "archive" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      text: "",
+      folder: "archive",
+    });
     expect(result.rows).toEqual([]);
   });
 });
@@ -285,7 +300,7 @@ describe("runSearch — the Candidate Window and pagination", () => {
       items.map((item) => item.messageId),
     );
 
-    const page1 = await runSearch(db, { mailAccountId: account.id, text: "" });
+    const page1 = await runSearch(db, { mailAccountIds: [account.id], text: "" });
     expect(page1.rows).toHaveLength(PAGE_SIZE);
     expect(page1.cursor).not.toBeNull();
     // The window is recency-ranked — page 1 is the newest PAGE_SIZE threads.
@@ -293,7 +308,7 @@ describe("runSearch — the Candidate Window and pagination", () => {
     for (const row of page1.rows) expect(newestThreadIds.has(row.threadId)).toBe(true);
 
     const page2 = await runSearch(db, {
-      mailAccountId: account.id,
+      mailAccountIds: [account.id],
       text: "",
       cursor: page1.cursor as string,
     });
@@ -319,7 +334,206 @@ describe("runSearch — Thread merges keep the Search Index in step", () => {
       .set({ threadId: survivorId })
       .where(eq(messageSearch.threadId, threadId));
 
-    const result = await runSearch(db, { mailAccountId: account.id, text: "quarterly" });
+    const result = await runSearch(db, { mailAccountIds: [account.id], text: "quarterly" });
     expect(result.rows.map((r) => r.threadId)).toEqual([survivorId]);
+  });
+});
+
+describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
+  let account2: MailAccountRow;
+  let inbox2Id: string;
+
+  beforeEach(async () => {
+    // Same User as `account` — an Account Scope is always the requesting
+    // User's own accounts (`routes/search.ts` enforces ownership; this file
+    // only exercises the ranking core).
+    account2 = await createTestMailAccount(db, { userId: account.userId });
+    inbox2Id = randomUUID();
+    await db.insert(folders).values({
+      id: inbox2Id,
+      mailAccountId: account2.id,
+      path: "INBOX",
+      name: "INBOX",
+      role: "inbox",
+    });
+  });
+
+  it("merges and re-ranks matches from every in-scope account", async () => {
+    const { threadId: fromFirst } = await seedMessage({ subject: "Quarterly roadmap" });
+    const { threadId: fromSecond } = await seedMessage({
+      mailAccountId: account2.id,
+      folderId: inbox2Id,
+      subject: "Quarterly numbers",
+    });
+
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id, account2.id],
+      text: "quarterly",
+    });
+    expect(new Set(result.rows.map((r) => r.threadId))).toEqual(new Set([fromFirst, fromSecond]));
+  });
+
+  it("gives each account its own Candidate Window — a chatty account cannot crowd a quiet one out of its own window", async () => {
+    // The rejected design ADR-0016 amends against: one Candidate Window
+    // shared across the Scope, filled by recency alone. If that were the
+    // implementation, `account`'s CANDIDATE_WINDOW newer matches would fill
+    // the entire shared window and `account2`'s one (much older) match would
+    // never even be considered, regardless of how well it matches.
+    const base = Date.parse("2024-06-15T00:00:00.000Z");
+    const chattyItems = Array.from({ length: CANDIDATE_WINDOW }, (_, i) => ({
+      threadId: randomUUID(),
+      messageId: randomUUID(),
+      uid: i + 1,
+      sentAt: new Date(base - i * 1000),
+    }));
+    await db
+      .insert(threads)
+      .values(chattyItems.map((item) => ({ id: item.threadId, mailAccountId: account.id })));
+    await db.insert(messages).values(
+      chattyItems.map((item) => ({
+        id: item.messageId,
+        mailAccountId: account.id,
+        threadId: item.threadId,
+        folderId: inboxId,
+        uid: item.uid,
+        subject: "unrelated",
+        bodyText: "evergreen",
+        sentAt: item.sentAt,
+        receivedAt: item.sentAt,
+      })),
+    );
+    await reindexMessages(
+      db,
+      chattyItems.map((item) => item.messageId),
+    );
+
+    // Older than every chatty message (by far more than the ~500s the
+    // chatty pool spans, so a shared window sorted by recency would never
+    // reach it), but the *only* match `account2` has — and its subject
+    // (weight A) beats the chatty pool's body-only match (weight D) on
+    // `ts_rank_cd` by enough to swamp the tiny recency-decay difference, so
+    // its presence in the final page is decided by window membership, not a
+    // ranking coin flip.
+    const { threadId: quietThreadId } = await seedMessage({
+      mailAccountId: account2.id,
+      folderId: inbox2Id,
+      subject: "evergreen",
+      bodyText: null,
+      sentAt: new Date(base - 1_000_000_000),
+    });
+
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id, account2.id],
+      text: "evergreen",
+    });
+    expect(result.rows.map((r) => r.threadId)).toContain(quietThreadId);
+  });
+
+  it("an in-scope account missing the named folder/label contributes nothing; others still do", async () => {
+    const customId = randomUUID();
+    await db
+      .insert(folders)
+      .values({ id: customId, mailAccountId: account.id, path: "Projects", name: "Projects" });
+    const { threadId: inProjects } = await seedMessage({
+      folderId: customId,
+      subject: "Quarterly plan",
+    });
+    // account2 has no "Projects" folder at all.
+    await seedMessage({
+      mailAccountId: account2.id,
+      folderId: inbox2Id,
+      subject: "Quarterly numbers",
+    });
+
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id, account2.id],
+      text: "quarterly",
+      folder: "projects",
+    });
+    expect(result.rows.map((r) => r.threadId)).toEqual([inProjects]);
+  });
+
+  describe("pagination", () => {
+    async function seedWindow(
+      mailAccountId: string,
+      folderId: string,
+      count: number,
+      base: number,
+    ): Promise<{ threadId: string; messageId: string; sentAt: Date }[]> {
+      const items = Array.from({ length: count }, (_, i) => ({
+        threadId: randomUUID(),
+        messageId: randomUUID(),
+        uid: i + 1,
+        sentAt: new Date(base + i * 1000),
+      }));
+      await db.insert(threads).values(items.map((item) => ({ id: item.threadId, mailAccountId })));
+      await db.insert(messages).values(
+        items.map((item) => ({
+          id: item.messageId,
+          mailAccountId,
+          threadId: item.threadId,
+          folderId,
+          uid: item.uid,
+          subject: "",
+          sentAt: item.sentAt,
+          receivedAt: item.sentAt,
+        })),
+      );
+      await reindexMessages(
+        db,
+        items.map((item) => item.messageId),
+      );
+      return items;
+    }
+
+    it("keeps paging an account whose window is still full while dropping one that already exhausted", async () => {
+      const base = Date.parse("2020-01-01T00:00:00.000Z");
+      // account: exceeds its own window by one — still has more after page 1.
+      const fullItems = await seedWindow(account.id, inboxId, CANDIDATE_WINDOW + 1, base);
+      // account2: well under its own window, and newer than everything in
+      // `account` — fully returned on page 1, deterministically at the top.
+      const shortItems = await seedWindow(account2.id, inbox2Id, 3, base + 10_000_000);
+
+      const page1 = await runSearch(db, { mailAccountIds: [account.id, account2.id], text: "" });
+      expect(page1.cursor).not.toBeNull();
+      const page1Ids = new Set(page1.rows.map((r) => r.threadId));
+      for (const item of shortItems) expect(page1Ids.has(item.threadId)).toBe(true);
+
+      const page2 = await runSearch(db, {
+        mailAccountIds: [account.id, account2.id],
+        text: "",
+        cursor: page1.cursor as string,
+      });
+      // Only account's oldest (501st) message is left — account2 had
+      // nothing more and is not re-queried, so it cannot resurface here.
+      expect(page2.rows).toHaveLength(1);
+      expect(page2.rows[0]?.threadId).toBe(fullItems[0]?.threadId);
+      expect(page2.cursor).toBeNull();
+    });
+
+    it("picks up an account newly added to the Scope on a later page rather than treating it as exhausted", async () => {
+      const base = Date.parse("2020-01-01T00:00:00.000Z");
+      const fullItems = await seedWindow(account.id, inboxId, CANDIDATE_WINDOW + 1, base);
+
+      const page1 = await runSearch(db, { mailAccountIds: [account.id], text: "" });
+      expect(page1.cursor).not.toBeNull();
+
+      // account2 didn't exist in the Scope page 1 was run over.
+      const { threadId: newAccountThreadId } = await seedMessage({
+        mailAccountId: account2.id,
+        folderId: inbox2Id,
+        subject: "hello",
+        sentAt: new Date(base - 10_000_000),
+      });
+
+      const page2 = await runSearch(db, {
+        mailAccountIds: [account.id, account2.id],
+        text: "",
+        cursor: page1.cursor as string,
+      });
+      const page2ThreadIds = page2.rows.map((r) => r.threadId);
+      expect(page2ThreadIds).toContain(newAccountThreadId);
+      expect(page2ThreadIds).toContain(fullItems[0]?.threadId);
+    });
   });
 });

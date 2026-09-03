@@ -147,3 +147,51 @@ Numbers above are from `pnpm --filter @mail/corpus-bench bench:shapes` (20 itera
 cache, same corpus and machine as the tables higher up; the side table is 450MB and builds from the
 loaded corpus in 7.7s). Absolute values move with hardware and cache warmth — the ratios are the
 finding.
+
+## Account Scope (added by [#68](https://github.com/vicvancooten/mail/issues/68))
+
+[ADR-0016](../adr/0016-search-runs-in-the-sync-backend-over-a-bounded-candidate-window.md)'s
+amendment activates cross-account search: a request can name several of the User's Mail Accounts,
+each contributing its own Candidate Window, merged and re-ranked. "Measure the multi-account query
+shape against the existing corpus bench before locking it in" is this section's brief.
+
+`bench-shapes.ts` gained a `cappedMultiAccountQuery` case: the same per-account Candidate Window
+shape as the existing `capped, side table` case, but unioned across several `mail_account_id`
+values before ranking — mirroring `sync/search-query.ts#runSearch`'s real shape (still a hand-rolled
+query against `corpus_bench`'s own tables, not a call into `runSearch` itself; see this file's own
+top-of-function comment on that gap). Corpus regenerated with `CORPUS_MAIL_ACCOUNTS=3` (`quarterly
+budget`'s scale bar, the ticket's own "three accounts" framing), same seed and message count, so per
+account row counts drop from ~125k (the default 2-account corpus) to ~83k:
+
+| Query shape (ranked + thread-deduped, top 50, capped, side table) | 1 account p50 | 3-account Scope p50 | ratio |
+|---|---:|---:|---:|
+| `quarterly` (~3.4%) | 9.5ms | 25.6ms | 2.7× |
+| `quillfeather` (0.01%) | 3.7ms | 11.1ms | 3.0× |
+| phrase `quarterly budget` | 8.6ms | 25.4ms | 2.9× |
+| type-ahead prefix `quarte:*` | 8.4ms | 24.8ms | 3.0× |
+| two-char prefix `qu:*` (pathological) | 85.1ms | 343.8ms | 4.0× |
+| term matching ~82% of the corpus (pathological) | 91.0ms | 412.5ms | 4.5× |
+| address local part `kowalski0` | 95.0ms | 319.9ms | 3.4× |
+
+The four ordinary-selectivity shapes scale close to the ADR's "roughly ×N accounts" prediction and
+land at 11–31ms at 3 accounts — nowhere near the 200ms bar. The three shapes already the most
+expensive at one account (`qu:*`, the ~82% term, and this corpus's own `kowalski0` needle, which
+turns out to match a large share of its account too — not the rare address part its label suggests)
+scale a little worse than linear and **cross 200ms at 3 accounts** (320–413ms). Per-account windows
+mean the Scope's worst case is its slowest account's own worst case times the account count, not
+bounded by total corpus size, which is exactly the trade ADR-0016's amendment names and accepts
+rather than papers over.
+
+One side finding worth flagging for its own follow-up, independent of Account Scope: the EXPLAIN
+plan for these three shapes shows Postgres choosing a full bitmap-heap scan (`Rows Removed by
+Filter` in the tens of thousands) instead of the cheap "index-scan-with-early-limit-stop" plan the
+ordinary shapes get — because the query's `tsquery` value arrives as a bound parameter / CTE output
+rather than a plan-time literal, which defeats Postgres's per-lexeme selectivity stats for `tsvector`
+columns. A throwaway same-predicate query with the term written as a literal ran in ~1ms against the
+identical data where the parameterized form took ~90ms. `sync/search-query.ts#buildTsQuery` builds
+its `tsquery` the same parameterized way today, so the single-account path already pays this cost on
+its own two documented pathological cases — Account Scope just multiplies an existing cost, it
+doesn't introduce a new one. Worth its own performance ticket; out of scope here.
+
+Reproduce: `CORPUS_MAIL_ACCOUNTS=3 pnpm --filter @mail/corpus-bench load:postgres -- --reset` then
+`pnpm --filter @mail/corpus-bench bench:shapes`.

@@ -90,3 +90,11 @@ and a narrow `corpus_bench.message_search` side table, then compares:
 
 It requires `load:postgres` to have run. Like the rest of the harness it writes to the throwaway
 `corpus_bench` schema and never touches product tables.
+
+Each case also runs an **Account Scope** variant (#68, ADR-0016's amendment): the same per-account
+Candidate Window shape, unioned across several `mail_account_id` values before ranking, mirroring
+cross-account search. Defaults to accounts `[1, 2, 3]`, so a 3-account run needs the corpus loaded
+with at least that many (`CORPUS_MAIL_ACCOUNTS=3 pnpm --filter @mail/corpus-bench load:postgres --
+--reset`) — otherwise it's exercising a Scope with fewer real messages behind the higher account ids
+than the numbers imply. See `docs/research/0007-250k-message-corpus-benchmark.md`'s Account Scope
+section for the numbers this produced.

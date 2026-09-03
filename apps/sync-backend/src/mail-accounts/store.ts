@@ -1,5 +1,5 @@
 import type { MailAccount, MailAccountConnection } from "@mail/shared";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mailAccounts } from "../db/schema.js";
 import type { MailAccountCredential } from "./credential-crypto.js";
@@ -86,6 +86,25 @@ export async function getMailAccountForUser(
     .where(and(eq(mailAccounts.id, id), eq(mailAccounts.userId, userId)))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Scoped by User, batched (#68) — the Account Scope's ownership check:
+ * every id in `ids` that this User actually owns comes back, silently
+ * dropping the rest, so a caller can tell "some of these aren't mine" from
+ * `result.length !== ids.length` the same way `getMailAccountForUser`'s
+ * single-id form is checked with `=== null`.
+ */
+export async function getMailAccountsForUser(
+  db: Db,
+  userId: string,
+  ids: string[],
+): Promise<MailAccountRow[]> {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(mailAccounts)
+    .where(and(eq(mailAccounts.userId, userId), inArray(mailAccounts.id, ids)));
 }
 
 /**

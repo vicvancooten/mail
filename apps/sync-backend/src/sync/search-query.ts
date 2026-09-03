@@ -4,14 +4,14 @@ import { folders, labels } from "../db/schema.js";
 import type { FolderRole } from "./folders.js";
 
 /**
- * `POST /search`'s query (#50, ADR-0016): the Candidate Window, ranking, and
- * dedup. `routes/search.ts` is the thin HTTP layer around this — parsing the
- * request, resolving Mail Account ownership, and turning the ranked rows
- * back into wire shapes; everything that decides *which* messages match and
- * *in what order* lives here.
+ * `POST /search`'s query (#50, #68, ADR-0016): the Account Scope, the
+ * per-account Candidate Window, ranking, and dedup. `routes/search.ts` is the
+ * thin HTTP layer around this — parsing the request, resolving Mail Account
+ * ownership, and turning the ranked rows back into wire shapes; everything
+ * that decides *which* messages match and *in what order* lives here.
  */
 
-/** The newest N matching messages actually ranked, per ADR-0016 — the bar this number is measured against is `docs/research/0007`. */
+/** The newest N matching messages actually ranked *per in-scope Mail Account* (#68, ADR-0016) — the bar this number is measured against is `docs/research/0007`. */
 export const CANDIDATE_WINDOW = 500;
 /** One page of ranked, thread-deduped results. */
 export const PAGE_SIZE = 50;
@@ -30,7 +30,13 @@ const FOLDER_ROLES = new Set<FolderRole>([
 ]);
 
 export interface SearchFilters {
-  mailAccountId: string;
+  /**
+   * The Account Scope (#68): every Mail Account this search runs over.
+   * Always at least one id. Each contributes its own Candidate Window —
+   * never one shared window across the Scope, which would let a chatty
+   * account crowd a quiet one out of its own results entirely.
+   */
+  mailAccountIds: string[];
   text: string;
   from?: string;
   to?: string;
@@ -40,6 +46,7 @@ export interface SearchFilters {
   /** Calendar dates (`YYYY-MM-DD`), already validated by `searchRequestSchema`. */
   after?: string;
   before?: string;
+  /** Opaque — see `encodeCursor`/`decodeCursor` below. */
   cursor?: string;
 }
 
@@ -52,94 +59,142 @@ export interface SearchResultRow {
 
 export interface SearchQueryResult {
   rows: SearchResultRow[];
-  /** Pass back as the next request's `cursor`; `null` once the Candidate Window is exhausted. */
+  /** Pass back as the next request's `cursor`; `null` once every in-scope account's Candidate Window is exhausted. */
   cursor: string | null;
 }
 
 const NO_RESULTS: SearchQueryResult = { rows: [], cursor: null };
 
+const CURSOR_TOKEN_VERSION = 1;
+
 /**
- * Runs one page of `POST /search`. `filters.folder`/`filters.label` naming
- * something that does not exist for this Mail Account is answered with an
- * empty result rather than an error — a stale scope chip or a mistyped
- * label name searches nothing, the same tolerance a folder-scoped search
- * already has for "this account has no such folder yet".
+ * `cursor`'s decoded shape, one entry per Mail Account the *previous* page
+ * knew about: a `sentAt` boundary string means "load older" should resume
+ * strictly before it, `null` means that account was already exhausted (every
+ * match already returned) and stays dropped from every later page. An
+ * account absent from the map entirely was never part of that earlier page's
+ * Scope at all — the Client widened the Scope mid-pagination — and is
+ * treated as a brand-new page-1 account rather than silently skipped, which
+ * is what a plain "absent = exhausted" scheme would do to it.
+ */
+type CursorWindows = Record<string, string | null>;
+
+interface CursorTokenPayload {
+  v: number;
+  w: CursorWindows;
+}
+
+function encodeCursor(windows: CursorWindows): string {
+  const payload: CursorTokenPayload = { v: CURSOR_TOKEN_VERSION, w: windows };
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+/**
+ * Same "not recognized and not trusted" posture as `sync/sync-tokens.ts`:
+ * malformed base64/JSON, a wrong version, or a non-object `w` all decode to
+ * `null` — which callers below treat as "no cursor", i.e. every in-scope
+ * account starts its window over from the newest matching message. A search
+ * cursor is a short-lived pagination handle within one query session, never
+ * a value round-tripped across a deploy, so there is no legacy format to
+ * stay compatible with.
+ */
+function decodeCursor(token: string): CursorWindows | null {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof decoded !== "object" || decoded === null) return null;
+  const payload = decoded as Partial<CursorTokenPayload>;
+  if (payload.v !== CURSOR_TOKEN_VERSION) return null;
+  if (typeof payload.w !== "object" || payload.w === null) return null;
+  for (const value of Object.values(payload.w)) {
+    if (typeof value !== "string" && value !== null) return null;
+  }
+  return payload.w as CursorWindows;
+}
+
+/**
+ * Runs one page of `POST /search` across the Account Scope. `filters.folder`
+ * or `filters.label` naming something that does not exist for one in-scope
+ * account is answered by that account contributing nothing to this page,
+ * rather than failing the whole Scope — the same tolerance a single-account
+ * search already has for "this account has no such folder yet", generalized
+ * per account rather than all-or-nothing.
  */
 export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQueryResult> {
-  const conditions: SQL[] = [sql`ms.mail_account_id = ${filters.mailAccountId}`];
-
   const tsQuery = buildTsQuery(filters.text);
-  if (tsQuery) conditions.push(sql`ms.doc @@ ${tsQuery}`);
-
-  if (filters.folder) {
-    const folderIds = await resolveFolderIds(db, filters.mailAccountId, filters.folder);
-    if (folderIds.length === 0) return NO_RESULTS;
-    // Drizzle's `sql` template spreads a plain JS array into a
-    // comma-separated parameter list (`(${arr})` → `($1, $2, ...)`), which is
-    // exactly `in (...)`/`not in (...)` shape — not a single Postgres array
-    // parameter, so `= ANY(${arr})` sends a bare scalar and breaks on
-    // anything but a one-element array.
-    conditions.push(sql`ms.folder_id in (${folderIds})`);
-  } else {
-    // ADR-0016's default scope: every folder but Trash and Junk.
-    const excludedFolderIds = await resolveExcludedFolderIds(db, filters.mailAccountId);
-    if (excludedFolderIds.length > 0)
-      conditions.push(sql`ms.folder_id not in (${excludedFolderIds})`);
-  }
-
-  if (filters.label) {
-    const labelId = await resolveLabelId(db, filters.mailAccountId, filters.label);
-    if (!labelId) return NO_RESULTS;
-    // Filtered off the Sync Backend's own label join, not the Search Index
-    // (#50's own resolution comment) — `threads.label_ids` is where Labels
-    // live, `message_search` gains no column for this.
-    conditions.push(
-      sql`exists (select 1 from threads t2 where t2.id = ms.thread_id and t2.label_ids @> ARRAY[${labelId}])`,
-    );
-  }
-
-  if (filters.after) conditions.push(sql`ms.sent_at >= ${filters.after}::timestamptz`);
-  // Inclusive on the named calendar day (search.ts's `before` doc comment,
-  // query-parser.ts's own copy of that contract, and the Client prefilter's
-  // `withinDateRange` all agree on this) — `< before + 1 day` rather than
-  // `< before`, which would exclude the named day entirely.
-  if (filters.before)
-    conditions.push(sql`ms.sent_at < (${filters.before}::timestamptz + interval '1 day')`);
-
-  if (filters.cursor) {
-    const cursorDate = new Date(filters.cursor);
-    if (!Number.isNaN(cursorDate.getTime())) {
-      conditions.push(sql`ms.sent_at < ${cursorDate.toISOString()}::timestamptz`);
-    }
-  }
+  const cursorWindows = filters.cursor ? decodeCursor(filters.cursor) : null;
+  // Drop only accounts the cursor explicitly marked exhausted (`null`) — one
+  // it's silent about (never part of the earlier page's Scope) still runs as
+  // a fresh page-1 account, and one it names with a boundary keeps paging.
+  const scopedAccountIds = cursorWindows
+    ? filters.mailAccountIds.filter((id) => cursorWindows[id] !== null)
+    : filters.mailAccountIds;
 
   // `from:`/`to:`/`has:attachment` need columns `message_search` doesn't
   // carry — joined in only when actually asked for, so the common
   // free-text-only query keeps the exact shape `bench:shapes` measures.
   const needsMessageJoin = Boolean(filters.from || filters.to || filters.hasAttachment);
-  if (filters.from) {
-    const needle = likeNeedle(filters.from);
-    conditions.push(sql`(fm.from_name ilike ${needle} or fm.from_address ilike ${needle})`);
-  }
-  if (filters.to) {
-    const needle = likeNeedle(filters.to);
-    conditions.push(sql`
-      exists (
-        select 1 from jsonb_array_elements(fm.to_addresses || fm.cc_addresses) e
-        where (e->>'address') ilike ${needle} or (e->>'name') ilike ${needle}
-      )
+  const candJoinSql = needsMessageJoin ? sql`join messages fm on fm.id = ms.message_id` : sql``;
+  const sharedConditions = buildSharedConditions(filters);
+
+  const perAccountCandidates: SQL[] = [];
+  for (const mailAccountId of scopedAccountIds) {
+    const conditions: SQL[] = [sql`ms.mail_account_id = ${mailAccountId}`, ...sharedConditions];
+    if (tsQuery) conditions.push(sql`ms.doc @@ ${tsQuery}`);
+
+    if (filters.folder) {
+      const folderIds = await resolveFolderIds(db, mailAccountId, filters.folder);
+      if (folderIds.length === 0) continue;
+      // Drizzle's `sql` template spreads a plain JS array into a
+      // comma-separated parameter list (`(${arr})` → `($1, $2, ...)`), which
+      // is exactly `in (...)`/`not in (...)` shape — not a single Postgres
+      // array parameter, so `= ANY(${arr})` sends a bare scalar and breaks
+      // on anything but a one-element array.
+      conditions.push(sql`ms.folder_id in (${folderIds})`);
+    } else {
+      // ADR-0016's default scope: every folder but Trash and Junk.
+      const excludedFolderIds = await resolveExcludedFolderIds(db, mailAccountId);
+      if (excludedFolderIds.length > 0)
+        conditions.push(sql`ms.folder_id not in (${excludedFolderIds})`);
+    }
+
+    if (filters.label) {
+      const labelId = await resolveLabelId(db, mailAccountId, filters.label);
+      if (!labelId) continue;
+      // Filtered off the Sync Backend's own label join, not the Search Index
+      // (#50's own resolution comment) — `threads.label_ids` is where Labels
+      // live, `message_search` gains no column for this.
+      conditions.push(
+        sql`exists (select 1 from threads t2 where t2.id = ms.thread_id and t2.label_ids @> ARRAY[${labelId}])`,
+      );
+    }
+
+    const boundary = cursorWindows?.[mailAccountId];
+    if (boundary) conditions.push(sql`ms.sent_at < ${boundary}::timestamptz`);
+
+    const whereSql = sql.join(conditions, sql` and `);
+    perAccountCandidates.push(sql`
+      (select ms.thread_id, ms.message_id, ms.sent_at, ms.doc, ms.mail_account_id
+       from message_search ms
+       ${candJoinSql}
+       where ${whereSql}
+       order by ms.sent_at desc
+       limit ${CANDIDATE_WINDOW})
     `);
   }
-  if (filters.hasAttachment) conditions.push(sql`fm.has_attachments = true`);
 
-  const whereSql = sql.join(conditions, sql` and `);
-  const candJoinSql = needsMessageJoin ? sql`join messages fm on fm.id = ms.message_id` : sql``;
+  if (perAccountCandidates.length === 0) return NO_RESULTS;
+  const candSql = sql.join(perAccountCandidates, sql` union all `);
+
   const rankSql = tsQuery ? sql`ts_rank_cd(doc, ${tsQuery})` : sql`1::real`;
 
   // `ts_headline` needs the matched message's body — joined only for the
-  // (at most 50) winning rows, never the whole Candidate Window, and only
-  // when there is a tsquery to highlight against (ADR-0016: "+1-3ms over
-  // the whole page — the cheap part").
+  // (at most 50) winning rows, never any account's whole Candidate Window,
+  // and only when there is a tsquery to highlight against (ADR-0016: "+1-3ms
+  // over the whole page — the cheap part").
   const headlineJoinSql = tsQuery
     ? sql`
         join messages hm on hm.id = t.message_id
@@ -166,16 +221,10 @@ export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQ
       folderId: string;
       headline: string | null;
     }[];
-    candidate_count: number;
-    oldest_candidate_sent_at: string | null;
+    candidates: { mailAccountId: string; count: number; oldestSentAt: string | null }[];
   }>(sql`
     with cand as (
-      select ms.thread_id, ms.message_id, ms.sent_at, ms.doc
-      from message_search ms
-      ${candJoinSql}
-      where ${whereSql}
-      order by ms.sent_at desc
-      limit ${CANDIDATE_WINDOW}
+      ${candSql}
     ),
     hits as (
       select distinct on (thread_id) thread_id, message_id, sent_at, ${rankSql} as rank
@@ -190,36 +239,106 @@ export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQ
       limit ${PAGE_SIZE}
     )
     select
-      coalesce(
-        jsonb_agg(
-          jsonb_build_object(
-            'threadId', t.thread_id,
-            'matchedMessageId', t.message_id,
-            'folderId', ms2.folder_id,
-            'headline', ${headlineExpr}
-          )
-          order by t.score desc, t.thread_id desc
-        ),
-        '[]'::jsonb
+      (
+        select coalesce(
+          jsonb_agg(
+            jsonb_build_object(
+              'threadId', t.thread_id,
+              'matchedMessageId', t.message_id,
+              'folderId', ms2.folder_id,
+              'headline', ${headlineExpr}
+            )
+            order by t.score desc, t.thread_id desc
+          ),
+          '[]'::jsonb
+        )
+        from top t
+        join message_search ms2 on ms2.message_id = t.message_id
+        ${headlineJoinSql}
       ) as results,
-      (select count(*) from cand)::int as candidate_count,
-      (select min(sent_at) from cand) as oldest_candidate_sent_at
-    from top t
-    join message_search ms2 on ms2.message_id = t.message_id
-    ${headlineJoinSql}
+      (
+        -- Per in-scope account, not merged: whether that account's own
+        -- window came back full decides whether it still has more to page
+        -- to (buildNextCursor below) — a merged total tells you nothing
+        -- about which account it belongs to.
+        select coalesce(
+          jsonb_agg(
+            jsonb_build_object(
+              'mailAccountId', g.mail_account_id,
+              'count', g.candidate_count,
+              'oldestSentAt', g.oldest_sent_at
+            )
+          ),
+          '[]'::jsonb
+        )
+        from (
+          select mail_account_id, count(*) as candidate_count, min(sent_at) as oldest_sent_at
+          from cand
+          group by mail_account_id
+        ) g
+      ) as candidates
   `);
 
   if (!row) return NO_RESULTS;
 
-  // The window came back full — there may be older matches still to page
-  // to on "load older". Fewer than a full window means every match this
-  // account has (for these filters) is already accounted for.
-  const cursor =
-    row.candidate_count >= CANDIDATE_WINDOW && row.oldest_candidate_sent_at
-      ? new Date(row.oldest_candidate_sent_at).toISOString()
-      : null;
+  return { rows: row.results, cursor: buildNextCursor(scopedAccountIds, row.candidates) };
+}
 
-  return { rows: row.results, cursor };
+/**
+ * The window came back full for an account — there may be older matches of
+ * *its own* still to page to on "load older", so it gets a boundary in the
+ * next cursor. Fewer than a full window (including zero rows, which never
+ * appears in `candidates` at all) means every match that account has is
+ * already accounted for, so it is marked exhausted (`null`) rather than left
+ * out — `runSearch` needs that to tell "exhausted" apart from "never part of
+ * this cursor's Scope" on the next page (see `CursorWindows`). `null` when
+ * every account is exhausted: nothing further exists to page to at all.
+ */
+function buildNextCursor(
+  scopedAccountIds: string[],
+  candidates: { mailAccountId: string; count: number; oldestSentAt: string | null }[],
+): string | null {
+  const byAccountId = new Map(candidates.map((candidate) => [candidate.mailAccountId, candidate]));
+  const windows: CursorWindows = {};
+  let anyContinuing = false;
+  for (const mailAccountId of scopedAccountIds) {
+    const candidate = byAccountId.get(mailAccountId);
+    if (candidate && candidate.count >= CANDIDATE_WINDOW && candidate.oldestSentAt) {
+      windows[mailAccountId] = new Date(candidate.oldestSentAt).toISOString();
+      anyContinuing = true;
+    } else {
+      windows[mailAccountId] = null;
+    }
+  }
+  return anyContinuing ? encodeCursor(windows) : null;
+}
+
+/** Conditions identical for every in-scope account — folder/label scope and the cursor boundary are the per-account exceptions, built in the caller's loop. */
+function buildSharedConditions(filters: SearchFilters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.after) conditions.push(sql`ms.sent_at >= ${filters.after}::timestamptz`);
+  // Inclusive on the named calendar day (search.ts's `before` doc comment,
+  // query-parser.ts's own copy of that contract, and the Client prefilter's
+  // `withinDateRange` all agree on this) — `< before + 1 day` rather than
+  // `< before`, which would exclude the named day entirely.
+  if (filters.before)
+    conditions.push(sql`ms.sent_at < (${filters.before}::timestamptz + interval '1 day')`);
+
+  if (filters.from) {
+    const needle = likeNeedle(filters.from);
+    conditions.push(sql`(fm.from_name ilike ${needle} or fm.from_address ilike ${needle})`);
+  }
+  if (filters.to) {
+    const needle = likeNeedle(filters.to);
+    conditions.push(sql`
+      exists (
+        select 1 from jsonb_array_elements(fm.to_addresses || fm.cc_addresses) e
+        where (e->>'address') ilike ${needle} or (e->>'name') ilike ${needle}
+      )
+    `);
+  }
+  if (filters.hasAttachment) conditions.push(sql`fm.has_attachments = true`);
+  return conditions;
 }
 
 async function resolveFolderIds(db: Db, mailAccountId: string, token: string): Promise<string[]> {
