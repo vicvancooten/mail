@@ -30,6 +30,12 @@ export function scrollToMailAccountSettings(mailAccountId: string): void {
  * re-enter-credentials form inline, and the add-a-Mail-Account flow. No
  * credential ever appears here — the wire type has no field for one
  * (ADR-0003).
+ *
+ * Its own `fetchMailAccounts` call, entirely independent of Account Scope
+ * (#73's own doc comment) — this is what "Settings lists every Mail Account
+ * regardless of Scope, with Needs Reauth shown per account" (#73's
+ * acceptance criteria) already means: a User who has filtered an account out
+ * of Scope can still reach it here to fix it.
  */
 export function MailAccountsSection() {
   const [accounts, setAccounts] = useState<MailAccount[] | null>(null);

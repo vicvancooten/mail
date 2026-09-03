@@ -211,9 +211,7 @@
   background: color-mix(in oklab, var(--w-fluor-flat) 16%, transparent);
 }
 
-/* The account and label selects are routing slips: label above, value in a
-   recessed plate. */
-.account-switcher,
+/* The label select is a routing slip: label above, value in a recessed plate. */
 .label-filter {
   display: flex;
   align-items: center;
@@ -226,7 +224,6 @@
   text-transform: uppercase;
 }
 
-.account-switcher select,
 .label-filter select {
   background: var(--w-panel);
   color: var(--w-ink);
@@ -237,6 +234,77 @@
   font-size: 10px;
   letter-spacing: 0;
   text-transform: none;
+}
+
+/* Account Scope (#73): a stacked-avatars toggle beside the search field that
+   discloses a checkbox per Mail Account — the multi-select the single
+   `<select>` it replaced (`AccountSwitcher`, #40) couldn't express. */
+.account-scope {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.account-scope-toggle {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  cursor: pointer;
+}
+
+.account-scope-toggle:hover,
+.account-scope-toggle[aria-expanded="true"] {
+  background: var(--w-panel-sunk);
+}
+
+.account-scope-avatars {
+  display: flex;
+}
+
+.account-scope-avatars .mail-avatar {
+  border: 2px solid var(--w-panel);
+}
+
+.account-scope-avatars .mail-avatar + .mail-avatar {
+  margin-left: -8px;
+}
+
+.account-scope-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  margin: 0;
+  padding: 8px 10px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+}
+
+.account-scope-panel legend {
+  padding: 0 0 2px;
+  color: var(--w-ink-2);
+  font-stretch: var(--w-wd-label);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.account-scope-panel label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--w-ink);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 /* ============================================================================

@@ -60,6 +60,75 @@ describe("readThreadWindow", () => {
   });
 });
 
+describe("readThreadWindow — Account Scope (#73)", () => {
+  it("merges several Mail Accounts into one newest-first list", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1-old", "acct-1", { lastMessageAt: minutesAfterEpoch(1) }),
+          makeThread("t1-new", "acct-1", { lastMessageAt: minutesAfterEpoch(3) }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2-mid", "acct-2", { lastMessageAt: minutesAfterEpoch(2) })] }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow(["acct-1", "acct-2"]);
+
+    expect(page.threads.map((thread) => thread.id)).toEqual(["t1-new", "t2-mid", "t1-old"]);
+  });
+
+  it("keeps Pinned Threads first across the whole Scope, not just within one account (#43)", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { lastMessageAt: minutesAfterEpoch(2) })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({
+        created: [
+          makeThread("t2-pinned", "acct-2", {
+            pinned: true,
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow(["acct-1", "acct-2"]);
+
+    expect(page.threads.map((thread) => thread.id)).toEqual(["t2-pinned", "t1"]);
+  });
+
+  it("is complete only once every scoped account's own window is", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta("acct-2", delta({ created: [makeThread("t2", "acct-2")] }), {
+      replace: false,
+    });
+    await localCache().listWindows.update("acct-2|all", { complete: false });
+
+    expect((await readThreadWindow(["acct-1", "acct-2"])).complete).toBe(false);
+    expect((await readThreadWindow(["acct-1"])).complete).toBe(true);
+  });
+
+  it("an empty Scope serves nothing, rather than every account", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    expect(await readThreadWindow([])).toEqual({ threads: [], complete: true });
+  });
+});
+
 describe("readThreadWindow — base ⊕ pending overlay (#39)", () => {
   it("renders a queued star instantly, before any server round-trip", async () => {
     await applyThreadDelta(
