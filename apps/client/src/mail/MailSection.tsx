@@ -517,10 +517,6 @@ export function MailSection({
             />
           ) : folder === "drafts" ? (
             <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
-          ) : folder === "snoozed" ? (
-            <div className="mail-empty-state" role="status">
-              Nothing snoozed yet — Snooze lands in its own ticket.
-            </div>
           ) : streamMode ? (
             <StreamView
               threads={threads}

@@ -4,7 +4,9 @@ import { type CSSProperties, useState } from "react";
 import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
+import { SnoozeMenu } from "./SnoozeMenu.js";
 import { parseHeadline } from "./search/headline.js";
+import { defaultSwipeSnoozeUntil } from "./snooze-presets.js";
 import { formatRowTime, type TimeGroupTier } from "./time-groups.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "./useSwipeToTriage.js";
 
@@ -25,20 +27,25 @@ function describeParticipant(participant: ThreadParticipant): string {
  * for a row to render correctly the instant an offline apply lands.
  *
  * The outer element is a `<div role="option">`, not a `<button>` (#75): the
- * row's own **Done** control (below) is a real, independently focusable
- * `<button>`, and a button cannot legally nest inside another interactive
- * element. Selecting the row is still one click anywhere on it — the click
- * bubbles to `onSelect` the same way it always has — and keyboard selection
- * has never gone through per-row focus here anyway (`j`/`k`, one window
- * listener in `VirtualizedThreadList`), so nothing about that path changes.
+ * row's own **Done** / **Snooze** controls (below) are real, independently
+ * focusable `<button>`s, and a button cannot legally nest inside another
+ * interactive element. Selecting the row is still one click anywhere on it
+ * — the click bubbles to `onSelect` the same way it always has — and
+ * keyboard selection has never gone through per-row focus here anyway
+ * (`j`/`k`, one window listener in `VirtualizedThreadList`), so nothing
+ * about that path changes.
  *
- * `onArchive`/`onTrash` (#44, `poc-scope.md` §Clients & notifications) wire
- * the row into `useSwipeToTriage` *and* the Done control below — optional
- * because `VirtualizedThreadList` has one non-triage caller path in tests,
- * and because the swipe hook is already a no-op for anything but a touch
- * pointer, so wiring it unconditionally would cost nothing either way;
- * optional just avoids threading two unused callbacks through call sites
- * that truly have none.
+ * `onArchive`/`onSnooze` (#44, #76, `poc-scope.md` §Clients & notifications)
+ * wire the row into `useSwipeToTriage` *and* their own row cluster controls
+ * below — optional because `VirtualizedThreadList` has one non-triage
+ * caller path in tests, and because the swipe hook is already a no-op for
+ * anything but a touch pointer, so wiring it unconditionally would cost
+ * nothing either way; optional just avoids threading unused callbacks
+ * through call sites that truly have none. There is deliberately no
+ * `onTrash` here: Trash stays one keystroke away (`useTriage.ts`'s own
+ * `#`/Backspace/Delete binding), but per #66's own row-cluster/swipe design
+ * ("swipe right marks Done, swipe left snoozes") it has no row-level mouse
+ * or swipe control of its own.
  *
  * `headline`/`folderPill`/`actionBadge` are search's own additions (#51,
  * `docs/search-ux-spec.md` §The row: "Built on ADR-0011's `Thread` list-row
@@ -52,7 +59,7 @@ export function ThreadRow({
   selected,
   onSelect,
   onArchive,
-  onTrash,
+  onSnooze,
   headline = null,
   folderPill = null,
   actionBadge = null,
@@ -64,7 +71,8 @@ export function ThreadRow({
   selected: boolean;
   onSelect: () => void;
   onArchive?: () => void;
-  onTrash?: () => void;
+  /** #76: `until` is an ISO datetime — the row cluster's Snooze button opens `SnoozeMenu` for a preset/custom pick, and a bare swipe left commits `snooze-presets.ts`'s `defaultSwipeSnoozeUntil` with no picker in reach. */
+  onSnooze?: (until: string) => void;
   /** The `ts_headline` fragment (search-ux-spec.md §The row), pre-parsed for `<mark>` rendering. `null`/`undefined`: keep the ordinary Snippet. */
   headline?: string | null;
   /** The non-Inbox folder pill (search-ux-spec.md: "Search crosses folders, and 'where did this end up' is half the question"). */
@@ -87,7 +95,7 @@ export function ThreadRow({
 
   const swipe = useSwipeToTriage({
     onArchive: onArchive ?? (() => {}),
-    onTrash: onTrash ?? (() => {}),
+    onSnooze: onSnooze ? () => onSnooze(defaultSwipeSnoozeUntil().toISOString()) : () => {},
   });
   const revealStrength = Math.min(Math.abs(swipe.offsetX) / SWIPE_COMMIT_THRESHOLD_PX, 1);
 
@@ -101,6 +109,12 @@ export function ThreadRow({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const armed = hovered || focused || selected;
+
+  // The Snooze popover (#76): its own local toggle, mirroring
+  // `ThreadDetailPane`'s `pickerOpen` for `LabelPicker` — one open control
+  // at a time, closed by picking an option, submitting the custom form, or
+  // Escape (`SnoozeMenu`'s own doc comment).
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
 
   const row = (
     <div
@@ -130,11 +144,12 @@ export function ThreadRow({
       aria-selected={selected}
       {...swipe.handlers}
     >
-      {/* Reserved space, left of the Avatar (#66 user stories 10-11): fixed
-          width whether armed or not, so arming the cluster never shifts the
-          Avatar, the sender column, or any other row — only this control's
-          own opacity changes. Never overlaps or replaces the Avatar, so a
-          Done click is never confused with a selection. */}
+      {/* Reserved space, left of the Avatar (#66 user stories 10-11, #76):
+          fixed width whether armed or not, so arming the cluster never
+          shifts the Avatar, the sender column, or any other row — only
+          these controls' own opacity changes. Never overlaps or replaces
+          the Avatar, so a Done/Snooze click is never confused with a
+          selection. */}
       <span className="row-done-slot">
         {onArchive ? (
           <button
@@ -149,6 +164,23 @@ export function ThreadRow({
             }}
           >
             <Pictogram name="check" size={13} />
+          </button>
+        ) : null}
+        {onSnooze ? (
+          <button
+            type="button"
+            className="row-snooze"
+            aria-label={`Snooze "${subjectLabel}"`}
+            aria-haspopup="menu"
+            aria-expanded={snoozeMenuOpen}
+            title="Snooze"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSnoozeMenuOpen((open) => !open);
+            }}
+          >
+            <Pictogram name="snooze" size={13} />
           </button>
         ) : null}
       </span>
@@ -195,29 +227,49 @@ export function ThreadRow({
     </div>
   );
 
-  if (!onArchive && !onTrash) return row; // no swipe wiring: skip the reveal wrapper entirely
+  // The popover renders outside `.thread-row-swipe` below, never inside it:
+  // that wrapper's `overflow: hidden` (needed to clip the swipe drag itself
+  // to the row's own bounds) would clip a floated popover too. `onSnooze`'s
+  // own presence — not `snoozeMenuOpen` — decides whether it's ever wired
+  // up here; the ternary just decides whether it's currently rendered.
+  const menu =
+    snoozeMenuOpen && onSnooze ? (
+      <SnoozeMenu
+        thread={thread}
+        onSnooze={(until) => {
+          onSnooze(until);
+          setSnoozeMenuOpen(false);
+        }}
+        onClose={() => setSnoozeMenuOpen(false)}
+      />
+    ) : null;
+
+  if (!onArchive && !onSnooze) return row; // no swipe wiring: skip the reveal wrapper entirely
 
   return (
-    <div className="thread-row-swipe">
-      <div
-        className={`swipe-reveal ${swipe.revealing ?? ""}`}
-        style={{ opacity: revealStrength } as CSSProperties}
-        aria-hidden="true"
-      >
-        {swipe.revealing === "trash" ? (
-          <span className="swipe-reveal-trash">
-            <Pictogram name="trash" size={16} /> Trash
-          </span>
-        ) : (
-          // "Done" (#66 user story 8) — the act, on the row a swipe commits
-          // through `onArchive`; the destination it lands in stays named
-          // Archive (story 9) wherever that's what the row is naming instead.
-          <span className="swipe-reveal-archive">
-            <Pictogram name="check" size={16} /> Done
-          </span>
-        )}
+    <div className="thread-row-outer">
+      <div className="thread-row-swipe">
+        <div
+          className={`swipe-reveal ${swipe.revealing ?? ""}`}
+          style={{ opacity: revealStrength } as CSSProperties}
+          aria-hidden="true"
+        >
+          {swipe.revealing === "snooze" ? (
+            <span className="swipe-reveal-snooze">
+              <Pictogram name="snooze" size={16} /> Snooze
+            </span>
+          ) : (
+            // "Done" (#66 user story 8) — the act, on the row a swipe commits
+            // through `onArchive`; the destination it lands in stays named
+            // Archive (story 9) wherever that's what the row is naming instead.
+            <span className="swipe-reveal-archive">
+              <Pictogram name="check" size={16} /> Done
+            </span>
+          )}
+        </div>
+        {row}
       </div>
-      {row}
+      {menu}
     </div>
   );
 }

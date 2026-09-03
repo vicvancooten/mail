@@ -12,6 +12,7 @@ import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
+import { startSnoozeWakeLoop } from "./sync/snooze-wake-loop.js";
 
 const env = loadEnv();
 
@@ -103,6 +104,13 @@ const sendLoop = startSendLoop(db, {
 // Account or gated on its sync state.
 const searchIndexRebuildLoop = startSearchIndexRebuildLoop(db, { logger: app.log });
 
+// The Snooze wake sweep (#76): "a thread returns to the Inbox as new when
+// the time passes", independent of any Client being connected (ADR-0003) —
+// same independent-of-`sync/manager.ts` shape as the rebuild loop above,
+// its first tick catching up on whatever came due while the process was
+// down.
+const snoozeWakeLoop = startSnoozeWakeLoop(db, { logger: app.log });
+
 // The Notifier's outbox delivery sweep (#53, ADR-0015). Its first tick runs
 // immediately, same reasoning as the send sweeper above: whatever the outbox
 // held when the process died is exactly what this boot-time tick resumes.
@@ -119,6 +127,7 @@ process.on("SIGTERM", () => {
     draftPushLoop.stop(),
     sendLoop.stop(),
     searchIndexRebuildLoop.stop(),
+    snoozeWakeLoop.stop(),
     notifierDeliverLoop.stop(),
     syncHints.stop(),
   ])

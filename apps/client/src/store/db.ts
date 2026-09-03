@@ -64,6 +64,7 @@ export type ViewKey =
   | "trash"
   | "sent"
   | "pinned"
+  | "snoozed"
   | { readonly kind: "label"; readonly labelId: string };
 export const DEFAULT_VIEW: ViewKey = "all";
 

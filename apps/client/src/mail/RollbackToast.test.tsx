@@ -70,6 +70,19 @@ describe("RollbackToast", () => {
     );
   });
 
+  it("describes a snooze rejection (#76)", async () => {
+    render(<RollbackToast />);
+
+    await act(async () => {
+      await rejectOne(
+        { type: "snooze", threadId: "t1", until: "2026-06-02T08:00:00.000Z" },
+        "invalid_snooze_time",
+      );
+    });
+
+    expect(screen.getByRole("status").textContent).toBe("Couldn't snooze — restored to the list.");
+  });
+
   it("names the label on a rejected applyLabel", async () => {
     render(<RollbackToast />);
 

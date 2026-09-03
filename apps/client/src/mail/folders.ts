@@ -5,10 +5,12 @@ import type { ViewKey } from "../store/index.js";
  * them. `label` is deliberately not one of these — Labels are an open-ended,
  * User-defined set (`store/reads.ts#useLabels`), rendered as their own
  * section under the fixed list rather than a fixed `FolderKey` each.
- * `screener` and `snoozed`/`drafts` don't feed `useThreadWindow` at all (see
+ * `screener`/`drafts` don't feed `useThreadWindow` at all (see
  * `folderToView` below) — they're routes with a URL like every other entry
  * here (the ticket's own acceptance criterion), just not Thread-window
- * views.
+ * views. `snoozed` (#76) *is* one now — "the Snoozed folder view lists what
+ * is waiting" — the one exception among these three, and `folderToView`
+ * maps it to its own `ViewKey` rather than falling into the `all` default.
  */
 export type FolderKey =
   | "inbox"
@@ -54,9 +56,9 @@ export function parseFolderKey(value: string | undefined): FolderKey | null {
 
 /**
  * Which `ViewKey` (`store/db.ts`) a `FolderKey` reads from `useThreadWindow`.
- * `screener`, `snoozed` and `drafts` render their own surface instead
+ * `screener` and `drafts` render their own surface instead
  * (`MailSection.tsx`'s own body switch) and never call `useThreadWindow`
- * with this — the mapping here is only ever consulted for the five that do,
+ * with this — the mapping here is only ever consulted for the six that do,
  * `all` is a harmless default for the rest so the hook itself can still be
  * called unconditionally (Rules of Hooks).
  */
@@ -70,6 +72,8 @@ export function folderToView(folder: FolderKey): ViewKey {
       return "trash";
     case "sent":
       return "sent";
+    case "snoozed":
+      return "snoozed";
     default:
       return "all";
   }

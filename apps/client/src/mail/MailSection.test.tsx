@@ -551,6 +551,47 @@ describe("MailSection", () => {
     // Scoped to the list itself (#74's own sidebar has a "Pinned" nav entry too).
     expect(within(screen.getByRole("listbox")).getByText("Pinned")).toBeDefined(); // the synthetic group header
   });
+
+  it("snoozing a Thread from the row cluster removes it from the Inbox instantly and it appears in Snoozed (#76)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Snooze "Newer thread"/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Later today" }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(screen.getByText("Older thread")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Snoozed" }));
+    expect(await screen.findByText("Newer thread")).toBeDefined();
+  });
+
+  it("a rollback returns the row Snooze put down, and raises a toast naming the failure (#76)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Snooze "Newer thread"/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Later today" }));
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+
+    const queued = await listQueuedMutations("acct-1");
+    await act(async () => {
+      await resolveMutationOutcomes(
+        "acct-1",
+        queued,
+        queued.map((mutation) => ({ id: mutation.id, status: "rejected", reason: "server_error" })),
+      );
+    });
+
+    expect(await screen.findByText("Newer thread")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Couldn't snooze — restored to the list.");
+  });
 });
 
 describe("Sidebar (#74)", () => {
@@ -581,6 +622,36 @@ describe("Sidebar (#74)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Archive" }));
 
     expect(await screen.findByText("Archived thread")).toBeDefined();
+    expect(screen.queryByText("Inbox thread")).toBeNull();
+  });
+
+  it("Snoozed lists what is waiting, hiding the ordinary Inbox (#76)", async () => {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-inbox", "acct-1", { subject: "Inbox thread" }),
+          makeThread("t-snoozed", "acct-1", {
+            subject: "Snoozed thread",
+            inInbox: false,
+            snoozeUntil: "2026-07-01T08:00:00.000Z",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Inbox thread");
+    expect(screen.queryByText("Snoozed thread")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Snoozed" }));
+
+    expect(await screen.findByText("Snoozed thread")).toBeDefined();
     expect(screen.queryByText("Inbox thread")).toBeNull();
   });
 

@@ -370,7 +370,11 @@ export function useThreadWindow(
  * and Pinned are cross-folder by design (poc-spec.md: the sidebar's Pinned
  * view "shows pinned Threads from every folder") and each excludes Trash,
  * the same "Trash overrides everything else" convention ordinary mail
- * clients use, so a trashed Thread doesn't linger in either.
+ * clients use, so a trashed Thread doesn't linger in either. Snoozed (#76)
+ * reads `snoozeUntil` rather than `inInbox`, the same "one field says which"
+ * shape `folderRole` gives Archive/Trash — `inInbox` alone can't tell a
+ * snoozed Thread apart from an archived or trashed one, all three being
+ * `false` — and excludes Trash the same way Sent/Pinned do.
  */
 function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
   if (typeof view !== "string") {
@@ -389,6 +393,10 @@ function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
       return threads.filter((thread) => thread.hasSentMessage && thread.folderRole !== "trash");
     case "pinned":
       return threads.filter((thread) => thread.pinned && thread.folderRole !== "trash");
+    case "snoozed":
+      return threads.filter(
+        (thread) => thread.snoozeUntil !== null && thread.folderRole !== "trash",
+      );
   }
 }
 
@@ -524,8 +532,18 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
       case "trash":
         // The Thread's fate is sealed the instant the action is queued —
         // `readThreadWindow` drops anything with `inInbox: false` from the
-        // page, offline included, before any server round trip.
-        overlaid = { ...overlaid, inInbox: false };
+        // page, offline included, before any server round trip. Also clears
+        // `snoozeUntil` (#76), mirroring `sync/mutations.ts`'s own archive/
+        // trash case: archiving/trashing a still-snoozed Thread overrides
+        // Snooze, so it must drop out of the Snoozed view the same instant
+        // too, not just the Inbox.
+        overlaid = { ...overlaid, inInbox: false, snoozeUntil: null };
+        break;
+      case "snooze":
+        // Same immediate-hide shape as archive/trash above, plus the field
+        // that makes the Snoozed view's own filter (`filterByView`) admit it
+        // the instant it's queued, offline included.
+        overlaid = { ...overlaid, inInbox: false, snoozeUntil: mutation.intent.until };
         break;
       case "setPinned":
         overlaid = { ...overlaid, pinned: mutation.intent.pinned };

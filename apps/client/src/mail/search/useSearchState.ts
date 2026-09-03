@@ -368,9 +368,9 @@ export function useSearchState(
  * `Triage` method so the row it targets has a base row in the Local Cache
  * before the mutation is queued against it — "a result row can be pinned
  * into the Local Cache unchanged" (ADR-0016 §Wire shape) is the promise
- * this keeps. `archive`/`trash` additionally call `onActed`, which is what
- * lets a search result show "the row stays in place, visibly changed"
- * (search-ux-spec.md §Acting on a result) rather than being
+ * this keeps. `archive`/`trash`/`snooze` additionally call `onActed`, which
+ * is what lets a search result show "the row stays in place, visibly
+ * changed" (search-ux-spec.md §Acting on a result) rather than being
  * indistinguishable from a still-in-Inbox match.
  */
 export function wrapSearchTriage(
@@ -393,6 +393,11 @@ export function wrapSearchTriage(
       materialize(threadId);
       onActed(threadId);
       triage.trash(threadId);
+    },
+    snooze: (threadId, until) => {
+      materialize(threadId);
+      onActed(threadId);
+      triage.snooze(threadId, until);
     },
     toggleStar: (threadId) => {
       materialize(threadId);
