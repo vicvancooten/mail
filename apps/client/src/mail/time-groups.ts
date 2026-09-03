@@ -1,11 +1,13 @@
 import type { CachedThread } from "../store/index.js";
 
 /**
- * Time-grouping headers for the thread list. The spec leaves the exact
- * buckets as fog ("pick something reasonable, expect iteration") — this
- * follows the common inbox convention (Today / Yesterday / This week / Last
- * week / by-month for the rest of the year / by-month-and-year before
- * that), the same shape the `prototype/triage-loop-ui` branch settled on.
+ * Time-grouping headers for the thread list (#69, #66 "Group ladder and
+ * taper"). The ladder: Pinned · Today · Yesterday · This week · Last week ·
+ * This month · the previous month by name · the month before that by name ·
+ * Older · Undated. Month-by-month and month-with-year buckets for anything
+ * further back collapse into one Older group, so "clear everything old" has
+ * an honest target — this replaced the old per-month/per-year ladder
+ * (`prototype/triage-loop-ui`'s shape).
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -31,11 +33,23 @@ function startOfDay(date: Date): number {
   return copy.getTime();
 }
 
+/** A month, named — qualified with its year once that year isn't `now`'s. */
+function monthLabel(monthStartMs: number, thisYear: number): string {
+  const d = new Date(monthStartMs);
+  const name = MONTH_NAMES[d.getMonth()] as string;
+  return d.getFullYear() === thisYear ? name : `${name} ${d.getFullYear()}`;
+}
+
+/** The start-of-month timestamp `monthsAgo` months before `now`'s month. */
+function monthStartBefore(now: Date, monthsAgo: number): number {
+  return new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1).getTime();
+}
+
 /**
  * A Thread whose dates haven't landed yet (`lastMessageAt` and
- * `firstMessageAt` both null) groups under "Undated" rather than being
- * dropped or crashing the bucket math — `threadSortKey` already handles
- * this case the same way for ordering.
+ * `firstMessageAt` both null), or whose date doesn't parse, groups under
+ * "Undated" rather than being dropped or crashing the bucket math —
+ * `threadSortKey` already handles this case the same way for ordering.
  */
 export function timeGroupLabel(iso: string | null, now: Date = new Date()): string {
   if (iso === null) return "Undated";
@@ -46,18 +60,44 @@ export function timeGroupLabel(iso: string | null, now: Date = new Date()): stri
   const yesterday = today - DAY_MS;
   const thisWeekStart = today - 7 * DAY_MS;
   const lastWeekStart = today - 14 * DAY_MS;
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const monthStart = monthStartBefore(now, 0);
+  const prevMonthStart = monthStartBefore(now, 1);
+  const twoMonthsAgoStart = monthStartBefore(now, 2);
   const thisYear = now.getFullYear();
 
   if (timestamp >= today) return "Today";
   if (timestamp >= yesterday) return "Yesterday";
   if (timestamp >= thisWeekStart) return "This week";
   if (timestamp >= lastWeekStart) return "Last week";
-  if (timestamp >= monthStart) return "Earlier this month";
+  if (timestamp >= monthStart) return "This month";
+  if (timestamp >= prevMonthStart) return monthLabel(prevMonthStart, thisYear);
+  if (timestamp >= twoMonthsAgoStart) return monthLabel(twoMonthsAgoStart, thisYear);
+  return "Older";
+}
 
-  const d = new Date(timestamp);
-  if (d.getFullYear() === thisYear) return MONTH_NAMES[d.getMonth()] as string;
-  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+/** The synthetic group label a Pinned Thread (#43) surfaces under, ahead of every date-based group. */
+export const PINNED_GROUP_LABEL = "Pinned";
+
+/**
+ * The four taper tiers, keyed to a group's semantic recency rather than its
+ * ordinal position in the ladder — so a quiet morning with nothing from
+ * Today never promotes a two-week-old group to loudest (#66 user story 5).
+ * Everything past the six fixed labels below — the two named months, Older,
+ * and Undated — reads as T4 regardless of which months they happen to be.
+ */
+export type TimeGroupTier = 1 | 2 | 3 | 4;
+
+const FIXED_TIER_BY_LABEL: Readonly<Record<string, TimeGroupTier>> = {
+  [PINNED_GROUP_LABEL]: 1,
+  Today: 1,
+  Yesterday: 2,
+  "This week": 2,
+  "Last week": 3,
+  "This month": 3,
+};
+
+export function timeGroupTier(label: string): TimeGroupTier {
+  return FIXED_TIER_BY_LABEL[label] ?? 4;
 }
 
 /** Compact per-row time label: "2h", "Yest.", "3 Aug". */
@@ -78,11 +118,10 @@ export function formatRowTime(iso: string | null, now: Date = new Date()): strin
 
 export interface ThreadGroup {
   label: string;
+  /** This group's taper tier (`timeGroupTier(label)`) — carried alongside the label so a renderer never re-derives it. */
+  tier: TimeGroupTier;
   threads: CachedThread[];
 }
-
-/** The synthetic group label a Pinned Thread (#43) surfaces under, ahead of every date-based group. */
-export const PINNED_GROUP_LABEL = "Pinned";
 
 /**
  * Buckets an already newest-first, pinned-first ordered page
@@ -105,7 +144,7 @@ export function groupThreadsByTime(
       : timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.threads.push(thread);
-    else groups.push({ label, threads: [thread] });
+    else groups.push({ label, tier: timeGroupTier(label), threads: [thread] });
   }
   return groups;
 }
