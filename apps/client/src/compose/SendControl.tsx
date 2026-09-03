@@ -1,7 +1,7 @@
 import type { UndoSendDelaySeconds } from "@mail/shared";
 import { DEFAULT_UNDO_SEND_DELAY_SECONDS, UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
+import { Send } from "lucide-react";
 import { useCallback } from "react";
-import { Pictogram } from "../brand/Pictogram.js";
 import { enqueueUserMutation, usePreference } from "../store/index.js";
 import type { SendVerdict } from "./send-validation.js";
 
@@ -47,7 +47,7 @@ export function SendControl({ verdict, acknowledged, onSend }: SendControlProps)
         disabled={blocked}
         title={blocked ? verdict.reason : "Send (Cmd/Ctrl+Enter)"}
       >
-        <Pictogram name="send" size={14} />
+        <Send size={14} />
         {label(verdict, acknowledged)}
       </button>
       <label className="composer-send-delay">

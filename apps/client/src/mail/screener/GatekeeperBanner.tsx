@@ -1,5 +1,5 @@
+import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Pictogram } from "../../brand/Pictogram.js";
 import { useScreenerSenders } from "../../store/index.js";
 import { readScreenerSeenUntil } from "../device-preferences.js";
 
@@ -57,7 +57,7 @@ export function GatekeeperBanner({
 
   return (
     <div className="gatekeeper-banner" role="status">
-      <Pictogram name="shield" size={15} />
+      <ShieldCheck size={15} />
       <span>
         {unseen.length} sender{unseen.length === 1 ? "" : "s"} waiting in the Screener — {names}
         {overflow}

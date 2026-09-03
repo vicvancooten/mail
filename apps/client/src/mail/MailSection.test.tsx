@@ -765,7 +765,7 @@ describe("MailSection", () => {
     stubFetch(never);
     renderMail();
 
-    const composeButton = await screen.findByTitle("Compose (c)");
+    const composeButton = await screen.findByRole("button", { name: "Compose" });
     fireEvent.click(composeButton);
 
     const subject = await screen.findByPlaceholderText("Subject");

@@ -23,7 +23,9 @@
    — comes straight from `@mail/design-tokens` above; nothing re-declares it
    here any more (the `--w-*` compatibility aliases this block used to hold
    are gone now that `src/mail`, `src/compose` and `src/brand` reference the
-   tokens directly, #83).
+   tokens directly, #83). The avatar tile palette the comp's correspondent
+   discs are drawn from lives in `@mail/design-tokens` too, as
+   `--tile-a-bg`…`--tile-e-ink` (#86).
    ========================================================================= */
 :root {
   --strike-blend: multiply;
@@ -202,6 +204,18 @@
   time,
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Every icon in the app is a Lucide stroke glyph (#86 — the hand-authored
+     solid pictogram set is gone). Lucide's own default is 2px, which reads
+     heavy beside this type at the 13-16px the chrome uses them at; the comp
+     draws its whole icon language at 1.6 (`docs/design/prototypes/the-
+     instrument.html`, `.icon`), and setting it here rather than per call
+     site is what keeps one weight across every surface. A CSS declaration
+     beats the presentation attribute the component renders, so an icon that
+     genuinely needs another weight can still ask for it in its own rule. */
+  .lucide {
+    stroke-width: 1.6;
   }
 }
 

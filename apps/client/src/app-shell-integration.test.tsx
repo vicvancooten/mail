@@ -112,7 +112,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings");
   });
 
-  it("the App Switcher names all four Apps by role and accessible name, the reserved three marked unavailable (#72)", async () => {
+  it("the App Switcher names all four Apps as reachable links, the reserved three marked SOON (#72, #86)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -122,14 +122,16 @@ describe("the app shell over a routed tree (#71)", () => {
 
     await user.click(screen.getByRole("button", { name: "Switch app" }));
 
-    expect(screen.getByRole("menuitem", { name: "Mail" })).toBeDefined();
+    // The switcher expands into the comp's tab row: real `Link`s, so a
+    // reserved App is a destination rather than a disabled menu entry.
+    expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
     for (const name of ["Contacts", "Calendar", "Tasks"]) {
-      const item = screen.getByRole("menuitem", { name: new RegExp(name) });
-      expect(item).toBeDefined();
-      expect(item.textContent).toContain("Not built yet");
+      const tab = screen.getByRole("link", { name: new RegExp(name) });
+      expect(tab).toBeDefined();
+      expect(tab.textContent).toContain("SOON");
     }
 
-    await user.click(screen.getByRole("menuitem", { name: /Contacts/ }));
+    await user.click(screen.getByRole("link", { name: /Contacts/ }));
 
     expect(await screen.findByLabelText("Contacts")).toBeDefined();
     expect(screen.getByText("Not built yet")).toBeDefined();
@@ -215,7 +217,7 @@ describe("the app shell over a routed tree (#71)", () => {
     stubFetch([account]);
 
     render(<App />);
-    await screen.findByText(/Signed in as/);
+    await screen.findByLabelText("Switch app");
     expect(screen.queryByText("Preferences")).toBeNull();
 
     act(() => {
@@ -239,9 +241,9 @@ describe("the app shell over a routed tree (#71)", () => {
     render(<App />);
 
     expect(await screen.findByLabelText("Contacts")).toBeDefined();
-    // Still under the one shell — the header rail's `Signed in as` is
+    // Still under the one shell — the header's App Switcher is
     // unconditional chrome, not something each route re-renders.
-    expect(screen.getByText(/Signed in as/)).toBeDefined();
+    expect(screen.getByLabelText("Switch app")).toBeDefined();
   });
 
   it("the virtualized Thread list keeps its bounded-height ancestor chain at a phone width, not desktop only", async () => {

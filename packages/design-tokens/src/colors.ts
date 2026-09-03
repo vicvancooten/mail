@@ -78,3 +78,39 @@ export const darkColors: ColorTheme = {
   warn: "#f2ab4c",
   success: "#35c98a",
 };
+
+/**
+ * The avatar tile palette: five tinted fill/ink pairs a correspondent's
+ * initials circle is drawn from, picked deterministically off the address so
+ * the same correspondent keeps the same tile forever
+ * (`apps/client/src/mail/Avatar.tsx`). Five rather than a full hue wheel
+ * because a scanned list wants variety without noise — the comp's own
+ * `.tile-a`…`.tile-e`.
+ *
+ * Separate from `ColorTheme` on purpose: these are not roles a new surface
+ * reaches for by name, they are one closed set with one consumer.
+ */
+export interface AvatarTile {
+  bg: string;
+  ink: string;
+}
+
+export type AvatarTileKey = "a" | "b" | "c" | "d" | "e";
+
+export type AvatarTileTheme = Record<AvatarTileKey, AvatarTile>;
+
+export const lightAvatarTiles: AvatarTileTheme = {
+  a: { bg: "#e4e1fb", ink: "#3730a3" },
+  b: { bg: "#d9f2ec", ink: "#0f6656" },
+  c: { bg: "#fdeccb", ink: "#8a5a06" },
+  d: { bg: "#fbe0ea", ink: "#9d174d" },
+  e: { bg: "#e2e8f4", ink: "#33415c" },
+};
+
+export const darkAvatarTiles: AvatarTileTheme = {
+  a: { bg: "#2a2360", ink: "#c7c2ff" },
+  b: { bg: "#113830", ink: "#7fe0c9" },
+  c: { bg: "#3a2c08", ink: "#f0c27a" },
+  d: { bg: "#3a1626", ink: "#f4a8c6" },
+  e: { bg: "#1f2636", ink: "#a9b8d6" },
+};

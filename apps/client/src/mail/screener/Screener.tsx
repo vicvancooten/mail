@@ -1,5 +1,5 @@
+import { Ban, Check, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Pictogram } from "../../brand/Pictogram.js";
 import {
   enqueueMutation,
   type ScreenerSenderGroup,
@@ -244,13 +244,13 @@ function ScreenerRow({
       </div>
       <div className="screener-row-actions">
         <button type="button" className="screener-approve" onClick={onApprove} title="Approve (a)">
-          <Pictogram name="check" size={14} /> Approve
+          <Check size={14} /> Approve
         </button>
         <button type="button" className="screener-deny" onClick={onDeny} title="Deny (d)">
-          <Pictogram name="close" size={14} /> Deny
+          <X size={14} /> Deny
         </button>
         <button type="button" className="screener-block" onClick={onBlock} title="Block (b)">
-          <Pictogram name="block" size={14} /> Block
+          <Ban size={14} /> Block
         </button>
       </div>
     </li>

@@ -1,4 +1,12 @@
-import { type ColorTheme, darkColors, lightColors } from "./colors.js";
+import {
+  type AvatarTileKey,
+  type AvatarTileTheme,
+  type ColorTheme,
+  darkAvatarTiles,
+  darkColors,
+  lightAvatarTiles,
+  lightColors,
+} from "./colors.js";
 import { darkShadow, hairline, lightShadow, radii, type ShadowTheme } from "./geometry.js";
 import { fonts } from "./typography.js";
 
@@ -27,6 +35,17 @@ function colorDeclarations(theme: ColorTheme, indent: string): string {
     .join("\n");
 }
 
+const tileKeys: readonly AvatarTileKey[] = ["a", "b", "c", "d", "e"];
+
+function tileDeclarations(theme: AvatarTileTheme, indent: string): string {
+  return tileKeys
+    .map(
+      (key) =>
+        `${indent}--tile-${key}-bg: ${theme[key].bg};\n${indent}--tile-${key}-ink: ${theme[key].ink};`,
+    )
+    .join("\n");
+}
+
 function shadowDeclarations(theme: ShadowTheme, indent: string): string {
   return `${indent}--shadow-overlay: ${theme.overlay};`;
 }
@@ -43,6 +62,7 @@ export function buildTokensCss(): string {
   return `:root {
   color-scheme: light dark;
 ${colorDeclarations(lightColors, "  ")}
+${tileDeclarations(lightAvatarTiles, "  ")}
 
   --font-sans: ${fonts.sans};
   --font-mono: ${fonts.mono};
@@ -55,6 +75,7 @@ ${shadowDeclarations(lightShadow, "  ")}
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
 ${colorDeclarations(darkColors, "    ")}
+${tileDeclarations(darkAvatarTiles, "    ")}
 ${shadowDeclarations(darkShadow, "    ")}
   }
 }
@@ -62,6 +83,7 @@ ${shadowDeclarations(darkShadow, "    ")}
 :root.dark {
   color-scheme: dark;
 ${colorDeclarations(darkColors, "  ")}
+${tileDeclarations(darkAvatarTiles, "  ")}
 ${shadowDeclarations(darkShadow, "  ")}
 }
 

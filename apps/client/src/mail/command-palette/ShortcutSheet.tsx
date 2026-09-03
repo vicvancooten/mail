@@ -1,5 +1,5 @@
+import { X } from "lucide-react";
 import { useEffect } from "react";
-import { Pictogram } from "../../brand/Pictogram.js";
 import type { Triage } from "../useTriage.js";
 import { buildCommands, COMMAND_SECTIONS } from "./commands.js";
 
@@ -73,7 +73,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
             onClick={onClose}
             aria-label="Close"
           >
-            <Pictogram name="close" size={13} />
+            <X size={13} />
           </button>
         </div>
         <div className="shortcut-sheet-body">

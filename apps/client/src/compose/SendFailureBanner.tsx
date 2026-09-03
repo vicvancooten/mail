@@ -1,4 +1,4 @@
-import { Pictogram } from "../brand/Pictogram.js";
+import { TriangleAlert } from "lucide-react";
 import { useFailedSends } from "../store/index.js";
 import "./compose.css";
 
@@ -34,7 +34,7 @@ export function SendFailureBanner({ mailAccountId, onOpen }: SendFailureBannerPr
     <div className="send-failure-banner" role="alert">
       {failed.map((row) => (
         <div key={row.id} className="send-failure">
-          <Pictogram name="warning" size={14} />
+          <TriangleAlert size={14} />
           <div className="send-failure-text">
             <strong>Send failed</strong>
             <span className="send-failure-subject">

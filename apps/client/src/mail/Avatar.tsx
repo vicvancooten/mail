@@ -7,19 +7,28 @@
  * rather than a missing feature. "Sender avatars" on the follow-up map (#15)
  * is therefore closed by the identity rather than still open.
  *
- * In a list row this is the kraft plate slotted into the frame's stile: one
- * stock, one colour, initials only. Twenty-four saturated hue circles down a
- * list is noise in a surface whose whole job is being scanned, so the plate
- * is uniform and the eye is left free for the subject line. `ring` renders
- * the full circular date stamp instead — a broken ring rotated
- * deterministically off the address, so the same correspondent carries the
- * same mark forever — for the places with room for it.
+ * The comp's treatment (#86, `.row-tile` in
+ * `docs/design/prototypes/the-instrument.html`): a round tile of initials,
+ * filled with one of five tinted fill/ink pairs
+ * (`@mail/design-tokens`' avatar tiles) picked deterministically off the
+ * name, so the same correspondent keeps the same tile forever. Five tints
+ * rather than a hue per sender — a scanned list wants enough variety to
+ * tell rows apart and not one saturated circle per row fighting the subject
+ * line for the eye.
+ *
+ * Size and unread badge are the caller's business: every surface that shows
+ * one of these sets its own diameter in CSS (`.mail-avatar` and the
+ * per-tier overrides in `mail.css`), because a Thread row, a reading pane
+ * and the header all want a different one.
  */
 
-function stampRotation(seed: string): number {
+const TILES = ["a", "b", "c", "d", "e"] as const;
+
+/** A stable hash of the seed — the same input picks the same tile in every session and on every device. */
+function tileFor(seed: string): (typeof TILES)[number] {
   let hash = 0;
   for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return hash % 360;
+  return TILES[hash % TILES.length] ?? "a";
 }
 
 function initials(name: string): string {
@@ -33,39 +42,20 @@ function initials(name: string): string {
 
 export function Avatar({
   name,
-  ring = false,
   unread = false,
+  className,
 }: {
   name: string;
-  ring?: boolean;
-  /** Unread inverts the plate: the item has not been cancelled yet. */
+  /** Unread pins the accent dot to the tile's lower-right corner (the comp's `.unread-badge`). */
   unread?: boolean;
+  className?: string;
 }) {
-  if (ring) {
-    return (
-      <span className="mail-cds" aria-hidden="true">
-        <svg viewBox="0 0 64 64" focusable="false" aria-hidden="true">
-          <circle
-            cx="32"
-            cy="32"
-            r="27"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3.5"
-            strokeDasharray="140 30"
-            transform={`rotate(${stampRotation(name)} 32 32)`}
-          />
-          <text x="32" y="38" textAnchor="middle" fill="currentColor" className="mail-cds-text">
-            {initials(name)}
-          </text>
-        </svg>
-      </span>
-    );
-  }
-
   return (
-    <span className={`mail-avatar${unread ? " unread" : ""}`} aria-hidden="true">
-      {initials(name)}
+    <span className={`mail-avatar-wrap${className ? ` ${className}` : ""}`} aria-hidden="true">
+      <span className="mail-avatar" data-tile={tileFor(name)}>
+        {initials(name)}
+      </span>
+      {unread ? <span className="mail-avatar-unread" /> : null}
     </span>
   );
 }
