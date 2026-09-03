@@ -59,6 +59,7 @@ export function ThreadRow({
   gatekeeperBadge = null,
   tier = null,
   height,
+  previewArmed = false,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -77,6 +78,8 @@ export function ThreadRow({
   tier?: TimeGroupTier | null;
   /** This row's own height, computed once by `VirtualizedThreadList` from `taper.ts` — the single number the virtualizer and this row's rendered box both use, never a second one guessed in `mail.css` (#75). */
   height?: number;
+  /** True while the User hovers this row's own group header checkmark (#66, #77's "hovering the header checkmark previews... every row's Done action") — forces the same reveal hover/focus/selected already give the row's Done control, without claiming this row is itself hovered, focused or selected. */
+  previewArmed?: boolean;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -100,13 +103,14 @@ export function ThreadRow({
   // way a click does, so one state covers all three triggers.
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const armed = hovered || focused || selected;
+  const armed = hovered || focused || selected || previewArmed;
 
   const row = (
     <div
       className={`thread-row${unread ? " unread" : ""}${selected ? " selected" : ""}${thread.pinned ? " pinned" : ""}`}
       data-tier={tier ?? undefined}
       data-armed={armed}
+      data-group-preview={previewArmed || undefined}
       style={
         {
           height,

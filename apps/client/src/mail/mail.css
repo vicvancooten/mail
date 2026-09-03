@@ -548,6 +548,107 @@
   color: var(--w-ink-3);
 }
 
+/* ---------- the group header cluster (#66, #67, #77): bulk Triage on the
+ * group ---------------------------------------------------------------- */
+
+.group-header-cluster {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+
+.group-header-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-header-count {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--w-mono);
+  color: var(--w-ink-3);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Reserved space, same posture `.thread-row .row-done-slot` already takes
+   (#75): a fixed-size control whether armed or not, so arming a header
+   never reflows the label or count beside it. */
+.group-header-cluster .group-done,
+.group-header-cluster .group-mark-read {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: var(--w-ink-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--w-dur-fast) var(--w-ease);
+}
+
+.group-header-cluster .group-mark-read {
+  margin-left: auto;
+}
+
+/* Armed is real component state (`GroupHeaderCluster`'s `data-armed`),
+   driven by hover, focus or tap alike — never a bare `:hover` rule, the
+   same "real component state, not a CSS-only trick" `ThreadRow`'s own
+   armed cluster already insists on (#75, #66). */
+.group-header-cluster[data-armed="true"] .group-done,
+.group-header-cluster[data-armed="true"] .group-mark-read,
+.group-header-cluster .group-done:focus-visible,
+.group-header-cluster .group-mark-read:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.group-header-cluster .group-done:hover,
+.group-header-cluster .group-mark-read:hover {
+  background: var(--w-panel-2);
+  color: var(--w-ink);
+}
+
+/* The spine preview (#66: "hovering the header checkmark previews the
+   whole group's timeline spine and every row's Done action"): every row in
+   the previewed group (`ThreadRow`'s `previewArmed`, which already forces
+   its own Done control visible the same way hover/focus/selected do) also
+   gets a continuous accent rule down its left edge — one line drawn across
+   every row in the group is the "spine", not a novel widget. */
+.thread-row[data-group-preview="true"] {
+  box-shadow: inset 3px 0 0 var(--w-aniline);
+}
+
+/* ---------- the staggered collapse (#66): "the first ~8 rows stagger out,
+ * then the group collapses as one" ---------------------------------------
+ * `--group-clear-index` is set inline per row (`VirtualizedThreadList`),
+ * capped at the same 8-row stagger — this only ever reads that one number,
+ * never re-derives it. Reduced motion is handled globally (`index.css`'s
+ * `prefers-reduced-motion` rule collapses every duration to 1ms), not
+ * re-implemented here. */
+.thread-list [data-clearing="true"] {
+  animation: group-row-leave 220ms var(--w-ease) both;
+  animation-delay: calc(var(--group-clear-index, 0) * 45ms);
+}
+
+@keyframes group-row-leave {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .thread-row {
   display: flex;
   align-items: center;
@@ -1451,8 +1552,31 @@
   gap: 12px;
 }
 
+/* The group header cluster's own toast (#66, #77): the same floating box
+   `.rollback-toast` uses, minus its "Lifted" strike badge — that mark is
+   rollback's own vocabulary, not "Done: 12 in Today." or a partial-failure
+   line. */
+.group-bulk-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 15px;
+  border-radius: var(--w-r-plate);
+  background: var(--w-ink);
+  color: var(--w-frame);
+  font-size: 13px;
+  box-shadow: var(--w-lift);
+  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
+  z-index: 20;
+}
+
 .notification-offer-banner button,
-.rollback-toast button {
+.rollback-toast button,
+.group-bulk-toast-undo {
   padding: 4px 10px;
   border: 1.5px solid color-mix(in oklab, var(--w-frame) 45%, transparent);
   border-radius: var(--w-r-plate);

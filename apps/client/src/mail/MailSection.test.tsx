@@ -688,3 +688,200 @@ describe("MailSection", () => {
     expect((stillOpen as HTMLInputElement).value).toBe("Do not lose this");
   });
 });
+
+describe("MailSection — the group header cluster (#66, #67, #77)", () => {
+  /** An hour ago, real wall-clock — lands the Thread in the "Today" group regardless of when this suite actually runs. */
+  function anHourAgo(): string {
+    return new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  }
+
+  async function seedTodayThreads(): Promise<void> {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-a", "acct-1", { subject: "Thread A", lastMessageAt: anHourAgo() }),
+          makeThread("t-b", "acct-1", { subject: "Thread B", lastMessageAt: anHourAgo() }),
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  /** `stubFetch`'s auth/sync routing, plus the three `/bulk-triage/*` endpoints (#67). */
+  function stubFetchWithBulkTriage(options: {
+    sync?: () => Promise<Response>;
+    batch?: (body: Record<string, unknown>) => Response;
+    count?: () => Response;
+    undo?: (body: Record<string, unknown>) => Response;
+  }) {
+    const calls: { url: string; body?: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const body = init?.body
+          ? (JSON.parse(init.body as string) as Record<string, unknown>)
+          : undefined;
+        calls.push({ url, body });
+        const auth = AUTH_RESPONSES[url];
+        if (auth) return Promise.resolve(auth());
+        if (url === "/sync") return (options.sync ?? never)();
+        if (url === "/bulk-triage/count") {
+          return Promise.resolve((options.count ?? (() => jsonResponse({ count: 0 })))());
+        }
+        if (url === "/bulk-triage/batch") {
+          const respond =
+            options.batch ??
+            (() => jsonResponse({ batchId: "batch-1", affectedCount: 0, accounts: [] }));
+          return Promise.resolve(respond(body ?? {}));
+        }
+        if (url === "/bulk-triage/undo") {
+          const respond =
+            options.undo ?? (() => jsonResponse({ status: "undone", affectedCount: 0 }));
+          return Promise.resolve(respond(body ?? {}));
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+    return calls;
+  }
+
+  it("Done all sends a date-range/folder/Scope target with no thread-id list, and true-count-carrying, ~10s Undo toast", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          // The true total (5) exceeds what's loaded (2) — #67's "a group can
+          // hold thousands the Client never loaded" made concrete.
+          affectedCount: 5,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 5 }],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+
+    await waitFor(() => {
+      const batchCall = calls.find((call) => call.url === "/bulk-triage/batch");
+      expect(batchCall).toBeDefined();
+      const body = batchCall?.body as { action: string; target: Record<string, unknown> };
+      expect(body.action).toBe("done");
+      expect(body.target).toEqual({
+        accountScope: ["acct-1"],
+        folderRole: "inbox",
+        since: expect.any(String),
+        until: null, // Today is open-ended — a Thread arriving after the request still lands in it (#67).
+      });
+      expect(body.target.threadIds).toBeUndefined();
+    });
+
+    // Both loaded Threads leave the list once their stagger/collapse finishes.
+    await waitFor(() => expect(screen.queryByText("Thread A")).toBeNull(), { timeout: 2000 });
+    expect(screen.queryByText("Thread B")).toBeNull();
+
+    // The toast names the true total, not the two that were actually loaded.
+    expect(await screen.findByText(/Done: 5 in Today\./)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("Undo restores the group and re-syncs", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      // Resolves immediately (rather than the default never-resolving stub)
+      // so a later `requestSyncNow()` round can actually fire a second
+      // `/sync` call instead of piling up behind a permanently in-flight one.
+      sync: () => Promise.resolve(jsonResponse({ user: {}, mailAccounts: {} })),
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+      undo: () => jsonResponse({ status: "undone", affectedCount: 2 }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+    await waitFor(() => expect(screen.queryByText("Thread A")).toBeNull(), { timeout: 2000 });
+
+    const syncCallsBeforeUndo = calls.filter((call) => call.url === "/sync").length;
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(screen.getByText("Thread A")).toBeDefined());
+    expect(screen.getByText("Thread B")).toBeDefined();
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url === "/sync").length).toBeGreaterThan(
+        syncCallsBeforeUndo,
+      ),
+    );
+    expect(calls.some((call) => call.url === "/bulk-triage/undo")).toBe(true);
+  });
+
+  it("Mark all read sends the markRead action and never hides a Thread", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Mark Today read" }));
+
+    await waitFor(() => {
+      const batchCall = calls.find((call) => call.url === "/bulk-triage/batch");
+      expect((batchCall?.body as { action: string })?.action).toBe("markRead");
+    });
+    // Marking read never removes a row from the list.
+    expect(screen.getByText("Thread A")).toBeDefined();
+    expect(screen.getByText("Thread B")).toBeDefined();
+  });
+
+  it("names the failed account and reason on a partial failure", async () => {
+    await seedTodayThreads();
+    stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [
+            {
+              mailAccountId: "acct-1",
+              status: "rejected",
+              affectedCount: 0,
+              reason: "needs_reauth",
+            },
+          ],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+
+    expect(await screen.findByText(/acct-1@example\.test needs reauth/)).toBeDefined();
+  });
+
+  it("shows the group's true total from the count endpoint, not the loaded count", async () => {
+    await seedTodayThreads();
+    stubFetchWithBulkTriage({ count: () => jsonResponse({ count: 4200 }) });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
+
+    expect(await screen.findByText("4200")).toBeDefined();
+  });
+});

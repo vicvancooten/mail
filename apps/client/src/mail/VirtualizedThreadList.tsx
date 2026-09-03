@@ -1,11 +1,26 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import { DEFAULT_LIST_DENSITY, type ListDensity } from "./device-preferences.js";
 import { ThreadRow } from "./ThreadRow.js";
 import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
-import { groupThreadsByTime, type TimeGroupTier } from "./time-groups.js";
+import { groupThreadsByTime, PINNED_GROUP_LABEL, type TimeGroupTier } from "./time-groups.js";
 import type { Triage } from "./useTriage.js";
+
+/** How many of a group's own rows stagger out individually before the rest
+ * collapse with it (#66's "the first ~8 rows stagger out, then the group
+ * collapses as one") — a fixed cap, not "however many happen to be loaded",
+ * so a group of thousands doesn't animate thousands of rows. */
+export const GROUP_STAGGER_ROW_CAP = 8;
 
 /**
  * The windowed list (#40, and #51's "one list renderer... search is another
@@ -32,14 +47,31 @@ import type { Triage } from "./useTriage.js";
  */
 
 type ListItem =
-  | { kind: "header"; key: string; label: string; tier: TimeGroupTier }
+  | { kind: "header"; key: string; label: string; tier: TimeGroupTier; loadedCount: number }
   | {
       kind: "thread";
       key: string;
       thread: CachedThread;
       index: number;
       tier: TimeGroupTier | null;
+      /** This row's own group header label — `null` outside a grouped list. Matched against `previewGroupLabel` below, never the tier alone: two different groups can share a tier (#77). */
+      groupLabel: string | null;
     };
+
+/** The group header cluster (#66, #67, #77): the target-set math (which
+ * Threads a group's "Done all"/"Mark all read" names) lives one layer up in
+ * `MailSection`/`group-target.ts` — this component only ever hands back a
+ * group's own `label`, never resolves a request itself. */
+export interface GroupBulkController {
+  /** The group's true total (`POST /bulk-triage/count`), once resolved — the header falls back to its own loaded count until then (#77: "the header shows the group's true total... not the loaded count"). */
+  countFor: (label: string) => number | null;
+  /** Kicks off the (memoized, at the caller) true-count fetch for a header the moment it's armed — hover, focus, or tap. Safe to call repeatedly. */
+  requestCount: (label: string) => void;
+  onDoneAll: (label: string) => void;
+  onMarkAllRead: (label: string) => void;
+  /** Thread ids mid-collapse after a Done all on their own group (#66's stagger) — rendered leaving rather than vanishing mid-frame. */
+  clearingThreadIds: ReadonlySet<string>;
+}
 
 /** How close to the bottom (in rows) triggers widening the requested page. */
 const LOAD_MORE_THRESHOLD = 10;
@@ -65,6 +97,7 @@ export function VirtualizedThreadList({
   keyboardDisabled = false,
   initialScrollThreadId = null,
   density = DEFAULT_LIST_DENSITY,
+  groupBulk,
 }: {
   threads: readonly CachedThread[];
   /** False once the window has been truncated at the bottom (ADR-0009). */
@@ -87,6 +120,8 @@ export function VirtualizedThreadList({
   initialScrollThreadId?: string | null;
   /** The `compact` List Density Device Preference (#54) — shifts every taper tier by a fixed delta (#75, `taper.ts`) rather than flattening it. */
   density?: ListDensity;
+  /** The group header cluster's own Done all / Mark all read / true-count wiring (#66, #77) — omitted anywhere the current folder isn't a valid bulk-Triage target (`MailSection`'s own gating), same "every prop here defaults to exactly today's behavior" posture the rest of this component's props already have. */
+  groupBulk?: GroupBulkController;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -98,6 +133,7 @@ export function VirtualizedThreadList({
         thread,
         index,
         tier: null,
+        groupLabel: null,
       }));
     }
     const groups = groupThreadsByTime(threads);
@@ -109,14 +145,28 @@ export function VirtualizedThreadList({
         key: `header:${groupItem.label}:${index}`,
         label: groupItem.label,
         tier: groupItem.tier,
+        loadedCount: groupItem.threads.length,
       });
       for (const thread of groupItem.threads) {
-        flat.push({ kind: "thread", key: thread.id, thread, index, tier: groupItem.tier });
+        flat.push({
+          kind: "thread",
+          key: thread.id,
+          thread,
+          index,
+          tier: groupItem.tier,
+          groupLabel: groupItem.label,
+        });
         index += 1;
       }
     }
     return flat;
   }, [threads, group]);
+
+  // The header checkmark's spine preview (#66, #77): hovering/focusing it
+  // arms every row in *that one* group, matched by label rather than tier —
+  // two different date groups can share a tier, and the preview must never
+  // leak across a boundary the User can plainly read.
+  const [previewGroupLabel, setPreviewGroupLabel] = useState<string | null>(null);
 
   const itemHeight = useCallback(
     (item: ListItem | undefined): number => {
@@ -198,6 +248,29 @@ export function VirtualizedThreadList({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [moveSelection, keyboardDisabled]);
 
+  // Each clearing Thread's position within its own group's clearing set,
+  // capped at `GROUP_STAGGER_ROW_CAP` — the stagger's `--group-clear-index`
+  // custom property below, computed once here rather than re-derived per
+  // row. Threads past the cap still leave (the group collapse below covers
+  // them), they just don't get their own staggered delay.
+  const clearIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    const clearing = groupBulk?.clearingThreadIds;
+    if (!clearing || clearing.size === 0) return map;
+    let index = 0;
+    let currentGroup: string | null | undefined;
+    for (const item of items) {
+      if (item.kind !== "thread" || !clearing.has(item.thread.id)) continue;
+      if (item.groupLabel !== currentGroup) {
+        currentGroup = item.groupLabel;
+        index = 0;
+      }
+      map.set(item.thread.id, Math.min(index, GROUP_STAGGER_ROW_CAP - 1));
+      index += 1;
+    }
+    return map;
+  }, [items, groupBulk?.clearingThreadIds]);
+
   if (threads.length === 0) {
     return <p className="mail-empty">No mail cached for this account yet.</p>;
   }
@@ -214,18 +287,24 @@ export function VirtualizedThreadList({
           const item = items[virtualItem.index];
           if (!item) return null;
           const extra = item.kind === "thread" ? getRowExtra?.(item.thread) : undefined;
+          const clearIndex =
+            item.kind === "thread" ? clearIndexById.get(item.thread.id) : undefined;
           return (
             <div
               key={item.key}
               data-index={virtualItem.index}
+              data-clearing={clearIndex !== undefined || undefined}
               ref={virtualizer.measureElement}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
+              style={
+                {
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualItem.start}px)`,
+                  ...(clearIndex !== undefined ? { "--group-clear-index": clearIndex } : {}),
+                } as CSSProperties
+              }
             >
               {item.kind === "header" ? (
                 // The header's own height is the taper's — `itemHeight` above
@@ -236,7 +315,19 @@ export function VirtualizedThreadList({
                   data-tier={item.tier}
                   style={{ height: itemHeight(item) }}
                 >
-                  {item.label}
+                  {groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated" ? (
+                    <GroupHeaderCluster
+                      label={item.label}
+                      loadedCount={item.loadedCount}
+                      trueCount={groupBulk.countFor(item.label)}
+                      onArm={() => groupBulk.requestCount(item.label)}
+                      onDoneAll={() => groupBulk.onDoneAll(item.label)}
+                      onMarkAllRead={() => groupBulk.onMarkAllRead(item.label)}
+                      onPreview={(active) => setPreviewGroupLabel(active ? item.label : null)}
+                    />
+                  ) : (
+                    item.label
+                  )}
                 </div>
               ) : (
                 <ThreadRow
@@ -251,6 +342,7 @@ export function VirtualizedThreadList({
                   gatekeeperBadge={extra?.gatekeeperBadge}
                   tier={item.tier}
                   height={itemHeight(item)}
+                  previewArmed={previewGroupLabel !== null && item.groupLabel === previewGroupLabel}
                 />
               )}
             </div>
@@ -262,6 +354,102 @@ export function VirtualizedThreadList({
       ) : complete ? null : (
         <p className="mail-list-footer">Older mail needs a connection.</p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The group header's own row cluster (#66, #77): resting the pointer on a
+ * header — or tapping it, on touch — arms **Done all** and **Mark all
+ * read** inline, the header's own mirror of `ThreadRow`'s row-level Done
+ * control (#75). Both buttons stay in the DOM (and the tab order)
+ * regardless of armed state — `mail.css`'s `[data-armed]` rule only ever
+ * changes their opacity, the same "real component state, not a CSS-only
+ * trick" `ThreadRow`'s own doc comment insists on, and `:focus-visible`
+ * reveals either one directly so Tab can always reach it.
+ *
+ * The checkmark is *also* the Done all trigger — hovering or focusing it
+ * additionally previews the group: `onPreview` bubbles to
+ * `VirtualizedThreadList`, which force-arms every row in this one group's
+ * own Done control (`ThreadRow`'s `previewArmed`) so the User sees exactly
+ * what committing would do before they click.
+ */
+function GroupHeaderCluster({
+  label,
+  loadedCount,
+  trueCount,
+  onArm,
+  onDoneAll,
+  onMarkAllRead,
+  onPreview,
+}: {
+  label: string;
+  loadedCount: number;
+  trueCount: number | null;
+  onArm: () => void;
+  onDoneAll: () => void;
+  onMarkAllRead: () => void;
+  onPreview: (active: boolean) => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const count = trueCount ?? loadedCount;
+
+  const arm = useCallback(() => {
+    setArmed(true);
+    onArm();
+  }, [onArm]);
+  const disarm = useCallback(() => setArmed(false), []);
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus arm the cluster (#66); every actual control below is a real, independently focusable <button>.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: `onClick` here is touch's stand-in for hover, not an action — a keyboard User already arms the cluster by Tabbing to either button below (`onFocus`), and both buttons are ordinary, independently keyboard-operable `<button>`s.
+    <div
+      className="group-header-cluster"
+      data-armed={armed}
+      onMouseEnter={arm}
+      onMouseLeave={disarm}
+      onFocus={arm}
+      onBlur={(event) => {
+        // A focus move that stays inside the cluster (checkmark → Mark all
+        // read, say) must not disarm it mid-Tab.
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) disarm();
+      }}
+      onClick={() => {
+        // Touch has no hover: tapping the header arms it the same way
+        // resting the pointer does at desktop (#66's own acceptance bar).
+        setArmed((current) => !current);
+      }}
+    >
+      <button
+        type="button"
+        className="group-done"
+        aria-label={`Done with ${label}`}
+        title="Done all"
+        onMouseEnter={() => onPreview(true)}
+        onMouseLeave={() => onPreview(false)}
+        onFocus={() => onPreview(true)}
+        onBlur={() => onPreview(false)}
+        onClick={(event) => {
+          event.stopPropagation();
+          onDoneAll();
+        }}
+      >
+        <Pictogram name="check" size={12} />
+      </button>
+      <span className="group-header-label">{label}</span>
+      <span className="group-header-count">{count}</span>
+      <button
+        type="button"
+        className="group-mark-read"
+        aria-label={`Mark ${label} read`}
+        title="Mark all read"
+        onClick={(event) => {
+          event.stopPropagation();
+          onMarkAllRead();
+        }}
+      >
+        <Pictogram name="opened" size={12} />
+      </button>
     </div>
   );
 }

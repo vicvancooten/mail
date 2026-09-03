@@ -4,7 +4,7 @@ import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
 import type { Triage } from "./useTriage.js";
-import { VirtualizedThreadList } from "./VirtualizedThreadList.js";
+import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 /**
  * List view (`?variant=B` on the prototype branch): one pane. Opening a
@@ -24,6 +24,7 @@ export function ListView({
   onReply,
   initialScrollThreadId,
   density,
+  groupBulk,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -38,6 +39,8 @@ export function ListView({
   initialScrollThreadId?: string | null;
   /** Passed straight through to `VirtualizedThreadList` — the `compact` List Density Device Preference (#54, #75). */
   density?: ListDensity;
+  /** Passed straight through to `VirtualizedThreadList` — the group header cluster (#66, #77). */
+  groupBulk?: GroupBulkController;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
 
@@ -67,6 +70,7 @@ export function ListView({
       triage={triage}
       initialScrollThreadId={initialScrollThreadId}
       density={density}
+      groupBulk={groupBulk}
     />
   );
 }
