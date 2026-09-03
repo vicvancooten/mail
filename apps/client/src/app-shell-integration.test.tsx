@@ -1,5 +1,5 @@
 import type { MailAccount } from "@mail/shared";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -180,6 +180,33 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(
       await screen.findByText("Routed thread", { selector: ".thread-detail-card h1" }),
     ).toBeDefined();
+  });
+
+  it("opening a Thread from the list pushes a history entry, and the phone back gesture returns to it (#81)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+    const historyLengthBeforeOpen = history.length;
+
+    fireEvent.click(screen.getByText("Routed thread"));
+    await screen.findByText("Routed thread", { selector: ".thread-detail-card h1" });
+
+    // A real history entry — not the `replace` every other Mail navigation
+    // uses — is what makes the router's own Back gesture the way back to
+    // the list, "the way every other app on the phone behaves".
+    expect(history.length).toBe(historyLengthBeforeOpen + 1);
+    expect(location.search).toContain("thread=t1");
+
+    await act(async () => {
+      history.back();
+    });
+
+    await waitFor(() => expect(location.search).not.toContain("thread=t1"));
+    // The reading pane actually closed to match the URL the gesture landed
+    // on — not just a URL change with the pane left open over it.
+    expect(screen.queryByText("Routed thread", { selector: ".thread-detail-card h1" })).toBeNull();
   });
 
   it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {

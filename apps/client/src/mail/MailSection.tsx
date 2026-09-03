@@ -3,6 +3,7 @@ import type {
   BulkTriageAccountOutcome,
   BulkTriageAction,
   Label,
+  MailAccount,
   Message,
 } from "@mail/shared";
 import {
@@ -110,11 +111,14 @@ const Composer = lazy(() =>
  * Account Scope (#73, `useAccountScope.ts`) is what `useThreadWindow` reads
  * *which* Mail Accounts from — merged into one newest-first list across
  * every account in Scope. `accountId` below stays a single id: the *primary*
- * in-scope account (Scope's first member), which is what every surface this
- * ticket does not redesign still needs one of — a new Composition's default
- * From, the Screener's grouping, Search's account context. Narrowing Scope
- * to exactly one account is what makes that primary and "the selected
- * account" the same thing again, same as before Scope existed.
+ * in-scope account (Scope's first member), which several surfaces still need
+ * one of — the Screener's grouping, Search's account context, and (#81) a
+ * new Composition's User-level default From, the last resort in the chain
+ * `openCompose` below resolves: the single in-scope account, else (for a
+ * reply/forward, `openReply`) the Message's own arriving account, else this
+ * primary — with Scope narrowed to exactly one account, that primary and
+ * "the selected account" are the same thing again, same as before Scope
+ * existed.
  *
  * `initialLabelFilter`/`initialThreadId`/`onLocationChange` (#71) are the
  * seam the routed `/mail` view (`router/MailRoute.tsx`) uses to keep the URL
@@ -180,16 +184,46 @@ export function MailSection({
   // Report label/Thread selection to whoever asked (`onLocationChange`) —
   // routed callers use this to keep `/mail`'s URL a mirror of this state
   // (#71); an unrouted caller (every test in this file) leaves it unset and
-  // nothing happens.
+  // nothing happens. `reportedThreadIdRef` stamps every value *this*
+  // component hands out, so the effect below can tell that apart from one
+  // that arrived some other way (see its own doc comment).
+  const reportedThreadIdRef = useRef(initialThreadId);
   useEffect(() => {
+    reportedThreadIdRef.current = selectedThreadId;
     onLocationChange?.({ labelFilter, folder, threadId: selectedThreadId });
   }, [labelFilter, folder, selectedThreadId, onLocationChange]);
+
+  // The phone back gesture (#81, mail#66: "a working back gesture supplied
+  // by the router, the way every other app on the phone behaves"):
+  // `initialThreadId` no longer only seeds `selectedThreadId` once at mount
+  // — `router/MailRoute.tsx` pushes a history entry the first time a Thread
+  // opens from no selection, and a later change to this prop that this
+  // component did *not* itself just report through `onLocationChange` above
+  // (`reportedThreadIdRef` is what tells the two apart) means the Back
+  // gesture popped that entry: the URL's own `thread` search param moved on
+  // its own, and the reading pane has to close (or swap Threads) to match,
+  // not just leave the pane open over a URL that no longer names it.
+  useEffect(() => {
+    if (initialThreadId === reportedThreadIdRef.current) return;
+    reportedThreadIdRef.current = initialThreadId;
+    setSelectedThreadId(initialThreadId);
+  }, [initialThreadId]);
 
   // One composer at a time (#45, compose-spec §Composer surface & keys).
   // Reads `readOpenComposerId()` once, at mount, so a composer left open
   // across a reload reopens itself rather than the offline-durable draft
   // sitting unreachable in the Local Cache.
   const [composeId, setComposeId] = useState<string | null>(readOpenComposerId);
+  // The From resolution chain (#81, mail#66 "From respects Account Scope"):
+  // `null` while the sending account is already settled (a reply/forward, a
+  // reopened Composition, or Scope narrowed to one account) — `Composer`
+  // renders a locked label for those. A list of 2+ accounts means a brand
+  // new compose left it ambiguous, so `Composer` renders an explicit picker
+  // instead (see its own doc comment). Set alongside `composeId` by the same
+  // three callbacks below, never independently — there is always exactly
+  // one composer open, so there is only ever one answer to "can its From be
+  // chosen".
+  const [composeFromChoices, setComposeFromChoices] = useState<MailAccount[] | null>(null);
   // "One composer at a time" (compose-spec §Composer surface & keys) is
   // enforced right here, not just at the keyboard shortcut: every path that
   // wants to point `composeId` at a (possibly different) Composition — the
@@ -203,15 +237,34 @@ export function MailSection({
   const openComposer = useCallback((id: string) => {
     setComposeId((current) => current ?? id);
   }, []);
-  const openCompose = useCallback(() => openComposer(newCompositionId()), [openComposer]);
+  // Brand-new compose (#81): the only one of the three open paths that can
+  // ever hand `Composer` a real `fromChoices` list — a reply's and a
+  // reopened Composition's account is already settled (see the state's own
+  // doc comment above). Guards on `composeId` itself, same reasoning as
+  // `openComposer`'s guard: skipped while a composer is already open, so
+  // this never clobbers *its* choices out from under it.
+  const openCompose = useCallback(() => {
+    if (composeId !== null) return;
+    setComposeFromChoices(
+      accountScope.length > 1
+        ? (mailAccounts ?? []).filter((account) => accountScope.includes(account.id))
+        : null,
+    );
+    openComposer(newCompositionId());
+  }, [composeId, openComposer, accountScope, mailAccounts]);
   const closeCompose = useCallback(() => setComposeId(null), []);
   // Reopening an *existing* Composition: a cancelled send (ADR-0007 reopens
   // the composer on whichever device cancelled) and the "Open draft" button
   // on a failed send both land here — and both share the same guard above,
   // since swapping away from an *open* composer to reopen a different one is
-  // exactly the same drops-unsaved-typing hazard the Compose button has.
+  // exactly the same drops-unsaved-typing hazard the Compose button has. Its
+  // account is already settled (the row's own `mailAccountId`, which
+  // `Composer` hydrates into itself) — never a fresh choice.
   const reopenCompose = useCallback(
-    (compositionId: string) => openComposer(compositionId),
+    (compositionId: string) => {
+      setComposeFromChoices(null);
+      openComposer(compositionId);
+    },
     [openComposer],
   );
   useComposeShortcut(openCompose, composeId !== null);
@@ -224,12 +277,19 @@ export function MailSection({
   // effect, the row is already there to hydrate from. "One composer at a
   // time" (compose-spec) is why this no-ops while one is already open,
   // matching `useComposeShortcut`'s own suppression.
+  //
+  // The From account (#81): always the arriving Message's own account
+  // (`message.mailAccountId`), never Account Scope's primary one and never
+  // a choice — asserted in `Composer.test.tsx` against the seeded row this
+  // writes. That is what keeps a reply from silently leaving off whichever
+  // account happens to be primary when Scope holds several.
   const openReply = useCallback(
     (message: Message, mode: ReplyMode) => {
       if (composeId !== null || !mailAccounts) return;
       const account = mailAccounts.find((candidate) => candidate.id === message.mailAccountId);
       if (!account) return;
       const id = newCompositionId();
+      setComposeFromChoices(null);
       void saveComposition(id, account.id, buildReplyContent(mode, message, account), {
         force: true,
       }).then(() => setComposeId(id));
@@ -867,6 +927,7 @@ export function MailSection({
             compositionId={composeId}
             mailAccounts={mailAccounts}
             defaultMailAccountId={accountId}
+            fromChoices={composeFromChoices}
             onClose={closeCompose}
           />
         </Suspense>
