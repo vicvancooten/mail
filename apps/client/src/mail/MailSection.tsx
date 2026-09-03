@@ -228,7 +228,6 @@ export function MailSection({
       setLimit(THREAD_PAGE_SIZE);
       setLabelFilter(null);
       setFolder(DEFAULT_FOLDER);
-      setScreenerOpen(false);
     },
     [setAccountScope],
   );
@@ -247,7 +246,6 @@ export function MailSection({
         setLimit(THREAD_PAGE_SIZE);
         setLabelFilter(null);
         setFolder(DEFAULT_FOLDER);
-        setScreenerOpen(false);
       }
     },
     [accountId, setAccountScope],

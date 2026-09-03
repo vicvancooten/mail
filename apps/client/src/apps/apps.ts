@@ -50,7 +50,10 @@ export function appForPath(pathname: string): AppDef | undefined {
   return APPS.find((app) => pathname.startsWith(app.path));
 }
 
-/** Indexed lookup for the reserved Apps' own route components, which know their key at compile time and would otherwise need a non-null assertion on `Array.find`. */
-export const APPS_BY_KEY: Record<string, AppDef> = Object.fromEntries(
-  APPS.map((app) => [app.key, app]),
-);
+type AppKey = "mail" | "contacts" | "calendar" | "tasks";
+
+/** Indexed lookup for the reserved Apps' own route components, which know their key at compile time and would otherwise need a non-null assertion on `Array.find`. Keyed on the literal `AppKey` union rather than `string`, so a lookup by one of the four known keys skips `noUncheckedIndexedAccess`'s `| undefined` entirely. `Object.fromEntries` only infers a `string` index signature, so the cast asserts what `APPS` above already guarantees: every `AppKey` has a matching entry. */
+export const APPS_BY_KEY = Object.fromEntries(APPS.map((app) => [app.key, app])) as Record<
+  AppKey,
+  AppDef
+>;
