@@ -5,6 +5,7 @@ import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSectio
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { AvatarMenu } from "./AvatarMenu.js";
 import { rootRoute } from "./routes.js";
+import "./shell.css";
 
 /**
  * The viewport-owning shell (#71): the header rail plus whichever route is

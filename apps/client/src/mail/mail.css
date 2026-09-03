@@ -6,7 +6,7 @@
    Three rules govern everything below.
    1. Compartments divide on hairline rules that meet at the corners. No
       cards, no gaps between them, no shadows — a frame is joinery. The one
-      shadow in the system (`--w-lift`) is for things that genuinely float:
+      shadow in the system (`--shadow-overlay`) is for things that genuinely float:
       the label picker, the search history, toasts.
    2. Rank is inversion, never brightness. The selected row inverts its
       stock; controls take no ink colour, only relief and rule.
@@ -30,8 +30,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  color: var(--w-ink);
-  background: var(--w-frame);
+  color: var(--color-ink);
+  background: var(--color-bg);
 }
 
 /* ---------- mobile layout / safe area (#44) ----------
@@ -52,7 +52,7 @@
 /* A control that is pressed gives something back. Kept from the incumbent
    build: a physical control that answers nothing feels broken. */
 .mail-section button {
-  transition: transform var(--w-dur-press) var(--w-ease-strike);
+  transition: transform var(--dur-press) var(--ease-strike);
 }
 
 .mail-section button:active {
@@ -68,18 +68,18 @@
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  background: var(--w-panel-sunk);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--color-field);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 /* The segmented control is a run of compartments, divided rather than
    spaced, and the active one inverts. */
 .mail-topbar .segmented {
   display: flex;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
-  transition: opacity var(--w-dur-fast) var(--w-ease);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 .mail-topbar .segmented.muted {
@@ -92,11 +92,11 @@
   gap: 5px;
   padding: 5px 10px;
   border: none;
-  border-right: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel);
-  color: var(--w-ink-3);
+  border-right: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink-faint);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -105,7 +105,7 @@
 }
 
 .mail-topbar .segmented button:not(.active) {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 .mail-topbar .segmented button:last-child {
@@ -113,15 +113,15 @@
 }
 
 .mail-topbar .segmented button.active {
-  background: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .mail-topbar .divider {
-  width: var(--w-hair);
+  width: var(--hairline);
   align-self: stretch;
   margin: 2px 2px;
-  background: var(--w-rule-hard);
+  background: var(--color-border);
 }
 
 .mail-topbar .toggle {
@@ -129,12 +129,12 @@
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink-3);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink-faint);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -143,17 +143,17 @@
 }
 
 .mail-topbar .toggle {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 .mail-topbar .toggle:hover {
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .mail-topbar .toggle.on {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .topbar-spacer {
@@ -172,23 +172,23 @@
 }
 
 .mail-legend-folder {
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .mail-legend-account {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 9px;
-  /* Sunk stock is a step darker than the panel, and `--w-ink-3` measures
+  /* Sunk stock is a step darker than the panel, and `--color-ink-faint` measures
      3.8:1 against it. Anything sitting on the head takes ink-2. */
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
-/* The held plate: the only place `--w-fluor` reaches the triage screen, and
+/* The held plate: the only place `--color-warn` reaches the triage screen, and
    the reason the Screener is worth opening. */
 .held-plate {
   display: inline-flex;
@@ -196,12 +196,12 @@
   gap: 7px;
   flex-shrink: 0;
   padding: 5px 10px;
-  border: 1.5px solid var(--w-fluor);
-  border-radius: var(--w-r-plate);
+  border: 1.5px solid var(--color-warn);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--w-fluor);
+  color: var(--color-warn);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 720;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -211,7 +211,7 @@
 }
 
 .held-plate:hover {
-  background: color-mix(in oklab, var(--w-fluor-flat) 16%, transparent);
+  background: color-mix(in oklab, var(--color-warn) 16%, transparent);
 }
 
 /* The label select is a routing slip: label above, value in a recessed plate. */
@@ -219,8 +219,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
+  color: var(--color-ink-muted);
+  font-stretch: 100%;
   font-weight: 600;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -228,12 +228,12 @@
 }
 
 .label-filter select {
-  background: var(--w-panel);
-  color: var(--w-ink);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 4px 6px;
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0;
   text-transform: none;
@@ -252,14 +252,14 @@
   align-items: center;
   padding: 2px;
   border: none;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
   cursor: pointer;
 }
 
 .account-scope-toggle:hover,
 .account-scope-toggle[aria-expanded="true"] {
-  background: var(--w-panel-sunk);
+  background: var(--color-field);
 }
 
 .account-scope-avatars {
@@ -267,7 +267,7 @@
 }
 
 .account-scope-avatars .mail-avatar {
-  border: 2px solid var(--w-panel);
+  border: 2px solid var(--color-surface);
 }
 
 .account-scope-avatars .mail-avatar + .mail-avatar {
@@ -285,16 +285,16 @@
   min-width: 200px;
   margin: 0;
   padding: 8px 10px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
   box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
 }
 
 .account-scope-panel legend {
   padding: 0 0 2px;
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
+  color: var(--color-ink-muted);
+  font-stretch: 100%;
   font-weight: 600;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -305,7 +305,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -340,8 +340,8 @@
   gap: 2px;
   padding: 10px 0;
   overflow-y: auto;
-  border-right: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel);
+  border-right: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .mail-sidebar-compose {
@@ -350,9 +350,9 @@
   gap: 8px;
   margin: 0 10px 8px;
   padding: 8px 10px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-aniline);
-  color: var(--w-bone);
+  border: var(--hairline) solid var(--color-border);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
   font-family: inherit;
   font-weight: 620;
   font-size: 12px;
@@ -370,7 +370,7 @@
 
 .mail-sidebar-heading {
   margin: 12px 14px 2px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -385,7 +385,7 @@
   padding: 7px 14px;
   border: none;
   background: transparent;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-family: inherit;
   font-size: 13px;
   text-align: left;
@@ -393,8 +393,8 @@
 }
 
 .mail-sidebar-item[data-active="true"] {
-  background: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .mail-sidebar-count {
@@ -415,7 +415,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 13px;
 }
 
@@ -432,9 +432,9 @@
   width: 100%;
   padding: 10px 16px;
   border: none;
-  border-bottom: var(--w-hair) solid var(--w-rule);
-  background: var(--w-frame);
-  color: var(--w-ink);
+  border-bottom: var(--hairline) solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-ink);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
@@ -446,7 +446,7 @@
 }
 
 .draft-row .sender {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 12px;
 }
 
@@ -463,7 +463,7 @@
   width: clamp(360px, 36%, 620px);
   min-width: 280px;
   max-width: 52%;
-  border-right: var(--w-hair) solid var(--w-rule-hard);
+  border-right: var(--hairline) solid var(--color-border);
   height: 100%;
   min-height: 0;
 }
@@ -473,7 +473,7 @@
   min-width: 0;
   height: 100%;
   overflow-y: auto;
-  background: var(--w-panel);
+  background: var(--color-surface);
 }
 
 /* Past 1100px the list has to clear the 520px fold, or the single-line
@@ -487,7 +487,7 @@
 
 .mail-empty {
   padding: 28px 22px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 13px;
   max-width: 52ch;
 }
@@ -499,7 +499,7 @@
 .thread-list {
   height: 100%;
   overflow-y: auto;
-  background: var(--w-panel);
+  background: var(--color-surface);
 }
 
 /* A day divider is a facing band: the slip that faces a bundle one way.
@@ -511,14 +511,14 @@
   align-items: center;
   box-sizing: border-box;
   padding: 0 14px;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 640;
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--w-ink-2);
-  background: var(--w-panel-sunk);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  color: var(--color-ink-muted);
+  background: var(--color-field);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 /* ---------- the taper (#66, #75): reverse-chronological rank as scale ----
@@ -530,7 +530,7 @@
   font-size: 12px;
   font-weight: 720;
   letter-spacing: 0.11em;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .group-header[data-tier="2"] {
@@ -545,7 +545,7 @@
 .group-header[data-tier="4"] {
   font-size: 9px;
   font-weight: 600;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 /* ---------- the group header cluster (#66, #67, #77): bulk Triage on the
@@ -567,8 +567,8 @@
 
 .group-header-count {
   font-variant-numeric: tabular-nums;
-  font-family: var(--w-mono);
-  color: var(--w-ink-3);
+  font-family: var(--font-mono);
+  color: var(--color-ink-faint);
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
@@ -587,14 +587,14 @@
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--w-dur-fast) var(--w-ease);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 /* Collapse (#78) is always the first right-aligned control — it pushes
@@ -621,8 +621,8 @@
 .group-header-cluster .group-done:hover,
 .group-header-cluster .group-collapse:hover,
 .group-header-cluster .group-mark-read:hover {
-  background: var(--w-panel-2);
-  color: var(--w-ink);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
 }
 
 /* The spine preview (#66: "hovering the header checkmark previews the
@@ -632,7 +632,7 @@
    gets a continuous accent rule down its left edge — one line drawn across
    every row in the group is the "spine", not a novel widget. */
 .thread-row[data-group-preview="true"] {
-  box-shadow: inset 3px 0 0 var(--w-aniline);
+  box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
 /* ---------- the staggered collapse (#66): "the first ~8 rows stagger out,
@@ -643,7 +643,7 @@
  * `prefers-reduced-motion` rule collapses every duration to 1ms), not
  * re-implemented here. */
 .thread-list [data-clearing="true"] {
-  animation: group-row-leave 220ms var(--w-ease) both;
+  animation: group-row-leave 220ms var(--ease) both;
   animation-delay: calc(var(--group-clear-index, 0) * 45ms);
 }
 
@@ -664,16 +664,16 @@
   box-sizing: border-box;
   padding: 0 14px;
   border: none;
-  border-bottom: var(--w-hair) solid var(--w-rule);
-  background: var(--w-panel);
-  color: var(--w-ink);
+  border-bottom: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink);
   text-align: left;
   cursor: pointer;
   font-family: inherit;
   font-size: 13px;
   /* No entrance animation and no stagger: a list that reflows hundreds of
      times a session must never animate its own arrival. */
-  transition: background var(--w-dur-press) linear;
+  transition: background var(--dur-press) linear;
   /* #44: the pointer handlers live on this element (`useSwipeToTriage.ts`),
      so this is where `touch-action` needs to be set for the browser's own
      gesture recognition to honor it, not just on `.thread-row-swipe`. */
@@ -705,23 +705,23 @@
 
 .thread-row[data-tier="4"]:not(.unread):not(.selected) .sender,
 .thread-row[data-tier="4"]:not(.unread):not(.selected) .subject {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .thread-row:hover {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 /* Rank by inversion, not brightness: the selected row takes the ink. */
 .thread-row.selected {
-  background: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .thread-row.selected .snippet,
 .thread-row.selected .time,
 .thread-row.selected .sender {
-  color: color-mix(in oklab, var(--w-frame) 72%, var(--w-ink));
+  color: color-mix(in oklab, var(--color-bg) 72%, var(--color-ink));
 }
 
 /* Rank by inversion, never by weight or by a badge beside the item: an
@@ -730,35 +730,35 @@
    forward in weight. */
 .thread-row:not(.unread) .sender,
 .thread-row:not(.unread) .subject {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .thread-row:not(.unread).selected .sender,
 .thread-row:not(.unread).selected .subject {
-  color: color-mix(in oklab, var(--w-frame) 62%, var(--w-ink));
+  color: color-mix(in oklab, var(--color-bg) 62%, var(--color-ink));
 }
 
 .mail-avatar.unread {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .thread-row.selected .mail-avatar.unread {
-  background: var(--w-frame);
-  border-color: var(--w-frame);
-  color: var(--w-ink);
+  background: var(--color-bg);
+  border-color: var(--color-bg);
+  color: var(--color-ink);
 }
 
 /* A pinned Thread is grommeted to the frame: the item sits proud of the
    stock rather than being tinted. */
 .thread-row.pinned {
-  background: var(--w-panel-2);
-  box-shadow: inset 3px 0 0 -1px var(--w-rule-hard);
+  background: var(--color-surface-strong);
+  box-shadow: inset 3px 0 0 -1px var(--color-border);
 }
 
 .thread-row.pinned.selected {
-  background: var(--w-ink);
+  background: var(--color-ink);
 }
 
 /* The kraft initial plate on the stile. Square, not a circle: the product
@@ -767,14 +767,14 @@
 .mail-avatar {
   width: 26px;
   height: 26px;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: var(--w-panel-sunk);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  color: var(--w-ink-2);
+  background: var(--color-field);
+  border: var(--hairline) solid var(--color-border);
+  color: var(--color-ink-muted);
   font-stretch: 84%;
   font-size: 10px;
   font-weight: 680;
@@ -789,8 +789,8 @@
 
 .thread-row.selected .mail-avatar {
   background: transparent;
-  border-color: color-mix(in oklab, var(--w-frame) 45%, transparent);
-  color: var(--w-frame);
+  border-color: color-mix(in oklab, var(--color-bg) 45%, transparent);
+  color: var(--color-bg);
 }
 
 /* The taper's avatar scale (#75) — T1 is the loudest plate on screen, T4
@@ -839,13 +839,13 @@
   height: 22px;
   padding: 0;
   border: none;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--w-dur-fast) var(--w-ease);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 /* Armed is real component state (`ThreadRow`'s `data-armed`) driven by
@@ -866,18 +866,18 @@
 
 .thread-row .row-done:hover,
 .thread-row .row-snooze:hover {
-  background: var(--w-panel-2);
-  color: var(--w-ink);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
 }
 
 .thread-row.selected .row-done,
 .thread-row.selected .row-snooze {
-  color: var(--w-frame);
+  color: var(--color-bg);
 }
 
 .thread-row.selected .row-done:hover,
 .thread-row.selected .row-snooze:hover {
-  background: color-mix(in oklab, var(--w-frame) 18%, transparent);
+  background: color-mix(in oklab, var(--color-bg) 18%, transparent);
 }
 
 .thread-row .sender {
@@ -886,7 +886,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-stretch: var(--w-wd-sender);
+  font-stretch: 100%;
   font-weight: 600;
 }
 
@@ -899,23 +899,23 @@
 }
 
 .thread-row .snippet {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   margin-left: 7px;
 }
 
 .thread-row .star {
-  color: var(--w-ink);
+  color: var(--color-ink);
   flex-shrink: 0;
 }
 
 .thread-row .pin {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   flex-shrink: 0;
 }
 
 .thread-row.selected .star,
 .thread-row.selected .pin {
-  color: var(--w-frame);
+  color: var(--color-bg);
 }
 
 /* A Label is a bundle band: its colour is the tint of the stock it is
@@ -931,11 +931,11 @@
   align-items: center;
   gap: 3px;
   padding: 1px 6px;
-  border-radius: var(--w-r-band);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel-sunk);
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
+  border-radius: var(--radius-sm);
+  border: var(--hairline) solid var(--color-border);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-stretch: 100%;
   font-weight: 640;
   font-size: 9px;
   letter-spacing: 0.1em;
@@ -945,18 +945,18 @@
 }
 
 .label-chip.overflow {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .thread-row.selected .label-chip {
   background: transparent;
-  border-color: color-mix(in oklab, var(--w-frame) 40%, transparent);
-  color: var(--w-frame);
+  border-color: color-mix(in oklab, var(--color-bg) 40%, transparent);
+  color: var(--color-bg);
 }
 
 .thread-row .time {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
@@ -964,9 +964,9 @@
 
 .mail-list-footer {
   padding: 12px 14px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 12px;
-  border-bottom: var(--w-hair) solid var(--w-rule);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 /* ============================================================================
@@ -1001,28 +1001,28 @@
   display: flex;
   align-items: center;
   padding: 0 20px;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-size: 11px;
   font-weight: 680;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--w-bone);
+  color: var(--color-accent-foreground);
 }
 
 .swipe-reveal.archive {
-  background: var(--w-aniline-flat);
+  background: var(--color-accent);
   justify-content: flex-start;
 }
 
 /* #76: swipe left now snoozes, not trashes (#66's own "swipe right marks
    Done, swipe left snoozes") — Trash keeps its keyboard binding
    (`useTriage.ts`'s `#`/Backspace/Delete) but no row-level swipe of its
-   own. `--w-fluor-flat` (warn) rather than `--w-postal` (danger): Snooze
+   own. `--color-warn` (warn) rather than `--color-danger` (danger): Snooze
    isn't destructive, so its tray shouldn't read as one — same dark-on-warn
-   ink the Gatekeeper's own `--w-fluor-flat` surfaces use, since `--w-bone`
+   ink the Gatekeeper's own `--color-warn` surfaces use, since `--color-accent-foreground`
    (the base `.swipe-reveal`'s light text) has no contrast against it. */
 .swipe-reveal.snooze {
-  background: var(--w-fluor-flat);
+  background: var(--color-warn);
   color: #1f1d18;
   justify-content: flex-end;
 }
@@ -1050,10 +1050,10 @@
   z-index: 10;
   min-width: 190px;
   padding: 7px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  box-shadow: var(--w-lift);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
 }
 
 .snooze-menu-list {
@@ -1071,9 +1071,9 @@
   width: 100%;
   padding: 5px 7px;
   border: none;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-family: inherit;
   font-size: 13px;
   text-align: left;
@@ -1081,14 +1081,14 @@
 }
 
 .snooze-menu-list button:hover {
-  background: var(--w-panel-2);
-  color: var(--w-ink);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
 }
 
 .snooze-menu-custom {
   display: flex;
   gap: 6px;
-  border-top: var(--w-hair) solid var(--w-rule);
+  border-top: var(--hairline) solid var(--color-border);
   padding-top: 7px;
 }
 
@@ -1096,22 +1096,22 @@
   flex: 1;
   min-width: 0;
   padding: 4px 7px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-frame);
-  color: var(--w-ink);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
   font-family: inherit;
   font-size: 12px;
 }
 
 .snooze-menu-custom button {
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
   padding: 4px 10px;
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -1581,7 +1581,7 @@
   height: 100%;
   overflow-y: auto;
   position: relative;
-  background: var(--w-panel);
+  background: var(--color-surface);
 }
 
 .queue-peek {
@@ -1592,22 +1592,22 @@
 }
 
 .queue-peek .chip {
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 4px 9px;
   font-family: inherit;
   font-size: 11px;
-  background: var(--w-panel-2);
-  color: var(--w-ink-3);
+  background: var(--color-surface-strong);
+  color: var(--color-ink-faint);
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .queue-peek .chip.current {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .queue-peek .chip.pinned {
@@ -1633,12 +1633,12 @@
   bottom: calc(16px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   padding: 9px 15px;
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-bg);
   font-size: 13px;
-  box-shadow: var(--w-lift);
-  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
+  box-shadow: var(--shadow-overlay);
+  animation: toast-enter var(--dur-fast) var(--ease-strike);
   z-index: 20;
 }
 
@@ -1658,9 +1658,9 @@
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--w-postal);
+  color: var(--color-danger);
   border: 1.5px solid currentColor;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   padding: 1px 6px;
   rotate: -4deg;
 }
@@ -1684,12 +1684,12 @@
   align-items: center;
   gap: 10px;
   padding: 9px 15px;
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-bg);
   font-size: 13px;
-  box-shadow: var(--w-lift);
-  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
+  box-shadow: var(--shadow-overlay);
+  animation: toast-enter var(--dur-fast) var(--ease-strike);
   z-index: 20;
 }
 
@@ -1697,12 +1697,12 @@
 .rollback-toast button,
 .group-bulk-toast-undo {
   padding: 4px 10px;
-  border: 1.5px solid color-mix(in oklab, var(--w-frame) 45%, transparent);
-  border-radius: var(--w-r-plate);
+  border: 1.5px solid color-mix(in oklab, var(--color-bg) 45%, transparent);
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 640;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -1738,19 +1738,19 @@
   gap: 2px;
   padding: 10px 13px;
   border: none;
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-bg);
   font-family: inherit;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
-  box-shadow: var(--w-lift);
-  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
+  box-shadow: var(--shadow-overlay);
+  animation: toast-enter var(--dur-fast) var(--ease-strike);
 }
 
 .new-mail-toast strong {
-  font-stretch: var(--w-wd-sender);
+  font-stretch: 100%;
   font-weight: 660;
   font-size: 13px;
 }
@@ -1777,14 +1777,14 @@
   min-width: 120px;
   max-width: 360px;
   padding: 5px 9px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink-3);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink-faint);
 }
 
 .mail-search-field:focus-within {
-  border-color: var(--w-aniline);
+  border-color: var(--color-accent);
 }
 
 .mail-search-field input {
@@ -1792,27 +1792,27 @@
   min-width: 0;
   border: none;
   background: transparent;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-family: inherit;
   font-size: 13px;
   outline: none;
 }
 
 .mail-search-field input::placeholder {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .mail-search-clear {
   display: flex;
   border: none;
   background: transparent;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   cursor: pointer;
   padding: 0;
 }
 
 .mail-search-clear:hover {
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .mail-search-recent {
@@ -1823,10 +1823,10 @@
   z-index: 20;
   display: flex;
   flex-direction: column;
-  background: var(--w-panel);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
   overflow: hidden;
 }
 
@@ -1837,7 +1837,7 @@
   padding: 8px 10px;
   border: none;
   background: transparent;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-family: inherit;
   font-size: 13px;
   text-align: left;
@@ -1845,17 +1845,17 @@
 }
 
 .mail-search-recent-item:hover {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 .mail-search-recent-clear {
   padding: 7px 10px;
   border: none;
-  border-top: var(--w-hair) solid var(--w-rule);
+  border-top: var(--hairline) solid var(--color-border);
   background: transparent;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 600;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -1865,7 +1865,7 @@
 }
 
 .mail-search-recent-clear:hover {
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .search-results-view.split-view .split-list {
@@ -1886,8 +1886,8 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: var(--w-panel-2);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--color-surface-strong);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .search-chip {
@@ -1895,11 +1895,11 @@
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  border-radius: var(--w-r-band);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel);
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
+  border-radius: var(--radius-sm);
+  border: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -1908,7 +1908,7 @@
 
 .search-chip-scope.seeded {
   border-style: dashed;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .search-chip-remove {
@@ -1926,18 +1926,18 @@ button.search-chip-toggle {
 }
 
 button.search-chip-toggle.on {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .thread-row .folder-pill {
   padding: 1.5px 6px;
-  border-radius: var(--w-r-band);
-  background: var(--w-panel-sunk);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  color: var(--w-ink-3);
-  font-stretch: var(--w-wd-label);
+  border-radius: var(--radius-sm);
+  background: var(--color-field);
+  border: var(--hairline) solid var(--color-border);
+  color: var(--color-ink-faint);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 9px;
   letter-spacing: 0.1em;
@@ -1951,9 +1951,9 @@ button.search-chip-toggle.on {
 .thread-row .action-badge {
   display: inline-block;
   padding: 1.5px 6px;
-  border-radius: var(--w-r-plate);
-  border: 1.5px solid var(--w-aniline);
-  color: var(--w-aniline);
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-accent);
+  color: var(--color-accent);
   background: transparent;
   font-stretch: 74%;
   font-weight: 750;
@@ -1967,7 +1967,7 @@ button.search-chip-toggle.on {
 .thread-row .gatekeeper-badge {
   display: inline-block;
   padding: 1.5px 6px;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   border: 1.5px solid currentColor;
   background: transparent;
   font-stretch: 74%;
@@ -1980,36 +1980,36 @@ button.search-chip-toggle.on {
 }
 
 .gatekeeper-badge-held {
-  color: var(--w-fluor);
+  color: var(--color-warn);
 }
 
 .gatekeeper-badge-blocked {
-  color: var(--w-postal);
+  color: var(--color-danger);
 }
 
 .thread-row.selected .action-badge,
 .thread-row.selected .gatekeeper-badge,
 .thread-row.selected .folder-pill {
-  color: var(--w-frame);
-  border-color: color-mix(in oklab, var(--w-frame) 55%, transparent);
+  color: var(--color-bg);
+  border-color: color-mix(in oklab, var(--color-bg) 55%, transparent);
   background: transparent;
 }
 
 .snippet.headline mark {
-  background: color-mix(in oklab, var(--w-fluor-flat) 34%, transparent);
-  color: var(--w-ink);
-  border-radius: var(--w-r-band);
+  background: color-mix(in oklab, var(--color-warn) 34%, transparent);
+  color: var(--color-ink);
+  border-radius: var(--radius-sm);
   padding: 0 2px;
 }
 
 .thread-row.selected .snippet.headline mark {
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .search-foot {
   padding: 10px 12px;
-  border-top: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel-2);
+  border-top: var(--hairline) solid var(--color-border);
+  background: var(--color-surface-strong);
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -2018,12 +2018,12 @@ button.search-chip-toggle.on {
 .search-load-older {
   align-self: flex-start;
   padding: 6px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -2039,14 +2039,14 @@ button.search-chip-toggle.on {
 /* The Index Watermark states its own partial coverage rather than silently
    returning too few results — so it is set in the machine face. */
 .search-watermark {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
   font-size: 10px;
   margin: 0;
 }
 
 .search-watermark.promoted {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 11px;
 }
 
@@ -2054,11 +2054,11 @@ button.search-chip-toggle.on {
 .search-reauth-banner {
   margin: 0;
   padding: 7px 10px;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   font-size: 12px;
-  background: color-mix(in oklab, var(--w-fluor-flat) 14%, var(--w-panel));
-  border: var(--w-hair) solid color-mix(in oklab, var(--w-fluor-flat) 40%, var(--w-rule-hard));
-  color: var(--w-ink-2);
+  background: color-mix(in oklab, var(--color-warn) 14%, var(--color-surface));
+  border: var(--hairline) solid color-mix(in oklab, var(--color-warn) 40%, var(--color-border));
+  color: var(--color-ink-muted);
 }
 
 .search-reauth-banner {
@@ -2074,12 +2074,12 @@ button.search-chip-toggle.on {
 
 .search-reauth-button {
   padding: 6px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -2098,18 +2098,18 @@ button.search-chip-toggle.on {
   align-items: flex-start;
   gap: 10px;
   padding: 26px 16px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 13px;
 }
 
 .search-empty button {
   padding: 6px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -2128,10 +2128,10 @@ button.search-chip-toggle.on {
   align-items: center;
   gap: 10px;
   padding: 7px 12px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-fluor-flat);
+  border-bottom: var(--hairline) solid var(--color-border);
+  background: var(--color-warn);
   color: #1f1d18;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 640;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -2149,11 +2149,11 @@ button.search-chip-toggle.on {
 .gatekeeper-banner button {
   padding: 5px 12px;
   border: 1.5px solid #1f1d18;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: #1f1d18;
-  color: var(--w-bone);
+  color: var(--color-accent-foreground);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 680;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -2172,7 +2172,7 @@ button.search-chip-toggle.on {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: var(--w-fluor-flat);
+  background: var(--color-warn);
   color: #1f1d18;
 }
 
@@ -2187,7 +2187,7 @@ button.search-chip-toggle.on {
 
 .screener-header h2 {
   margin: 0;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 720;
   font-size: 13px;
   letter-spacing: 0.13em;
@@ -2197,11 +2197,11 @@ button.search-chip-toggle.on {
 .screener-close {
   padding: 6px 12px;
   border: 1.5px solid rgb(31 29 24 / 0.5);
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
   color: #1f1d18;
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 660;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -2239,13 +2239,13 @@ button.search-chip-toggle.on {
   top: 0;
   z-index: 1;
   padding: 7px 16px;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 700;
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgb(31 29 24 / 0.72);
-  background: var(--w-fluor-flat);
+  background: var(--color-warn);
   border-bottom: 1px solid rgb(31 29 24 / 0.24);
 }
 
@@ -2272,20 +2272,20 @@ button.search-chip-toggle.on {
 }
 
 .screener-row-name {
-  font-stretch: var(--w-wd-sender);
+  font-stretch: 100%;
   font-weight: 720;
   font-size: 16px;
   color: #1f1d18;
 }
 
 .screener-row-address {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
   color: rgb(31 29 24 / 0.94);
 }
 
 .screener-row-count {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
   color: rgb(31 29 24 / 0.94);
 }
@@ -2326,11 +2326,11 @@ button.search-chip-toggle.on {
   gap: 6px;
   padding: 7px 12px;
   border: 1.5px solid rgb(31 29 24 / 0.5);
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
   color: #1f1d18;
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 700;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -2344,7 +2344,7 @@ button.search-chip-toggle.on {
 .screener-approve {
   background: #1f1d18;
   border-color: #1f1d18;
-  color: var(--w-bone);
+  color: var(--color-accent-foreground);
 }
 
 .screener-deny:hover {
@@ -2380,24 +2380,24 @@ button.search-chip-toggle.on {
 .gatekeeper-settings h4,
 .gatekeeper-settings h5 {
   margin: 10px 0 4px;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 660;
   font-size: 10px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .gatekeeper-settings-description {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 13px;
   margin: 0 0 10px;
 }
 
 .gatekeeper-cutoff {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .gatekeeper-blocked ul {
@@ -2415,7 +2415,7 @@ button.search-chip-toggle.on {
 }
 
 .gatekeeper-reset-confirm {
-  color: var(--w-postal);
+  color: var(--color-danger);
   font-size: 13px;
 }
 
@@ -2438,9 +2438,9 @@ button.search-chip-toggle.on {
     z-index: 2;
     width: 32px;
     height: 32px;
-    border: var(--w-hair) solid var(--w-rule-hard);
-    background: var(--w-panel);
-    color: var(--w-ink);
+    border: var(--hairline) solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-ink);
     cursor: pointer;
   }
 
@@ -2461,11 +2461,11 @@ button.search-chip-toggle.on {
     width: auto;
     max-height: 70vh;
     border-right: none;
-    border-top: var(--w-hair) solid var(--w-rule-hard);
-    box-shadow: var(--w-lift);
+    border-top: var(--hairline) solid var(--color-border);
+    box-shadow: var(--shadow-overlay);
     padding-bottom: calc(10px + env(safe-area-inset-bottom));
     transform: translateY(100%);
-    transition: transform var(--w-dur-fast) var(--w-ease);
+    transition: transform var(--dur-fast) var(--ease);
   }
 
   .mail-sidebar.open {
@@ -2552,7 +2552,7 @@ button.search-chip-toggle.on {
   flex-shrink: 0;
   width: 40px;
   height: 40px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 .mail-cds svg {
@@ -2561,7 +2561,7 @@ button.search-chip-toggle.on {
 }
 
 .mail-cds-text {
-  font-family: var(--w-sans);
+  font-family: var(--font-sans);
   font-stretch: 88%;
   font-weight: 700;
   font-size: 21px;
@@ -2649,12 +2649,12 @@ button.search-chip-toggle.on {
   gap: 7px;
   flex-shrink: 0;
   padding: 6px 12px;
-  border: 1.5px solid var(--w-ink);
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
+  border: 1.5px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-bg);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 680;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -2664,8 +2664,8 @@ button.search-chip-toggle.on {
 }
 
 .compose-button:hover {
-  background: var(--w-ink-2);
-  border-color: var(--w-ink-2);
+  background: var(--color-ink-muted);
+  border-color: var(--color-ink-muted);
 }
 
 /* ============================================================================
@@ -2682,12 +2682,12 @@ button.search-chip-toggle.on {
   margin: 0;
   padding: 24px;
   text-align: center;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 550;
   font-size: 10px;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   max-width: none;
 }
 
@@ -2730,7 +2730,7 @@ button.search-chip-toggle.on {
   .mail-topbar .held-plate::after {
     content: attr(data-count);
     font-size: 10px;
-    font-stretch: var(--w-wd-label);
+    font-stretch: 100%;
     font-weight: 720;
     letter-spacing: 0.06em;
     margin-left: 5px;
@@ -2773,7 +2773,7 @@ button.search-chip-toggle.on {
 .screener-row-actions button.screener-approve {
   background: #1f1d18;
   border-color: #1f1d18;
-  color: var(--w-bone);
+  color: var(--color-accent-foreground);
 }
 
 .screener-row-actions button.screener-block {
@@ -2790,7 +2790,7 @@ button.search-chip-toggle.on {
 
 .screener-row.is-struck {
   pointer-events: none;
-  animation: slip-clear var(--w-dur-strike) var(--w-ease-strike) 700ms forwards;
+  animation: slip-clear var(--dur-strike) var(--ease-strike) 700ms forwards;
 }
 
 .screener-row.is-struck::after {
@@ -2896,7 +2896,7 @@ button.search-chip-toggle.on {
   display: flex;
   justify-content: center;
   padding-top: 12vh;
-  background: color-mix(in oklab, var(--w-ink) 45%, transparent);
+  background: color-mix(in oklab, var(--color-ink) 45%, transparent);
 }
 
 .command-palette {
@@ -2904,10 +2904,10 @@ button.search-chip-toggle.on {
   flex-direction: column;
   width: min(560px, calc(100vw - 32px));
   max-height: min(480px, 70vh);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  box-shadow: var(--w-lift);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
   overflow: hidden;
 }
 
@@ -2916,12 +2916,12 @@ button.search-chip-toggle.on {
   align-items: center;
   gap: 9px;
   padding: 12px 14px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .command-palette-icon {
   flex: none;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .command-palette-input-row input {
@@ -2929,7 +2929,7 @@ button.search-chip-toggle.on {
   border: none;
   outline: none;
   background: transparent;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-size: 14px;
 }
 
@@ -2938,7 +2938,7 @@ button.search-chip-toggle.on {
   display: flex;
   border: none;
   background: transparent;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   cursor: pointer;
 }
 
@@ -2949,7 +2949,7 @@ button.search-chip-toggle.on {
 
 .command-palette-empty {
   padding: 16px 10px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 13px;
 }
 
@@ -2959,8 +2959,8 @@ button.search-chip-toggle.on {
 
 .command-palette-section-label {
   margin: 4px 8px;
-  color: var(--w-ink-3);
-  font-stretch: var(--w-wd-label);
+  color: var(--color-ink-faint);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -2974,27 +2974,27 @@ button.search-chip-toggle.on {
   width: 100%;
   padding: 8px 10px;
   border: none;
-  border-radius: var(--w-r-band);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
 .command-palette-row.active {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 .command-palette-row.disabled {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   cursor: default;
 }
 
 .command-palette-row-section {
   flex: none;
   min-width: 68px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -3007,19 +3007,19 @@ button.search-chip-toggle.on {
 .command-palette-shortcut {
   flex: none;
   padding: 2px 6px;
-  border: var(--w-hair) solid var(--w-rule-hard);
+  border: var(--hairline) solid var(--color-border);
   border-bottom-width: 2px;
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink-2);
-  font-family: var(--w-mono);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
 }
 
 .command-palette-unbound {
   flex: none;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -3038,7 +3038,7 @@ button.search-chip-toggle.on {
 
 .command-palette-hit-from {
   flex: none;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 12px;
   max-width: 40%;
   overflow: hidden;
@@ -3048,20 +3048,20 @@ button.search-chip-toggle.on {
 
 .command-palette-hit-badge {
   flex: none;
-  color: var(--w-fluor);
+  color: var(--color-warn);
   font-size: 10px;
   text-transform: uppercase;
 }
 
 .command-palette-see-all {
   justify-content: center;
-  color: var(--w-frame);
+  color: var(--color-bg);
   font-weight: 600;
 }
 
 .command-palette-watermark {
   margin: 4px 8px 2px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 11px;
 }
 
@@ -3072,10 +3072,10 @@ button.search-chip-toggle.on {
   flex-direction: column;
   width: min(640px, calc(100vw - 32px));
   max-height: min(560px, 70vh);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  box-shadow: var(--w-lift);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
   overflow: hidden;
 }
 
@@ -3084,7 +3084,7 @@ button.search-chip-toggle.on {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .shortcut-sheet-header h2 {
@@ -3102,8 +3102,8 @@ button.search-chip-toggle.on {
 
 .shortcut-sheet-section-label {
   margin: 0 0 6px;
-  color: var(--w-ink-3);
-  font-stretch: var(--w-wd-label);
+  color: var(--color-ink-faint);
+  font-stretch: 100%;
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -3127,7 +3127,7 @@ button.search-chip-toggle.on {
 .shortcut-sheet-row dt {
   margin: 0;
   font-size: 13px;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .shortcut-sheet-row dd {

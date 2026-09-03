@@ -1,6 +1,6 @@
-import { AuthPlate } from "../brand/AuthPlate.js";
 import { Mark } from "../brand/Mark.js";
 import { AppShell } from "./AppShell.js";
+import { AuthCard } from "./AuthCard.js";
 import { useAuth } from "./AuthContext.js";
 import { ClaimForm } from "./ClaimForm.js";
 import { LoginForm } from "./LoginForm.js";
@@ -16,30 +16,30 @@ export function AuthGate() {
       // same-origin request, so anything more elaborate would be on screen
       // for less time than it took to draw.
       return (
-        <div className="auth-frame" aria-busy="true">
-          <p className="auth-waiting">
-            <Mark size={26} />
+        <div className="flex min-h-dvh items-center justify-center bg-background" aria-busy="true">
+          <p className="m-0 flex items-center gap-2.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+            <Mark size={26} className="text-primary" />
             <span>Opening the frame…</span>
           </p>
         </div>
       );
     case "unclaimed":
       return (
-        <AuthPlate>
+        <AuthCard>
           <ClaimForm />
-        </AuthPlate>
+        </AuthCard>
       );
     case "login-required":
       return (
-        <AuthPlate>
+        <AuthCard>
           <LoginForm />
-        </AuthPlate>
+        </AuthCard>
       );
     case "totp-required":
       return (
-        <AuthPlate>
+        <AuthCard>
           <TotpChallengeForm />
-        </AuthPlate>
+        </AuthCard>
       );
     case "authenticated":
       return <AppShell user={state.user} />;

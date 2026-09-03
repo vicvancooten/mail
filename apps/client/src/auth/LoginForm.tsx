@@ -1,7 +1,9 @@
 import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../api/auth.js";
+import { Button } from "../components/ui/button.js";
 import { useAuth } from "./AuthContext.js";
+import { Field, FormError, inputClassName } from "./form-controls.js";
 
 /**
  * Shown both for a fresh login and after a session expires — poc-spec.md is
@@ -52,35 +54,41 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h2>Log in</h2>
-      <div>
-        <label htmlFor="login-username">Username</label>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+      <h2 className="m-0 text-base font-bold text-foreground">Log in</h2>
+      <Field label="Username" htmlFor="login-username">
         <input
           id="login-username"
+          className={inputClassName}
           value={username}
           onChange={(event) => setUsername(event.target.value)}
           required
         />
-      </div>
-      <div>
-        <label htmlFor="login-password">Password</label>
+      </Field>
+      <Field label="Password" htmlFor="login-password">
         <input
           id="login-password"
           type="password"
+          className={inputClassName}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
         />
-      </div>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <Button type="submit" disabled={submitting} className="w-full">
         Log in
-      </button>
+      </Button>
       {browserSupportsWebAuthn() && (
-        <button type="button" onClick={handlePasskeyLogin} disabled={submitting}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handlePasskeyLogin}
+          disabled={submitting}
+          className="w-full"
+        >
           Log in with a passkey
-        </button>
+        </Button>
       )}
     </form>
   );

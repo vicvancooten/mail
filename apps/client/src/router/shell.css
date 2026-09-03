@@ -1,0 +1,240 @@
+/* ============================================================================
+   THE HUB SHELL — header rail, App Switcher, avatar menu and the routed
+   viewport underneath them (#71, #72, part of #66). Tokens: `src/index.css`
+   and `@mail/design-tokens`. Moved out of the deleted `brand/brand.css`
+   (#83) — this chrome is App-level structure, not the old brand identity.
+   ========================================================================= */
+
+/* The viewport-owning shell (#71): `height` (never `min-height`, never
+   `100vh`) plus `overflow: hidden` is what makes the document itself never
+   scroll, at any width — every routed pane underneath (`.app-viewport`'s
+   one child) is its own `height: 100%; min-height: 0` compartment that
+   scrolls on its own instead. This is the fix for both reported phone
+   layout bugs; see `.app-viewport` below for the chain it replaces. */
+.app-shell {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+/* The stile: the frame's left member, and the governing axis every level of
+   the app registers to. Drawn as a member rather than as a border so it is
+   structure rather than an accent stripe on a container — the same edge the
+   social card and the README banner carry. */
+.app-shell::before {
+  content: "";
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-accent);
+  z-index: 30;
+  pointer-events: none;
+}
+
+.app-shell > * {
+  padding-left: 3px;
+}
+
+.shell-rail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  padding-top: calc(9px + env(safe-area-inset-top));
+  padding-left: calc(14px + env(safe-area-inset-left));
+  padding-right: calc(14px + env(safe-area-inset-right));
+  background: var(--color-field);
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+/* The App Switcher (#72): header-left, replacing the #71-era `.shell-nav`
+   Mail/Settings link pair. Closed, it reads as the wordmark used to —
+   mark plus the current App's name — and doubles as the section indicator
+   that pair of links used to carry. */
+.app-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  appearance: none;
+  cursor: pointer;
+  padding: 4px 10px 4px 6px;
+  border-radius: var(--radius-md);
+  border: var(--hairline) solid transparent;
+  background: transparent;
+  color: var(--color-accent);
+  transition: background var(--dur-press) linear;
+}
+
+.app-switcher-trigger:hover,
+.app-switcher-trigger[aria-expanded="true"] {
+  background: var(--color-surface-strong);
+}
+
+.app-switcher-current {
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+
+.app-switcher-item {
+  padding: 0;
+}
+
+.app-switcher-item > a {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-switcher-item-name {
+  font-weight: 620;
+  font-size: 13px;
+}
+
+.app-switcher-item[data-current="true"] .app-switcher-item-name {
+  color: var(--color-accent);
+}
+
+.app-switcher-item-badge {
+  font-weight: 620;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/* Phone (ticket: "tapping the hub mark opens an App sheet; no bottom tab
+   bar"): the same popover becomes a sheet pinned to the bottom edge rather
+   than a second, phone-only component. */
+@media (max-width: 640px) {
+  .app-switcher-menu {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: none;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .shell-user {
+    display: none;
+  }
+}
+
+.avatar-menu-trigger {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  line-height: 0;
+}
+
+.avatar-menu-trigger:hover,
+.avatar-menu-trigger[aria-expanded="true"] {
+  outline: var(--hairline) solid var(--color-border);
+  outline-offset: 2px;
+}
+
+.shell-rail-spacer {
+  flex: 1;
+}
+
+.shell-user {
+  margin: 0;
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.shell-user strong {
+  font-weight: 650;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-ink);
+}
+
+.shell-role {
+  padding: 1.5px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-accent) 16%, var(--color-surface));
+  border: var(--hairline) solid color-mix(in oklab, var(--color-accent) 44%, var(--color-border));
+  color: color-mix(in oklab, var(--color-accent) 70%, var(--color-ink));
+  font-weight: 640;
+  font-size: 9px;
+  letter-spacing: 0.11em;
+}
+
+/* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`
+   rather than a hand-computed "rail is 44px" calc, so it holds at any rail
+   height. Every route's own top-level element is a `height: 100%; min-
+   height: 0` pane (`.mail-section`, `.settings-section`, `.app-placeholder`),
+   so this only needs to bound the space they render into. */
+.app-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* One of the three reserved Apps (#72) — finished chrome around an empty
+   App, not a stub: a name, one line, and a flat "Not built yet". */
+.app-placeholder {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--color-bg);
+}
+
+.app-placeholder-card {
+  max-width: 360px;
+  text-align: center;
+}
+
+.app-placeholder-card h2 {
+  margin: 0 0 8px;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+.app-placeholder-card p {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app-placeholder-status {
+  margin-top: 14px;
+  font-weight: 640;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}

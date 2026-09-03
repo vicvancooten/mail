@@ -1,6 +1,8 @@
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../api/auth.js";
+import { Button } from "../components/ui/button.js";
 import { useAuth } from "./AuthContext.js";
+import { Field, FormError, inputClassName } from "./form-controls.js";
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_or_expired_token: "That claim link has expired or was already used.",
@@ -41,41 +43,43 @@ export function ClaimForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h2>Claim this instance</h2>
-      <p>Set up the Owner account using the one-time token printed in the server logs.</p>
-      <div>
-        <label htmlFor="claim-token">Claim token</label>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+      <h2 className="m-0 text-base font-bold text-foreground">Claim this instance</h2>
+      <p className="m-0 max-w-[46ch] text-[13px] text-muted-foreground">
+        Set up the Owner account using the one-time token printed in the server logs.
+      </p>
+      <Field label="Claim token" htmlFor="claim-token">
         <input
           id="claim-token"
+          className={inputClassName}
           value={token}
           onChange={(event) => setToken(event.target.value)}
           required
         />
-      </div>
-      <div>
-        <label htmlFor="claim-username">Username</label>
+      </Field>
+      <Field label="Username" htmlFor="claim-username">
         <input
           id="claim-username"
+          className={inputClassName}
           value={username}
           onChange={(event) => setUsername(event.target.value)}
           required
         />
-      </div>
-      <div>
-        <label htmlFor="claim-password">Password</label>
+      </Field>
+      <Field label="Password" htmlFor="claim-password">
         <input
           id="claim-password"
           type="password"
+          className={inputClassName}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
         />
-      </div>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
+      </Field>
+      {error && <FormError>{error}</FormError>}
+      <Button type="submit" disabled={submitting} className="w-full">
         Create Owner account
-      </button>
+      </Button>
     </form>
   );
 }

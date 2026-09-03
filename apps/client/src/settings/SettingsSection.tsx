@@ -13,6 +13,7 @@ import {
 import { type Theme, useAppearance } from "../theme/device-theme.js";
 import { GatekeeperSection } from "./GatekeeperSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
+import "./settings.css";
 
 /**
  * The settings screen (#54, poc-spec.md §Preferences): "wiring all of it
