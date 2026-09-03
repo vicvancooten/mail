@@ -206,7 +206,7 @@ describe("MailSection", () => {
     // owns the real body) appears instantly — `stubFetch(never)` means
     // nothing here can have come from a network round trip. Scoped to
     // `.thread-detail` because the row itself also shows the Snippet.
-    const detail = await screen.findByText("Last state", { selector: ".thread-detail-card h1" });
+    const detail = await screen.findByText("Last state", { selector: ".reading-subject" });
     expect(detail.closest(".thread-detail")?.textContent).toContain("Snippet t1");
   });
 
@@ -226,8 +226,8 @@ describe("MailSection", () => {
     // List view: opening a Thread swaps the list for a full-screen detail,
     // with a way back rather than sitting beside it.
     fireEvent.click(screen.getByText("Last state"));
-    expect(await screen.findByText("Back to list")).toBeDefined();
-    fireEvent.click(screen.getByText("Back to list"));
+    expect(await screen.findByRole("button", { name: "Back to list" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
     expect(await screen.findByText("Last state")).toBeDefined();
 
     unmount();
@@ -349,7 +349,7 @@ describe("MailSection", () => {
     });
 
     expect(
-      await screen.findByText("Account two thread", { selector: ".thread-detail-card h1" }),
+      await screen.findByText("Account two thread", { selector: ".reading-subject" }),
     ).toBeDefined();
 
     // The primary account (compose/Screener/search's own single-account
@@ -519,7 +519,7 @@ describe("MailSection", () => {
     renderMail();
     const row = await screen.findByRole("option", { name: /Newer thread/ });
     fireEvent.click(row);
-    await screen.findByText("Newer thread", { selector: ".thread-detail-card h1" });
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
 
     fireEvent.keyDown(window, { key: "u" });
 
@@ -780,9 +780,14 @@ describe("MailSection", () => {
 });
 
 describe("MailSection — the group header cluster (#66, #67, #77)", () => {
-  /** An hour ago, real wall-clock — lands the Thread in the "Today" group regardless of when this suite actually runs. */
-  function anHourAgo(): string {
-    return new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  /** An hour ago, real wall-clock, but never earlier than midnight — so the
+   * Thread lands in the "Today" group regardless of when this suite runs. A
+   * bare "now minus an hour" put it in *Yesterday* between 00:00 and 01:00
+   * local, which made these tests fail for one hour a day. */
+  function earlierToday(): string {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    return new Date(Math.max(Date.now() - 60 * 60 * 1000, midnight.getTime())).toISOString();
   }
 
   async function seedTodayThreads(): Promise<void> {
@@ -793,8 +798,8 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
       "acct-1",
       delta({
         created: [
-          makeThread("t-a", "acct-1", { subject: "Thread A", lastMessageAt: anHourAgo() }),
-          makeThread("t-b", "acct-1", { subject: "Thread B", lastMessageAt: anHourAgo() }),
+          makeThread("t-a", "acct-1", { subject: "Thread A", lastMessageAt: earlierToday() }),
+          makeThread("t-b", "acct-1", { subject: "Thread B", lastMessageAt: earlierToday() }),
         ],
       }),
       { replace: false },

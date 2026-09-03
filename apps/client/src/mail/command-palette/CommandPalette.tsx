@@ -234,7 +234,7 @@ export function CommandPalette({
             onClick={onClose}
             aria-label="Close"
           >
-            <X size={13} />
+            <X size={14} />
           </button>
         </div>
 
@@ -271,7 +271,7 @@ export function CommandPalette({
                     <span className="command-palette-row-section">{command.section}</span>
                     <span className="command-palette-row-label">{command.label}</span>
                     {command.shortcut ? (
-                      <kbd className="command-palette-shortcut">{command.shortcut}</kbd>
+                      <kbd className="keycap">{command.shortcut}</kbd>
                     ) : (
                       <span className="command-palette-unbound">unbound</span>
                     )}
@@ -300,7 +300,7 @@ export function CommandPalette({
                     id={rowDomId(index)}
                     role="option"
                     aria-selected={index === activeRowIndex}
-                    className={`command-palette-row command-palette-hit${index === activeRowIndex ? " active" : ""}`}
+                    className={`command-palette-row${index === activeRowIndex ? " active" : ""}`}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => runRow({ kind: "hit", thread })}
                   >

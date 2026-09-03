@@ -19,33 +19,43 @@ function describeParticipant(participant: ThreadParticipant): string {
 
 /**
  * Shared row markup for the Split and List views (Stream mode doesn't use a
- * list row at all — the point of that mode is not having a list). Adopted
- * from `prototype/triage-loop-ui`'s `ThreadRow`, adjusted to the real wire
- * `Thread` shape: no `sender` string, a `participants` array. `pinned`/
- * `labelIds` (#43) render as a Pin icon and a couple of chips — label names
- * come straight off `labelNameFromId`, no `Label` collection lookup needed
- * for a row to render correctly the instant an offline apply lands.
+ * list row at all — the point of that mode is not having a list), rebuilt in
+ * #87 against the comp's own `.thread-row`
+ * (`docs/design/prototypes/the-instrument.html`): a rounded row floating on
+ * the page ground with no rule under it and no plate behind it, reserved
+ * whitespace on the left holding the row's **Done** action and its segment
+ * of the group's timeline spine, the correspondent's round tile, one
+ * baseline-aligned line of sender + subject, and a fixed-width meta column
+ * on the right where the timestamp trades place with the row's hover
+ * actions. Selection is the comp's `--color-accent-soft` tint, never an ink
+ * inversion; unread is weight and ink on the sender plus the tile's own
+ * accent dot, never a badge beside the row.
+ *
+ * `pinned`/`labelIds` (#43) render as the comp's small `--color-warn` pin
+ * glyph inline after the sender and a couple of quiet chips after the
+ * subject — label names come straight off `labelNameFromId`, no `Label`
+ * collection lookup needed for a row to render correctly the instant an
+ * offline apply lands.
  *
  * The outer element is a `<div role="option">`, not a `<button>` (#75): the
- * row's own **Done** / **Snooze** controls (below) are real, independently
- * focusable `<button>`s, and a button cannot legally nest inside another
- * interactive element. Selecting the row is still one click anywhere on it
- * — the click bubbles to `onSelect` the same way it always has — and
- * keyboard selection has never gone through per-row focus here anyway
- * (`j`/`k`, one window listener in `VirtualizedThreadList`), so nothing
- * about that path changes.
+ * row's own **Done** / **Snooze** / **Pin** controls (below) are real,
+ * independently focusable `<button>`s, and a button cannot legally nest
+ * inside another interactive element. Selecting the row is still one click
+ * anywhere on it — the click bubbles to `onSelect` the same way it always
+ * has — and keyboard selection has never gone through per-row focus here
+ * anyway (`j`/`k`, one window listener in `VirtualizedThreadList`), so
+ * nothing about that path changes.
  *
  * `onArchive`/`onSnooze` (#44, #76, `poc-scope.md` §Clients & notifications)
- * wire the row into `useSwipeToTriage` *and* their own row cluster controls
- * below — optional because `VirtualizedThreadList` has one non-triage
- * caller path in tests, and because the swipe hook is already a no-op for
- * anything but a touch pointer, so wiring it unconditionally would cost
- * nothing either way; optional just avoids threading unused callbacks
- * through call sites that truly have none. There is deliberately no
- * `onTrash` here: Trash stays one keystroke away (`useTriage.ts`'s own
- * `#`/Backspace/Delete binding), but per #66's own row-cluster/swipe design
- * ("swipe right marks Done, swipe left snoozes") it has no row-level mouse
- * or swipe control of its own.
+ * wire the row into `useSwipeToTriage` *and* their own row controls below —
+ * optional because `VirtualizedThreadList` has one non-triage caller path in
+ * tests, and because the swipe hook is already a no-op for anything but a
+ * touch pointer, so wiring it unconditionally would cost nothing either way;
+ * optional just avoids threading unused callbacks through call sites that
+ * truly have none. There is deliberately no `onTrash` here: Trash stays one
+ * keystroke away (`useTriage.ts`'s own `#`/Backspace/Delete binding), but
+ * per #66's own row-cluster/swipe design ("swipe right marks Done, swipe
+ * left snoozes") it has no row-level mouse or swipe control of its own.
  *
  * `headline`/`folderPill`/`actionBadge` are search's own additions (#51,
  * `docs/search-ux-spec.md` §The row: "Built on ADR-0011's `Thread` list-row
@@ -60,6 +70,7 @@ export function ThreadRow({
   onSelect,
   onArchive,
   onSnooze,
+  onTogglePin,
   headline = null,
   folderPill = null,
   actionBadge = null,
@@ -75,6 +86,8 @@ export function ThreadRow({
   onArchive?: () => void;
   /** #76: `until` is an ISO datetime — the row cluster's Snooze button opens `SnoozeMenu` for a preset/custom pick, and a bare swipe left commits `snooze-presets.ts`'s `defaultSwipeSnoozeUntil` with no picker in reach. */
   onSnooze?: (until: string) => void;
+  /** #43/#87: the comp's row-hover actions are Snooze *and* Pin — same optional-wiring posture as the two above, so search's non-triage rows simply render neither. */
+  onTogglePin?: () => void;
   /** The `ts_headline` fragment (search-ux-spec.md §The row), pre-parsed for `<mark>` rendering. `null`/`undefined`: keep the ordinary Snippet. */
   headline?: string | null;
   /** The non-Inbox folder pill (search-ux-spec.md: "Search crosses folders, and 'where did this end up' is half the question"). */
@@ -151,17 +164,18 @@ export function ThreadRow({
       aria-selected={selected}
       {...swipe.handlers}
     >
-      {/* Reserved space, left of the Avatar (#66 user stories 10-11, #76):
-          fixed width whether armed or not, so arming the cluster never
-          shifts the Avatar, the sender column, or any other row — only
-          these controls' own opacity changes. Never overlaps or replaces
-          the Avatar, so a Done/Snooze click is never confused with a
-          selection. */}
-      <span className="row-done-slot">
+      {/* The comp's `.row-check`: reserved whitespace to the left of the
+          tile, holding this row's segment of the group's timeline spine and
+          its own Done action — invisible at rest, so the resting list is
+          nothing but correspondents and subjects. It never touches or
+          overlays the tile, because the checkmark is an action ("archive
+          this"), not a selection state, and because a fixed slot means
+          arming the row shifts nothing else in it. */}
+      <span className="row-check">
         {onArchive ? (
           <button
             type="button"
-            className="row-done"
+            className="done-btn"
             aria-label={`Mark "${subjectLabel}" Done`}
             title="Done (e)"
             onPointerDown={(event) => event.stopPropagation()}
@@ -170,44 +184,31 @@ export function ThreadRow({
               onArchive();
             }}
           >
-            <Check size={13} />
-          </button>
-        ) : null}
-        {onSnooze ? (
-          <button
-            type="button"
-            className="row-snooze"
-            aria-label={`Snooze "${subjectLabel}"`}
-            aria-haspopup="menu"
-            aria-expanded={snoozeMenuOpen}
-            title="Snooze"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              setSnoozeMenuOpen((open) => !open);
-            }}
-          >
-            <Clock size={13} />
+            <Check size={12} />
           </button>
         ) : null}
       </span>
       <Avatar name={participantLabel} unread={unread} />
-      <span className="sender">{participantLabel}</span>
-      <span className="subject-line">
-        <span className="subject">{subjectLabel}</span>
-        {headlineSegments ? (
-          <span className="snippet headline">
-            {headlineSegments.map((segment) =>
-              segment.matched ? (
-                <mark key={segment.offset}>{segment.text}</mark>
-              ) : (
-                <span key={segment.offset}>{segment.text}</span>
-              ),
-            )}
-          </span>
-        ) : thread.snippet ? (
-          <span className="snippet">{thread.snippet}</span>
-        ) : null}
+      <span className="row-line">
+        <span className="row-sender">{participantLabel}</span>
+        {thread.pinned ? <Pin size={10} className="row-pin" /> : null}
+        {thread.starred ? <Star size={10} className="row-star" /> : null}
+        <span className="row-subject">
+          <span className="subject">{subjectLabel}</span>
+          {headlineSegments ? (
+            <span className="snippet headline">
+              {headlineSegments.map((segment) =>
+                segment.matched ? (
+                  <mark key={segment.offset}>{segment.text}</mark>
+                ) : (
+                  <span key={segment.offset}>{segment.text}</span>
+                ),
+              )}
+            </span>
+          ) : thread.snippet ? (
+            <span className="snippet">{thread.snippet}</span>
+          ) : null}
+        </span>
         {visibleLabelIds.length > 0 ? (
           <span className="row-labels">
             {visibleLabelIds.map((id) => (
@@ -229,9 +230,50 @@ export function ThreadRow({
           {gatekeeperBadge === "held" ? "Held" : "Blocked"}
         </span>
       ) : null}
-      {thread.pinned ? <Pin size={13} className="pin" /> : null}
-      {thread.starred ? <Star size={13} className="star" /> : null}
-      <span className="time">{formatRowTime(thread.lastMessageAt)}</span>
+      {/* The comp's `.row-meta`: one fixed-width column in which the
+          timestamp and the row's hover actions occupy the same box, so
+          revealing the actions never widens the row or nudges the subject.
+          A row with no triage wired (search) simply keeps the time. */}
+      <span className="row-meta">
+        <span className="row-time">{formatRowTime(thread.lastMessageAt)}</span>
+        {onSnooze || onTogglePin ? (
+          <span className="row-actions">
+            {onSnooze ? (
+              <button
+                type="button"
+                className="row-snooze"
+                aria-label={`Snooze "${subjectLabel}"`}
+                aria-haspopup="menu"
+                aria-expanded={snoozeMenuOpen}
+                title="Snooze"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setSnoozeMenuOpen((open) => !open);
+                }}
+              >
+                <Clock size={13} />
+              </button>
+            ) : null}
+            {onTogglePin ? (
+              <button
+                type="button"
+                className={`row-pin-toggle${thread.pinned ? " on" : ""}`}
+                aria-label={`${thread.pinned ? "Unpin" : "Pin"} "${subjectLabel}"`}
+                aria-pressed={thread.pinned}
+                title="Pin (p)"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTogglePin();
+                }}
+              >
+                <Pin size={13} />
+              </button>
+            ) : null}
+          </span>
+        ) : null}
+      </span>
     </div>
   );
 

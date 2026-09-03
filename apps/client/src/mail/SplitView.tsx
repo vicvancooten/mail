@@ -82,21 +82,40 @@ export function SplitView({
             onReply={onReply}
           />
         ) : (
+          // The comp's `.caught-up`: an accent-soft disc, one line saying
+          // where you are, and — the product's own addition, since the comp
+          // has no keyboard to teach — the six bindings the triage loop is
+          // actually built around.
           <div className="pane-empty">
-            <Mark size={34} />
-            <p>Nothing open</p>
+            <span className="pane-empty-mark">
+              <Mark size={24} />
+            </span>
+            <h2>Nothing open</h2>
+            <p>Pick a thread, or clear the day from the keyboard.</p>
             <dl className="pane-keys">
-              <dt>J</dt>
+              <dt>
+                <kbd className="keycap">J</kbd>
+              </dt>
               <dd>next thread</dd>
-              <dt>K</dt>
+              <dt>
+                <kbd className="keycap">K</kbd>
+              </dt>
               <dd>previous</dd>
-              <dt>E</dt>
-              <dd>archive</dd>
-              <dt>S</dt>
+              <dt>
+                <kbd className="keycap">E</kbd>
+              </dt>
+              <dd>done</dd>
+              <dt>
+                <kbd className="keycap">S</kbd>
+              </dt>
               <dd>star</dd>
-              <dt>L</dt>
+              <dt>
+                <kbd className="keycap">L</kbd>
+              </dt>
               <dd>label</dd>
-              <dt>C</dt>
+              <dt>
+                <kbd className="keycap">C</kbd>
+              </dt>
               <dd>compose</dd>
             </dl>
           </div>

@@ -180,7 +180,7 @@ describe("search (#51)", () => {
     // same Thread — `.thread-detail` rather than the row text alone, since
     // the row also renders it.
     await waitFor(() => expect(document.querySelector(".search-chip-row")).toBeNull());
-    const detail = await screen.findByText("Origin thread", { selector: ".thread-detail-card h1" });
+    const detail = await screen.findByText("Origin thread", { selector: ".reading-subject" });
     expect(detail).toBeDefined();
   });
 
@@ -217,10 +217,13 @@ describe("search (#51)", () => {
     // leaving the results list (search-ux-spec.md §The surface) — its
     // Archive button is triage's real mouse affordance today.
     fireEvent.click(screen.getByText("Remote result"));
-    // `getByTitle`, not `getByRole(..., { name: /Archive/ })` — the sidebar
-    // (#74) has its own "Archive" nav entry now, and this is the one button
-    // `ThreadDetailPane`'s own tooltip text uniquely names.
-    const archiveButton = await screen.findByTitle("Archive (e)");
+    // The reading pane's own Done control, named in full — the result rows
+    // behind it each carry a Done control too (`Mark "…" Done`), and the
+    // sidebar (#74) has an "Archive" nav entry, so only this accessible name
+    // picks out exactly one button.
+    const archiveButton = await screen.findByRole("button", {
+      name: "Done — archive this thread",
+    });
     fireEvent.click(archiveButton);
 
     // The row stays — still in the results list — but visibly changed.
@@ -399,7 +402,9 @@ describe("search across Account Scope (#80)", () => {
     await screen.findByText("From account two");
 
     fireEvent.click(screen.getByText("From account two"));
-    const archiveButton = await screen.findByTitle("Archive (e)");
+    const archiveButton = await screen.findByRole("button", {
+      name: "Done — archive this thread",
+    });
     fireEvent.click(archiveButton);
 
     await waitFor(async () => expect(await listQueuedMutations("acct-2")).toHaveLength(1));

@@ -89,7 +89,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
                       <dt>{command.label}</dt>
                       <dd>
                         {command.shortcut ? (
-                          <kbd className="command-palette-shortcut">{command.shortcut}</kbd>
+                          <kbd className="keycap">{command.shortcut}</kbd>
                         ) : (
                           <span className="command-palette-unbound">Command Palette only</span>
                         )}

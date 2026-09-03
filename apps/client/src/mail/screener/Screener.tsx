@@ -1,10 +1,11 @@
-import { Ban, Check, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   enqueueMutation,
   type ScreenerSenderGroup,
   useScreenerSenders,
 } from "../../store/index.js";
+import { Avatar } from "../Avatar.js";
 
 /**
  * The Screener screen (#56, poc-spec.md §Gatekeeper v1): "lists held
@@ -35,10 +36,10 @@ import {
  * screen owns its own small keyboard scheme instead of stretching that
  * hook to cover a shape it was never about.
  */
-/** How long a decided slip stays on screen carrying its ink. */
-const STRIKE_HOLD_MS = 900;
+/** How long a decided slip stays on screen carrying its verdict before it clears. */
+const VERDICT_HOLD_MS = 900;
 
-/** A sender's identity within the Screener's own selection/struck bookkeeping — an address alone collides once two Mail Accounts share Scope. */
+/** A sender's identity within the Screener's own selection and verdict bookkeeping — an address alone collides once two Mail Accounts share Scope. */
 function rowKey(group: Pick<ScreenerSenderGroup, "mailAccountId" | "address">): string {
   return `${group.mailAccountId}:${group.address}`;
 }
@@ -73,14 +74,14 @@ export function Screener({
   }, [groups, selectedKey]);
 
   /**
-   * Rows that have just been decided. The Optimistic Action is queued
+   * Senders that have just been decided. The Optimistic Action is queued
    * immediately and `store/reads.ts`'s overlay drops the sender from
-   * `groups` on the same tick, so this holds the row's last known state for
-   * long enough to strike it — the Verdict lands as ink on the slip, the way
-   * a decision lands on a real one. Nothing is delayed: the write has already
-   * happened, and this layer is purely what you see it happen as.
+   * `groups` on the same tick, so this holds the slip's last known state for
+   * long enough to say what happened to it before it clears. Nothing is
+   * delayed: the write has already happened, and this layer is purely what
+   * you see it happen as.
    */
-  const [struck, setStruck] = useState<{ group: ScreenerSenderGroup; verdict: string }[]>([]);
+  const [decided, setDecided] = useState<{ group: ScreenerSenderGroup; verdict: string }[]>([]);
 
   const decide = useCallback(
     (type: "approveSender" | "denySender" | "blockSender", group: ScreenerSenderGroup) => {
@@ -90,11 +91,11 @@ export function Screener({
       );
       const verdict =
         type === "approveSender" ? "Approved" : type === "blockSender" ? "Blocked" : "Returned";
-      setStruck((current) => [...current, { group, verdict }]);
+      setDecided((current) => [...current, { group, verdict }]);
       const key = rowKey(group);
       window.setTimeout(
-        () => setStruck((current) => current.filter((row) => rowKey(row.group) !== key)),
-        STRIKE_HOLD_MS,
+        () => setDecided((current) => current.filter((row) => rowKey(row.group) !== key)),
+        VERDICT_HOLD_MS,
       );
     },
     [],
@@ -151,12 +152,13 @@ export function Screener({
     <section className="screener" aria-label="Screener">
       <div className="screener-header">
         <h2>Screener</h2>
+        {groups.length > 0 ? <span className="screener-count">{groups.length}</span> : null}
         <button type="button" className="screener-close" onClick={onClose}>
-          Back to Inbox
+          <ArrowLeft size={14} /> Back to Inbox
         </button>
       </div>
 
-      {groups.length === 0 && struck.length === 0 ? (
+      {groups.length === 0 && decided.length === 0 ? (
         <p className="mail-empty">Nothing waiting — new strangers show up here.</p>
       ) : (
         <ul className="screener-list" aria-label="Held senders">
@@ -180,12 +182,12 @@ export function Screener({
               </ul>
             </li>
           ))}
-          {struck.map(({ group, verdict }) => (
+          {decided.map(({ group, verdict }) => (
             <ScreenerRow
-              key={`struck-${rowKey(group)}`}
+              key={`decided-${rowKey(group)}`}
               group={group}
               selected={false}
-              struck={verdict}
+              verdict={verdict}
               onSelect={() => {}}
               onApprove={() => {}}
               onDeny={() => {}}
@@ -205,10 +207,18 @@ export function Screener({
   );
 }
 
+/**
+ * One stranger's slip: the correspondent's own tile (the same mark the Inbox
+ * draws them with, so the Screener is recognisably the same product rather
+ * than a second one), who they are, a peek at what they sent, and the three
+ * verdicts. Approve is the only filled control on the screen — Return and
+ * Block stay quiet until reached for, and Block answers in danger rather
+ * than sitting in it.
+ */
 function ScreenerRow({
   group,
   selected,
-  struck = null,
+  verdict = null,
   onSelect,
   onApprove,
   onDeny,
@@ -216,43 +226,57 @@ function ScreenerRow({
 }: {
   group: ScreenerSenderGroup;
   selected: boolean;
-  /** The Verdict just applied, struck across the slip while the ink sets. */
-  struck?: string | null;
+  /** The Verdict just applied — the slip states it and then clears. */
+  verdict?: string | null;
   onSelect: () => void;
   onApprove: () => void;
   onDeny: () => void;
   onBlock: () => void;
 }) {
+  const displayName = group.name ?? group.address;
   return (
     <li
-      className={`screener-row${selected ? " selected" : ""}${struck ? " strike is-struck" : ""}`}
-      data-strike={struck ?? undefined}
-      aria-hidden={struck ? true : undefined}
-      onMouseEnter={struck ? undefined : onSelect}
-      aria-label={group.name ?? group.address}
+      className={`screener-row${selected ? " selected" : ""}${verdict ? " decided" : ""}`}
+      aria-hidden={verdict ? true : undefined}
+      onMouseEnter={verdict ? undefined : onSelect}
+      aria-label={displayName}
     >
+      <Avatar name={displayName} />
       <div className="screener-row-sender">
-        <span className="screener-row-name">{group.name ?? group.address}</span>
+        <span className="screener-row-name">{displayName}</span>
         {group.name ? <span className="screener-row-address">{group.address}</span> : null}
         {group.threadCount > 1 ? (
           <span className="screener-row-count">{group.threadCount} conversations</span>
         ) : null}
       </div>
-      <div className="screener-row-peek">
-        <span className="screener-row-subject">{group.subject || "(no subject)"}</span>
-        {group.snippet ? <span className="screener-row-snippet">{group.snippet}</span> : null}
-      </div>
-      <div className="screener-row-actions">
-        <button type="button" className="screener-approve" onClick={onApprove} title="Approve (a)">
-          <Check size={14} /> Approve
-        </button>
-        <button type="button" className="screener-deny" onClick={onDeny} title="Deny (d)">
-          <X size={14} /> Deny
-        </button>
-        <button type="button" className="screener-block" onClick={onBlock} title="Block (b)">
-          <Ban size={14} /> Block
-        </button>
-      </div>
+      {verdict ? null : (
+        <div className="screener-row-peek">
+          <span className="screener-row-subject">{group.subject || "(no subject)"}</span>
+          {group.snippet ? <span className="screener-row-snippet">{group.snippet}</span> : null}
+        </div>
+      )}
+      {verdict ? (
+        <span className="screener-verdict" data-verdict={verdict}>
+          {verdict}
+        </span>
+      ) : (
+        <div className="screener-row-actions">
+          <button
+            type="button"
+            className="screener-approve"
+            onClick={onApprove}
+            title="Approve (a)"
+          >
+            <Check size={14} /> Approve
+          </button>
+          <button type="button" className="screener-deny" onClick={onDeny} title="Deny (d)">
+            <X size={14} /> Deny
+          </button>
+          <button type="button" className="screener-block" onClick={onBlock} title="Block (b)">
+            <Ban size={14} /> Block
+          </button>
+        </div>
+      )}
     </li>
   );
 }

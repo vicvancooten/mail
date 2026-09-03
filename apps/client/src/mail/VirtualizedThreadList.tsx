@@ -372,6 +372,7 @@ export function VirtualizedThreadList({
                   onSelect={() => onSelect(item.thread.id)}
                   onArchive={triage ? () => triage.archive(item.thread.id) : undefined}
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
+                  onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
                   headline={extra?.headline}
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}
@@ -404,20 +405,27 @@ interface GroupHeaderClusterBulk {
 }
 
 /**
- * The group header's own row cluster (#66, #77, #78): resting the pointer
- * on a header — or tapping it, on touch — arms **Collapse**, and where
- * `bulk` is present, **Done all** and **Mark all read** too, the header's
- * own mirror of `ThreadRow`'s row-level Done control (#75). Every button
- * stays in the DOM (and the tab order) regardless of armed state —
- * `mail.css`'s `[data-armed]` rule only ever changes their opacity, the
- * same "real component state, not a CSS-only trick" `ThreadRow`'s own doc
- * comment insists on, and `:focus-visible` reveals any one of them directly
- * so Tab can always reach it.
+ * The group header's own cluster (#66, #77, #78), rebuilt in #87 against the
+ * comp's `.group-header` (`docs/design/prototypes/the-instrument.html`): the
+ * group's own **rail** on the left — the same 26px gutter the rows below
+ * reserve, so the header's Done-all node sits exactly above every row's own
+ * Done control — then the label, the count in the machine face, and, pushed
+ * to the trailing edge, the actions that only appear once the header is
+ * armed.
  *
- * The checkmark is *also* the Done all trigger — hovering or focusing it
+ * Resting the pointer on a header — or tapping it, on touch — arms
+ * **Collapse**, and where `bulk` is present, **Done all** and **Mark all
+ * read** too. Every button stays in the DOM (and the tab order) regardless
+ * of armed state: `mail.css`'s `[data-armed]` rule only ever changes their
+ * opacity and scale, the same "real component state, not a CSS-only trick"
+ * `ThreadRow`'s own doc comment insists on, and `:focus-visible` reveals any
+ * one of them directly so Tab can always reach it.
+ *
+ * The rail's node is *also* the Done all trigger — hovering or focusing it
  * additionally previews the group: `onPreview` bubbles to
- * `VirtualizedThreadList`, which force-arms every row in this one group's
- * own Done control (`ThreadRow`'s `previewArmed`) so the User sees exactly
+ * `VirtualizedThreadList`, which force-arms every row in this one group
+ * (`ThreadRow`'s `previewArmed`), lighting the timeline spine straight down
+ * the gutter and every row's Done control with it, so the User sees exactly
  * what committing would do before they click.
  */
 function GroupHeaderCluster({
@@ -454,8 +462,8 @@ function GroupHeaderCluster({
       onMouseLeave={disarm}
       onFocus={arm}
       onBlur={(event) => {
-        // A focus move that stays inside the cluster (checkmark → Mark all
-        // read, say) must not disarm it mid-Tab.
+        // A focus move that stays inside the cluster (the rail node → Mark
+        // all read, say) must not disarm it mid-Tab.
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) disarm();
       }}
       onClick={() => {
@@ -464,53 +472,58 @@ function GroupHeaderCluster({
         setArmed((current) => !current);
       }}
     >
-      {bulk ? (
-        <button
-          type="button"
-          className="group-done"
-          aria-label={`Done with ${label}`}
-          title="Done all"
-          onMouseEnter={() => bulk.onPreview(true)}
-          onMouseLeave={() => bulk.onPreview(false)}
-          onFocus={() => bulk.onPreview(true)}
-          onBlur={() => bulk.onPreview(false)}
-          onClick={(event) => {
-            event.stopPropagation();
-            bulk.onDoneAll();
-          }}
-        >
-          <Check size={12} />
-        </button>
-      ) : null}
+      <span className="gh-rail">
+        {bulk ? (
+          <button
+            type="button"
+            className="gh-node"
+            aria-label={`Done with ${label}`}
+            title="Done all"
+            onMouseEnter={() => bulk.onPreview(true)}
+            onMouseLeave={() => bulk.onPreview(false)}
+            onFocus={() => bulk.onPreview(true)}
+            onBlur={() => bulk.onPreview(false)}
+            onClick={(event) => {
+              event.stopPropagation();
+              bulk.onDoneAll();
+            }}
+          >
+            <Check size={12} />
+          </button>
+        ) : null}
+      </span>
       <span className="group-header-label">{label}</span>
       <span className="group-header-count">{count}</span>
-      <button
-        type="button"
-        className="group-collapse"
-        aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-        aria-expanded={!collapsed}
-        title={collapsed ? "Expand" : "Collapse"}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleCollapsed();
-        }}
-      >
-        {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-      </button>
-      {bulk ? (
+      <span className="gh-spacer" />
+      <div className="bulk-actions">
+        {bulk ? (
+          <button
+            type="button"
+            className="group-mark-read"
+            aria-label={`Mark ${label} read`}
+            title="Mark all read"
+            onClick={(event) => {
+              event.stopPropagation();
+              bulk.onMarkAllRead();
+            }}
+          >
+            <MailOpen size={13} />
+          </button>
+        ) : null}
         <button
           type="button"
-          className="group-mark-read"
-          aria-label={`Mark ${label} read`}
-          title="Mark all read"
+          className="group-collapse"
+          aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand" : "Collapse"}
           onClick={(event) => {
             event.stopPropagation();
-            bulk.onMarkAllRead();
+            onToggleCollapsed();
           }}
         >
-          <MailOpen size={12} />
+          {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
-      ) : null}
+      </div>
     </div>
   );
 }

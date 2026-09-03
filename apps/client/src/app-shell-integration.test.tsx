@@ -180,7 +180,7 @@ describe("the app shell over a routed tree (#71)", () => {
     // proof the id from the URL actually drove `selectedThreadId`, not
     // just that the list rendered.
     expect(
-      await screen.findByText("Routed thread", { selector: ".thread-detail-card h1" }),
+      await screen.findByText("Routed thread", { selector: ".reading-subject" }),
     ).toBeDefined();
   });
 
@@ -193,7 +193,7 @@ describe("the app shell over a routed tree (#71)", () => {
     const historyLengthBeforeOpen = history.length;
 
     fireEvent.click(screen.getByText("Routed thread"));
-    await screen.findByText("Routed thread", { selector: ".thread-detail-card h1" });
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
 
     // A real history entry — not the `replace` every other Mail navigation
     // uses — is what makes the router's own Back gesture the way back to
@@ -208,7 +208,7 @@ describe("the app shell over a routed tree (#71)", () => {
     await waitFor(() => expect(location.search).not.toContain("thread=t1"));
     // The reading pane actually closed to match the URL the gesture landed
     // on — not just a URL change with the pane left open over it.
-    expect(screen.queryByText("Routed thread", { selector: ".thread-detail-card h1" })).toBeNull();
+    expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
   });
 
   it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {

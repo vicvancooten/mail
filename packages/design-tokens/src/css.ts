@@ -68,6 +68,9 @@ ${tileDeclarations(lightAvatarTiles, "  ")}
   --font-mono: ${fonts.mono};
   --radius-sm: ${radii.sm};
   --radius-md: ${radii.md};
+  --radius-row: ${radii.row};
+  --radius-panel: ${radii.panel};
+  --radius-pill: ${radii.pill};
   --hairline: ${hairline};
 ${shadowDeclarations(lightShadow, "  ")}
 }

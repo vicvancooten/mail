@@ -17,6 +17,9 @@ describe("buildTokensCss", () => {
     expect(root).toContain('--font-mono: "Martian Mono Variable"');
     expect(root).toContain("--radius-sm: 6px;");
     expect(root).toContain("--radius-md: 8px;");
+    expect(root).toContain("--radius-row: 11px;");
+    expect(root).toContain("--radius-panel: 16px;");
+    expect(root).toContain("--radius-pill: 999px;");
     expect(root).toContain("--hairline: 1px;");
     expect(root).toContain("--shadow-overlay:");
   });
