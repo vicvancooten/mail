@@ -13,6 +13,13 @@ import {
  * arrival)." One row per stranger, oldest hold first — a queue to work
  * through, not a ranked list (`store/reads.ts#readScreenerSenders`).
  *
+ * Grouped by Mail Account across Account Scope (#82, #73): each account's
+ * cluster is oldest-first on its own, and clusters themselves stay in
+ * Scope's own order — the primary account's cluster leads. A group header
+ * only shows once Scope actually holds more than one account; a single
+ * account's Screener reads exactly as it always has, no header standing
+ * over a list that has nothing to disambiguate.
+ *
  * Every decision fires `enqueueMutation` with an `address`-scoped sender —
  * the row it targets disappears the instant the Optimistic Action is
  * queued (`store/reads.ts`'s own overlay), before any round trip. The
@@ -31,28 +38,39 @@ import {
 /** How long a decided slip stays on screen carrying its ink. */
 const STRIKE_HOLD_MS = 900;
 
+/** A sender's identity within the Screener's own selection/struck bookkeeping — an address alone collides once two Mail Accounts share Scope. */
+function rowKey(group: Pick<ScreenerSenderGroup, "mailAccountId" | "address">): string {
+  return `${group.mailAccountId}:${group.address}`;
+}
+
 export function Screener({
-  mailAccountId,
+  accountScope,
   onClose,
 }: {
-  mailAccountId: string;
+  accountScope: readonly string[];
   onClose: () => void;
 }) {
-  const groups = useScreenerSenders(mailAccountId) ?? [];
-  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
+  const accountGroups = useScreenerSenders(accountScope) ?? [];
+  // Flattened in display order — group headers are a rendering concern only;
+  // keyboard nav and selection walk the same queue whether or not a header
+  // happens to be drawn above the row it's crossing into.
+  const groups = accountGroups.flatMap((account) => account.senders);
+  const showAccountHeaders = accountScope.length > 1;
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   // Keep the keyboard selection valid as decisions remove rows out from
   // under it — falls back to the new first row, or clears once the queue is
   // empty, rather than pointing at a sender that just left the list.
   useEffect(() => {
     if (groups.length === 0) {
-      setSelectedAddress(null);
+      setSelectedKey(null);
       return;
     }
-    if (!selectedAddress || !groups.some((group) => group.address === selectedAddress)) {
-      setSelectedAddress(groups[0]?.address ?? null);
+    if (!selectedKey || !groups.some((group) => rowKey(group) === selectedKey)) {
+      const first = groups[0];
+      setSelectedKey(first ? rowKey(first) : null);
     }
-  }, [groups, selectedAddress]);
+  }, [groups, selectedKey]);
 
   /**
    * Rows that have just been decided. The Optimistic Action is queued
@@ -65,19 +83,21 @@ export function Screener({
   const [struck, setStruck] = useState<{ group: ScreenerSenderGroup; verdict: string }[]>([]);
 
   const decide = useCallback(
-    (type: "approveSender" | "denySender" | "blockSender", address: string) => {
-      const group = groups.find((candidate) => candidate.address === address);
-      void enqueueMutation({ type, sender: { scope: "address", value: address } }, mailAccountId);
-      if (!group) return;
+    (type: "approveSender" | "denySender" | "blockSender", group: ScreenerSenderGroup) => {
+      void enqueueMutation(
+        { type, sender: { scope: "address", value: group.address } },
+        group.mailAccountId,
+      );
       const verdict =
         type === "approveSender" ? "Approved" : type === "blockSender" ? "Blocked" : "Returned";
       setStruck((current) => [...current, { group, verdict }]);
+      const key = rowKey(group);
       window.setTimeout(
-        () => setStruck((current) => current.filter((row) => row.group.address !== address)),
+        () => setStruck((current) => current.filter((row) => rowKey(row.group) !== key)),
         STRIKE_HOLD_MS,
       );
     },
-    [groups, mailAccountId],
+    [],
   );
 
   useEffect(() => {
@@ -94,37 +114,38 @@ export function Screener({
         return;
       }
       if (groups.length === 0) return;
-      const index = groups.findIndex((group) => group.address === selectedAddress);
+      const index = groups.findIndex((group) => rowKey(group) === selectedKey);
+      const selected = index >= 0 ? groups[index] : null;
 
       switch (event.key) {
         case "j":
         case "ArrowDown": {
           event.preventDefault();
           const next = groups[index + 1] ?? groups[0];
-          if (next) setSelectedAddress(next.address);
+          if (next) setSelectedKey(rowKey(next));
           return;
         }
         case "k":
         case "ArrowUp": {
           event.preventDefault();
           const prev = index > 0 ? groups[index - 1] : groups[groups.length - 1];
-          if (prev) setSelectedAddress(prev.address);
+          if (prev) setSelectedKey(rowKey(prev));
           return;
         }
         case "a":
-          if (selectedAddress) decide("approveSender", selectedAddress);
+          if (selected) decide("approveSender", selected);
           return;
         case "d":
-          if (selectedAddress) decide("denySender", selectedAddress);
+          if (selected) decide("denySender", selected);
           return;
         case "b":
-          if (selectedAddress) decide("blockSender", selectedAddress);
+          if (selected) decide("blockSender", selected);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [groups, selectedAddress, onClose, decide]);
+  }, [groups, selectedKey, onClose, decide]);
 
   return (
     <section className="screener" aria-label="Screener">
@@ -139,20 +160,29 @@ export function Screener({
         <p className="mail-empty">Nothing waiting — new strangers show up here.</p>
       ) : (
         <ul className="screener-list" aria-label="Held senders">
-          {groups.map((group) => (
-            <ScreenerRow
-              key={group.address}
-              group={group}
-              selected={group.address === selectedAddress}
-              onSelect={() => setSelectedAddress(group.address)}
-              onApprove={() => decide("approveSender", group.address)}
-              onDeny={() => decide("denySender", group.address)}
-              onBlock={() => decide("blockSender", group.address)}
-            />
+          {accountGroups.map((account) => (
+            <li key={account.mailAccountId} className="screener-group">
+              {showAccountHeaders ? (
+                <div className="screener-group-header">{account.accountEmail}</div>
+              ) : null}
+              <ul className="screener-group-rows">
+                {account.senders.map((group) => (
+                  <ScreenerRow
+                    key={rowKey(group)}
+                    group={group}
+                    selected={rowKey(group) === selectedKey}
+                    onSelect={() => setSelectedKey(rowKey(group))}
+                    onApprove={() => decide("approveSender", group)}
+                    onDeny={() => decide("denySender", group)}
+                    onBlock={() => decide("blockSender", group)}
+                  />
+                ))}
+              </ul>
+            </li>
           ))}
           {struck.map(({ group, verdict }) => (
             <ScreenerRow
-              key={`struck-${group.address}`}
+              key={`struck-${rowKey(group)}`}
               group={group}
               selected={false}
               struck={verdict}
@@ -168,8 +198,8 @@ export function Screener({
           Mail Account and decides a sender, not a message (CONTEXT.md). */}
       <p className="screener-rule">
         One decision per sender, not per message. Approving lets their mail through and loads their
-        remote images; blocking sends future mail straight to Trash. Either way it applies to this
-        Mail Account only.
+        remote images; blocking sends future mail straight to Trash. Either way it applies to the
+        sender's own Mail Account only.
       </p>
     </section>
   );

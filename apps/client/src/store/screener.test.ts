@@ -1,10 +1,22 @@
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { delta, makeThread, minutesAfterEpoch } from "../test-support/mail-fixtures.js";
+import {
+  delta,
+  makeMailAccount,
+  makeThread,
+  minutesAfterEpoch,
+} from "../test-support/mail-fixtures.js";
 import { localCache, openLocalCache } from "./local-cache.js";
 import { enqueueMutation } from "./mutation-queue.js";
 import { readScreenerSenders, readThreadWindow } from "./reads.js";
-import { applyThreadDelta } from "./server-writes.js";
+import { applyMailAccountDelta, applyThreadDelta } from "./server-writes.js";
+
+/** `readScreenerSenders` groups by account (#82); most tests here only ever
+ * populate one, so this is the shorthand for "that one account's rows". */
+async function screenerSenders(mailAccountId: string) {
+  const groups = await readScreenerSenders([mailAccountId]);
+  return groups.find((group) => group.mailAccountId === mailAccountId)?.senders ?? [];
+}
 
 /**
  * The Screener's own grouping logic (#56, poc-spec.md §Gatekeeper v1) and
@@ -70,7 +82,7 @@ describe("readScreenerSenders", () => {
       { replace: false },
     );
 
-    const groups = await readScreenerSenders(ACCOUNT);
+    const groups = await screenerSenders(ACCOUNT);
     expect(groups.map((g) => g.address)).toEqual(["a@example.test", "b@example.test"]);
     expect(groups[0]?.name).toBe("Ann");
   });
@@ -97,7 +109,7 @@ describe("readScreenerSenders", () => {
       { replace: false },
     );
 
-    const groups = await readScreenerSenders(ACCOUNT);
+    const groups = await screenerSenders(ACCOUNT);
     expect(groups).toHaveLength(1);
     expect(groups[0]?.threadCount).toBe(2);
     expect(groups[0]?.subject).toBe("Second message");
@@ -112,14 +124,14 @@ describe("readScreenerSenders", () => {
       }),
       { replace: false },
     );
-    expect(await readScreenerSenders(ACCOUNT)).toHaveLength(1);
+    expect(await screenerSenders(ACCOUNT)).toHaveLength(1);
 
     await enqueueMutation(
       { type: "approveSender", sender: { scope: "address", value: "s@example.test" } },
       ACCOUNT,
     );
 
-    expect(await readScreenerSenders(ACCOUNT)).toHaveLength(0);
+    expect(await screenerSenders(ACCOUNT)).toHaveLength(0);
   });
 
   it("a domain decision clears every held address under that domain", async () => {
@@ -140,7 +152,56 @@ describe("readScreenerSenders", () => {
       ACCOUNT,
     );
 
-    const groups = await readScreenerSenders(ACCOUNT);
+    const groups = await screenerSenders(ACCOUNT);
     expect(groups.map((g) => g.address)).toEqual(["unrelated@other.test"]);
+  });
+
+  it("groups held senders by Mail Account across Scope, in Scope order (#82)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1"), makeMailAccount("acct-2")],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", {
+            heldSender: "a@example.test",
+            participants: [{ name: "Ann", address: "a@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({
+        created: [
+          makeThread("t2", "acct-2", {
+            heldSender: "b@example.test",
+            participants: [{ name: "Bea", address: "b@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const groups = await readScreenerSenders(["acct-1", "acct-2"]);
+    expect(groups.map((group) => group.mailAccountId)).toEqual(["acct-1", "acct-2"]);
+    expect(groups[0]?.accountEmail).toBe("acct-1@example.test");
+    expect(groups[0]?.senders.map((sender) => sender.address)).toEqual(["a@example.test"]);
+    expect(groups[1]?.senders.map((sender) => sender.address)).toEqual(["b@example.test"]);
+
+    // A decision on one account's sender never touches the other's.
+    await enqueueMutation(
+      { type: "approveSender", sender: { scope: "address", value: "a@example.test" } },
+      "acct-1",
+    );
+    const afterDecision = await readScreenerSenders(["acct-1", "acct-2"]);
+    // acct-1 has nothing left, so it drops out of the result entirely —
+    // there is no empty section to show.
+    expect(afterDecision.map((group) => group.mailAccountId)).toEqual(["acct-2"]);
   });
 });

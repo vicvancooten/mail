@@ -208,6 +208,8 @@ export async function readCorrespondents(mailAccountId: string): Promise<Corresp
  * Screen is.
  */
 export interface ScreenerSenderGroup {
+  /** The Mail Account holding this sender — every decision (#82) targets this account, never the whole Scope. */
+  mailAccountId: string;
   /** The normalized `From` address holding these Threads — what an Approve/Deny/Block decision targets. */
   address: string;
   /** The best display name across the held Threads, or `null` if none carried one. */
@@ -253,7 +255,9 @@ async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<Ga
   );
 }
 
-export async function readScreenerSenders(mailAccountId: string): Promise<ScreenerSenderGroup[]> {
+async function readScreenerSendersForAccount(
+  mailAccountId: string,
+): Promise<ScreenerSenderGroup[]> {
   const db = localCache();
   const held = await db.threads
     .where("mailAccountId")
@@ -291,6 +295,7 @@ export async function readScreenerSenders(mailAccountId: string): Promise<Screen
       peek.lastMessageAt ?? "",
     );
     groups.push({
+      mailAccountId,
       address,
       name,
       threadIds: threads.map((thread) => thread.id),
@@ -306,13 +311,51 @@ export async function readScreenerSenders(mailAccountId: string): Promise<Screen
   return groups.sort((left, right) => left.heldSince.localeCompare(right.heldSince));
 }
 
-export function useScreenerSenders(
-  mailAccountId: string | null,
-): ScreenerSenderGroup[] | undefined {
-  return useLiveQuery(
-    () => (mailAccountId === null ? Promise.resolve([]) : readScreenerSenders(mailAccountId)),
-    [mailAccountId],
+/**
+ * One Mail Account's cluster of held senders (#82): "with several Mail
+ * Accounts in Scope, held mail is grouped by account, so the User knows
+ * whose stranger they are admitting". `accountEmail` is what a group header
+ * names — `readScreenerSenders` below only ever includes an account here
+ * once it actually has a hold, so a quiet account in Scope contributes no
+ * empty section.
+ */
+export interface ScreenerAccountGroup {
+  mailAccountId: string;
+  accountEmail: string;
+  senders: ScreenerSenderGroup[];
+}
+
+/**
+ * The Screener's read across Account Scope (#73, #82), in Scope order —
+ * Scope's own primary-first ordering is what decides which account's cluster
+ * leads. Per-account grouping, not a merged/re-sorted queue: a decision is
+ * already scoped to one Mail Account (`ScreenerSenderGroup.mailAccountId`),
+ * and interleaving strangers from different accounts by `heldSince` alone
+ * would make "whose stranger is this" a second read instead of the section
+ * it is already standing in.
+ */
+export async function readScreenerSenders(
+  accountScope: readonly string[],
+): Promise<ScreenerAccountGroup[]> {
+  if (accountScope.length === 0) return [];
+  const accounts = await readMailAccounts();
+  const emailById = new Map(accounts.map((account) => [account.id, account.emailAddress]));
+
+  const groups = await Promise.all(
+    accountScope.map(async (mailAccountId) => ({
+      mailAccountId,
+      accountEmail: emailById.get(mailAccountId) ?? mailAccountId,
+      senders: await readScreenerSendersForAccount(mailAccountId),
+    })),
   );
+  return groups.filter((group) => group.senders.length > 0);
+}
+
+export function useScreenerSenders(
+  accountScope: readonly string[],
+): ScreenerAccountGroup[] | undefined {
+  const key = accountScope.join(",");
+  return useLiveQuery(() => readScreenerSenders(accountScope), [key]);
 }
 
 export interface ThreadWindowPage {

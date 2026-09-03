@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
+import { listQueuedMutations } from "../../store/mutation-queue.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import {
@@ -193,5 +194,81 @@ describe("Gatekeeper banner and Screener (#56)", () => {
     // Escape leaves the Screener back to the Inbox.
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText("Ann")).toBeNull());
+  });
+
+  it("with several Mail Accounts in Scope, held senders group by account, headers and all (#82)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } }),
+          makeMailAccount("acct-2", { gatekeeper: { enabled: true, cutoff: null } }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-a", "acct-1", {
+            subject: "From A",
+            heldSender: "a@example.test",
+            participants: [{ name: "Ann", address: "a@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({
+        created: [
+          makeThread("held-b", "acct-2", {
+            subject: "From B",
+            heldSender: "b@example.test",
+            participants: [{ name: "Bea", address: "b@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    renderMail();
+
+    // Both accounts' senders wait, so the banner counts across the whole Scope.
+    await screen.findByText(/2 senders waiting in the Screener/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    await screen.findByText("Ann");
+    await screen.findByText("Bea");
+    // Each held sender's own account names its cluster.
+    const headers = document.querySelectorAll(".screener-group-header");
+    expect(Array.from(headers, (header) => header.textContent)).toEqual([
+      "acct-1@example.test",
+      "acct-2@example.test",
+    ]);
+
+    // Approving Ann (acct-1) leaves Bea (acct-2) untouched, and her sender
+    // stays queued against her own account.
+    const annRow = screen.getByText("Ann").closest("li") as HTMLElement;
+    fireEvent.click(within(annRow).getByRole("button", { name: /Approve/ }));
+    await waitFor(() => expect(screen.queryByText("Ann")).toBeNull());
+    expect(screen.getByText("Bea")).toBeDefined();
+
+    const queuedForAcct1 = await listQueuedMutations("acct-1");
+    expect(queuedForAcct1).toHaveLength(1);
+    expect(queuedForAcct1[0]?.intent).toEqual({
+      type: "approveSender",
+      sender: { scope: "address", value: "a@example.test" },
+    });
+    expect(await listQueuedMutations("acct-2")).toHaveLength(0);
+  });
+
+  it("a single Mail Account in Scope shows no group header", async () => {
+    await seedHeldSenders();
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+    expect(document.querySelector(".screener-group-header")).toBeNull();
   });
 });
