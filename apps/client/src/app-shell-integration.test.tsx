@@ -20,7 +20,7 @@ import { jsonResponse } from "./test-support/mock-fetch.js";
  * Settings and the placeholder Apps are real, reachable routes; that a
  * reload (a fresh mount at a URL already in hand) restores the view instead
  * of resetting to the default; and that the bounded-pane ancestor chain
- * `brand/brand.css`'s `.app-shell`/`.app-viewport` describe is the one
+ * `router/shell.css`'s `.app-shell`/`.app-viewport` describe is the one
  * thing actually mounted under the router, at any viewport width — the
  * structural half of the phone-layout regression the CSS fix (#71) can't be
  * asserted on directly under jsdom, which never computes real layout.

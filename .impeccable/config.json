@@ -1,0 +1,20 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-radius",
+        "value": "999px",
+        "createdAt": "2026-09-03T19:50:12.873Z",
+        "reason": "carried over verbatim from brand.css's existing .avatar-menu-trigger pill shape, already shipped/reviewed pre-#83"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "22px",
+        "createdAt": "2026-09-03T19:50:12.965Z",
+        "reason": "carried over verbatim from brand.css's existing .app-placeholder-card h2 size, already shipped/reviewed in #72"
+      }
+    ]
+  }
+}

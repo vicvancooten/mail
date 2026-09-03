@@ -17,72 +17,38 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================================
-   Back-compat aliases for the pre-Instrument `--w-*` names.
-   `src/mail`, `src/compose` and `src/brand` still reference these directly;
-   each is retired ticket-by-ticket as its surface is rebuilt on the tokens
-   above (#74, #75, #77, #81, #82, #83). Every alias points at a token from
-   @mail/design-tokens — no colour, radius or font is re-declared here — so
-   those surfaces render on the new system today even though their own
-   restyle hasn't landed yet. The motion and width-axis knobs below have no
-   Instrument equivalent (Inter carries no width axis, and the strike
-   overprint is a Wicket-only affordance); they stay literal until the
-   surfaces that use them are rebuilt.
+   Local, literal tokens with no @mail/design-tokens equivalent: the strike
+   overprint (a Wicket-only affordance) and the interaction-motion constants
+   every surface's transitions share. Everything else — colour, radius, type
+   — comes straight from `@mail/design-tokens` above; nothing re-declares it
+   here any more (the `--w-*` compatibility aliases this block used to hold
+   are gone now that `src/mail`, `src/compose` and `src/brand` reference the
+   tokens directly, #83).
    ========================================================================= */
 :root {
-  --w-frame: var(--color-bg);
-  --w-panel: var(--color-surface);
-  --w-panel-2: var(--color-surface-strong);
-  --w-panel-sunk: var(--color-field);
-  --w-rule: var(--color-border);
-  --w-rule-hard: var(--color-border);
+  --strike-blend: multiply;
+  --strike-wet: 0.4;
+  --strike-set: 0.84;
 
-  --w-ink: var(--color-ink);
-  --w-ink-2: var(--color-ink-muted);
-  --w-ink-3: var(--color-ink-faint);
-
-  --w-aniline: var(--color-accent);
-  --w-aniline-flat: var(--color-accent);
-  --w-fluor: var(--color-warn);
-  --w-fluor-flat: var(--color-warn);
-  --w-postal: var(--color-danger);
-  --w-phosphor: var(--color-success);
-  --w-bone: var(--color-accent-foreground);
-
-  --w-hair: var(--hairline);
-  --w-r-plate: var(--radius-md);
-  --w-r-band: var(--radius-sm);
-  --w-lift: var(--shadow-overlay);
-
-  --w-sans: var(--font-sans);
-  --w-mono: var(--font-mono);
-  --w-wd-label: 100%;
-  --w-wd-sender: 100%;
-  --w-wd-text: 100%;
-  --w-wd-display: 100%;
-
-  --w-strike-blend: multiply;
-  --w-strike-wet: 0.4;
-  --w-strike-set: 0.84;
-
-  --w-ease: cubic-bezier(0.25, 1, 0.5, 1);
-  --w-ease-strike: cubic-bezier(0.16, 0.9, 0.12, 1);
-  --w-dur-press: 120ms;
-  --w-dur-fast: 150ms;
-  --w-dur-strike: 190ms;
+  --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-strike: cubic-bezier(0.16, 0.9, 0.12, 1);
+  --dur-press: 120ms;
+  --dur-fast: 150ms;
+  --dur-strike: 190ms;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --w-strike-blend: plus-lighter;
-    --w-strike-wet: 0.32;
-    --w-strike-set: 0.76;
+    --strike-blend: plus-lighter;
+    --strike-wet: 0.32;
+    --strike-set: 0.76;
   }
 }
 
 :root.dark {
-  --w-strike-blend: plus-lighter;
-  --w-strike-wet: 0.32;
-  --w-strike-set: 0.76;
+  --strike-blend: plus-lighter;
+  --strike-wet: 0.32;
+  --strike-set: 0.76;
 }
 
 /* ==========================================================
@@ -126,9 +92,9 @@
 }
 
 @theme inline {
-  --font-sans: var(--w-sans);
-  --font-mono: var(--w-mono);
-  --font-heading: var(--w-sans);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -166,13 +132,13 @@
   --color-postal: var(--color-danger);
   --color-phosphor: var(--color-success);
   --color-bone: var(--color-accent-foreground);
-  --radius-sm: var(--w-r-band);
-  --radius-md: var(--w-r-plate);
-  --radius-lg: var(--w-r-plate);
-  --radius-xl: var(--w-r-plate);
-  --radius-2xl: var(--w-r-plate);
-  --radius-3xl: var(--w-r-plate);
-  --radius-4xl: var(--w-r-plate);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-md);
+  --radius-xl: var(--radius-md);
+  --radius-2xl: var(--radius-md);
+  --radius-3xl: var(--radius-md);
+  --radius-4xl: var(--radius-md);
 }
 
 @layer base {
@@ -182,23 +148,23 @@
 
   /* The document itself never scrolls, at any width (#71) — every
      scrollable region is a bounded pane inside `.app-shell` instead
-     (`brand/brand.css`'s own doc comment on `.app-shell`). `height: 100%`
+     (`router/shell.css`'s own doc comment on `.app-shell`). `height: 100%`
      down through `html`/`body`/`#root` is what gives `.app-shell`'s
      `100dvh` somewhere definite to sit rather than a taller, auto-height
      ancestor `overflow: hidden` here would just clip. */
   html {
     height: 100%;
-    font-family: var(--w-sans);
+    font-family: var(--font-sans);
   }
 
   body {
     height: 100%;
     margin: 0;
     overflow: hidden;
-    background: var(--w-frame);
-    color: var(--w-ink);
-    font-family: var(--w-sans);
-    font-stretch: var(--w-wd-text);
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-stretch: 100%;
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -210,17 +176,17 @@
 
   /* --- browser surfaces belong to the design system too --- */
   ::selection {
-    background: var(--w-aniline);
-    color: var(--w-bone);
+    background: var(--color-accent);
+    color: var(--color-accent-foreground);
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--w-rule-hard) transparent;
+    scrollbar-color: var(--color-border) transparent;
   }
 
   :focus-visible {
-    outline: 2px solid var(--w-aniline);
+    outline: 2px solid var(--color-accent);
     outline-offset: 1px;
   }
 
@@ -229,7 +195,7 @@
   select,
   button {
     font-family: inherit;
-    caret-color: var(--w-aniline);
+    caret-color: var(--color-accent);
   }
 
   /* Digits that sit in a column line up. Times, counts, sizes, watermarks. */
@@ -260,10 +226,10 @@
   translate: -50% -50%;
   rotate: var(--strike-tilt, -5deg);
   pointer-events: none;
-  mix-blend-mode: var(--w-strike-blend);
-  opacity: var(--w-strike-set);
-  color: var(--strike-ink, var(--w-aniline));
-  font-family: var(--w-sans);
+  mix-blend-mode: var(--strike-blend);
+  opacity: var(--strike-set);
+  color: var(--strike-ink, var(--color-accent));
+  font-family: var(--font-sans);
   font-stretch: 70%;
   font-weight: 800;
   font-size: 21px;
@@ -272,13 +238,13 @@
   white-space: nowrap;
   padding: 1px 10px;
   border: 2.5px solid currentColor;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
 }
 
 /* Wet: the Sync Backend has not answered yet. It sets when the action is
    confirmed, and lifts on rollback. */
 .strike[data-wet="true"]::after {
-  opacity: var(--w-strike-wet);
+  opacity: var(--strike-wet);
 }
 
 /* An inline overprint, for a badge-sized statement inside a row. */
@@ -290,25 +256,25 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   padding: 1.5px 6px;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   border: 1.5px solid currentColor;
   rotate: var(--strike-tilt, -3deg);
-  color: var(--strike-ink, var(--w-ink-2));
+  color: var(--strike-ink, var(--color-ink-muted));
   white-space: nowrap;
 }
 
 .overprint--held {
-  --strike-ink: var(--w-fluor);
+  --strike-ink: var(--color-warn);
 }
 .overprint--blocked,
 .overprint--failed {
-  --strike-ink: var(--w-postal);
+  --strike-ink: var(--color-danger);
 }
 .overprint--done {
-  --strike-ink: var(--w-aniline);
+  --strike-ink: var(--color-accent);
 }
 .overprint--admitted {
-  --strike-ink: var(--w-phosphor);
+  --strike-ink: var(--color-success);
 }
 
 /* ============================================================================
@@ -323,9 +289,9 @@
   gap: 12px;
   padding: 7px 16px;
   padding-top: calc(7px + env(safe-area-inset-top));
-  background: var(--w-aniline-flat);
-  color: var(--w-bone);
-  font-stretch: var(--w-wd-label);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-stretch: 100%;
   font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.09em;
@@ -334,17 +300,17 @@
 
 .pwa-update-banner button {
   border: 1.5px solid rgb(244 242 233 / 0.55);
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   padding: 3px 10px;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 650;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background var(--w-dur-press) linear;
+  transition: background var(--dur-press) linear;
 }
 
 .pwa-update-banner button:hover {

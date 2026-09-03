@@ -31,7 +31,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Claim this instance" })).toBeDefined();
-    // The pre-session plate carries the product's only `<h1>` (`brand/AuthPlate.tsx`).
+    // The pre-session card carries the product's only `<h1>` (`auth/AuthCard.tsx`).
     expect(screen.getByRole("heading", { name: "Wicket", level: 1 })).toBeDefined();
   });
 

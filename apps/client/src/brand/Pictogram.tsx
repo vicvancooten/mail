@@ -235,7 +235,7 @@ export function Pictogram({
             y={letter.bar === "under" ? 16.5 : 17.5}
             textAnchor="middle"
             fill="currentColor"
-            fontFamily="var(--w-sans)"
+            fontFamily="var(--font-sans)"
             fontSize="19"
             fontWeight={letter.weight}
             fontStyle={letter.italic ? "italic" : undefined}
