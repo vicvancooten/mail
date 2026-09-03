@@ -1,8 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import type { CachedThread } from "../store/index.js";
+import { DEFAULT_LIST_DENSITY, type ListDensity } from "./device-preferences.js";
 import { ThreadRow } from "./ThreadRow.js";
-import { groupThreadsByTime } from "./time-groups.js";
+import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
+import { groupThreadsByTime, type TimeGroupTier } from "./time-groups.js";
 import type { Triage } from "./useTriage.js";
 
 /**
@@ -16,20 +18,29 @@ import type { Triage } from "./useTriage.js";
  * `group` (default `true`) is search's one structural opt-out: "Ranked and
  * ungrouped. No time-grouping headers — the triage list's chronological
  * grouping under a relevance order is actively confusing" (search-ux-
- * spec.md §The result list). `getRowExtra`/`footer` are the row/foot
- * decorations that section also asks for; every prop here defaults to
- * exactly today's behavior, so #40's own callers are unaffected.
+ * spec.md §The result list) — and, per #75, exactly the shape with no taper
+ * either: a header's tier is what drives the taper, and an ungrouped list
+ * has no headers. `getRowExtra`/`footer` are the row/foot decorations that
+ * section also asks for; every prop here defaults to exactly today's
+ * behavior, so #40's own callers are unaffected.
+ *
+ * Every item's height comes from `taper.ts` (grouped) or `ungroupedRowHeight`
+ * (search) — never a `mail.css` class — so the virtualizer's `estimateSize`
+ * and the item's own rendered height are the same one number, not two that
+ * could drift (#75's "per-tier row heights are known to the virtualizer, not
+ * duplicated between code and CSS").
  */
 
 type ListItem =
-  | { kind: "header"; key: string; label: string }
-  | { kind: "thread"; key: string; thread: CachedThread; index: number };
+  | { kind: "header"; key: string; label: string; tier: TimeGroupTier }
+  | {
+      kind: "thread";
+      key: string;
+      thread: CachedThread;
+      index: number;
+      tier: TimeGroupTier | null;
+    };
 
-const HEADER_HEIGHT = 32;
-/** The default (`comfortable`) row height — `rowHeight` overrides it for the `compact` list density (#54, Device Preference). */
-const ROW_HEIGHT = 60;
-/** `mail.css`'s `.thread-list--compact .thread-row` row height — kept as one exported constant so the two never drift apart. */
-export const COMPACT_ROW_HEIGHT = 40;
 /** How close to the bottom (in rows) triggers widening the requested page. */
 const LOAD_MORE_THRESHOLD = 10;
 
@@ -53,7 +64,7 @@ export function VirtualizedThreadList({
   getRowExtra,
   keyboardDisabled = false,
   initialScrollThreadId = null,
-  rowHeight = ROW_HEIGHT,
+  density = DEFAULT_LIST_DENSITY,
 }: {
   threads: readonly CachedThread[];
   /** False once the window has been truncated at the bottom (ADR-0009). */
@@ -74,8 +85,8 @@ export function VirtualizedThreadList({
   keyboardDisabled?: boolean;
   /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. */
   initialScrollThreadId?: string | null;
-  /** The `compact` list density's row height (#54, Device Preference) — every other caller keeps the `comfortable` default. */
-  rowHeight?: number;
+  /** The `compact` List Density Device Preference (#54) — shifts every taper tier by a fixed delta (#75, `taper.ts`) rather than flattening it. */
+  density?: ListDensity;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -86,6 +97,7 @@ export function VirtualizedThreadList({
         key: thread.id,
         thread,
         index,
+        tier: null,
       }));
     }
     const groups = groupThreadsByTime(threads);
@@ -96,19 +108,29 @@ export function VirtualizedThreadList({
         kind: "header",
         key: `header:${groupItem.label}:${index}`,
         label: groupItem.label,
+        tier: groupItem.tier,
       });
       for (const thread of groupItem.threads) {
-        flat.push({ kind: "thread", key: thread.id, thread, index });
+        flat.push({ kind: "thread", key: thread.id, thread, index, tier: groupItem.tier });
         index += 1;
       }
     }
     return flat;
   }, [threads, group]);
 
+  const itemHeight = useCallback(
+    (item: ListItem | undefined): number => {
+      if (!item) return ungroupedRowHeight(density);
+      if (item.kind === "header") return taperHeaderHeight(item.tier, density);
+      return item.tier === null ? ungroupedRowHeight(density) : taperRowHeight(item.tier, density);
+    },
+    [density],
+  );
+
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (items[index]?.kind === "header" ? HEADER_HEIGHT : rowHeight),
+    estimateSize: (index) => itemHeight(items[index]),
     overscan: 12,
     // A real browser's ResizeObserver corrects this immediately; it only
     // matters where none exists — jsdom under `pnpm test`, which otherwise
@@ -182,7 +204,7 @@ export function VirtualizedThreadList({
 
   return (
     <div
-      className={`thread-list${rowHeight !== ROW_HEIGHT ? " thread-list--compact" : ""}`}
+      className={`thread-list${density === "compact" ? " thread-list--compact" : ""}`}
       ref={parentRef}
       role="listbox"
       aria-label="Threads"
@@ -206,7 +228,16 @@ export function VirtualizedThreadList({
               }}
             >
               {item.kind === "header" ? (
-                <div className="group-header">{item.label}</div>
+                // The header's own height is the taper's — `itemHeight` above
+                // and this inline style are the same number, never a second
+                // one guessed in `mail.css` (#75).
+                <div
+                  className="group-header"
+                  data-tier={item.tier}
+                  style={{ height: itemHeight(item) }}
+                >
+                  {item.label}
+                </div>
               ) : (
                 <ThreadRow
                   thread={item.thread}
@@ -218,6 +249,8 @@ export function VirtualizedThreadList({
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}
                   gatekeeperBadge={extra?.gatekeeperBadge}
+                  tier={item.tier}
+                  height={itemHeight(item)}
                 />
               )}
             </div>

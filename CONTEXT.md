@@ -76,6 +76,10 @@ _Avoid_: conversation
 **Triage**:
 Processing the message list: archive, trash, pin, snooze, label, approve/block senders.
 
+**Done**:
+The primary Triage action's name on The Instrument (#66, #75): archiving a Thread, framed as finishing work rather than filing it. Distinct from **Archive**, which stays the name of the destination a Done Thread lands in — the act and the place are a deliberate verb/noun split, not two words for the same thing.
+_Avoid_: archive (as a verb, on a User-facing control)
+
 **Protocol Feature**:
 Triage state stored as a real IMAP flag or folder operation, visible to any other IMAP client against the same Mail Account. Reserved for the rare case where a clean, near-universal mapping exists across the PoC's target providers — currently just read/unread (`\Seen`) and starred (`\Flagged`).
 _Avoid_: IMAP-native
