@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: Open (or update) a pull request from the current branch to main, with a drafted tl;dr / why / what-changed / impact summary.
+description: Open (or update) a pull request from the current branch to main, with a drafted tl;dr / why / how / what-changed / impact summary.
 argument-hint: "(optional) extra context for the PR body, e.g. a ticket link or reviewer note"
 disable-model-invocation: true
 ---
@@ -44,6 +44,9 @@ Report the PR URL back to the user.
 
 ## Why this change
 <the motivating problem or goal>
+
+## How
+<the approach taken — key decisions, tradeoffs, or notable mechanisms; skip if the "what changed" list is already self-explanatory>
 
 ## What changed
 <bullet list, grouped by area if the diff spans several>
