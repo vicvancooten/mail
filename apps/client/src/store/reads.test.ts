@@ -332,7 +332,6 @@ describe("readMailAccounts", () => {
 describe("readPreference — base ⊕ pending overlay (#54)", () => {
   it("falls back to sensible defaults before this Client has ever synced one", async () => {
     expect(await readPreference()).toMatchObject({
-      theme: "system",
       autoAdvanceEnabled: true,
       autoAdvanceDirection: "older",
       undoSendDelaySeconds: 10,
@@ -340,9 +339,9 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
   });
 
   it("overlays a queued edit onto the default row, offline included", async () => {
-    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
 
-    expect(await readPreference()).toMatchObject({ theme: "dark" });
+    expect(await readPreference()).toMatchObject({ autoAdvanceEnabled: false });
   });
 
   it("overlays setAutoAdvance's enabled and direction together, last-queued wins", async () => {
@@ -361,7 +360,6 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
         created: [
           {
             id: "user-1",
-            theme: "light",
             autoAdvanceEnabled: true,
             autoAdvanceDirection: "older",
             undoSendDelaySeconds: 10,
@@ -374,7 +372,6 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
     await enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds: 30 });
 
     expect(await readPreference()).toMatchObject({
-      theme: "light",
       undoSendDelaySeconds: 30,
     });
   });

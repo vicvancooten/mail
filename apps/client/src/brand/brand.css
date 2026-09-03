@@ -277,44 +277,103 @@
   border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
-.shell-rail .wordmark-name {
-  font-size: 16px;
-}
-
-/* #71: the one nav this ticket adds — Mail and Settings, both real routes
-   now. The App switcher (Contacts/Calendar/Tasks) is the next ticket's;
-   those three stay reachable only by URL until it lands. */
-.shell-nav {
-  display: flex;
-  gap: 2px;
-}
-
-.shell-nav-link {
+/* The App Switcher (#72): header-left, replacing the #71-era `.shell-nav`
+   Mail/Settings link pair. Closed, it reads as the wordmark used to —
+   mark plus the current App's name — and doubles as the section indicator
+   that pair of links used to carry. */
+.app-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   appearance: none;
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 4px 10px 4px 6px;
   border-radius: var(--w-r-plate);
-  color: var(--w-ink-2);
-  font-family: inherit;
+  border: var(--w-hair) solid transparent;
+  background: transparent;
+  color: var(--w-aniline);
+  transition: background var(--w-dur-press) linear;
+}
+
+.app-switcher-trigger:hover,
+.app-switcher-trigger[aria-expanded="true"] {
+  background: var(--w-panel-2);
+}
+
+.app-switcher-current {
+  font-stretch: var(--w-wd-display);
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--w-ink);
+}
+
+.app-switcher-item {
+  padding: 0;
+}
+
+.app-switcher-item > a {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-switcher-item-name {
+  font-weight: 620;
+  font-size: 13px;
+}
+
+.app-switcher-item[data-current="true"] .app-switcher-item-name {
+  color: var(--w-aniline);
+}
+
+.app-switcher-item-badge {
   font-stretch: var(--w-wd-label);
   font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: 9px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  text-decoration: none;
-  transition:
-    color var(--w-dur-press) linear,
-    background var(--w-dur-press) linear;
+  color: var(--w-ink-3);
 }
 
-.shell-nav-link:hover {
-  color: var(--w-ink);
-  background: var(--w-panel-2);
+/* Phone (ticket: "tapping the hub mark opens an App sheet; no bottom tab
+   bar"): the same popover becomes a sheet pinned to the bottom edge rather
+   than a second, phone-only component. */
+@media (max-width: 640px) {
+  .app-switcher-menu {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: none;
+    border-radius: var(--w-r-plate) var(--w-r-plate) 0 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
 }
 
-.shell-nav-link[data-active="true"] {
-  color: var(--w-ink);
-  background: var(--w-panel-2);
+.avatar-menu-trigger {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  line-height: 0;
+}
+
+.avatar-menu-trigger:hover,
+.avatar-menu-trigger[aria-expanded="true"] {
+  outline: var(--w-hair) solid var(--w-rule-hard);
+  outline-offset: 2px;
 }
 
 .shell-rail-spacer {
@@ -354,45 +413,6 @@
   letter-spacing: 0.11em;
 }
 
-/* Log out is not destructive, but it does end the session: it stays outline
-   and takes no ink until it is reached for. */
-.shell-signout {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  appearance: none;
-  cursor: pointer;
-  padding: 6px 10px;
-  border-radius: var(--w-r-plate);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  background: transparent;
-  color: var(--w-ink-2);
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition:
-    color var(--w-dur-press) linear,
-    background var(--w-dur-press) linear,
-    transform var(--w-dur-press) var(--w-ease-strike);
-}
-
-.shell-signout:hover:not(:disabled) {
-  color: var(--w-ink);
-  background: var(--w-panel-2);
-}
-
-.shell-signout:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.shell-signout:disabled {
-  opacity: 0.55;
-  cursor: progress;
-}
-
 /* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`
    rather than a hand-computed "rail is 44px" calc, so it holds at any rail
    height (the old calc's own phone-width media query below is gone with
@@ -422,13 +442,47 @@
   background: var(--w-frame);
 }
 
-/* An empty routed view for one of the three placeholder Apps (#71) — the
-   switcher and each app's real placeholder copy are the next ticket's. */
+/* One of the three reserved Apps (#72) — finished chrome around an empty
+   App, not a stub: a name, one line, and a flat "Not built yet". */
 .app-placeholder {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  display: grid;
+  place-items: center;
+  padding: 24px;
   background: var(--w-frame);
+}
+
+.app-placeholder-card {
+  max-width: 360px;
+  text-align: center;
+}
+
+.app-placeholder-card h2 {
+  margin: 0 0 8px;
+  font-stretch: var(--w-wd-display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--w-ink);
+}
+
+.app-placeholder-card p {
+  margin: 0;
+  color: var(--w-ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app-placeholder-status {
+  margin-top: 14px;
+  font-stretch: var(--w-wd-label);
+  font-weight: 640;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
 }
 
 .settings-section h2 {

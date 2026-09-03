@@ -154,7 +154,8 @@ describe("App", () => {
     render(<App />);
     await screen.findByText(/Signed in as/);
 
-    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Log out" }));
 
     expect(await screen.findByRole("heading", { name: "Log in" })).toBeDefined();
   });
@@ -263,7 +264,8 @@ describe("auth-methods management (#32)", () => {
     render(<App />);
     await screen.findByText(/Signed in as/);
 
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     expect(await screen.findByText("Enable two-factor authentication")).toBeDefined();
@@ -292,7 +294,8 @@ describe("auth-methods management (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await user.click(
@@ -322,7 +325,8 @@ describe("auth-methods management (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await screen.findByText("Two-factor authentication is enabled.");
@@ -353,7 +357,8 @@ describe("auth-methods management (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     expect(await screen.findByText(/Added/)).toBeDefined();

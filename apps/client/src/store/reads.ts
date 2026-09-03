@@ -9,7 +9,6 @@ import type {
 import {
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
-  DEFAULT_THEME,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   labelId,
   normalizeSenderAddress,
@@ -118,7 +117,6 @@ async function overlayMailAccountMutations(
 function defaultPreference(): Preference {
   return {
     id: "",
-    theme: DEFAULT_THEME,
     autoAdvanceEnabled: DEFAULT_AUTO_ADVANCE_ENABLED,
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
@@ -149,9 +147,6 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
   let overlaid = base;
   for (const { intent } of mutations) {
     switch (intent.type) {
-      case "setTheme":
-        overlaid = { ...overlaid, theme: intent.theme };
-        break;
       case "setAutoAdvance":
         overlaid = {
           ...overlaid,

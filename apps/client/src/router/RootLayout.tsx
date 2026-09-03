@@ -1,9 +1,9 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Mark } from "../brand/Mark.js";
-import { Pictogram } from "../brand/Pictogram.js";
+import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
+import { AvatarMenu } from "./AvatarMenu.js";
 import { rootRoute } from "./routes.js";
 
 /**
@@ -45,48 +45,21 @@ export function RootLayout() {
     });
   }, [navigate]);
 
-  async function handleLogout() {
+  function handleLogout() {
     setSigningOut(true);
-    try {
-      await onLogout();
-    } finally {
-      setSigningOut(false);
-    }
+    void onLogout().finally(() => setSigningOut(false));
   }
 
   return (
     <div className="app-shell">
       <header className="shell-rail">
-        <h1 className="wordmark">
-          <Mark size={22} />
-          <span className="wordmark-name">Wicket</span>
-        </h1>
-        <nav className="shell-nav" aria-label="Sections">
-          <Link to="/mail" className="shell-nav-link" data-active={pathname.startsWith("/mail")}>
-            Mail
-          </Link>
-          <Link
-            to="/settings"
-            className="shell-nav-link"
-            data-active={pathname.startsWith("/settings")}
-          >
-            Settings
-          </Link>
-        </nav>
+        <AppSwitcher pathname={pathname} />
         <span className="shell-rail-spacer" />
         <p className="shell-user">
           Signed in as <strong>{user.username}</strong>
           {user.role === "owner" ? <span className="shell-role">Owner</span> : null}
         </p>
-        <button
-          type="button"
-          className="shell-signout"
-          onClick={handleLogout}
-          disabled={signingOut}
-        >
-          <Pictogram name="close" size={13} />
-          {signingOut ? "Logging out…" : "Log out"}
-        </button>
+        <AvatarMenu username={user.username} onLogout={handleLogout} signingOut={signingOut} />
       </header>
       <div className="app-viewport">
         <Outlet />

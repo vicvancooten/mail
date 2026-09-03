@@ -152,11 +152,6 @@ export type ThreadDelta = z.infer<typeof threadDeltaSchema>;
 export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
 export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 
-/** How the Client renders chrome: `system` follows the OS/browser's own `prefers-color-scheme` (#54, poc-spec.md §Preferences). */
-export const themeSchema = z.enum(["system", "light", "dark"]);
-export type Theme = z.infer<typeof themeSchema>;
-export const DEFAULT_THEME: Theme = "system";
-
 /** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
 export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
 export type AutoAdvanceDirection = z.infer<typeof autoAdvanceDirectionSchema>;
@@ -165,17 +160,20 @@ export const DEFAULT_AUTO_ADVANCE_ENABLED = true;
 
 /**
  * `Preference` (#54, poc-spec.md §Preferences, ADR-0011): the User-scoped
- * synced preference collection — theme, Auto-advance on/off and direction,
- * and the Undo Send delay, "the same everywhere the User signs in"
- * (CONTEXT.md's Device Preference entry, by contrast). Exactly one row per
- * User, `id` is the owning User's id rather than a minted one — there is
- * never a second row to distinguish it from — which is what lets this ride
- * the ordinary `CollectionDelta` shape every other collection uses
+ * synced preference collection — Auto-advance on/off and direction, and the
+ * Undo Send delay, "the same everywhere the User signs in" (CONTEXT.md's
+ * Device Preference entry, by contrast). Exactly one row per User, `id` is
+ * the owning User's id rather than a minted one — there is never a second
+ * row to distinguish it from — which is what lets this ride the ordinary
+ * `CollectionDelta` shape every other collection uses
  * (`sync/collection-sync.ts`) with no windowing or pagination of its own.
+ *
+ * Theme lived here until #72 (ADR-0011 amended): a laptop and a phone in the
+ * same hour want different Appearances, so it moved to a Device Preference
+ * (`apps/client/src/theme/device-theme.ts`) — `localStorage`, never synced.
  */
 export const preferenceSchema = z.object({
   id: z.string(),
-  theme: themeSchema,
   autoAdvanceEnabled: z.boolean(),
   autoAdvanceDirection: autoAdvanceDirectionSchema,
   undoSendDelaySeconds: undoSendDelaySchema,
@@ -195,7 +193,6 @@ export type PreferenceDelta = z.infer<typeof preferenceDeltaSchema>;
  * state through and through.
  */
 export const userMutationIntentSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("setTheme"), theme: themeSchema }),
   z.object({
     type: z.literal("setAutoAdvance"),
     enabled: z.boolean(),

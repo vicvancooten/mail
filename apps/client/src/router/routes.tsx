@@ -6,6 +6,7 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
+import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { SettingsSection } from "../settings/SettingsSection.js";
 import { MailRoute } from "./MailRoute.js";
@@ -70,19 +71,19 @@ export const settingsRoute = createRoute({
 export const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
-  component: () => <PlaceholderRoute label="Contacts" />,
+  component: () => <PlaceholderRoute app={APPS_BY_KEY.contacts} />,
 });
 
 export const calendarRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/calendar",
-  component: () => <PlaceholderRoute label="Calendar" />,
+  component: () => <PlaceholderRoute app={APPS_BY_KEY.calendar} />,
 });
 
 export const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks",
-  component: () => <PlaceholderRoute label="Tasks" />,
+  component: () => <PlaceholderRoute app={APPS_BY_KEY.tasks} />,
 });
 
 export const routeTree = rootRoute.addChildren([
