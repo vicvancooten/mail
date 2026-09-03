@@ -252,7 +252,7 @@ describe("MailSection", () => {
     expect(await screen.findByText("Snippet t1")).toBeDefined();
   });
 
-  it("switching accounts switches inboxes", async () => {
+  it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {
     await applyMailAccountDelta(
       delta({
         created: [
@@ -276,18 +276,49 @@ describe("MailSection", () => {
 
     renderMail();
 
+    // Nothing narrowed yet — both accounts' Threads are in Scope.
     expect(await screen.findByText("Account one thread")).toBeDefined();
-    expect(screen.queryByText("Account two thread")).toBeNull();
-
-    fireEvent.change(screen.getByLabelText("Mail account"), {
-      target: { value: "acct-2" },
-    });
-
     expect(await screen.findByText("Account two thread")).toBeDefined();
-    expect(screen.queryByText("Account one thread")).toBeNull();
+
+    // Opens the Account Scope control and unchecks acct-1 — narrows the
+    // Thread list to only the Mail Account still checked.
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope: All accounts/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-1@example.test" }));
+
+    await waitFor(() => expect(screen.queryByText("Account one thread")).toBeNull());
+    expect(screen.getByText("Account two thread")).toBeDefined();
   });
 
-  it("a notification click on another account's Thread switches accounts and opens it (#53)", async () => {
+  it("Account Scope cannot be narrowed to nothing (#73)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    // Account Scope resolves (defaulting to all) a render or two after the
+    // Mail Account list itself does — wait for that resolved accessible
+    // name rather than the (already-present) search field, or the click
+    // below can land while Scope still reads empty.
+    const scopeButton = await screen.findByRole("button", { name: /Account Scope: All accounts/ });
+    fireEvent.click(scopeButton);
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-1@example.test" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-2@example.test" }));
+
+    // The second uncheck would empty Scope — it stays checked.
+    expect(screen.getByRole("checkbox", { name: "acct-2@example.test" })).toHaveProperty(
+      "checked",
+      true,
+    );
+  });
+
+  it("a notification click on another account's Thread narrows Scope to it and opens it (#53, #73)", async () => {
     await applyMailAccountDelta(
       delta({
         created: [
@@ -319,10 +350,21 @@ describe("MailSection", () => {
     expect(
       await screen.findByText("Account two thread", { selector: ".thread-detail-card h1" }),
     ).toBeDefined();
-    expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
+
+    // The primary account (compose/Screener/search's own single-account
+    // context) follows the notification: Scope narrows to just the target.
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope/ }));
+    expect(screen.getByRole("checkbox", { name: "acct-2@example.test" })).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "acct-1@example.test" })).toHaveProperty(
+      "checked",
+      false,
+    );
   });
 
-  it("a notification click on a failed send switches accounts and reopens its Composition (#53)", async () => {
+  it("a notification click on a failed send narrows Scope to it and reopens its Composition (#53, #73)", async () => {
     await applyMailAccountDelta(
       delta({
         created: [
@@ -341,7 +383,8 @@ describe("MailSection", () => {
     stubFetch(never);
 
     renderMail();
-    await waitFor(() => expect(screen.getByLabelText("Mail account")).toBeDefined());
+    // Same "wait for Scope itself to resolve" reasoning as the test above.
+    await screen.findByRole("button", { name: /Account Scope: All accounts/ });
 
     act(() => {
       publishNotificationTarget({
@@ -353,7 +396,16 @@ describe("MailSection", () => {
 
     const subject = (await screen.findByPlaceholderText("Subject")) as HTMLInputElement;
     await waitFor(() => expect(subject.value).toBe("Re: quarterly numbers"));
-    expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
+
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope/ }));
+    expect(screen.getByRole("checkbox", { name: "acct-2@example.test" })).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "acct-1@example.test" })).toHaveProperty(
+      "checked",
+      false,
+    );
   });
 
   it("a full keyboard-only pass: navigate, archive, star, and auto-advance (#42)", async () => {

@@ -1,8 +1,12 @@
 import type { AutoAdvanceDirection, Label, MailAccount } from "@mail/shared";
 import { type RefObject, useState } from "react";
 import { Pictogram } from "../brand/Pictogram.js";
-import { AccountSwitcher } from "./AccountSwitcher.js";
-import type { ListDensity, ViewMode } from "./device-preferences.js";
+import { AccountScope } from "./AccountScope.js";
+import type {
+  AccountScope as AccountScopeIds,
+  ListDensity,
+  ViewMode,
+} from "./device-preferences.js";
 
 /**
  * The search field's own props (#51, `docs/search-ux-spec.md` §The
@@ -114,8 +118,10 @@ function SearchField({ search }: { search: TopBarSearch }) {
  * The top bar: the Split/List segmented control, the Stream mode opt-in
  * toggle, the auto-advance direction toggle (#42), the filter-by-label
  * picker (#43, hidden until the account has at least one Label — no point
- * showing an empty filter), the search field (#51), and the account
- * switcher. Icons are Wicket pictograms (`brand/Pictogram.tsx`), icon+label buttons in the shadcn
+ * showing an empty filter), the search field (#51), and the Account Scope
+ * control (#73, `AccountScope.tsx`) right beside it — Client-level chrome
+ * rather than a Mail-level pick, per the parent ticket (#66). Icons are
+ * Wicket pictograms (`brand/Pictogram.tsx`), icon+label buttons in the shadcn
  * convention — the commitments `prototype/triage-loop-ui` settled on (its
  * README), adopted here without pulling in the full shadcn component
  * library the real app doesn't otherwise use.
@@ -137,8 +143,8 @@ export function TopBar({
   direction,
   onDirection,
   accounts,
-  selectedAccountId,
-  onSelectAccount,
+  accountScope,
+  onAccountScopeChange,
   labels,
   labelFilter,
   onLabelFilter,
@@ -156,9 +162,10 @@ export function TopBar({
   direction: AutoAdvanceDirection;
   onDirection: (direction: AutoAdvanceDirection) => void;
   accounts: MailAccount[];
-  selectedAccountId: string | null;
-  onSelectAccount: (id: string) => void;
-  /** This account's Labels (#43) — the filter-by-label picker's data source. */
+  /** Account Scope (#73): which Mail Accounts the Thread list draws from. */
+  accountScope: AccountScopeIds;
+  onAccountScopeChange: (ids: AccountScopeIds) => void;
+  /** The primary in-scope account's Labels (#43) — the filter-by-label picker's data source. */
   labels: Label[];
   /** `null` is the ordinary Inbox; a Label id filters to Threads carrying it. */
   labelFilter: string | null;
@@ -169,7 +176,13 @@ export function TopBar({
   screener: { count: number; onOpen: () => void };
   search: TopBarSearch;
 }) {
-  const account = accounts.find((candidate) => candidate.id === selectedAccountId) ?? null;
+  // The legend's account label (#40) only still means one thing when Scope
+  // has narrowed to exactly one account — with several in Scope, the
+  // Account Scope control's own stacked avatars say which, not this line.
+  const account =
+    accountScope.length === 1
+      ? (accounts.find((candidate) => candidate.id === accountScope[0]) ?? null)
+      : null;
   const activeLabel = labelFilter ? labels.find((l) => l.id === labelFilter) : null;
 
   return (
@@ -279,18 +292,13 @@ export function TopBar({
 
       <div className="divider" />
       <SearchField search={search} />
+      <AccountScope accounts={accounts} scope={accountScope} onChange={onAccountScopeChange} />
 
       <div className="topbar-spacer" />
 
       <button type="button" className="compose-button" onClick={onCompose} title="Compose (c)">
         <Pictogram name="pen-square" size={14} /> Compose
       </button>
-
-      <AccountSwitcher
-        accounts={accounts}
-        selectedId={selectedAccountId}
-        onSelect={onSelectAccount}
-      />
     </div>
   );
 }

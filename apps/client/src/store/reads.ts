@@ -331,35 +331,45 @@ export interface ThreadWindowOptions {
   limit?: number;
 }
 
+/**
+ * `mailAccountId` is Account Scope (#73) as much as a single account: an
+ * array merges every named account's Threads into one newest-first list
+ * (`readThreadWindow`'s own doc comment). The dependency list keys off a
+ * joined string rather than the array reference itself, so a caller handing
+ * in a fresh-identity-but-same-contents array on every render (a Scope
+ * recomputed from `MailAccount[]`, say) doesn't requery every frame.
+ */
 export function useThreadWindow(
-  mailAccountId: string | null,
+  mailAccountId: string | readonly string[] | null,
   { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
 ): ThreadWindowPage | undefined {
+  const ids: readonly string[] =
+    mailAccountId === null ? [] : Array.isArray(mailAccountId) ? mailAccountId : [mailAccountId];
+  const key = ids.join(",");
   return useLiveQuery(
     () =>
-      mailAccountId === null
+      ids.length === 0
         ? Promise.resolve({ threads: [], complete: true })
-        : readThreadWindow(mailAccountId, { view, limit }),
-    [mailAccountId, view, limit],
+        : readThreadWindow(ids, { view, limit }),
+    [key, view, limit],
   );
 }
 
-/**
- * The top `limit` Threads of one (Mail Account, view), newest first — Pinned
- * Threads (#43) sorted ahead of the rest regardless of their own date,
- * within that. A label `view` (`db.ts#ViewKey`) is a filter *over* the
- * `all` window's already-loaded contents rather than a second server-synced
- * window, so it fetches `all`'s full held range (not just `limit`) before
- * filtering — the `[mailAccountId+sortKey]` index still gives the order,
- * filtering by `labelIds` just thins what passes through.
- */
-export async function readThreadWindow(
+/** One (Mail Account, view)'s filtered, pinned-first-partitioned Threads, unsliced — `readThreadWindow`'s per-account building block, merged across Account Scope (#73) before the `limit` slice is taken. */
+interface AccountWindowParts {
+  pinned: CachedThread[];
+  rest: CachedThread[];
+  /** `true` when this Mail Account has no window at all (never synced) — trivially "complete", same as `readThreadWindow`'s own no-window case. */
+  complete: boolean;
+}
+
+async function readAccountWindowParts(
+  db: LocalCache,
   mailAccountId: string,
-  { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
-): Promise<ThreadWindowPage> {
-  const db = localCache();
+  view: ViewKey,
+): Promise<AccountWindowParts> {
   const window = await db.listWindows.get(listWindowKey(mailAccountId, "all"));
-  if (!window) return { threads: [], complete: true };
+  if (!window) return { pinned: [], rest: [], complete: true };
 
   const held = await threadsInWindow(db, window).reverse().toArray();
   const overlaid = await overlayPendingMutations(db, held);
@@ -375,11 +385,47 @@ export async function readThreadWindow(
   const filtered =
     view === "all" ? inInbox : inInbox.filter((t) => t.labelIds.includes(view.labelId));
 
-  // Pinned-first (#43, CONTEXT.md: "keep this in front of me"), stable
-  // within each partition — `held` above is already newest-first, so this
-  // is a partition, not a re-sort.
-  const pinned = filtered.filter((t) => t.pinned);
-  const rest = filtered.filter((t) => !t.pinned);
+  return {
+    pinned: filtered.filter((t) => t.pinned),
+    rest: filtered.filter((t) => !t.pinned),
+    complete: window.complete,
+  };
+}
+
+/** Newest-first by the same `sortKey` the `[mailAccountId+sortKey]` index orders by — the merge step Account Scope (#73) needs once a partition spans more than one Mail Account's already-sorted array. */
+function bySortKeyDescending(left: CachedThread, right: CachedThread): number {
+  return right.sortKey.localeCompare(left.sortKey);
+}
+
+/**
+ * The top `limit` Threads across one or several Mail Accounts (Account
+ * Scope, #73) for one view, newest first — Pinned Threads (#43) sorted
+ * ahead of the rest regardless of their own date, within that. A label
+ * `view` (`db.ts#ViewKey`) is a filter *over* the `all` window's
+ * already-loaded contents rather than a second server-synced window, so it
+ * fetches `all`'s full held range (not just `limit`) before filtering — the
+ * `[mailAccountId+sortKey]` index still gives the order, filtering by
+ * `labelIds` just thins what passes through.
+ *
+ * Scoped to several Mail Accounts, each account's window is read and
+ * partitioned independently, then the pinned and unpinned partitions are
+ * each merged by `sortKey` — a single global newest-first order rather than
+ * one account's Threads run before another's. `complete` is the AND of every
+ * scoped account's own window: the list can claim "nothing older to load"
+ * only once every account in Scope agrees.
+ */
+export async function readThreadWindow(
+  mailAccountId: string | readonly string[],
+  { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
+): Promise<ThreadWindowPage> {
+  const ids = Array.isArray(mailAccountId) ? mailAccountId : [mailAccountId as string];
+  if (ids.length === 0) return { threads: [], complete: true };
+
+  const db = localCache();
+  const parts = await Promise.all(ids.map((id) => readAccountWindowParts(db, id, view)));
+
+  const pinned = parts.flatMap((part) => part.pinned).sort(bySortKeyDescending);
+  const rest = parts.flatMap((part) => part.rest).sort(bySortKeyDescending);
   const ordered = [...pinned, ...rest];
 
   // A page can come back short of `limit` when the window holds Threads
@@ -387,7 +433,7 @@ export async function readThreadWindow(
   // still works, it just may need an extra round to fill the visible page —
   // acceptable at PoC scope, and the window-admission side of this
   // (`server-writes.ts`) is a reasonable follow-up if it ever isn't.
-  return { threads: ordered.slice(0, limit), complete: window.complete };
+  return { threads: ordered.slice(0, limit), complete: parts.every((part) => part.complete) };
 }
 
 /**

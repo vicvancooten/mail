@@ -23,12 +23,11 @@ import {
 } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import {
-  readLastAccountId,
+  type AccountScope as AccountScopeIds,
   readListDensity,
   readOpenComposerId,
   readStreamMode,
   readViewMode,
-  writeLastAccountId,
   writeListDensity,
   writeScreenerViewed,
   writeStreamMode,
@@ -46,6 +45,7 @@ import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { TopBar } from "./TopBar.js";
+import { useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
 import { COMPACT_ROW_HEIGHT } from "./VirtualizedThreadList.js";
 import "./mail.css";
@@ -62,7 +62,7 @@ const Composer = lazy(() =>
 /**
  * The real thread list UI over the Local Cache (#40, #42, #43): the
  * windowed, time-grouped list, the Split (default) / List top-bar modes
- * plus Stream as an independent opt-in, the account switcher, and triage.
+ * plus Stream as an independent opt-in, Account Scope (#73), and triage.
  * `useTriage` is called exactly once, here, so archive, trash, star, read,
  * pin, and label mean the same thing no matter which view is showing; every
  * view below is handed the same actions and never enqueues a mutation on
@@ -74,6 +74,15 @@ const Composer = lazy(() =>
  * is the ordinary Inbox, a Label id filters it — see `store/db.ts#ViewKey`
  * for why that's a client-side filter over the one synced window rather
  * than a second one.
+ *
+ * Account Scope (#73, `useAccountScope.ts`) is what `useThreadWindow` reads
+ * *which* Mail Accounts from — merged into one newest-first list across
+ * every account in Scope. `accountId` below stays a single id: the *primary*
+ * in-scope account (Scope's first member), which is what every surface this
+ * ticket does not redesign still needs one of — a new Composition's default
+ * From, the Screener's grouping, Search's account context. Narrowing Scope
+ * to exactly one account is what makes that primary and "the selected
+ * account" the same thing again, same as before Scope existed.
  *
  * `initialLabelFilter`/`initialThreadId`/`onLocationChange` (#71) are the
  * seam the routed `/mail` view (`router/MailRoute.tsx`) uses to keep the URL
@@ -102,7 +111,10 @@ export function MailSection({
   // different on each device the User signs in from.
   const [density, setDensity] = useState(readListDensity);
   const rowHeight = density === "compact" ? COMPACT_ROW_HEIGHT : undefined;
-  const [accountId, setAccountId] = useState<string | null>(null);
+  // Account Scope (#73): the Thread list's own accounts; `accountId` below
+  // is derived from it, not tracked separately — see the doc comment above.
+  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
+  const accountId = accountScope[0] ?? null;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen
@@ -184,25 +196,45 @@ export function MailSection({
     [composeId, mailAccounts],
   );
 
-  // Pick the active account once accounts are known: the remembered device
-  // preference if it still names one of them, else the first by
-  // `createdAt` (stable across reloads, per the account switcher's own
-  // ordering).
-  useEffect(() => {
-    if (!mailAccounts || mailAccounts.length === 0 || accountId !== null) return;
-    const remembered = readLastAccountId();
-    const stillExists = remembered && mailAccounts.some((account) => account.id === remembered);
-    setAccountId(stillExists ? remembered : (mailAccounts[0]?.id ?? null));
-  }, [mailAccounts, accountId]);
+  // Account Scope resolution — which accounts exist, and the default-to-all
+  // fallback — lives in `useAccountScope` itself now (#73); this component
+  // only ever reads `accountScope`/`accountId` back.
 
-  const selectAccount = useCallback((id: string) => {
-    setAccountId(id);
-    setSelectedThreadId(null);
-    setLimit(THREAD_PAGE_SIZE);
-    setLabelFilter(null);
-    setScreenerOpen(false);
-    writeLastAccountId(id);
-  }, []);
+  // Narrows Scope to exactly one account: the one path (a notification
+  // click landing on an account not currently primary) where a *single*
+  // account still has to be picked out from the rest, the same "switch to
+  // it" behavior the pre-Scope account switcher had. Resets the transient
+  // view state the same way a User-driven Scope change to a new primary
+  // does (`changeAccountScope` below).
+  const narrowScopeTo = useCallback(
+    (id: string) => {
+      setAccountScope([id]);
+      setSelectedThreadId(null);
+      setLimit(THREAD_PAGE_SIZE);
+      setLabelFilter(null);
+      setScreenerOpen(false);
+    },
+    [setAccountScope],
+  );
+
+  // The Account Scope control's own onChange (#73): the transient view
+  // state (selection, label filter, Screener, page size) only resets when
+  // the *primary* account (Scope's first member) actually changes — adding
+  // or removing a non-primary account from Scope shouldn't drop whatever
+  // the User was looking at.
+  const changeAccountScope = useCallback(
+    (ids: AccountScopeIds) => {
+      const previousPrimary = accountId;
+      setAccountScope(ids);
+      if (ids[0] !== previousPrimary) {
+        setSelectedThreadId(null);
+        setLimit(THREAD_PAGE_SIZE);
+        setLabelFilter(null);
+        setScreenerOpen(false);
+      }
+    },
+    [accountId, setAccountScope],
+  );
 
   // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own
   // doc comment) — the banner's unseen cursor advances the instant this
@@ -226,21 +258,21 @@ export function MailSection({
     return subscribeNotificationTarget((target) => {
       switch (target.kind) {
         case "thread":
-          if (target.mailAccountId !== accountId) selectAccount(target.mailAccountId);
+          if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
           setLabelFilter(null);
           setSelectedThreadId(target.threadId);
           return;
         case "failed-send":
           // Same "Open draft" path `SendFailureBanner`'s own click uses —
           // the restored Draft in the composer, per ADR-0015.
-          if (target.mailAccountId !== accountId) selectAccount(target.mailAccountId);
+          if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
           reopenCompose(target.compositionId);
           return;
         case "needs-reauth":
           return;
       }
     });
-  }, [accountId, selectAccount, reopenCompose]);
+  }, [accountId, narrowScopeTo, reopenCompose]);
 
   const selectLabelFilter = useCallback((labelId: string | null) => {
     setLabelFilter(labelId);
@@ -278,7 +310,10 @@ export function MailSection({
     () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : "all"),
     [labelFilter],
   );
-  const page = useThreadWindow(accountId, { view, limit });
+  // Account Scope (#73): merges every in-scope account's Threads into one
+  // newest-first list (`useThreadWindow`'s own doc comment) — the acceptance
+  // criteria's "Thread list shows only in-scope Threads".
+  const page = useThreadWindow(accountScope, { view, limit });
   const loadMore = useCallback(() => {
     setLimit((current) => current + THREAD_PAGE_SIZE);
   }, []);
@@ -398,8 +433,8 @@ export function MailSection({
         direction={direction}
         onDirection={changeDirection}
         accounts={mailAccounts}
-        selectedAccountId={accountId}
-        onSelectAccount={selectAccount}
+        accountScope={accountScope}
+        onAccountScopeChange={changeAccountScope}
         labels={labelsForPicker}
         labelFilter={labelFilter}
         onLabelFilter={selectLabelFilter}

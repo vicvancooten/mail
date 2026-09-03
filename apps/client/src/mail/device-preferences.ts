@@ -21,7 +21,6 @@ export const DEFAULT_LIST_DENSITY: ListDensity = "comfortable";
 
 const VIEW_MODE_KEY = "mail.devicePref.viewMode";
 const STREAM_MODE_KEY = "mail.devicePref.streamMode";
-const LAST_ACCOUNT_KEY = "mail.devicePref.lastAccountId";
 const OPEN_COMPOSER_KEY = "mail.devicePref.openComposerId";
 const LIST_DENSITY_KEY = "mail.devicePref.listDensity";
 
@@ -67,12 +66,63 @@ export function writeStreamMode(enabled: boolean): void {
   writeStorage(STREAM_MODE_KEY, enabled ? "1" : "0");
 }
 
-export function readLastAccountId(): string | null {
-  return readStorage(LAST_ACCOUNT_KEY);
+/**
+ * Account Scope (#73, `mail#66` §"Account Scope in the Client's own chrome"):
+ * which of the User's Mail Accounts the Thread list draws from — Client-level
+ * chrome rather than Mail-level, "because narrowing to one account is a
+ * question every App answers". Device-local by the same reasoning as the
+ * rest of this file: which accounts you're looking at right now means
+ * something different on each device. Supersedes the single
+ * `mail.devicePref.lastAccountId` key this replaces — a device upgrading
+ * from that key simply falls back to "all accounts" once, the same default
+ * a first-ever device gets.
+ *
+ * Stored as an id array rather than a set — order carries no meaning of its
+ * own (`resolveAccountScope` below is what a caller reads back), but a plain
+ * JSON array is the simplest thing that survives `JSON.stringify`/`parse`.
+ */
+export type AccountScope = readonly string[];
+
+const ACCOUNT_SCOPE_KEY = "mail.devicePref.accountScope";
+
+/** The stored Scope verbatim, or `null` if never set or unreadable — callers resolve that against the live account list (`resolveAccountScope`), never render it directly. */
+export function readAccountScope(): AccountScope | null {
+  const stored = readStorage(ACCOUNT_SCOPE_KEY);
+  if (!stored) return null;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    return parsed.every((entry): entry is string => typeof entry === "string") ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-export function writeLastAccountId(id: string): void {
-  writeStorage(LAST_ACCOUNT_KEY, id);
+/** Scope "cannot be emptied" (#73's acceptance criteria) — a no-op guard here too, so a caller that skips the UI-level guard can't wipe a device's Scope preference by accident. */
+export function writeAccountScope(accountIds: AccountScope): void {
+  if (accountIds.length === 0) return;
+  writeStorage(ACCOUNT_SCOPE_KEY, JSON.stringify(accountIds));
+}
+
+/**
+ * The stored Scope narrowed to Mail Accounts that still exist, falling back
+ * to "every account" — the documented default — the moment that narrowing
+ * (or a never-set/corrupt read) would otherwise leave nothing selected.
+ * Order follows `accounts` (created-at, per `useMailAccounts`' own doc
+ * comment), not the stored array, so a scope read back after an account was
+ * removed and re-added doesn't strand it out of its usual place.
+ */
+export function resolveAccountScope(
+  stored: AccountScope | null,
+  accounts: readonly { id: string }[],
+): AccountScope {
+  const known = new Set(accounts.map((account) => account.id));
+  const narrowed = stored?.filter((id) => known.has(id)) ?? [];
+  if (narrowed.length > 0) {
+    const inScope = new Set(narrowed);
+    return accounts.filter((account) => inScope.has(account.id)).map((account) => account.id);
+  }
+  return accounts.map((account) => account.id);
 }
 
 /**
