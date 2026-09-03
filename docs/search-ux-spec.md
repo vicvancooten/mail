@@ -12,11 +12,13 @@ prefilter](https://github.com/vicvancooten/mail/issues/51).
 
 ## The surface
 
-Search is a **route**, not an overlay: `/search?q=<raw query string>`.
+Search is an **overlay**, not a route (revised by #71 — see
+[ADR-0017](adr/0017-search-has-no-route.md); it was `/search?q=<raw query string>` before the Client
+had a router at all).
 
-A search field lives in the top bar, focused by `/` or `⌘K`/`Ctrl-K`. Typing navigates to the search
-route, and **results replace the thread list inside the current view mode** — in Split the reading
-pane keeps working, so opening a result swaps the pane while the results stay in the list column.
+A search field lives in the top bar, focused by `/` or `⌘K`/`Ctrl-K`. Typing opens the overlay, and
+**results replace the thread list inside the current view mode** — in Split the reading pane keeps
+working, so opening a result swaps the pane while the results stay in the list column.
 There is one list renderer and one set of triage affordances; search is another list, not a second
 application.
 

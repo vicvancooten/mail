@@ -18,11 +18,10 @@ afterEach(() => {
 });
 
 /**
- * `scrollToMailAccountSettings` is the client-side "navigate to that Mail
- * Account's settings" action a `needs_reauth` notification click drives
- * (#53, ADR-0015) — there's no router here, so it's a DOM scroll into this
- * always-rendered section's matching row rather than a URL change
- * (`MailSection.tsx`'s notification-target effect calls this directly).
+ * `scrollToMailAccountSettings` is the last step of a `needs_reauth`
+ * notification click (#53, ADR-0015): `router/RootLayout.tsx`'s own
+ * notification-target effect navigates to `/settings` (#71) and calls this
+ * once that lands, to scroll the matching row into view within it.
  */
 describe("scrollToMailAccountSettings", () => {
   it("scrolls the matching Mail Account's row into view", async () => {

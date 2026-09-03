@@ -19,11 +19,13 @@ import { PushNotificationsSection } from "./PushNotificationsSection.js";
  * Auto-advance, Undo Send delay) and the Mail-Account-scoped ones
  * (signature, notifications) alongside the auth-methods section (#32) and
  * Mail Account management (#33), which already lived here as their own
- * always-visible sections. There is no router in this Client (`AppShell`
- * stacks every section unconditionally), so "a settings screen" means one
- * more such section rather than a navigated-to route — nothing here changes
- * that shape, it just gives Preferences a home instead of the ad hoc inline
- * forms #46/#47's own tickets stood in with.
+ * always-visible sections.
+ *
+ * Its own routed view now (#71, `router/routes.tsx#settingsRoute`) rather
+ * than a compartment scrolled to below the mail pane — this component
+ * itself didn't have to change shape for that, only its CSS (`.settings-
+ * section` is a bounded, independently-scrolling pane now, not a run of
+ * `<section>`s the document scrolled through).
  *
  * Every control writes through the Optimistic Action queue
  * (`enqueueUserMutation`/`enqueueMutation`) and reads back through the Local

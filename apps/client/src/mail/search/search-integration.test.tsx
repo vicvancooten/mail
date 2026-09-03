@@ -57,9 +57,6 @@ beforeEach(async () => {
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
-  // jsdom's `history`/`location` persist across tests in one file — reset
-  // the route so a previous test's `/search?q=` doesn't leak into the next.
-  history.replaceState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -150,6 +147,10 @@ describe("search (#51)", () => {
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
 
     renderMail();
+    // No Thread to wait for (deliberately none seeded) — wait for the top
+    // bar itself to settle instead, or `/` can fire before `searchInputRef`
+    // is attached to anything and land on nothing.
+    await screen.findByTitle("Compose (c)");
     fireEvent.keyDown(window, { key: "/" });
     const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
     fireEvent.change(field, { target: { value: "nothing matches this" } });

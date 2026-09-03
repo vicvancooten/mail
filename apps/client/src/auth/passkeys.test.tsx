@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App.js";
 import { createMockFetch, jsonResponse } from "../test-support/mock-fetch.js";
 
@@ -11,6 +11,13 @@ import { createMockFetch, jsonResponse } from "../test-support/mock-fetch.js";
  * the Client's wiring around it: the button only shows when supported, and
  * the API round trip drives `AuthContext` the same way password login does.
  */
+// jsdom's `history`/`location` persist across tests in one file — reset the
+// route so a previous test's navigation doesn't leak into the next one's
+// router (#71).
+beforeEach(() => {
+  history.replaceState(null, "", "/");
+});
+
 vi.mock("@simplewebauthn/browser", () => ({
   browserSupportsWebAuthn: () => true,
   startRegistration: vi.fn(async () => ({
@@ -130,6 +137,7 @@ describe("passkey registration (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await user.click(await screen.findByRole("button", { name: "Add a passkey" }));

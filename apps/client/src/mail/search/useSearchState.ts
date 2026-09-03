@@ -24,7 +24,7 @@ import {
   toggleTrashJunkOperator,
 } from "./query-parser.js";
 import { type SeededScope, seedScopeFromOrigin, type ViewOrigin } from "./scope.js";
-import { useSearchRoute } from "./useSearchRoute.js";
+import { useSearchOverlay } from "./useSearchOverlay.js";
 
 /** How long after typing stops before `POST /search` fires (search-ux-spec.md §When a search runs). */
 const SERVER_DEBOUNCE_MS = 200;
@@ -94,7 +94,7 @@ export function useSearchState(
   mailAccountId: string | null,
   mailAccounts: readonly MailAccount[],
 ): SearchState {
-  const route = useSearchRoute();
+  const overlay = useSearchOverlay();
   const [seed, setSeed] = useState<SeededScope>(null);
   const [seedPopped, setSeedPopped] = useState(false);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -108,7 +108,7 @@ export function useSearchState(
   /** Set synchronously by `onEsc` right before it leaves — see that comment. */
   const justLeftRef = useRef(false);
 
-  const parsed = useMemo(() => parseSearchQuery(route.query), [route.query]);
+  const parsed = useMemo(() => parseSearchQuery(overlay.query), [overlay.query]);
   const seedLive = !seedPopped && parsed.folder === undefined && parsed.label === undefined;
   const effectiveFolder =
     parsed.folder ?? (seedLive && seed?.kind === "folder" ? seed.folder : undefined);
@@ -133,13 +133,13 @@ export function useSearchState(
     [parsed, effectiveFolder, effectiveLabel],
   );
   const prefilterThreads =
-    useSearchPrefilter(route.active && meetsFloor ? mailAccountId : null, prefilterFilters) ?? [];
+    useSearchPrefilter(overlay.active && meetsFloor ? mailAccountId : null, prefilterFilters) ?? [];
 
   // The server round trip (search-ux-spec.md §When a search runs): live,
   // debounced ~200ms after typing stops, from the 3-character floor. Enter
   // (`onCommit`) skips the wait — `immediateRef` is that seam.
   useEffect(() => {
-    if (!route.active || !mailAccountId || !meetsFloor) {
+    if (!overlay.active || !mailAccountId || !meetsFloor) {
       setServerResponse(null);
       return;
     }
@@ -169,10 +169,10 @@ export function useSearchState(
       cancelled = true;
       clearTimeout(timer);
     };
-    // `parsed` is a `useMemo` keyed on `route.query` (above), so its
+    // `parsed` is a `useMemo` keyed on `overlay.query` (above), so its
     // identity is already stable across unrelated renders — listing it
     // directly here is exactly as narrow as comparing its fields would be.
-  }, [route.active, mailAccountId, meetsFloor, effectiveFolder, effectiveLabel, parsed]);
+  }, [overlay.active, mailAccountId, meetsFloor, effectiveFolder, effectiveLabel, parsed]);
 
   const usingServerResults = serverResponse !== null;
   const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
@@ -230,16 +230,16 @@ export function useSearchState(
       setSeedPopped(false);
       setSelectedThreadId(null);
       setRecentSearches(readRecentSearches());
-      route.open();
+      overlay.open();
     },
-    [route],
+    [overlay],
   );
 
   const onFieldChange = useCallback(
     (text: string) => {
-      route.updateQuery(text);
+      overlay.updateQuery(text);
     },
-    [route],
+    [overlay],
   );
 
   const onCommit = useCallback(
@@ -249,26 +249,26 @@ export function useSearchState(
         return;
       }
       immediateRef.current = true;
-      route.commitQuery(text);
+      overlay.commitQuery(text);
       addRecentSearch(text);
       setRecentSearches(readRecentSearches());
     },
-    [route],
+    [overlay],
   );
 
   const onEsc = useCallback(() => {
-    if (route.query.length > 0) {
+    if (overlay.query.length > 0) {
       onFieldChange("");
       return;
     }
     // The field blurs right behind this (`TopBar.tsx`'s own Escape
     // handler), which would otherwise re-commit the empty query and undo
-    // the very navigation `route.leave()` just made — `justLeftRef` is a
-    // ref rather than state exactly so the very next synchronous call sees
-    // it, ahead of any render.
+    // the very `overlay.leave()` just made — `justLeftRef` is a ref rather
+    // than state exactly so the very next synchronous call sees it, ahead
+    // of any render.
     justLeftRef.current = true;
-    route.leave();
-  }, [route, onFieldChange]);
+    overlay.leave();
+  }, [overlay, onFieldChange]);
 
   const popSeed = useCallback(() => setSeedPopped(true), []);
   const onBackspaceEmpty = useCallback(() => popSeed(), [popSeed]);
@@ -276,15 +276,15 @@ export function useSearchState(
   const setOperator = useCallback(
     (key: string, value: string | null) => {
       if (key === "in" || key === "label") popSeed();
-      onFieldChange(setQueryOperator(route.query, key, value));
+      onFieldChange(setQueryOperator(overlay.query, key, value));
     },
-    [route.query, onFieldChange, popSeed],
+    [overlay.query, onFieldChange, popSeed],
   );
 
   const toggleTrashJunk = useCallback(() => {
     popSeed();
-    onFieldChange(toggleTrashJunkOperator(route.query));
-  }, [route.query, onFieldChange, popSeed]);
+    onFieldChange(toggleTrashJunkOperator(overlay.query));
+  }, [overlay.query, onFieldChange, popSeed]);
 
   const loadOlder = useCallback(() => {
     if (!mailAccountId || !serverResponse?.cursor) return;
@@ -327,8 +327,8 @@ export function useSearchState(
   }, []);
 
   return {
-    active: route.active,
-    queryText: route.query,
+    active: overlay.active,
+    queryText: overlay.query,
     parsed,
     meetsFloor,
     seed,

@@ -17,6 +17,7 @@
     "@mail/shared": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-router": "^1.170.32",
     "@tanstack/react-virtual": "^3.14.10",
     "@tiptap/core": "^3.30.5",
     "@tiptap/extension-color": "^3.30.5",

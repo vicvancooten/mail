@@ -6,12 +6,12 @@ import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
 
 /**
  * The DOM anchor a `needs_reauth` notification click scrolls to (#53,
- * ADR-0015: "that Mail Account's settings ... for Needs Reauth"). There is
- * no router here (`AppShell`'s own doc comment), so "navigate to this Mail
- * Account's settings" means scrolling this always-rendered section's
- * matching row into view rather than changing a URL — see
- * `scrollToMailAccountSettings` below, called from `MailSection.tsx`'s
- * notification-target effect.
+ * ADR-0015: "that Mail Account's settings ... for Needs Reauth"). Settings
+ * is a route now (#71, `router/routes.ts#settingsRoute`), which gets the
+ * click to the right *screen*; this is still what gets it to the right
+ * *row* within it, once this section has rendered — see
+ * `scrollToMailAccountSettings` below, called from `router/RootLayout.tsx`'s
+ * notification-target effect after it navigates there.
  */
 export function mailAccountSettingsAnchorId(mailAccountId: string): string {
   return `mail-account-${mailAccountId}`;
