@@ -30,6 +30,10 @@ servers over IMAP/SMTP and holds the authoritative store of all mail and Triage 
 talk only to the Sync Backend, never to a mail server, and keep a deliberately disposable **Local
 Cache** of just the slice being triaged.
 
+The instance is a personal hub, not only a mail tool: Mail is what ships today, and Contacts,
+Calendar and Tasks are reserved as its next Apps — named in the shell rather than left absent, so
+the product truth never lags the shipped UI.
+
 Success is behavioral, not feature-count: the author stops opening Spark to process mail, and
 someone who is not the author can deploy an instance and stay on it.
 

@@ -1,0 +1,25 @@
+{
+  "name": "@mail/design-tokens",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./css": "./dist/tokens.css"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node dist/generate-css.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.11"
+  }
+}
