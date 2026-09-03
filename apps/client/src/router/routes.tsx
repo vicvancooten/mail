@@ -7,6 +7,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
+import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { SettingsSection } from "../settings/SettingsSection.js";
 import { MailRoute } from "./MailRoute.js";
 import { RootLayout } from "./RootLayout.js";
@@ -47,6 +48,14 @@ const indexRoute = createRoute({
 export interface MailSearch {
   /** A Label id — `MailSection`'s own `labelFilter`; unset is the ordinary Inbox. */
   label?: string;
+  /**
+   * The sidebar folder destination (#74, `mail/folders.ts#FolderKey`) —
+   * `MailSection`'s own `folder`. Unset defaults to `DEFAULT_FOLDER`
+   * (Inbox), the same way an unset `label` does; an unrecognized value (an
+   * old bookmark, hand-edited URL) falls back to it too rather than handing
+   * `MailSection` a folder it doesn't know.
+   */
+  folder?: FolderKey;
   /** The selected Thread id. */
   thread?: string;
 }
@@ -56,6 +65,8 @@ export const mailRoute = createRoute({
   path: "/mail",
   validateSearch: (search: Record<string, unknown>): MailSearch => ({
     label: typeof search.label === "string" ? search.label : undefined,
+    folder:
+      parseFolderKey(typeof search.folder === "string" ? search.folder : undefined) ?? undefined,
     thread: typeof search.thread === "string" ? search.thread : undefined,
   }),
   component: MailRoute,

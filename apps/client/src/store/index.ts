@@ -33,6 +33,7 @@ export {
   subscribeComposeConflicts,
   undoSecondsRemaining,
   useComposition,
+  useDraftCompositions,
   useFailedSends,
   usePendingSends,
 } from "./compositions.js";

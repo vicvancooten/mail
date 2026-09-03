@@ -185,7 +185,10 @@ async function applyIntent(
       if (!target) return { ok: false, reason: `no_${intent.type}_folder` };
 
       const inboxMessageIds = await inboxResidentMessageIds(db, intent.threadId);
-      await db.update(threads).set({ inInbox: false }).where(eq(threads.id, intent.threadId));
+      await db
+        .update(threads)
+        .set({ inInbox: false, folderRole: intent.type })
+        .where(eq(threads.id, intent.threadId));
       await enqueueProtocolWrites(db, mailAccountId, inboxMessageIds, intent.type);
       return { ok: true };
     }

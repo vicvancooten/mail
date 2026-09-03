@@ -358,6 +358,43 @@ export function useThreadWindow(
  * filtering — the `[mailAccountId+sortKey]` index still gives the order,
  * filtering by `labelIds` just thins what passes through.
  */
+/**
+ * A `view`'s membership test over `all`'s already-overlaid contents (#74).
+ * `inInbox` (#42) is the Inbox's whole filter, applied here so an
+ * archive/trash still queued hides its Thread at the same instant as one the
+ * Sync Backend already confirmed — no flicker between "optimistically
+ * hidden" and "actually gone" as the mutation dequeues. A Screening Hold
+ * (#56, ADR-0008) filters the same way: held mail keeps `inInbox: true` (it
+ * hasn't been archived or trashed, just not shown yet) so it must be
+ * excluded here explicitly — the Screener is where it renders instead.
+ *
+ * Archive/Trash read `folderRole` rather than `inInbox` — the one field that
+ * tells the two apart (`@mail/shared`'s `threadSchema` doc comment); Sent
+ * and Pinned are cross-folder by design (poc-spec.md: the sidebar's Pinned
+ * view "shows pinned Threads from every folder") and each excludes Trash,
+ * the same "Trash overrides everything else" convention ordinary mail
+ * clients use, so a trashed Thread doesn't linger in either.
+ */
+function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
+  if (typeof view !== "string") {
+    return threads.filter(
+      (thread) => thread.inInbox && !thread.heldSender && thread.labelIds.includes(view.labelId),
+    );
+  }
+  switch (view) {
+    case "all":
+      return threads.filter((thread) => thread.inInbox && !thread.heldSender);
+    case "archive":
+      return threads.filter((thread) => thread.folderRole === "archive");
+    case "trash":
+      return threads.filter((thread) => thread.folderRole === "trash");
+    case "sent":
+      return threads.filter((thread) => thread.hasSentMessage && thread.folderRole !== "trash");
+    case "pinned":
+      return threads.filter((thread) => thread.pinned && thread.folderRole !== "trash");
+  }
+}
+
 export async function readThreadWindow(
   mailAccountId: string,
   { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
@@ -368,17 +405,7 @@ export async function readThreadWindow(
 
   const held = await threadsInWindow(db, window).reverse().toArray();
   const overlaid = await overlayPendingMutations(db, held);
-  // `inInbox` (#42) is this Client's one list's whole filter, applied after
-  // the overlay so an archive/trash still queued hides its Thread at the
-  // same instant as one the Sync Backend already confirmed — no flicker
-  // between "optimistically hidden" and "actually gone" as the mutation
-  // dequeues. A Screening Hold (#56, ADR-0008) filters the same way: held
-  // mail keeps `inInbox: true` (it hasn't been archived or trashed, just not
-  // shown yet) so it must be excluded here explicitly — the Screener is
-  // where it renders instead.
-  const inInbox = overlaid.filter((thread) => thread.inInbox && !thread.heldSender);
-  const filtered =
-    view === "all" ? inInbox : inInbox.filter((t) => t.labelIds.includes(view.labelId));
+  const filtered = filterByView(overlaid, view);
 
   // Pinned-first (#43, CONTEXT.md: "keep this in front of me"), stable
   // within each partition — `held` above is already newest-first, so this

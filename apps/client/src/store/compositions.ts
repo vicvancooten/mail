@@ -58,6 +58,26 @@ async function readComposition(id: string | null): Promise<CachedComposition | u
 }
 
 /**
+ * The Drafts sidebar view (#74): every Composition of this Mail Account
+ * still in `status: "draft"` — ADR-0012's "one status that means editable"
+ * is exactly what this view lists, newest-first. Deliberately excludes the
+ * in-flight statuses (`pending`/`submitting`): a Pending Send is no longer a
+ * Draft, it's on its way out (`PendingSendBar` is where that renders), and
+ * `sent`/`failed` (reserved) are settled either way.
+ */
+export function useDraftCompositions(
+  mailAccountId: string | null,
+): CachedComposition[] | undefined {
+  return useLiveQuery(() => readDraftCompositions(mailAccountId), [mailAccountId]);
+}
+
+async function readDraftCompositions(mailAccountId: string | null): Promise<CachedComposition[]> {
+  if (mailAccountId === null) return [];
+  const rows = await localCache().compositions.where({ mailAccountId, status: "draft" }).toArray();
+  return rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+/**
  * Writes one autosave. The Composition row is created lazily right here, on
  * whatever the first call happens to be (ADR-0012: "created lazily on first
  * content") — there is no separate `createComposition`. Both the durable

@@ -58,11 +58,17 @@ export type CachedThread = Thread & { sortKey: string };
  * search, ADR-0016, lands) would turn this into a real second window without
  * reshaping this type further.
  */
-export type ViewKey = "all" | { readonly kind: "label"; readonly labelId: string };
+export type ViewKey =
+  | "all"
+  | "archive"
+  | "trash"
+  | "sent"
+  | "pinned"
+  | { readonly kind: "label"; readonly labelId: string };
 export const DEFAULT_VIEW: ViewKey = "all";
 
 function viewKeyPart(view: ViewKey): string {
-  return view === "all" ? "all" : `label:${view.labelId}`;
+  return typeof view === "string" ? view : `label:${view.labelId}`;
 }
 
 export function listWindowKey(mailAccountId: string, view: ViewKey): string {
