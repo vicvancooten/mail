@@ -71,6 +71,18 @@ function buildFilters(parsed: ParsedSearchQuery, folder?: string, label?: string
   };
 }
 
+/**
+ * The Account Scope beyond the primary account (#80, #68's
+ * `additionalMailAccountIds`) — `undefined` rather than `[]` when Scope is
+ * narrowed to one account, matching the wire contract's own "absent means
+ * today's single-account default" so a single-account request looks exactly
+ * like it did before Scope existed.
+ */
+function additionalScopeIds(accountScope: readonly string[]): string[] | undefined {
+  const rest = accountScope.slice(1);
+  return rest.length > 0 ? rest : undefined;
+}
+
 export interface SearchState {
   active: boolean;
   queryText: string;
@@ -109,11 +121,21 @@ export interface SearchState {
   markActedOn: (threadId: string) => void;
 }
 
+/**
+ * `accountScope` (#80, `useAccountScope.ts`): every in-scope account is
+ * searched, merged as the Sync Backend returns them (ADR-0016 amendment,
+ * #68). `accountScope[0]` stays the primary — same "the *primary* in-scope
+ * account" role it already plays everywhere else in `MailSection` — with
+ * every other entry riding along as `additionalMailAccountIds` on the wire.
+ * Widening or narrowing Scope while a search is active re-runs it: the
+ * search effect below keys on the whole Scope, not just the primary.
+ */
 export function useSearchState(
-  mailAccountId: string | null,
+  accountScope: readonly string[],
   mailAccounts: readonly MailAccount[],
 ): SearchState {
   const overlay = useSearchOverlay();
+  const mailAccountId = accountScope[0] ?? null;
   const [seed, setSeed] = useState<SeededScope>(null);
   const [seedPopped, setSeedPopped] = useState(false);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -171,7 +193,11 @@ export function useSearchState(
     immediateRef.current = false;
     const timer = setTimeout(() => {
       setServerLoading(true);
-      runServerSearch({ mailAccountId, ...buildFilters(parsed, effectiveFolder, effectiveLabel) })
+      runServerSearch({
+        mailAccountId,
+        additionalMailAccountIds: additionalScopeIds(accountScope),
+        ...buildFilters(parsed, effectiveFolder, effectiveLabel),
+      })
         .then((response) => {
           if (cancelled) return;
           setServerResponse(response);
@@ -191,7 +217,18 @@ export function useSearchState(
     // `parsed` is a `useMemo` keyed on `overlay.query` (above), so its
     // identity is already stable across unrelated renders — listing it
     // directly here is exactly as narrow as comparing its fields would be.
-  }, [overlay.active, mailAccountId, meetsFloor, effectiveFolder, effectiveLabel, parsed]);
+    // `accountScope` (#80): widening or narrowing it re-runs the current
+    // search — a fresh array identity every render (`useAccountScope`'s own
+    // doc comment) is exactly the re-run trigger this effect wants.
+  }, [
+    overlay.active,
+    mailAccountId,
+    meetsFloor,
+    effectiveFolder,
+    effectiveLabel,
+    parsed,
+    accountScope,
+  ]);
 
   const usingServerResults = serverResponse !== null;
   const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
@@ -310,6 +347,7 @@ export function useSearchState(
     setLoadingOlder(true);
     runServerSearch({
       mailAccountId,
+      additionalMailAccountIds: additionalScopeIds(accountScope),
       ...buildFilters(parsed, effectiveFolder, effectiveLabel),
       cursor: serverResponse.cursor,
     })
@@ -327,7 +365,14 @@ export function useSearchState(
       })
       .catch(() => setOffline(true))
       .finally(() => setLoadingOlder(false));
-  }, [mailAccountId, serverResponse?.cursor, parsed, effectiveFolder, effectiveLabel]);
+  }, [
+    mailAccountId,
+    accountScope,
+    serverResponse?.cursor,
+    parsed,
+    effectiveFolder,
+    effectiveLabel,
+  ]);
 
   const clearRecent = useCallback(() => {
     clearRecentSearches();

@@ -95,6 +95,8 @@ export interface RowExtra {
   actionBadge?: string | null;
   /** The Held/Blocked badge (#56, `docs/search-ux-spec.md` §The row) — search's own result decoration, same as the other three. */
   gatekeeperBadge?: "held" | "blocked" | null;
+  /** The Mail Account a cross-account search result came from (#80) — the account's own address, shown only where a search spans more than one in-scope account (`SearchResultsView`'s own `showAccountBadge`). */
+  accountBadge?: string | null;
 }
 
 export function VirtualizedThreadList({
@@ -374,6 +376,7 @@ export function VirtualizedThreadList({
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}
                   gatekeeperBadge={extra?.gatekeeperBadge}
+                  accountBadge={extra?.accountBadge}
                   tier={item.tier}
                   height={itemHeight(item)}
                   previewArmed={previewGroupLabel !== null && item.groupLabel === previewGroupLabel}

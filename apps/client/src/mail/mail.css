@@ -1945,6 +1945,24 @@ button.search-chip-toggle.on {
   white-space: nowrap;
 }
 
+/* Which Mail Account a cross-account search result came from (#80) — same
+   pill shape as `.folder-pill` (the two answer sibling questions, "which
+   account" and "which folder"), kept visually distinct with a hairline
+   rather than the sunk fill so it never reads as the folder pill at a
+   glance. */
+.thread-row .account-badge {
+  padding: 1.5px 6px;
+  border-radius: var(--w-r-band);
+  background: transparent;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  color: var(--w-ink-3);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 /* THE STRIKE, in the one list place it belongs: a search result you have
    already acted on stays in place, visibly changed
    (docs/search-ux-spec.md §Acting on a result). */
@@ -1989,7 +2007,8 @@ button.search-chip-toggle.on {
 
 .thread-row.selected .action-badge,
 .thread-row.selected .gatekeeper-badge,
-.thread-row.selected .folder-pill {
+.thread-row.selected .folder-pill,
+.thread-row.selected .account-badge {
   color: var(--w-frame);
   border-color: color-mix(in oklab, var(--w-frame) 55%, transparent);
   background: transparent;
@@ -2629,6 +2648,7 @@ button.search-chip-toggle.on {
   .thread-list:not(.thread-list--compact) .folder-pill,
   .thread-list:not(.thread-list--compact) .action-badge,
   .thread-list:not(.thread-list--compact) .gatekeeper-badge,
+  .thread-list:not(.thread-list--compact) .account-badge,
   .thread-list:not(.thread-list--compact) .pin,
   .thread-list:not(.thread-list--compact) .star {
     grid-row: 1;
@@ -3051,6 +3071,18 @@ button.search-chip-toggle.on {
   color: var(--w-fluor);
   font-size: 10px;
   text-transform: uppercase;
+}
+
+/* Which Mail Account a cross-account hit came from (#80) — same treatment as `.command-palette-hit-from`, just visually distinct enough not to read as the sender. */
+.command-palette-hit-account {
+  flex: none;
+  color: var(--w-ink-3);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .command-palette-see-all {

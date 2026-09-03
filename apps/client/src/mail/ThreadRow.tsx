@@ -64,6 +64,7 @@ export function ThreadRow({
   folderPill = null,
   actionBadge = null,
   gatekeeperBadge = null,
+  accountBadge = null,
   tier = null,
   height,
   previewArmed = false,
@@ -82,6 +83,8 @@ export function ThreadRow({
   actionBadge?: string | null;
   /** Held/Blocked (#56, poc-spec.md: "search returns held and blocked mail badged") — search results only. */
   gatekeeperBadge?: "held" | "blocked" | null;
+  /** Which Mail Account this row came from (#80) — search results only, and only once Scope spans more than one account. */
+  accountBadge?: string | null;
   /** This row's taper tier (#75, `taper.ts`) — `null` for an ungrouped (search) list, which carries no taper. Exposed as `data-tier` for `mail.css`'s header/row/avatar/ink scale. */
   tier?: TimeGroupTier | null;
   /** This row's own height, computed once by `VirtualizedThreadList` from `taper.ts` — the single number the virtualizer and this row's rendered box both use, never a second one guessed in `mail.css` (#75). */
@@ -218,6 +221,7 @@ export function ThreadRow({
           </span>
         ) : null}
       </span>
+      {accountBadge ? <span className="account-badge">{accountBadge}</span> : null}
       {folderPill ? <span className="folder-pill">{folderPill}</span> : null}
       {actionBadge ? <span className="action-badge">{actionBadge}</span> : null}
       {gatekeeperBadge ? (

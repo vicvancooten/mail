@@ -677,7 +677,7 @@ export function MailSection({
   // `useTriage` instance — the same "one shared hook so actions mean the
   // same thing" reasoning as the triage instance above, kept separate only
   // because a result's selection/neighbor set is a different list.
-  const search = useSearchState(accountId, mailAccounts ?? []);
+  const search = useSearchState(accountScope, mailAccounts ?? []);
   const searchOrigin = useMemo<ViewOrigin>(
     () =>
       labelFilter
@@ -863,6 +863,7 @@ export function MailSection({
               onReply={openReply}
               accounts={mailAccounts}
               mailAccountId={accountId}
+              accountScope={accountScope}
             />
           ) : folder === "drafts" ? (
             <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
@@ -928,6 +929,8 @@ export function MailSection({
         onOpenShortcutSheet={() => setShortcutSheetOpen(true)}
         search={search}
         searchOrigin={searchOrigin}
+        accounts={mailAccounts ?? []}
+        accountScope={accountScope}
       />
       <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
       {composeId && accountId && (
