@@ -14,6 +14,15 @@
         "value": "22px",
         "createdAt": "2026-09-03T19:50:12.965Z",
         "reason": "carried over verbatim from brand.css's existing .app-placeholder-card h2 size, already shipped/reviewed in #72"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "apps/client/src/mail/mail.css"
+        ],
+        "createdAt": "2026-09-03T20:03:59.500Z",
+        "reason": "pre-existing from #77's spine preview (docs in the surrounding comment): a functional hover-preview affordance on thread rows during group bulk-action preview, not a decorative card accent — confident false positive against the side-tab heuristic"
       }
     ]
   }
