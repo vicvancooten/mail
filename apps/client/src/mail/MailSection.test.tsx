@@ -7,6 +7,7 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
+import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
   applyLabelDelta,
   applyMailAccountDelta,
@@ -443,6 +444,46 @@ describe("MailSection", () => {
     expect(
       (await screen.findByRole("option", { name: /Older thread/ })).getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("the row's Done control marks it Done from the pointer, without selecting the row (#75)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Mark "Newer thread" Done/ }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(screen.getByText("Older thread")).toBeDefined();
+    // Never opened into the reading pane — Done is an action, not a selection.
+    expect(document.querySelector(".thread-detail")).toBeNull();
+  });
+
+  it("a rollback returns the row Done put down, and raises a toast naming the failure (#75)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Mark "Newer thread" Done/ }));
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+
+    // Simulate the Sync Backend rejecting the queued archive — the same
+    // seam `RollbackToast.test.tsx` drives directly.
+    const queued = await listQueuedMutations("acct-1");
+    await act(async () => {
+      await resolveMutationOutcomes(
+        "acct-1",
+        queued,
+        queued.map((mutation) => ({ id: mutation.id, status: "rejected", reason: "server_error" })),
+      );
+    });
+
+    expect(await screen.findByText("Newer thread")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Couldn't archive — restored to the list.");
   });
 
   it("selecting an unread Thread marks it read; u toggles it back to unread (#42)", async () => {

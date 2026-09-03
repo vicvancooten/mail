@@ -1,11 +1,11 @@
 import type { ThreadParticipant } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import type { CSSProperties } from "react";
+import { type CSSProperties, useState } from "react";
 import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { parseHeadline } from "./search/headline.js";
-import { formatRowTime } from "./time-groups.js";
+import { formatRowTime, type TimeGroupTier } from "./time-groups.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "./useSwipeToTriage.js";
 
 /** How many Label chips a row shows before collapsing the rest into a "+N" — keeps a heavily-labeled Thread's row one line. */
@@ -24,12 +24,21 @@ function describeParticipant(participant: ThreadParticipant): string {
  * come straight off `labelNameFromId`, no `Label` collection lookup needed
  * for a row to render correctly the instant an offline apply lands.
  *
+ * The outer element is a `<div role="option">`, not a `<button>` (#75): the
+ * row's own **Done** control (below) is a real, independently focusable
+ * `<button>`, and a button cannot legally nest inside another interactive
+ * element. Selecting the row is still one click anywhere on it — the click
+ * bubbles to `onSelect` the same way it always has — and keyboard selection
+ * has never gone through per-row focus here anyway (`j`/`k`, one window
+ * listener in `VirtualizedThreadList`), so nothing about that path changes.
+ *
  * `onArchive`/`onTrash` (#44, `poc-scope.md` §Clients & notifications) wire
- * the row into `useSwipeToTriage` — optional because `VirtualizedThreadList`
- * has one non-triage caller path in tests, and because the hook itself is
- * already a no-op for anything but a touch pointer, so wiring it
- * unconditionally would cost nothing either way; optional just avoids
- * threading two unused callbacks through call sites that truly have none.
+ * the row into `useSwipeToTriage` *and* the Done control below — optional
+ * because `VirtualizedThreadList` has one non-triage caller path in tests,
+ * and because the swipe hook is already a no-op for anything but a touch
+ * pointer, so wiring it unconditionally would cost nothing either way;
+ * optional just avoids threading two unused callbacks through call sites
+ * that truly have none.
  *
  * `headline`/`folderPill`/`actionBadge` are search's own additions (#51,
  * `docs/search-ux-spec.md` §The row: "Built on ADR-0011's `Thread` list-row
@@ -48,6 +57,8 @@ export function ThreadRow({
   folderPill = null,
   actionBadge = null,
   gatekeeperBadge = null,
+  tier = null,
+  height,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -62,12 +73,17 @@ export function ThreadRow({
   actionBadge?: string | null;
   /** Held/Blocked (#56, poc-spec.md: "search returns held and blocked mail badged") — search results only. */
   gatekeeperBadge?: "held" | "blocked" | null;
+  /** This row's taper tier (#75, `taper.ts`) — `null` for an ungrouped (search) list, which carries no taper. Exposed as `data-tier` for `mail.css`'s header/row/avatar/ink scale. */
+  tier?: TimeGroupTier | null;
+  /** This row's own height, computed once by `VirtualizedThreadList` from `taper.ts` — the single number the virtualizer and this row's rendered box both use, never a second one guessed in `mail.css` (#75). */
+  height?: number;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
   const visibleLabelIds = thread.labelIds.slice(0, MAX_ROW_LABEL_CHIPS);
   const overflowLabelCount = thread.labelIds.length - visibleLabelIds.length;
   const headlineSegments = headline ? parseHeadline(headline) : null;
+  const subjectLabel = thread.subject || "(no subject)";
 
   const swipe = useSwipeToTriage({
     onArchive: onArchive ?? (() => {}),
@@ -75,25 +91,71 @@ export function ThreadRow({
   });
   const revealStrength = Math.min(Math.abs(swipe.offsetX) / SWIPE_COMMIT_THRESHOLD_PX, 1);
 
+  // The row cluster's armed state (#66, #75: "every armed state is real
+  // component state, not a CSS-only trick"). Hover and focus are tracked
+  // here rather than left to `:hover`/`:focus-visible` alone — the same
+  // state a future native Client's touch/keyboard model can reuse directly
+  // — and `selected` is what "arriving on a row with j/k arms it" cashes
+  // out to: `VirtualizedThreadList`'s `moveSelection` sets it exactly the
+  // way a click does, so one state covers all three triggers.
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const armed = hovered || focused || selected;
+
   const row = (
-    <button
-      type="button"
+    <div
       className={`thread-row${unread ? " unread" : ""}${selected ? " selected" : ""}${thread.pinned ? " pinned" : ""}`}
+      data-tier={tier ?? undefined}
+      data-armed={armed}
       style={
         {
+          height,
           transform: swipe.offsetX ? `translateX(${swipe.offsetX}px)` : undefined,
           transition: swipe.settling ? undefined : "none",
         } as CSSProperties
       }
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       role="option"
       aria-selected={selected}
       {...swipe.handlers}
     >
+      {/* Reserved space, left of the Avatar (#66 user stories 10-11): fixed
+          width whether armed or not, so arming the cluster never shifts the
+          Avatar, the sender column, or any other row — only this control's
+          own opacity changes. Never overlaps or replaces the Avatar, so a
+          Done click is never confused with a selection. */}
+      <span className="row-done-slot">
+        {onArchive ? (
+          <button
+            type="button"
+            className="row-done"
+            aria-label={`Mark "${subjectLabel}" Done`}
+            title="Done (e)"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onArchive();
+            }}
+          >
+            <Pictogram name="check" size={13} />
+          </button>
+        ) : null}
+      </span>
       <Avatar name={participantLabel} unread={unread} />
       <span className="sender">{participantLabel}</span>
       <span className="subject-line">
-        <span className="subject">{thread.subject || "(no subject)"}</span>
+        <span className="subject">{subjectLabel}</span>
         {headlineSegments ? (
           <span className="snippet headline">
             {headlineSegments.map((segment) =>
@@ -130,7 +192,7 @@ export function ThreadRow({
       {thread.pinned ? <Pictogram name="pin" size={13} className="pin" /> : null}
       {thread.starred ? <Pictogram name="star" size={13} className="star" /> : null}
       <span className="time">{formatRowTime(thread.lastMessageAt)}</span>
-    </button>
+    </div>
   );
 
   if (!onArchive && !onTrash) return row; // no swipe wiring: skip the reveal wrapper entirely
@@ -147,8 +209,11 @@ export function ThreadRow({
             <Pictogram name="trash" size={16} /> Trash
           </span>
         ) : (
+          // "Done" (#66 user story 8) — the act, on the row a swipe commits
+          // through `onArchive`; the destination it lands in stays named
+          // Archive (story 9) wherever that's what the row is naming instead.
           <span className="swipe-reveal-archive">
-            <Pictogram name="archive" size={16} /> Archive
+            <Pictogram name="check" size={16} /> Done
           </span>
         )}
       </div>

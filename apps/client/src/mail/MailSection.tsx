@@ -51,7 +51,6 @@ import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { TopBar } from "./TopBar.js";
 import { useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
-import { COMPACT_ROW_HEIGHT } from "./VirtualizedThreadList.js";
 import "./mail.css";
 
 /**
@@ -120,7 +119,6 @@ export function MailSection({
   // above — deliberately never synced, because density means something
   // different on each device the User signs in from.
   const [density, setDensity] = useState(readListDensity);
-  const rowHeight = density === "compact" ? COMPACT_ROW_HEIGHT : undefined;
   // Account Scope (#73): the Thread list's own accounts; `accountId` below
   // is derived from it, not tracked separately — see the doc comment above.
   const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
@@ -544,7 +542,7 @@ export function MailSection({
               triage={triage}
               onReply={openReply}
               initialScrollThreadId={selectedThreadId}
-              rowHeight={rowHeight}
+              density={density}
             />
           ) : (
             <ListView
@@ -558,7 +556,7 @@ export function MailSection({
               triage={triage}
               onReply={openReply}
               initialScrollThreadId={selectedThreadId}
-              rowHeight={rowHeight}
+              density={density}
             />
           )}
         </div>

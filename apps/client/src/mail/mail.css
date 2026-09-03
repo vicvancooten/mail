@@ -17,8 +17,11 @@
       holding that row open to show ink would tax the one thing that has to
       stay snap-instant.
 
-   Row geometry is load-bearing: 60 / 40 / 32px match `ROW_HEIGHT`,
-   `COMPACT_ROW_HEIGHT` and `HEADER_HEIGHT` in `VirtualizedThreadList.tsx`.
+   Row and header geometry is load-bearing, but no longer declared here
+   (#75): every taper tier's row/header height lives once in `taper.ts` and
+   arrives as an inline style, so the virtualizer and the rendered box are
+   always the same number — this file only styles *within* whatever height
+   that gave a row or header (`[data-tier]` below).
    ========================================================================= */
 
 .mail-section {
@@ -499,11 +502,13 @@
   background: var(--w-panel);
 }
 
-/* A day divider is a facing band: the slip that faces a bundle one way. */
+/* A day divider is a facing band: the slip that faces a bundle one way.
+   Height comes from `taper.ts` as an inline style, never a number here
+   (#75) — this only styles *within* whatever height that gave it: the
+   taper tiers below (`[data-tier]`) are what actually scale it. */
 .group-header {
   display: flex;
   align-items: center;
-  height: 32px; /* HEADER_HEIGHT in VirtualizedThreadList.tsx */
   box-sizing: border-box;
   padding: 0 14px;
   font-stretch: var(--w-wd-label);
@@ -516,12 +521,38 @@
   border-bottom: var(--w-hair) solid var(--w-rule-hard);
 }
 
+/* ---------- the taper (#66, #75): reverse-chronological rank as scale ----
+ * T1 (Pinned/Today) is the loudest header on screen; T4 (the two named
+ * months, Older, Undated) is the quietest. Height is set by
+ * `VirtualizedThreadList` from `taper.ts`, so only size/weight/ink live
+ * here — never a second height. */
+.group-header[data-tier="1"] {
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0.11em;
+  color: var(--w-ink);
+}
+
+.group-header[data-tier="2"] {
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.group-header[data-tier="3"] {
+  font-size: 10px;
+}
+
+.group-header[data-tier="4"] {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--w-ink-3);
+}
+
 .thread-row {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  height: 60px; /* ROW_HEIGHT in VirtualizedThreadList.tsx */
   box-sizing: border-box;
   padding: 0 14px;
   border: none;
@@ -541,13 +572,32 @@
   touch-action: pan-y;
 }
 
-/* Compact list density (#54, Device Preference — never synced, CONTEXT.md).
-   `VirtualizedThreadList` sizes the row to match via `rowHeight`. */
+/* Compact list density (#54, Device Preference — never synced, CONTEXT.md)
+   shifts every taper tier's height by a fixed delta (`taper.ts`) rather
+   than flattening it to one size; this only trims the padding/type that
+   isn't itself part of the taper. */
 .thread-list--compact .thread-row {
-  height: 40px; /* COMPACT_ROW_HEIGHT */
   padding: 0 12px;
   gap: 8px;
   font-size: 12px;
+}
+
+.thread-row[data-tier="1"] {
+  font-size: 14px;
+}
+
+.thread-row[data-tier="1"] .sender {
+  font-weight: 680;
+}
+
+.thread-row[data-tier="3"] .subject,
+.thread-row[data-tier="4"] .subject {
+  font-weight: 500;
+}
+
+.thread-row[data-tier="4"]:not(.unread):not(.selected) .sender,
+.thread-row[data-tier="4"]:not(.unread):not(.selected) .subject {
+  color: var(--w-ink-3);
 }
 
 .thread-row:hover {
@@ -633,6 +683,79 @@
   background: transparent;
   border-color: color-mix(in oklab, var(--w-frame) 45%, transparent);
   color: var(--w-frame);
+}
+
+/* The taper's avatar scale (#75) — T1 is the loudest plate on screen, T4
+   steps back to something closer to a tick mark. Layered on top of (not
+   instead of) the compact override above: compact's own smaller base still
+   applies, this just widens the spread between tiers within it. */
+.thread-row[data-tier="1"] .mail-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 11px;
+}
+
+.thread-row[data-tier="3"] .mail-avatar {
+  width: 23px;
+  height: 23px;
+}
+
+.thread-row[data-tier="4"] .mail-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+/* Reserved space for the row's Done control (#66 user stories 10-11, #75):
+   fixed width whether armed or not, left of the Avatar and never
+   overlapping it, so arming the cluster never shifts anything else in the
+   row and a Done click is never confused with a selection. */
+.thread-row .row-done-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  flex-shrink: 0;
+}
+
+.thread-row .row-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: var(--w-ink-2);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--w-dur-fast) var(--w-ease);
+}
+
+/* Armed is real component state (`ThreadRow`'s `data-armed`) driven by
+   hover, focus, or arriving on the row with j/k (#66, #75) — never a bare
+   `:hover` rule, so the same "what's armed" question has one answer for a
+   future native Client's touch/keyboard model too. */
+.thread-row[data-armed="true"] .row-done,
+.thread-row .row-done:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.thread-row .row-done:hover {
+  background: var(--w-panel-2);
+  color: var(--w-ink);
+}
+
+.thread-row.selected .row-done {
+  color: var(--w-frame);
+}
+
+.thread-row.selected .row-done:hover {
+  background: color-mix(in oklab, var(--w-frame) 18%, transparent);
 }
 
 .thread-row .sender {
@@ -2110,6 +2233,15 @@ button.search-chip-toggle.on {
     width: 104px;
   }
 
+  /* Phone: the Done control is persistent rather than hover-gated (#66 user
+     story 47, #75) — there is no hover on touch, so the primary action has
+     to be reachable without one. Swipe right still commits the same
+     action (`useSwipeToTriage.ts`); this is the tap-target for it. */
+  .thread-row .row-done {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
   .thread-detail {
     padding: 14px 16px;
     padding-bottom: max(14px, env(safe-area-inset-bottom));
@@ -2180,32 +2312,40 @@ button.search-chip-toggle.on {
 @container (max-width: 520px) {
   .thread-list:not(.thread-list--compact) .thread-row {
     display: grid;
-    grid-template-columns: 26px minmax(0, 1fr) auto;
+    grid-template-columns: 22px 26px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
     align-items: center;
     column-gap: 9px;
     row-gap: 1px;
   }
 
+  /* Reserved space (#75) leads even the folded row, same as the wide
+     layout — it never overlaps the plate that follows it. */
+  .thread-list:not(.thread-list--compact) .row-done-slot {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
   /* The plate spans both lines: it is the row's registration to the stile. */
   .thread-list:not(.thread-list--compact) .mail-avatar {
+    grid-column: 2;
     grid-row: 1 / span 2;
   }
 
   .thread-list:not(.thread-list--compact) .sender {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 1;
     width: auto;
     font-size: 12px;
   }
 
   .thread-list:not(.thread-list--compact) .time {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 1;
   }
 
   .thread-list:not(.thread-list--compact) .subject-line {
-    grid-column: 2 / span 2;
+    grid-column: 3 / span 2;
     grid-row: 2;
   }
 
@@ -2215,7 +2355,7 @@ button.search-chip-toggle.on {
   .thread-list:not(.thread-list--compact) .pin,
   .thread-list:not(.thread-list--compact) .star {
     grid-row: 1;
-    grid-column: 3;
+    grid-column: 4;
   }
 }
 
