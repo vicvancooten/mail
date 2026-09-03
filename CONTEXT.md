@@ -162,6 +162,9 @@ _Avoid_: contact (reserved for the address-book entries a User manages), recipie
 
 ### Search
 
+**Account Scope**:
+Every Mail Account a search runs over — the requesting User's own, and only those. Each in-scope account contributes its own Candidate Window, merged and re-ranked, so one chatty account never crowds a quiet one out.
+
 **Search Index**:
 The Sync Backend's searchable projection of every message — subject, participants, body text and attachment filenames — kept beside the messages themselves and rebuilt in the background whenever the way text is analysed changes. Search runs against it, never against a full index in the Client.
 _Avoid_: FTS table, tsvector

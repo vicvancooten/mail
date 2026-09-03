@@ -198,6 +198,29 @@ function cappedQuery(source: "messages" | "side", tsquery: string, headline: boo
     FROM top t${headline ? ` JOIN ${SCHEMA}.messages m ON m.id = t.message_id` : ""}`;
 }
 
+/** The ADR-0016 Account Scope shape (#68): each `mail_account_id` gets its own Candidate Window, unioned before ranking — never one shared window across the accounts, which would let a chatty account crowd a quiet one out of the ranking entirely regardless of relevance. Same gap this file's own top-of-function TODO already flags for the single-account shapes: hand-rolled against `corpus_bench`'s tables, not a call into `sync/search-query.ts#runSearch`. */
+function cappedMultiAccountQuery(accountIds: number[], tsquery: string): string {
+  const perAccount = accountIds
+    .map(
+      (id) => `
+      (SELECT thread_id, message_id, sent_at, doc
+       FROM ${SCHEMA}.message_search, tq
+       WHERE doc @@ tq.q AND mail_account_id = ${id} AND folder <> 'Trash'
+       ORDER BY sent_at DESC LIMIT ${CANDIDATE_WINDOW})`,
+    )
+    .join("\n      UNION ALL");
+  return `
+    WITH tq AS (SELECT ${tsquery} AS q),
+    cand AS (${perAccount}),
+    hits AS (
+      SELECT DISTINCT ON (c.thread_id) c.thread_id, c.message_id, c.sent_at,
+             ts_rank_cd(c.doc, (SELECT q FROM tq)) AS rank
+      FROM cand c ORDER BY c.thread_id, ts_rank_cd(c.doc, (SELECT q FROM tq)) DESC, c.sent_at DESC)
+    SELECT thread_id, message_id,
+           rank * exp(-extract(epoch FROM (now() - sent_at)) / (86400 * 365.0)) AS score
+    FROM hits ORDER BY score DESC, thread_id DESC LIMIT ${PAGE_SIZE}`;
+}
+
 interface ShapeCase {
   label: string;
   tsquery: string;
@@ -250,7 +273,19 @@ const CASES: ShapeCase[] = [
   },
 ];
 
-export async function benchSearchShapes(sql: postgres.Sql): Promise<SearchShapesResult> {
+/**
+ * The Account Scope (#68) case: every one of `accountIds` in one query,
+ * merged via `cappedMultiAccountQuery`'s per-account Candidate Windows.
+ * Requires the corpus to have been loaded with `CORPUS_MAIL_ACCOUNTS` at
+ * least `accountIds.length` — `bench:all`/`load:postgres` default to 2, so a
+ * 3-account run needs `CORPUS_MAIL_ACCOUNTS=3 pnpm --filter @mail/corpus-bench load:postgres -- --reset`
+ * first (see `docs/research/0007-250k-message-corpus-benchmark.md`'s Account
+ * Scope section for the numbers this produced).
+ */
+export async function benchSearchShapes(
+  sql: postgres.Sql,
+  accountIds: number[] = [1, 2, 3],
+): Promise<SearchShapesResult> {
   const sideTableBuildMs = await ensureSearchIndexTable(sql);
   const [{ size: sideTableBytes }] = await sql<[{ size: string }]>`
     SELECT pg_total_relation_size('corpus_bench.message_search')::text AS size
@@ -292,6 +327,15 @@ export async function benchSearchShapes(sql: postgres.Sql): Promise<SearchShapes
       stats: summarizeLatencies(
         await timeQuery(
           () => sql.unsafe(cappedQuery("side", shapeCase.tsquery, true)),
+          ITERATIONS_PER_QUERY,
+        ),
+      ),
+    });
+    queries.push({
+      label: `${shapeCase.label} | capped, side table, Account Scope (${accountIds.length} accounts)`,
+      stats: summarizeLatencies(
+        await timeQuery(
+          () => sql.unsafe(cappedMultiAccountQuery(accountIds, shapeCase.tsquery)),
           ITERATIONS_PER_QUERY,
         ),
       ),
