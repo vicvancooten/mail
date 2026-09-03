@@ -69,6 +69,7 @@ export {
   readScreenerSenders,
   readSearchPrefilter,
   readThreadWindow,
+  type ScreenerAccountGroup,
   type ScreenerSenderGroup,
   type SearchPrefilterFilters,
   THREAD_PAGE_SIZE,

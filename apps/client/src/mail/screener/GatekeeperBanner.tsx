@@ -17,28 +17,36 @@ import { readScreenerSeenUntil } from "../device-preferences.js";
  * true *and* lets it reappear for a fresh stranger who wrote in after the
  * User already cleared the last batch — a plain `groups.length > 0` gate
  * would wrongly suppress that second appearance.
+ *
+ * Follows Account Scope (#82, #73): the "seen" cursor is per Mail Account
+ * (`device-preferences.ts`), so a hold counts as unseen against *its own*
+ * account's cursor, not the primary account's — narrowing or widening Scope
+ * must never make a still-unseen hold on a non-primary account vanish from
+ * the count, nor resurrect one already viewed on the account that holds it.
  */
 export function GatekeeperBanner({
-  mailAccountId,
+  accountScope,
   onOpen,
 }: {
-  mailAccountId: string | null;
+  accountScope: readonly string[];
   onOpen: () => void;
 }) {
-  const groups = useScreenerSenders(mailAccountId) ?? [];
-  const [seenUntil, setSeenUntil] = useState(() =>
-    mailAccountId ? readScreenerSeenUntil(mailAccountId) : "",
+  const accountGroups = useScreenerSenders(accountScope) ?? [];
+  const [seenUntil, setSeenUntil] = useState<Record<string, string>>(() =>
+    Object.fromEntries(accountScope.map((id) => [id, readScreenerSeenUntil(id)])),
   );
 
-  // Re-read the cursor whenever the account changes — each Mail Account has
-  // its own, and switching accounts must not carry one's "seen" state onto
-  // another's holds.
+  // Re-read every account's cursor whenever Scope changes — each Mail
+  // Account has its own, and widening or narrowing Scope must not carry one
+  // account's "seen" state onto another's holds.
   useEffect(() => {
-    setSeenUntil(mailAccountId ? readScreenerSeenUntil(mailAccountId) : "");
-  }, [mailAccountId]);
+    setSeenUntil(Object.fromEntries(accountScope.map((id) => [id, readScreenerSeenUntil(id)])));
+  }, [accountScope]);
 
-  if (!mailAccountId || groups.length === 0) return null;
-  const unseen = groups.filter((group) => group.heldSince > seenUntil);
+  if (accountGroups.length === 0) return null;
+  const unseen = accountGroups
+    .flatMap((account) => account.senders)
+    .filter((group) => group.heldSince > (seenUntil[group.mailAccountId] ?? ""));
   if (unseen.length === 0) return null;
 
   const names = unseen

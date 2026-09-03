@@ -110,9 +110,11 @@ const Composer = lazy(() =>
  * every account in Scope. `accountId` below stays a single id: the *primary*
  * in-scope account (Scope's first member), which is what every surface this
  * ticket does not redesign still needs one of — a new Composition's default
- * From, the Screener's grouping, Search's account context. Narrowing Scope
- * to exactly one account is what makes that primary and "the selected
- * account" the same thing again, same as before Scope existed.
+ * From, Search's account context. Narrowing Scope to exactly one account is
+ * what makes that primary and "the selected account" the same thing again,
+ * same as before Scope existed. The Screener (#82) is one of the surfaces
+ * that *does* read the whole `accountScope` now, grouping held senders by
+ * account rather than collapsing to the primary alone.
  *
  * `initialLabelFilter`/`initialThreadId`/`onLocationChange` (#71) are the
  * seam the routed `/mail` view (`router/MailRoute.tsx`) uses to keep the URL
@@ -161,7 +163,13 @@ export function MailSection({
   // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen swap
   // of `.mail-body`, the same shape `search.active` already uses below.
   const screenerOpen = folder === "screener";
-  const screenerSenders = useScreenerSenders(accountId) ?? [];
+  // Account Scope (#82): the Screener groups held senders by Mail Account
+  // across the whole Scope, not just the primary account.
+  const screenerAccountGroups = useScreenerSenders(accountScope) ?? [];
+  const screenerSenderCount = screenerAccountGroups.reduce(
+    (sum, group) => sum + group.senders.length,
+    0,
+  );
   const draftCompositions = useDraftCompositions(accountId) ?? [];
   // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
   // User-scoped and synced — `usePreference()` already carries `base ⊕
@@ -280,10 +288,12 @@ export function MailSection({
   // doc comment) — the banner's unseen cursor advances the instant this
   // fires, not on some later "you scrolled past every row" heuristic.
   const openScreener = useCallback(() => {
-    if (!accountId) return;
-    writeScreenerViewed(accountId);
+    if (accountScope.length === 0) return;
+    // Every account in Scope, not just the primary — the Screener now shows
+    // (and the banner now counts) holds across all of them (#82).
+    for (const id of accountScope) writeScreenerViewed(id);
     setFolder("screener");
-  }, [accountId]);
+  }, [accountScope]);
   const closeScreener = useCallback(() => setFolder(DEFAULT_FOLDER), []);
 
   // The Sidebar's folder destinations (#74): every entry but Screener lands
@@ -693,7 +703,7 @@ export function MailSection({
         labelFilter={labelFilter}
         onLabelFilter={selectLabelFilter}
         onCompose={openCompose}
-        screener={{ count: screenerSenders.length, onOpen: openScreener }}
+        screener={{ count: screenerSenderCount, onOpen: openScreener }}
         search={{
           active: search.active,
           queryText: search.queryText,
@@ -713,7 +723,7 @@ export function MailSection({
           (`GatekeeperBanner`'s own doc comment), and `openScreener` just
           wrote a fresh cursor — remounting is what picks it up, so the
           banner doesn't still claim "unseen" for holds it was just shown. */}
-      {!screenerOpen && <GatekeeperBanner mailAccountId={accountId} onOpen={openScreener} />}
+      {!screenerOpen && <GatekeeperBanner accountScope={accountScope} onOpen={openScreener} />}
       <div className="mail-frame">
         <Sidebar
           folder={folder}
@@ -722,12 +732,12 @@ export function MailSection({
           labelFilter={labelFilter}
           onSelectLabel={selectLabelFilter}
           onCompose={openCompose}
-          screenerCount={screenerSenders.length}
+          screenerCount={screenerSenderCount}
           draftsCount={draftCompositions.length}
         />
         <div className="mail-body">
-          {screenerOpen && accountId ? (
-            <Screener mailAccountId={accountId} onClose={closeScreener} />
+          {screenerOpen && accountScope.length > 0 ? (
+            <Screener accountScope={accountScope} onClose={closeScreener} />
           ) : search.active ? (
             <SearchResultsView
               viewMode={viewMode}

@@ -2213,6 +2213,36 @@ button.search-chip-toggle.on {
   padding: 0;
 }
 
+/* Each account's cluster (#82) is its own `<li>` in the outer list — no
+   margin/border of its own, it's the header + rows within that carry any. */
+.screener-group {
+  list-style: none;
+}
+
+.screener-group-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Which Mail Account these slips belong to — sticky so it stays in view
+   while its own cluster scrolls past underneath. Only rendered once Scope
+   holds more than one account (`Screener.tsx`). */
+.screener-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 16px;
+  font-stretch: var(--w-wd-label);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(31 29 24 / 0.72);
+  background: var(--w-fluor-flat);
+  border-bottom: 1px solid rgb(31 29 24 / 0.24);
+}
+
 /* One facing slip per stranger: the Screener lists Unscreened Senders, not
    messages — one decision per stranger, never one per message. */
 .screener-row {

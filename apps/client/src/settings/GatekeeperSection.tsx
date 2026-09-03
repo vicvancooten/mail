@@ -25,6 +25,11 @@ function senderKey(sender: Pick<GatekeeperSender, "scope" | "value">): string {
  * offline and shows immediately, the row removed from local state on click
  * rather than waiting on a round trip, matching the Screener's own "the row
  * leaving is the optimistic feel" (`mutation-queue.ts`'s doc comment).
+ *
+ * Names the Mail Account it changes in its own heading (#82: "Gatekeeper
+ * settings name the account they change; no setting inherits Scope") —
+ * `account` always names one real account, never Account Scope (#73), so a
+ * Verdict from here is never at risk of landing on the wrong mailbox.
  */
 export function GatekeeperSection({ account }: { account: MailAccount }) {
   const [status, setStatus] = useState<GatekeeperStatusResponse | null>(null);
@@ -95,7 +100,7 @@ export function GatekeeperSection({ account }: { account: MailAccount }) {
   if (!status) {
     return (
       <section className="gatekeeper-settings">
-        <h4>Gatekeeper</h4>
+        <h4>Gatekeeper — {account.emailAddress}</h4>
         {error ? <p role="alert">{error}</p> : <p>Loading…</p>}
       </section>
     );
@@ -105,7 +110,7 @@ export function GatekeeperSection({ account }: { account: MailAccount }) {
 
   return (
     <section className="gatekeeper-settings">
-      <h4>Gatekeeper</h4>
+      <h4>Gatekeeper — {account.emailAddress}</h4>
       <p className="gatekeeper-settings-description">
         Hold mail from senders you've never approved in the Screener, so a stranger waits for a
         decision instead of landing straight in the Inbox.
