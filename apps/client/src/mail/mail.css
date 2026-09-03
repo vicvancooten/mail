@@ -1036,6 +1036,13 @@
 
 /* ---------- the Snooze popover (#76): floats, same shell as the label picker ---------- */
 
+/* `ThreadDetailPane`'s own anchor (#79's `h` binding) — `ThreadRow`'s row
+   cluster anchors the same popover off `.thread-row-outer` instead (above). */
+.snooze-menu-anchor {
+  position: relative;
+  display: inline-block;
+}
+
 .snooze-menu {
   position: absolute;
   top: calc(100% + 5px);
@@ -2848,4 +2855,280 @@ button.search-chip-toggle.on {
   margin: 0;
   font-size: 12px;
   color: var(--w-ink-3);
+}
+
+/* ============================================================================
+   COMMAND PALETTE & SHORTCUT SHEET (#79)
+   The Client's discoverability surface: every command, its binding, grouped
+   by section, unbound commands listed too — `⌘K`/the header search field's
+   other entry point opens the Palette, `?` the cheat-sheet variant. Both are
+   the same overlay shell (`.command-palette-backdrop`), a full-viewport
+   scrim over everything else, same "own CSS, no Tailwind" posture the rest
+   of the triage screen keeps (`Composer.tsx`'s own `role="dialog"`, no
+   focus-trap library — Escape and a real `<button>` Close are enough).
+   ========================================================================= */
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  background: color-mix(in oklab, var(--w-ink) 45%, transparent);
+}
+
+.command-palette {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(480px, 70vh);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  box-shadow: var(--w-lift);
+  overflow: hidden;
+}
+
+.command-palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+}
+
+.command-palette-icon {
+  flex: none;
+  color: var(--w-ink-3);
+}
+
+.command-palette-input-row input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--w-ink);
+  font-size: 14px;
+}
+
+.command-palette-close {
+  flex: none;
+  display: flex;
+  border: none;
+  background: transparent;
+  color: var(--w-ink-3);
+  cursor: pointer;
+}
+
+.command-palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.command-palette-empty {
+  padding: 16px 10px;
+  color: var(--w-ink-3);
+  font-size: 13px;
+}
+
+.command-palette-section + .command-palette-section {
+  margin-top: 8px;
+}
+
+.command-palette-section-label {
+  margin: 4px 8px;
+  color: var(--w-ink-3);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.command-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--w-r-band);
+  background: transparent;
+  color: var(--w-ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-palette-row.active {
+  background: var(--w-panel-2);
+}
+
+.command-palette-row.disabled {
+  color: var(--w-ink-3);
+  cursor: default;
+}
+
+.command-palette-row-section {
+  flex: none;
+  min-width: 68px;
+  color: var(--w-ink-3);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.command-palette-row-label {
+  flex: 1;
+}
+
+.command-palette-shortcut {
+  flex: none;
+  padding: 2px 6px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom-width: 2px;
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink-2);
+  font-family: var(--w-mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.command-palette-unbound {
+  flex: none;
+  color: var(--w-ink-3);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.command-palette-hit {
+  gap: 10px;
+}
+
+.command-palette-hit-subject {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-hit-from {
+  flex: none;
+  color: var(--w-ink-3);
+  font-size: 12px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-hit-badge {
+  flex: none;
+  color: var(--w-fluor);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.command-palette-see-all {
+  justify-content: center;
+  color: var(--w-frame);
+  font-weight: 600;
+}
+
+.command-palette-watermark {
+  margin: 4px 8px 2px;
+  color: var(--w-ink-3);
+  font-size: 11px;
+}
+
+/* ---------- the Shortcut Sheet (`?`): same shell, a static cheat sheet ---------- */
+
+.shortcut-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(560px, 70vh);
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  box-shadow: var(--w-lift);
+  overflow: hidden;
+}
+
+.shortcut-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+}
+
+.shortcut-sheet-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.shortcut-sheet-body {
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.shortcut-sheet-section-label {
+  margin: 0 0 6px;
+  color: var(--w-ink-3);
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.shortcut-sheet-section dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcut-sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shortcut-sheet-row dt {
+  margin: 0;
+  font-size: 13px;
+  color: var(--w-ink);
+}
+
+.shortcut-sheet-row dd {
+  margin: 0;
+}
+
+/* Phone (#79's own acceptance box: "a search icon opens it full-screen") —
+   the same overlay as desktop, just edge to edge with no room to breathe
+   above it: at this width there's nowhere else for a modal dialog to sit
+   that wouldn't clip against the keyboard. */
+@media (max-width: 700px) {
+  .command-palette-backdrop {
+    padding: 0;
+  }
+
+  .command-palette,
+  .shortcut-sheet {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+  }
 }

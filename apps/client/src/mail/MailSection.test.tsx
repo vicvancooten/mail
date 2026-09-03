@@ -486,7 +486,7 @@ describe("MailSection", () => {
     expect(screen.getByRole("status").textContent).toBe("Couldn't archive — restored to the list.");
   });
 
-  it("selecting an unread Thread marks it read; u toggles it back to unread (#42)", async () => {
+  it("selecting an unread Thread marks it read; the Mark unread button toggles it back (#42)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -500,13 +500,32 @@ describe("MailSection", () => {
         "unread",
       );
     });
-    expect(await screen.findByRole("button", { name: "Mark unread" })).toBeDefined();
+    const markUnread = await screen.findByRole("button", { name: "Mark unread" });
 
-    fireEvent.keyDown(window, { key: "u" });
+    // `u` no longer toggles read/unread (#79 rebinds it to "back to list") —
+    // the mouse affordance is still the way to reach it, plus the Command
+    // Palette now (`command-palette.test.tsx`).
+    fireEvent.click(markUnread);
     expect(await screen.findByRole("button", { name: "Mark read" })).toBeDefined();
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /Newer thread/ }).className).toContain("unread");
     });
+  });
+
+  it("u (#79, rebound from mark-unread) sends the reading pane back to the list", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+    fireEvent.click(row);
+    await screen.findByText("Newer thread", { selector: ".thread-detail-card h1" });
+
+    fireEvent.keyDown(window, { key: "u" });
+
+    // Split view: "back to list" clears the selection — the reading pane's
+    // own empty state, not a route change.
+    await waitFor(() => expect(screen.getByText("Nothing open")).toBeDefined());
   });
 
   it("the auto-advance direction toggle in the top bar flips trash's neighbor choice", async () => {

@@ -8,19 +8,10 @@ import type { Triage } from "../useTriage.js";
 import type { RowExtra } from "../VirtualizedThreadList.js";
 import { VirtualizedThreadList } from "../VirtualizedThreadList.js";
 import { formatFolderLabel, seededScopeHint } from "./scope.js";
-import type { SearchState } from "./useSearchState.js";
+import { formatIndexWatermark, type SearchState } from "./useSearchState.js";
 
 function formatWatermark(state: SearchState): string | null {
-  const watermark = state.indexWatermark;
-  if (!watermark || watermark.complete) return null;
-  if (!watermark.coveredSince) {
-    return "Still indexing this account — older mail matches on sender and subject only.";
-  }
-  const date = new Date(watermark.coveredSince).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-  });
-  return `Bodies indexed back to ${date} — older mail matches on sender and subject only.`;
+  return formatIndexWatermark(state.indexWatermark);
 }
 
 /**

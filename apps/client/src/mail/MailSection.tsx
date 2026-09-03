@@ -37,6 +37,8 @@ import {
 import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
+import { CommandPalette } from "./command-palette/CommandPalette.js";
+import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
   type AccountScope as AccountScopeIds,
@@ -647,10 +649,41 @@ export function MailSection({
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
 
-  // `/` and `⌘K`/`Ctrl-K` open search and focus the field from anywhere in
-  // the mail section (search-ux-spec.md §The surface), except while typing
-  // elsewhere or with the composer open — the same "not typing" guard
-  // `useTriage`'s own scheme uses.
+  // The Command Palette (#79) and the Shortcut Sheet — two independent
+  // overlays, at most one up at a time in practice (opening one while the
+  // other's up just replaces it, no stacking logic needed).
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  // Set right before a `/`-triggered `.focus()` call, so the search field's
+  // own `onFocus` (below) can tell "the `/` fast path" apart from a mouse
+  // click on the field itself — only the latter is the Palette's other
+  // entry point (#79's issue text: "the header search field is its other
+  // entry point"). A ref, not state: it has to be readable synchronously by
+  // the very next `focus` event, ahead of any render.
+  const suppressPaletteOnFocusRef = useRef(false);
+  const focusSearchField = useCallback(() => {
+    suppressPaletteOnFocusRef.current = true;
+    searchInputRef.current?.focus();
+  }, []);
+
+  // Whichever Thread is actually open right now — the ordinary Inbox
+  // pairing or Search's own, matching the same branch the JSX below already
+  // takes — is what the Palette's Triage commands (and "back to list") act
+  // on; there is no third, Palette-owned notion of "the current Thread".
+  const activeSelectedThread = search.active
+    ? (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null)
+    : (threads.find((candidate) => candidate.id === selectedThreadId) ?? null);
+  const activeTriage = search.active ? searchTriage : triage;
+  const backToList = useCallback(() => {
+    if (search.active) search.select(null);
+    else setSelectedThreadId(null);
+  }, [search.active, search.select]);
+
+  // `/`, `⌘K`/`Ctrl-K` and `?` — all three inert while typing elsewhere, the
+  // composer's open, or the Screener's up (the same "not typing" guard
+  // `useTriage`'s own scheme uses).
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (composeId !== null || screenerOpen) return;
@@ -658,19 +691,30 @@ export function MailSection({
       const typing =
         target &&
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      const isShortcut =
-        event.key === "/" || ((event.metaKey || event.ctrlKey) && event.key === "k");
-      if (!isShortcut || (typing && event.key === "/")) return;
-      event.preventDefault();
-      // Focusing is enough — `TopBar`'s own `onFocus` is what opens search
-      // when it isn't already active (`SearchField`'s own doc comment).
-      // Opening here too would double-push the route (two `/search` history
-      // entries for one open), which then takes two Back presses to leave.
-      searchInputRef.current?.focus();
+
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        // Focusing is enough — `TopBar`'s own `onFocus` is what opens
+        // search when it isn't already active (`SearchField`'s own doc
+        // comment). Opening here too would double-push the route (two
+        // `/search` history entries for one open), which then takes two
+        // Back presses to leave.
+        focusSearchField();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        openPalette();
+        return;
+      }
+      if (event.key === "?" && !typing) {
+        event.preventDefault();
+        setShortcutSheetOpen(true);
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [composeId, screenerOpen]);
+  }, [composeId, screenerOpen, focusSearchField, openPalette]);
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
@@ -702,7 +746,20 @@ export function MailSection({
           onCommit: search.onCommit,
           onEsc: search.onEsc,
           onBackspaceEmpty: search.onBackspaceEmpty,
-          onOpen: () => search.open(searchOrigin),
+          // The header field's own click/focus (#79: "the header search
+          // field is its other entry point" for the Palette) — unless it
+          // was `/` that focused it a moment ago (`suppressPaletteOnFocusRef`
+          // above), in which case this is the pre-#79 "just open search"
+          // path, matching `search-integration.test.tsx`'s own `/`-driven
+          // coverage exactly.
+          onOpen: () => {
+            if (suppressPaletteOnFocusRef.current) {
+              suppressPaletteOnFocusRef.current = false;
+              search.open(searchOrigin);
+            } else {
+              openPalette();
+            }
+          },
           recentSearches: search.recentSearches,
           onRunRecent: search.runRecent,
           onClearRecent: search.clearRecent,
@@ -787,6 +844,22 @@ export function MailSection({
       <GroupBulkToast state={groupBulkToast} onDismiss={() => setGroupBulkToast(null)} />
       <NewMailToast />
       <NotificationOfferBanner />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={closePalette}
+        selectedThread={activeSelectedThread}
+        triage={activeTriage}
+        onReply={openReply}
+        onCompose={openCompose}
+        onBackToList={backToList}
+        onOpenScreener={openScreener}
+        screenerCount={screenerSenders.length}
+        onFocusSearch={focusSearchField}
+        onOpenShortcutSheet={() => setShortcutSheetOpen(true)}
+        search={search}
+        searchOrigin={searchOrigin}
+      />
+      <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
       {composeId && accountId && (
         <Suspense fallback={null}>
           <Composer

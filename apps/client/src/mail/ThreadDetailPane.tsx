@@ -8,6 +8,7 @@ import { useLabels } from "../store/index.js";
 import { LabelPicker } from "./LabelPicker.js";
 import { MessageList } from "./reading/MessageList.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
+import { SnoozeMenu } from "./SnoozeMenu.js";
 import type { Triage } from "./useTriage.js";
 
 /** Reply / reply-all / forward, against one specific Message (compose-spec §Threading headers). */
@@ -16,11 +17,15 @@ export type OnReply = (message: Message, mode: ReplyMode) => void;
 /**
  * The opened-Thread pane: everything the Local Cache already holds about a
  * Thread, rendered with no network wait (#40's third acceptance box), plus
- * (#42) the mouse-reachable half of triage — `e`/`#`/`s`/`u` reach the same
- * four actions from the keyboard (`useTriage.ts`). Pin and Label (#43) join
+ * (#42) the mouse-reachable half of triage — `e`/`#`/`s` reach the same
+ * three actions from the keyboard (`useTriage.ts`). Pin and Label (#43) join
  * it here too: `p` toggles Pin through the same `useTriage` scheme, and `L`
  * opens `LabelPicker` — its own binding, since which Label is a name, not a
- * boolean toggle. The Thread header (subject, participants, labels, actions)
+ * boolean toggle. `h` and `u` (#79, rebound from `useTriage`'s old
+ * move-left and mark-unread) are this pane's own too: `h` opens `SnoozeMenu`
+ * for the open Thread — the same popover `ThreadRow`'s Snooze button opens,
+ * just anchored here instead — and `u` calls `onBack`, the same "Back to
+ * list" pill already does. The Thread header (subject, participants, labels, actions)
  * renders instantly from the Local Cache; the sanitized, sandboxed message
  * bodies (#41, `reading/MessageList.js`) are a per-Thread fetch-through —
  * the wire `Thread` projection is a list-row summary, never a body — so the
@@ -60,6 +65,7 @@ export function ThreadDetailPane({
   const { messages } = useThreadMessages(thread.id);
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
   // The Message `r`/`a`/`f` below should act on: whichever one `MessageList`
   // reports as currently scrolled into view (`onOpenMessageChange`), same
   // notion its own per-Message Reply/Reply All/Forward buttons already
@@ -84,6 +90,14 @@ export function ThreadDetailPane({
         setPickerOpen((open) => !open);
         return;
       }
+      if (event.key === "h") {
+        setSnoozeMenuOpen((open) => !open);
+        return;
+      }
+      if (event.key === "u") {
+        onBack?.();
+        return;
+      }
       const mode =
         event.key === "r"
           ? "reply"
@@ -100,7 +114,7 @@ export function ThreadDetailPane({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [messages, openMessageId, onReply]);
+  }, [messages, openMessageId, onReply, onBack]);
 
   return (
     <div className="thread-detail" key={thread.id}>
@@ -167,7 +181,7 @@ export function ThreadDetailPane({
           <button
             type="button"
             onClick={() => triage.toggleRead(thread.id)}
-            title="Toggle read/unread (u)"
+            title="Toggle read/unread — Command Palette only, no key of its own"
           >
             {unread ? (
               <Pictogram name="opened" size={14} />
@@ -185,6 +199,28 @@ export function ThreadDetailPane({
             <Pictogram name="pin" size={14} />
             {thread.pinned ? "Unpin" : "Pin"}
           </button>
+          <div className="snooze-menu-anchor">
+            <button
+              type="button"
+              className={snoozeMenuOpen ? "on" : ""}
+              aria-haspopup="menu"
+              aria-expanded={snoozeMenuOpen}
+              onClick={() => setSnoozeMenuOpen((open) => !open)}
+              title="Snooze (h)"
+            >
+              <Pictogram name="snooze" size={14} /> Snooze
+            </button>
+            {snoozeMenuOpen ? (
+              <SnoozeMenu
+                thread={thread}
+                onSnooze={(until) => {
+                  triage.snooze(thread.id, until);
+                  setSnoozeMenuOpen(false);
+                }}
+                onClose={() => setSnoozeMenuOpen(false)}
+              />
+            ) : null}
+          </div>
           <div className="label-picker-anchor">
             <button
               type="button"
