@@ -39,6 +39,7 @@ import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { CommandPalette } from "./command-palette/CommandPalette.js";
+import { consumeGlobalPaletteOpenRequest } from "./command-palette/global-open.js";
 import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
@@ -736,6 +737,13 @@ export function MailSection({
   const focusSearchField = useCallback(() => {
     suppressPaletteOnFocusRef.current = true;
     searchInputRef.current?.focus();
+  }, []);
+
+  // ⌘K pressed outside `/mail` navigates here and leaves a one-shot request
+  // behind (`router/RootLayout.tsx`, `global-open.ts`) — consumed once, on
+  // mount, same as any other "arrived with an intent" flag in this file.
+  useEffect(() => {
+    if (consumeGlobalPaletteOpenRequest()) setPaletteOpen(true);
   }, []);
 
   // Whichever Thread is actually open right now — the ordinary Inbox

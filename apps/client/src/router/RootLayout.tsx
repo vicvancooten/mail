@@ -47,6 +47,25 @@ export function RootLayout() {
     });
   }, [navigate]);
 
+  // ⌘K reaches the Command Palette everywhere (the direction contract's
+  // signature interaction), but the Palette itself is Mail-scoped
+  // (`global-open.ts`'s own doc comment). Outside `/mail`, catch the chord
+  // here, record the request, and navigate — `MailSection`'s mount effect
+  // consumes the flag and opens the already-built Palette. Inside `/mail`,
+  // `MailSection` owns `⌘K` directly, so this only needs to act when it's
+  // the one thing mounted.
+  useEffect(() => {
+    if (pathname.startsWith("/mail")) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      requestGlobalPaletteOpen();
+      void navigate({ to: "/mail" });
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pathname, navigate]);
+
   function handleLogout() {
     setSigningOut(true);
     void onLogout().finally(() => setSigningOut(false));
