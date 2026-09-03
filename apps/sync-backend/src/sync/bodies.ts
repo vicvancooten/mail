@@ -50,7 +50,25 @@ export async function fetchMessageBody(
     parts.htmlPart ? downloadTextPart(client, uid, parts.htmlPart) : Promise.resolve(null),
   ]);
 
-  return { text, html: html === null ? null : sanitizeMessageHtml(html) };
+  if (html !== null) {
+    return { text, html: sanitizeMessageHtml(html) };
+  }
+  // No native HTML part (plain-text-only mail, the 35%-ish share
+  // corpus-bench models): the reading pane only ever renders `bodyHtml`
+  // (`MessageBody.tsx`), so a text-only message needs one derived here or
+  // it opens to a blank pane — the "always sanitizer output" invariant
+  // above means "always populated when there's anything to show", not
+  // "html or nothing".
+  return { text, html: text === null ? null : plainTextToHtml(text) };
+}
+
+/** Escapes plain text and turns newlines into `<br />` — safe HTML with no markup of its own. */
+export function plainTextToHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />");
 }
 
 async function downloadTextPart(

@@ -1,6 +1,7 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
+import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
 import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { AvatarMenu } from "./AvatarMenu.js";
