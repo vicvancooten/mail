@@ -23,6 +23,7 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "setRead":
     case "archive":
     case "trash":
+    case "snooze":
     case "setPinned":
     case "applyLabel":
     case "removeLabel":
@@ -56,7 +57,9 @@ function referencedThreadIds(intent: MutationIntent): string[] {
  * (ADR-0010: no coalescing beyond this trivial case). `archive`/`trash`
  * (#42) have no inverse intent yet — there is no `unarchive` — so their key
  * never matches anything else's; `value: true` is a fixed placeholder, not
- * a real toggle. `applyLabel`/`removeLabel` (#43) share one `"label"`
+ * a real toggle. `snooze` (#76) is the same shape for the same reason —
+ * no "un-snooze early" intent yet. `applyLabel`/`removeLabel` (#43) share
+ * one `"label"`
  * bucket keyed on `threadId:name` so applying then removing (or vice versa)
  * the same name on the same Thread while both are still queued coalesces
  * away exactly like star does, rather than shipping a self-cancelling pair.
@@ -71,6 +74,10 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "archive", targetId: intent.threadId, value: true };
     case "trash":
       return { type: "trash", targetId: intent.threadId, value: true };
+    case "snooze":
+      // One-directional, same as archive/trash above — there is no
+      // "un-snooze early" intent yet, so this never coalesces with anything.
+      return { type: "snooze", targetId: intent.threadId, value: true };
     case "setPinned":
       return { type: "setPinned", targetId: intent.threadId, value: intent.pinned };
     case "applyLabel":

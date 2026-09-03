@@ -118,6 +118,19 @@ describe("enqueueMutation", () => {
     expect(await listQueuedMutations(ACCOUNT)).toHaveLength(3);
   });
 
+  it("never coalesces snooze — there is no un-snooze intent yet (#76)", async () => {
+    await enqueueMutation(
+      { type: "snooze", threadId: "t1", until: "2026-06-02T08:00:00.000Z" },
+      ACCOUNT,
+    );
+    await enqueueMutation(
+      { type: "snooze", threadId: "t1", until: "2026-06-03T08:00:00.000Z" },
+      ACCOUNT,
+    );
+
+    expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
+  });
+
   it("re-queues after a star/unstar/star sequence, leaving exactly the last action", async () => {
     await enqueueMutation({ type: "setStarred", threadId: "t1", starred: true }, ACCOUNT);
     await enqueueMutation({ type: "setStarred", threadId: "t1", starred: false }, ACCOUNT);

@@ -283,6 +283,21 @@ describe("flushMutations — archive/trash (#42)", () => {
     ]);
     expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
   });
+
+  it("archiving a still-snoozed Thread clears snoozeUntil (#76): Archive overrides Snooze", async () => {
+    const threadId = await seedThread();
+    await seedFolder("archive", "Archive");
+    await db
+      .update(threads)
+      .set({ snoozeUntil: new Date(Date.now() + 60_000) })
+      .where(eq(threads.id, threadId));
+
+    await flushMutations(db, account.id, [
+      { id: "01ARCHIVE", intent: { type: "archive", threadId } },
+    ]);
+
+    expect((await threadRow(threadId))?.snoozeUntil).toBeNull();
+  });
 });
 
 describe("flushMutations — pin (#43)", () => {
@@ -309,6 +324,66 @@ describe("flushMutations — pin (#43)", () => {
       { id: "01MISSING", intent: { type: "setPinned", threadId: "does-not-exist", pinned: true } },
     ]);
     expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+});
+
+describe("flushMutations — snooze (#76)", () => {
+  it("flips inInbox synchronously and sets snoozeUntil, with no protocol write", async () => {
+    const threadId = await seedThread();
+    const until = new Date(Date.now() + 60_000).toISOString();
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01SNOOZE", intent: { type: "snooze", threadId, until } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01SNOOZE", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.snoozeUntil?.toISOString()).toBe(until);
+    expect(await outboxRows(account.id)).toHaveLength(0);
+  });
+
+  it("rejects a snooze naming a Thread this Mail Account does not have", async () => {
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01MISSING",
+        intent: {
+          type: "snooze",
+          threadId: "does-not-exist",
+          until: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
+    ]);
+    expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+
+  it("rejects a snooze whose `until` is not strictly in the future", async () => {
+    const threadId = await seedThread();
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01PAST",
+        intent: { type: "snooze", threadId, until: new Date(Date.now() - 60_000).toISOString() },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01PAST", status: "rejected", reason: "invalid_snooze_time" }]);
+    expect((await threadRow(threadId))?.inInbox).toBe(true);
+  });
+
+  it("is idempotent: replaying an already-applied snooze id never re-applies it", async () => {
+    const threadId = await seedThread();
+    const until = new Date(Date.now() + 60_000).toISOString();
+
+    const first = await flushMutations(db, account.id, [
+      { id: "01SNOOZE", intent: { type: "snooze", threadId, until } },
+    ]);
+    const second = await flushMutations(db, account.id, [
+      { id: "01SNOOZE", intent: { type: "snooze", threadId, until } },
+    ]);
+
+    expect(first).toEqual([{ id: "01SNOOZE", status: "applied" }]);
+    expect(second).toEqual(first);
   });
 });
 

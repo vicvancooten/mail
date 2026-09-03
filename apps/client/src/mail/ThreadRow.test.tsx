@@ -23,6 +23,7 @@ function makeThread(overrides: Partial<CachedThread> = {}): CachedThread {
     pinned: false,
     labelIds: [],
     heldSender: null,
+    snoozeUntil: null,
     updatedAt: "2026-06-25T09:00:00.000Z",
     sortKey: "2026-06-25T09:00:00.000Z|t1",
     ...overrides,
@@ -48,7 +49,6 @@ describe("ThreadRow — the Done control", () => {
         selected={false}
         onSelect={() => {}}
         onArchive={onArchive}
-        onTrash={() => {}}
       />,
     );
 
@@ -72,7 +72,6 @@ describe("ThreadRow — the Done control", () => {
         selected={false}
         onSelect={onSelect}
         onArchive={onArchive}
-        onTrash={() => {}}
       />,
     );
 
@@ -85,13 +84,7 @@ describe("ThreadRow — the Done control", () => {
   it("clicking anywhere else on the row still selects it", () => {
     const onSelect = vi.fn();
     render(
-      <ThreadRow
-        thread={makeThread()}
-        selected={false}
-        onSelect={onSelect}
-        onArchive={() => {}}
-        onTrash={() => {}}
-      />,
+      <ThreadRow thread={makeThread()} selected={false} onSelect={onSelect} onArchive={() => {}} />,
     );
 
     fireEvent.click(screen.getByText("Quarterly numbers"));
@@ -105,13 +98,7 @@ describe("ThreadRow — the Done control", () => {
 
   it("arms the cluster on hover, on focus, and when selected (j/k arrival) alike — real state, not just :hover", () => {
     const { rerender } = render(
-      <ThreadRow
-        thread={makeThread()}
-        selected={false}
-        onSelect={() => {}}
-        onArchive={() => {}}
-        onTrash={() => {}}
-      />,
+      <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onArchive={() => {}} />,
     );
     const row = screen.getByRole("option");
     expect(row.getAttribute("data-armed")).toBe("false");
@@ -130,31 +117,67 @@ describe("ThreadRow — the Done control", () => {
     // `selected` exactly the way a click does (its own doc comment) — here,
     // that's just the `selected` prop.
     rerender(
-      <ThreadRow
-        thread={makeThread()}
-        selected={true}
-        onSelect={() => {}}
-        onArchive={() => {}}
-        onTrash={() => {}}
-      />,
+      <ThreadRow thread={makeThread()} selected={true} onSelect={() => {}} onArchive={() => {}} />,
     );
     expect(screen.getByRole("option").getAttribute("data-armed")).toBe("true");
   });
 
   it("the Done control keeps a real accessible name reachable by keyboard even while unarmed", () => {
     render(
-      <ThreadRow
-        thread={makeThread()}
-        selected={false}
-        onSelect={() => {}}
-        onArchive={() => {}}
-        onTrash={() => {}}
-      />,
+      <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onArchive={() => {}} />,
     );
     // Not hovered, not focused, not selected — still in the tab order with
     // its name, which is the whole point of "reserved space" (#66 user
     // story 56): a hover-revealed action must never be pointer-only.
     const done = screen.getByRole("button", { name: 'Mark "Quarterly numbers" Done' });
     expect(done.tabIndex).toBe(0);
+  });
+});
+
+/**
+ * The row cluster's Snooze control (#76): a button naming the Thread,
+ * opening a small popover of presets plus a custom pick — never firing
+ * `onSnooze` itself on click, unlike Done, since which time to snooze until
+ * is exactly what the popover exists to ask.
+ */
+describe("ThreadRow — the Snooze control", () => {
+  it("renders a Snooze control naming the Thread, and omits it when unwired", () => {
+    render(<ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Snooze/ })).toBeNull();
+
+    render(
+      <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onSnooze={() => {}} />,
+    );
+    expect(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
+  });
+
+  it("clicking Snooze opens a popover of presets rather than snoozing directly", () => {
+    const onSnooze = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <ThreadRow thread={makeThread()} selected={false} onSelect={onSelect} onSnooze={onSnooze} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' }));
+
+    expect(onSnooze).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Later today" })).not.toBeNull();
+  });
+
+  it("picking a preset calls onSnooze with an ISO instant and closes the popover", () => {
+    const onSnooze = vi.fn();
+    render(
+      <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onSnooze={onSnooze} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Later today" }));
+
+    expect(onSnooze).toHaveBeenCalledTimes(1);
+    const [until] = onSnooze.mock.calls[0] as [string];
+    expect(Number.isNaN(Date.parse(until))).toBe(false);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

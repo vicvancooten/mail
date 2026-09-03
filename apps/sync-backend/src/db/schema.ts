@@ -459,6 +459,13 @@ export const threads = pgTable(
     // `sync/mutations.ts` alone.
     heldSender: text("held_sender"),
     heldAt: timestamp("held_at", { withTimezone: true }),
+    // Snooze (#76, CONTEXT.md): the instant this Thread wakes, or null when
+    // it isn't snoozed. An App Feature, `sync/mutations.ts`'s own field
+    // exactly like `pinned`/`heldSender` above — no rollup ever touches it.
+    // `sync/snooze.ts`'s wake sweep is the only thing that ever clears it
+    // (there is no "un-snooze early" intent), the same one-directional shape
+    // `inInbox` itself already has for `archive`/`trash`.
+    snoozeUntil: timestamp("snooze_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // See `mailAccounts.syncRev`/`syncCreatedRev` above — same trigger, same
@@ -478,6 +485,13 @@ export const threads = pgTable(
     index("threads_held_sender_idx")
       .on(table.mailAccountId, table.heldSender)
       .where(sql`${table.heldSender} is not null`),
+    // The Snooze wake sweep's own query (#76, `sync/snooze.ts`): partial for
+    // the same reason `threads_held_sender_idx` above is — a snoozed Thread
+    // is a rounding error against an 80k-thread account, and the sweep only
+    // ever needs the rows this admits.
+    index("threads_snooze_until_idx")
+      .on(table.snoozeUntil)
+      .where(sql`${table.snoozeUntil} is not null`),
   ],
 );
 

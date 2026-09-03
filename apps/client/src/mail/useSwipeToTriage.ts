@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 
 /**
- * Swipe-to-archive/-trash on touch (#44, `poc-scope.md` §Clients &
- * notifications: "swipe gestures on touch"). One `ThreadRow` calls this once
- * and spreads `handlers` onto its swipeable surface; `offsetX`/`revealing`
- * drive the drag transform and the background reveal purely from render, no
- * imperative DOM writes.
+ * Swipe-to-Done/-Snooze on touch (#44, `poc-scope.md` §Clients &
+ * notifications: "swipe gestures on touch"; #76's own "on phone swipe left
+ * snoozes" — see `snooze` below for what a bare swipe commits to). One
+ * `ThreadRow` calls this once and spreads `handlers` onto its swipeable
+ * surface; `offsetX`/`revealing` drive the drag transform and the
+ * background reveal purely from render, no imperative DOM writes.
  *
  * Deliberately Pointer Events, gated to `pointerType === "touch"`: a mouse
  * drag on desktop must not trigger this (there's no equivalent affordance to
@@ -28,7 +29,7 @@ const DIRECTION_DEAD_ZONE_PX = 8;
 /** Drag is clamped here so the reveal never outruns what the row can visually show. */
 const MAX_DRAG_PX = 160;
 
-export type SwipeAction = "archive" | "trash";
+export type SwipeAction = "archive" | "snooze";
 
 export interface SwipeToTriage {
   /** Current horizontal drag offset, clamped to +/- `MAX_DRAG_PX`; 0 when idle. */
@@ -47,10 +48,11 @@ export interface SwipeToTriage {
 
 export function useSwipeToTriage({
   onArchive,
-  onTrash,
+  onSnooze,
 }: {
   onArchive: () => void;
-  onTrash: () => void;
+  /** #76's "on phone swipe left snoozes" — committed with no picker in reach, so this always snoozes to `snooze-presets.ts`'s `defaultSwipeSnoozeUntil` (`ThreadRow.tsx`'s own wiring, not this hook's business). */
+  onSnooze: () => void;
 }): SwipeToTriage {
   const [offsetX, setOffsetX] = useState(0);
   const [settling, setSettling] = useState(false);
@@ -82,10 +84,10 @@ export function useSwipeToTriage({
       if (pointerIdRef.current !== event.pointerId) return;
       const delta = event.clientX - startXRef.current;
       if (delta >= SWIPE_COMMIT_THRESHOLD_PX) onArchive();
-      else if (delta <= -SWIPE_COMMIT_THRESHOLD_PX) onTrash();
+      else if (delta <= -SWIPE_COMMIT_THRESHOLD_PX) onSnooze();
       reset();
     },
-    [onArchive, onTrash, reset],
+    [onArchive, onSnooze, reset],
   );
 
   const onPointerCancel = useCallback(
@@ -100,7 +102,7 @@ export function useSwipeToTriage({
     offsetX >= DIRECTION_DEAD_ZONE_PX
       ? "archive"
       : offsetX <= -DIRECTION_DEAD_ZONE_PX
-        ? "trash"
+        ? "snooze"
         : null;
 
   return {

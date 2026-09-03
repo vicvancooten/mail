@@ -348,6 +348,80 @@ describe("readThreadWindow — Label filter view (#43)", () => {
   });
 });
 
+describe("readThreadWindow — Snooze (#76)", () => {
+  it("hides a Thread from the Inbox and lists it in Snoozed the instant snooze is queued", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1"),
+          makeThread("t2", "acct-1", { lastMessageAt: minutesAfterEpoch(1) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    await enqueueMutation(
+      { type: "snooze", threadId: "t1", until: "2026-06-02T08:00:00.000Z" },
+      "acct-1",
+    );
+
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t2"]);
+    const snoozed = await readThreadWindow("acct-1", { view: "snoozed" });
+    expect(snoozed.threads.map((thread) => thread.id)).toEqual(["t1"]);
+  });
+
+  it("a Thread the Sync Backend already snoozed lists in Snoozed with no pending mutation at all", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { inInbox: false, snoozeUntil: "2026-06-02T08:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toHaveLength(1);
+  });
+
+  it("excludes a snoozed-then-trashed Thread from Snoozed — Trash overrides it", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", {
+            inInbox: false,
+            snoozeUntil: "2026-06-02T08:00:00.000Z",
+            folderRole: "trash",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
+  });
+
+  it("archiving a still-snoozed Thread drops it out of Snoozed the instant it's queued — Archive overrides Snooze", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { inInbox: false, snoozeUntil: "2026-06-02T08:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toHaveLength(1);
+
+    await enqueueMutation({ type: "archive", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
+  });
+});
+
 describe("readLabels", () => {
   it("returns this Mail Account's Labels, name-ordered", async () => {
     await applyLabelDelta(

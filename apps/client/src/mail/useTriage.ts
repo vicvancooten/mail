@@ -11,16 +11,16 @@ import { neighborId } from "./thread-navigation.js";
  * every view mode"). Owns three things, all keyboard- and mouse-reachable
  * alike:
  *
- * - The four actions — `archive`, `trash`, `toggleStar`, `toggleRead` —
- *   each a single `enqueueMutation` call (ADR-0010's overlay does the rest:
- *   `store/reads.ts` is what a Thread disappearing or its star flipping
- *   actually renders from, not anything returned here).
- * - Auto-advance: archiving/trashing the *currently selected* Thread moves
- *   the selection to its neighbor first — computed from `ids` before the
- *   Thread vanishes from it, never after — per `direction`. Archiving a
- *   Thread that isn't selected (a future multi-select, a mouse action on a
- *   row you're not reading) leaves the selection alone, matching an
- *   ordinary mail client.
+ * - The core actions — `archive`, `trash`, `snooze` (#76), `toggleStar`,
+ *   `toggleRead` — each a single `enqueueMutation` call (ADR-0010's overlay
+ *   does the rest: `store/reads.ts` is what a Thread disappearing or its
+ *   star flipping actually renders from, not anything returned here).
+ * - Auto-advance: archiving/trashing/snoozing the *currently selected*
+ *   Thread moves the selection to its neighbor first — computed from `ids`
+ *   before the Thread vanishes from it, never after — per `direction`.
+ *   Archiving a Thread that isn't selected (a future multi-select, a mouse
+ *   action on a row you're not reading) leaves the selection alone, matching
+ *   an ordinary mail client.
  * - Mark-as-read on open: selecting any unread Thread, by any means,
  *   queues `setRead(true)` for it. Read via a ref so it fires once per
  *   *selection change* — depending on `threads` directly would refire (and
@@ -50,6 +50,8 @@ import { neighborId } from "./thread-navigation.js";
 export interface Triage {
   archive(threadId: string): void;
   trash(threadId: string): void;
+  /** Snooze (#76): `until` is an ISO datetime, computed by the caller (`snooze-presets.ts`'s presets, or a custom pick) — this hook makes no time decisions of its own. */
+  snooze(threadId: string, until: string): void;
   toggleStar(threadId: string): void;
   toggleRead(threadId: string): void;
   togglePin(threadId: string): void;
@@ -135,6 +137,16 @@ export function useTriage({
       advanceSelection(threadId);
       if (!mailAccountId) return;
       void enqueueMutation({ type: "trash", threadId }, mailAccountId);
+      notifyTriageSucceeded();
+    },
+    [advanceSelection, mailAccountId],
+  );
+
+  const snooze = useCallback(
+    (threadId: string, until: string) => {
+      advanceSelection(threadId); // same "leaves the Inbox" reasoning archive/trash's own comment gives
+      if (!mailAccountId) return;
+      void enqueueMutation({ type: "snooze", threadId, until }, mailAccountId);
       notifyTriageSucceeded();
     },
     [advanceSelection, mailAccountId],
@@ -259,5 +271,5 @@ export function useTriage({
     shortcutsDisabled,
   ]);
 
-  return { archive, trash, toggleStar, toggleRead, togglePin, applyLabel, removeLabel };
+  return { archive, trash, snooze, toggleStar, toggleRead, togglePin, applyLabel, removeLabel };
 }

@@ -73,7 +73,7 @@ export function VirtualizedThreadList({
   onSelect: (id: string) => void;
   /** Requests a wider page — called once as the viewport nears the bottom. */
   onLoadMore?: () => void;
-  /** Present wires each row's swipe-to-archive/-trash (#44); omitted, rows render with no swipe affordance. */
+  /** Present wires each row's swipe-to-Done/-Snooze (#44, #76); omitted, rows render with no swipe affordance. */
   triage?: Triage;
   /** `false` for search's ranked, ungrouped result list (search-ux-spec.md §The result list). */
   group?: boolean;
@@ -244,7 +244,7 @@ export function VirtualizedThreadList({
                   selected={item.thread.id === selectedThreadId}
                   onSelect={() => onSelect(item.thread.id)}
                   onArchive={triage ? () => triage.archive(item.thread.id) : undefined}
-                  onTrash={triage ? () => triage.trash(item.thread.id) : undefined}
+                  onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   headline={extra?.headline}
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}

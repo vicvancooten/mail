@@ -706,19 +706,24 @@
   font-size: 9px;
 }
 
-/* Reserved space for the row's Done control (#66 user stories 10-11, #75):
-   fixed width whether armed or not, left of the Avatar and never
-   overlapping it, so arming the cluster never shifts anything else in the
-   row and a Done click is never confused with a selection. */
+/* Reserved space for the row's Done and Snooze controls (#66 user stories
+   10-11, #75, #76): fixed width whether armed or not, left of the Avatar
+   and never overlapping it, so arming the cluster never shifts anything
+   else in the row and a Done/Snooze click is never confused with a
+   selection. Wide enough for both 22px controls side by side, whether or
+   not both are actually wired for a given row (search's non-triage rows
+   render the slot empty). */
 .thread-row .row-done-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  gap: 2px;
+  width: 46px;
   flex-shrink: 0;
 }
 
-.thread-row .row-done {
+.thread-row .row-done,
+.thread-row .row-snooze {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -738,23 +743,32 @@
 /* Armed is real component state (`ThreadRow`'s `data-armed`) driven by
    hover, focus, or arriving on the row with j/k (#66, #75) — never a bare
    `:hover` rule, so the same "what's armed" question has one answer for a
-   future native Client's touch/keyboard model too. */
+   future native Client's touch/keyboard model too. An open Snooze popover
+   also keeps its own trigger visible (`.row-snooze[aria-expanded="true"]`)
+   — closing the menu must never make the button that opened it vanish out
+   from under a still-open popover. */
 .thread-row[data-armed="true"] .row-done,
-.thread-row .row-done:focus-visible {
+.thread-row[data-armed="true"] .row-snooze,
+.thread-row .row-done:focus-visible,
+.thread-row .row-snooze:focus-visible,
+.thread-row .row-snooze[aria-expanded="true"] {
   opacity: 1;
   pointer-events: auto;
 }
 
-.thread-row .row-done:hover {
+.thread-row .row-done:hover,
+.thread-row .row-snooze:hover {
   background: var(--w-panel-2);
   color: var(--w-ink);
 }
 
-.thread-row.selected .row-done {
+.thread-row.selected .row-done,
+.thread-row.selected .row-snooze {
   color: var(--w-frame);
 }
 
-.thread-row.selected .row-done:hover {
+.thread-row.selected .row-done:hover,
+.thread-row.selected .row-snooze:hover {
   background: color-mix(in oklab, var(--w-frame) 18%, transparent);
 }
 
@@ -848,9 +862,17 @@
 }
 
 /* ============================================================================
-   SWIPE-TO-TRIAGE (#44, touch only)
+   SWIPE-TO-TRIAGE (#44, #76, touch only)
    The reveal is the tray the item is being dropped into.
    ========================================================================= */
+
+/* The positioning context `.snooze-menu` floats against (below): a sibling
+   of `.thread-row-swipe`, never a descendant of it — that wrapper's own
+   `overflow: hidden` (needed to clip the swipe drag to the row's bounds)
+   would clip a floated popover just as it clips an over-dragged row. */
+.thread-row-outer {
+  position: relative;
+}
 
 .thread-row-swipe {
   position: relative;
@@ -884,16 +906,107 @@
   justify-content: flex-start;
 }
 
-.swipe-reveal.trash {
-  background: var(--w-postal);
+/* #76: swipe left now snoozes, not trashes (#66's own "swipe right marks
+   Done, swipe left snoozes") — Trash keeps its keyboard binding
+   (`useTriage.ts`'s `#`/Backspace/Delete) but no row-level swipe of its
+   own. `--w-fluor-flat` (warn) rather than `--w-postal` (danger): Snooze
+   isn't destructive, so its tray shouldn't read as one — same dark-on-warn
+   ink the Gatekeeper's own `--w-fluor-flat` surfaces use, since `--w-bone`
+   (the base `.swipe-reveal`'s light text) has no contrast against it. */
+.swipe-reveal.snooze {
+  background: var(--w-fluor-flat);
+  color: #1f1d18;
   justify-content: flex-end;
 }
 
 .swipe-reveal-archive,
-.swipe-reveal-trash {
+.swipe-reveal-snooze {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+}
+
+/* ---------- the Snooze popover (#76): floats, same shell as the label picker ---------- */
+
+.snooze-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 14px;
+  z-index: 10;
+  min-width: 190px;
+  padding: 7px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel);
+  box-shadow: var(--w-lift);
+}
+
+.snooze-menu-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.snooze-menu-list button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 5px 7px;
+  border: none;
+  border-radius: var(--w-r-plate);
+  background: transparent;
+  color: var(--w-ink-2);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.snooze-menu-list button:hover {
+  background: var(--w-panel-2);
+  color: var(--w-ink);
+}
+
+.snooze-menu-custom {
+  display: flex;
+  gap: 6px;
+  border-top: var(--w-hair) solid var(--w-rule);
+  padding-top: 7px;
+}
+
+.snooze-menu-custom input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-frame);
+  color: var(--w-ink);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.snooze-menu-custom button {
+  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--w-r-plate);
+  background: var(--w-panel-2);
+  color: var(--w-ink);
+  padding: 4px 10px;
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.snooze-menu-custom button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ============================================================================
@@ -2233,11 +2346,13 @@ button.search-chip-toggle.on {
     width: 104px;
   }
 
-  /* Phone: the Done control is persistent rather than hover-gated (#66 user
-     story 47, #75) — there is no hover on touch, so the primary action has
-     to be reachable without one. Swipe right still commits the same
-     action (`useSwipeToTriage.ts`); this is the tap-target for it. */
-  .thread-row .row-done {
+  /* Phone: the Done and Snooze controls are persistent rather than
+     hover-gated (#66 user story 47, #75, #76) — there is no hover on touch,
+     so the primary actions have to be reachable without one. Swipe still
+     commits the same actions (`useSwipeToTriage.ts`); these are the
+     tap-targets for them. */
+  .thread-row .row-done,
+  .thread-row .row-snooze {
     opacity: 1;
     pointer-events: auto;
   }
@@ -2312,7 +2427,9 @@ button.search-chip-toggle.on {
 @container (max-width: 520px) {
   .thread-list:not(.thread-list--compact) .thread-row {
     display: grid;
-    grid-template-columns: 22px 26px minmax(0, 1fr) auto;
+    /* First column widened from 22px to 46px (#76): `.row-done-slot` now
+       reserves room for both the Done and Snooze controls, not Done alone. */
+    grid-template-columns: 46px 26px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
     align-items: center;
     column-gap: 9px;

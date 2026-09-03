@@ -118,6 +118,18 @@ export const threadSchema = z.object({
    * to restore.
    */
   heldSender: z.string().nullable(),
+  /**
+   * Snooze (#76, CONTEXT.md: "hiding a thread until a chosen time, after
+   * which it returns as new"): the instant this Thread wakes, or `null` when
+   * it isn't snoozed. An App Feature (ADR-0006) with zero IMAP-side trace —
+   * `inInbox` flips to `false` the same instant this is set (the same
+   * synchronous-ack shape `archive`/`trash` already use), and back to `true`
+   * once the Sync Backend's wake sweep clears this field, with nothing ever
+   * written to the mailbox either way. One-directional the same way
+   * `archive`/`trash` are: there is no "un-snooze early" intent yet, so the
+   * only way this clears is the wake sweep itself.
+   */
+  snoozeUntil: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime(),
 });
 export type Thread = z.infer<typeof threadSchema>;
@@ -325,6 +337,13 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `false` and, asynchronously, moves whatever of its Messages sit in the
  * Inbox to the account's Archive/Trash folder over real IMAP (ADR-0006).
  *
+ * `snooze` (#76, CONTEXT.md's Snooze entry) is a third one-directional
+ * Thread-hiding intent, same shape as `archive`/`trash` and never
+ * coalescing with anything either — but, being an App Feature (ADR-0006), it
+ * never enqueues a protocol write: `until` only ever moves the Thread row's
+ * own `snoozeUntil`/`inInbox` fields, and the Sync Backend's own wake sweep
+ * (not a Client-sent intent) is what clears them again once `until` passes.
+ *
  * `setPinned` (#43) mirrors `setStarred`'s absolute-set shape exactly, but
  * — Pin being an App Feature (ADR-0006) — never enqueues a protocol write:
  * it touches only the Thread row, never a Message's flags.
@@ -390,6 +409,7 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setRead"), threadId: z.string(), read: z.boolean() }),
   z.object({ type: z.literal("archive"), threadId: z.string() }),
   z.object({ type: z.literal("trash"), threadId: z.string() }),
+  z.object({ type: z.literal("snooze"), threadId: z.string(), until: z.iso.datetime() }),
   z.object({ type: z.literal("setPinned"), threadId: z.string(), pinned: z.boolean() }),
   z.object({ type: z.literal("applyLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),

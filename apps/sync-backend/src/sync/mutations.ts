@@ -109,6 +109,11 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
  * nothing to retry it into. `setPinned`/`applyLabel`/`removeLabel` (#43) are
  * App Features (ADR-0006): all three touch only the Thread row, and none
  * ever enqueues a protocol write — no IMAP-side trace for either feature.
+ * `snooze` (#76) is the same shape, plus `archive`/`trash`'s own
+ * synchronous `inInbox: false` ack — a permanent rejection for a Thread this
+ * account no longer has, same as every intent above, and also for a
+ * non-future `until` (`invalid_snooze_time`), since a Thread can't be
+ * snoozed into the past.
  */
 async function applyIntent(
   db: Db,
@@ -187,7 +192,12 @@ async function applyIntent(
       const inboxMessageIds = await inboxResidentMessageIds(db, intent.threadId);
       await db
         .update(threads)
-        .set({ inInbox: false, folderRole: intent.type })
+        // Also clears `snoozeUntil` (#76): archiving/trashing a still-snoozed
+        // Thread is a more final decision than the one Snooze made, and
+        // without this the wake sweep (`sync/snooze.ts`) would later flip
+        // `inInbox` back to `true` on a Thread the User has since archived
+        // or trashed — "un-triaging" it out from under them.
+        .set({ inInbox: false, folderRole: intent.type, snoozeUntil: null })
         .where(eq(threads.id, intent.threadId));
       await enqueueProtocolWrites(db, mailAccountId, inboxMessageIds, intent.type);
       return { ok: true };
@@ -202,6 +212,24 @@ async function applyIntent(
         .set({ pinned: intent.pinned })
         .where(eq(threads.id, intent.threadId));
       return { ok: true };
+
+    case "snooze": {
+      // Snooze (#76) is an App Feature exactly like Pin above — the Thread
+      // row is the whole of it, no protocol write ever enqueued — but,
+      // mirroring `archive`/`trash`'s synchronous-ack shape, it also flips
+      // `inInbox` to `false` the instant it lands: a snoozed Thread leaves
+      // the Inbox the same round trip that acks the mutation, not once
+      // `sync/snooze.ts`'s wake sweep eventually clears it.
+      const until = new Date(intent.until);
+      if (Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) {
+        return { ok: false, reason: "invalid_snooze_time" };
+      }
+      await db
+        .update(threads)
+        .set({ inInbox: false, snoozeUntil: until })
+        .where(eq(threads.id, intent.threadId));
+      return { ok: true };
+    }
 
     case "applyLabel": {
       const name = normalizeLabelName(intent.name);

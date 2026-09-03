@@ -1,0 +1,2 @@
+ALTER TABLE "threads" ADD COLUMN "snooze_until" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "threads_snooze_until_idx" ON "threads" USING btree ("snooze_until") WHERE "threads"."snooze_until" is not null;
