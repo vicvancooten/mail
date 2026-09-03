@@ -9,7 +9,6 @@ import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
-import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   enqueueUserMutation,
@@ -75,8 +74,23 @@ const Composer = lazy(() =>
  * is the ordinary Inbox, a Label id filters it — see `store/db.ts#ViewKey`
  * for why that's a client-side filter over the one synced window rather
  * than a second one.
+ *
+ * `initialLabelFilter`/`initialThreadId`/`onLocationChange` (#71) are the
+ * seam the routed `/mail` view (`router/MailRoute.tsx`) uses to keep the URL
+ * a mirror of "which label, which Thread" without this component knowing
+ * anything about TanStack Router — every other caller (every test in this
+ * file included) renders `<MailSection />` bare and gets exactly today's
+ * unrouted behavior, seeded to Inbox/no-selection and reporting to nobody.
  */
-export function MailSection() {
+export function MailSection({
+  initialLabelFilter = null,
+  initialThreadId = null,
+  onLocationChange,
+}: {
+  initialLabelFilter?: string | null;
+  initialThreadId?: string | null;
+  onLocationChange?: (location: { labelFilter: string | null; threadId: string | null }) => void;
+} = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
 
@@ -89,12 +103,13 @@ export function MailSection() {
   const [density, setDensity] = useState(readListDensity);
   const rowHeight = density === "compact" ? COMPACT_ROW_HEIGHT : undefined;
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen
   // swap of `.mail-body`, the same shape `search.active` already uses below
-  // — there is no router here, so "a screen" means a boolean and a
-  // conditional render, not a route.
+  // — deliberately still a boolean and a conditional render, not a route
+  // (#71 gives `/mail` a route, but the Screener is a working surface layered
+  // over it, the same reasoning ADR-0017 gives for search).
   const [screenerOpen, setScreenerOpen] = useState(false);
   const screenerSenders = useScreenerSenders(accountId) ?? [];
   // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
@@ -106,8 +121,16 @@ export function MailSection() {
   const direction = preference?.autoAdvanceDirection ?? DEFAULT_AUTO_ADVANCE_DIRECTION;
   // Filter-by-label (#43): "a label filter behaves as a view, bounded
   // window like any other" — `null` means the ordinary Inbox view.
-  const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [labelFilter, setLabelFilter] = useState<string | null>(initialLabelFilter);
   const labels = useLabels(accountId) ?? [];
+
+  // Report label/Thread selection to whoever asked (`onLocationChange`) —
+  // routed callers use this to keep `/mail`'s URL a mirror of this state
+  // (#71); an unrouted caller (every test in this file) leaves it unset and
+  // nothing happens.
+  useEffect(() => {
+    onLocationChange?.({ labelFilter, threadId: selectedThreadId });
+  }, [labelFilter, selectedThreadId, onLocationChange]);
 
   // One composer at a time (#45, compose-spec §Composer surface & keys).
   // Reads `readOpenComposerId()` once, at mount, so a composer left open
@@ -194,10 +217,11 @@ export function MailSection() {
   // A notification click landing here (#53, ADR-0015: "a click always
   // lands where the next decision is"): the service worker only knows how
   // to focus/open this one window, so `notification-router.ts` is what
-  // turns "which Thread / Composition / Mail Account" into React state (or,
-  // for `needs-reauth`, a DOM scroll into `MailAccountsSection`'s
-  // always-rendered list — this Client has no router to navigate with)
-  // once the click actually reaches this component.
+  // turns "which Thread / Composition" into React state once the click
+  // actually reaches this component. `needs-reauth` isn't handled here —
+  // that target names a Mail Account's *Settings*, a different route now
+  // (#71), and lands in `router/RootLayout.tsx` instead, which is mounted
+  // regardless of which route is current.
   useEffect(() => {
     return subscribeNotificationTarget((target) => {
       switch (target.kind) {
@@ -213,7 +237,6 @@ export function MailSection() {
           reopenCompose(target.compositionId);
           return;
         case "needs-reauth":
-          scrollToMailAccountSettings(target.mailAccountId);
           return;
       }
     });

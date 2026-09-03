@@ -273,7 +273,7 @@ Both are self-hosted from the app's own origin via `@fontsource-variable`, using
 
 ## Layout
 
-The app is one frame filling the viewport: a rail (`44px`) over the mail frame (`calc(100dvh - 44px)`, min 460px), with settings as a compartment reached by scrolling — there is no router. A drawn 3px aniline **stile** is fixed to the left edge of the shell and the pre-session frame as a structural member (not a border), and every level of the app registers to it via a matching 3px left inset. The same edge appears on the social card and the README banner.
+The app is one frame filling the viewport, and the shell owns it: `.app-shell` is `100dvh` with `overflow: hidden`, never `min-height`/`100vh`, so the document itself never scrolls at any width. Whichever route is current (Mail, Settings, or a placeholder App — `router/routes.tsx`) renders into `.app-viewport`, a bounded pane below the header rail; each route's own top-level element is itself `height: 100%; min-height: 0` and scrolls independently. A drawn 3px aniline **stile** is fixed to the left edge of the shell and the pre-session frame as a structural member (not a border), and every level of the app registers to it via a matching 3px left inset. The same edge appears on the social card and the README banner.
 
 Compartments divide on hairline rules that meet at the corners: `{colors.rule-hard}` between compartments and around controls, `{colors.rule}` between rows inside one. Nothing gaps, nothing rounds away from its neighbour, nothing casts a shadow onto the frame.
 

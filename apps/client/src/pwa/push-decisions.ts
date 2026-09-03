@@ -95,11 +95,10 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
 
 /**
  * What a click on the notification's body (no action button) should do:
- * every kind focuses/opens the one window this Client already stacks every
- * section into (`AppShell`'s own doc comment — "there is no router in this
- * Client"), and three kinds additionally name what to land on inside it, so
- * the focused window can route there (ADR-0015: "a click always lands where
- * the next decision is"):
+ * every kind focuses/opens the one window this Client runs (`AppShell`
+ * mounts one `Router`, `router/routes.tsx`), and three kinds additionally
+ * name what to land on inside it, so the focused window can route there
+ * (ADR-0015: "a click always lands where the next decision is"):
  *
  * - `new_mail` names the Thread to select.
  * - `failed_send` names the Composition to reopen — the restored Draft in

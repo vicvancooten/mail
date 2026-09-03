@@ -6,8 +6,14 @@
    Tokens: src/index.css. Specification: docs/design/wicket-identity.html
    ========================================================================= */
 
+/* The one scroll boundary above `.app-shell` (#71: `body` is `overflow:
+   hidden` now, `index.css`'s own doc comment): harmless once signed in,
+   since `.app-shell` below fills exactly `100dvh` and never overflows it;
+   load-bearing pre-session, where `.auth-frame`'s claim/login plate can
+   still run taller than the viewport on a small screen. */
 .app-frame {
-  min-height: 100dvh;
+  height: 100%;
+  overflow-y: auto;
   background: var(--w-frame);
   color: var(--w-ink);
 }
@@ -219,8 +225,15 @@
    AUTHENTICATED SHELL
    ========================================================================= */
 
+/* The viewport-owning shell (#71): `height` (never `min-height`, never
+   `100vh`) plus `overflow: hidden` is what makes the document itself never
+   scroll, at any width — every routed pane underneath (`.app-viewport`'s
+   one child) is its own `height: 100%; min-height: 0` compartment that
+   scrolls on its own instead. This is the fix for both reported phone
+   layout bugs; see `.app-viewport` below for the chain it replaces. */
 .app-shell {
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--w-frame);
@@ -266,6 +279,42 @@
 
 .shell-rail .wordmark-name {
   font-size: 16px;
+}
+
+/* #71: the one nav this ticket adds — Mail and Settings, both real routes
+   now. The App switcher (Contacts/Calendar/Tasks) is the next ticket's;
+   those three stay reachable only by URL until it lands. */
+.shell-nav {
+  display: flex;
+  gap: 2px;
+}
+
+.shell-nav-link {
+  appearance: none;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: var(--w-r-plate);
+  color: var(--w-ink-2);
+  font-family: inherit;
+  font-stretch: var(--w-wd-label);
+  font-weight: 620;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition:
+    color var(--w-dur-press) linear,
+    background var(--w-dur-press) linear;
+}
+
+.shell-nav-link:hover {
+  color: var(--w-ink);
+  background: var(--w-panel-2);
+}
+
+.shell-nav-link[data-active="true"] {
+  color: var(--w-ink);
+  background: var(--w-panel-2);
 }
 
 .shell-rail-spacer {
@@ -344,28 +393,41 @@
   cursor: progress;
 }
 
-/* The mail frame is the primary surface and takes the viewport; settings is
-   the compartment below it, reached by scrolling rather than by navigating
-   (there is no router in this Client). */
-.shell-mail {
-  height: calc(100dvh - 44px);
-  min-height: 460px;
-  display: flex;
-  flex-direction: column;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
-}
-
-.shell-mail > * {
+/* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`
+   rather than a hand-computed "rail is 44px" calc, so it holds at any rail
+   height (the old calc's own phone-width media query below is gone with
+   it — the rail height it was compensating for no longer needs a guess).
+   Every route's own top-level element is a `height: 100%; min-height: 0`
+   pane (`.mail-section`, `.settings-section`, `.app-placeholder`), so this
+   only needs to bound the space they render into. */
+.app-viewport {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* ============================================================================
    SETTINGS — a run of compartments in the same frame
    ========================================================================= */
 
+/* Its own routed view now (#71), not a compartment scrolled to below the
+   mail pane — `height: 100%; min-height: 0` is what makes it the bounded,
+   independently scrolling pane `.app-viewport` expects from whichever
+   route is current. */
 .settings-section {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
   padding: 0 0 calc(56px + env(safe-area-inset-bottom));
+  background: var(--w-frame);
+}
+
+/* An empty routed view for one of the three placeholder Apps (#71) — the
+   switcher and each app's real placeholder copy are the next ticket's. */
+.app-placeholder {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
   background: var(--w-frame);
 }
 
@@ -599,11 +661,6 @@
 @media (max-width: 640px) {
   .shell-user {
     display: none;
-  }
-
-  .shell-mail {
-    height: auto;
-    min-height: calc(100dvh - 44px);
   }
 }
 

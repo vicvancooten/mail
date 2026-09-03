@@ -1,8 +1,15 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
 import { createMockFetch, jsonResponse } from "./test-support/mock-fetch.js";
+
+// jsdom's `history`/`location` persist across tests in one file — reset the
+// route so a previous test landing on `/mail` (or `/settings`) doesn't leak
+// into the next one's router (#71).
+beforeEach(() => {
+  history.replaceState(null, "", "/");
+});
 
 // `globals: false` (vite.config.ts) means Testing Library's auto-cleanup
 // never registers — without this, each render() piles onto the previous
@@ -256,6 +263,7 @@ describe("auth-methods management (#32)", () => {
     render(<App />);
     await screen.findByText(/Signed in as/);
 
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     expect(await screen.findByText("Enable two-factor authentication")).toBeDefined();
@@ -284,6 +292,7 @@ describe("auth-methods management (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await user.click(
@@ -313,6 +322,7 @@ describe("auth-methods management (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await screen.findByText("Two-factor authentication is enabled.");
@@ -343,6 +353,7 @@ describe("auth-methods management (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     expect(await screen.findByText(/Added/)).toBeDefined();

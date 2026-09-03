@@ -182,9 +182,11 @@ function EmptyState({ state }: { state: SearchState }) {
  * search all mail' with a reconnect button and no background retry loop").
  * Reuses `ReauthMailAccountForm` — the same re-enter-credentials flow
  * `MailAccountsSection` already surfaces in Settings — rather than growing a
- * second implementation of it; there is no router in this Client to
- * navigate to that screen, so the button reveals the same form inline
- * instead. `state.needsReauth` flips (and this banner disappears on its
+ * second implementation of it; navigating away to Settings would drop the
+ * User out of the results they were just looking at (#71's Settings route
+ * is a fine place to *reach* this flow from, a bad place to be *sent* to
+ * mid-search), so the button reveals the same form inline instead.
+ * `state.needsReauth` flips (and this banner disappears on its
  * own) once the Local Cache's own Mail Account row catches up, so there is
  * nothing else for `onResumed` to do beyond collapsing the form.
  */

@@ -180,12 +180,21 @@
     @apply border-border;
   }
 
+  /* The document itself never scrolls, at any width (#71) — every
+     scrollable region is a bounded pane inside `.app-shell` instead
+     (`brand/brand.css`'s own doc comment on `.app-shell`). `height: 100%`
+     down through `html`/`body`/`#root` is what gives `.app-shell`'s
+     `100dvh` somewhere definite to sit rather than a taller, auto-height
+     ancestor `overflow: hidden` here would just clip. */
   html {
+    height: 100%;
     font-family: var(--w-sans);
   }
 
   body {
+    height: 100%;
     margin: 0;
+    overflow: hidden;
     background: var(--w-frame);
     color: var(--w-ink);
     font-family: var(--w-sans);
@@ -193,6 +202,10 @@
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    height: 100%;
   }
 
   /* --- browser surfaces belong to the design system too --- */

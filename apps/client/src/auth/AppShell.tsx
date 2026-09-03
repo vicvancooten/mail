@@ -1,62 +1,35 @@
 import type { User } from "@mail/shared";
-import { useState } from "react";
-import { Mark } from "../brand/Mark.js";
-import { Pictogram } from "../brand/Pictogram.js";
-import { MailSection } from "../mail/MailSection.js";
-import { SettingsSection } from "../settings/SettingsSection.js";
+import { RouterProvider } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { createAppRouter } from "../router/routes.js";
 import { useAuth } from "./AuthContext.js";
 
 /**
- * The authenticated shell: session controls plus the real triage UI
- * (`MailSection`, #40) and the settings screen below it (#54: Preferences,
- * auth methods, and Mail Account management, all in one place now).
+ * The authenticated shell (#31, and #71's router): builds the app's one
+ * `Router` — seeded with the signed-in `User` and the sign-out handler
+ * every route's header rail needs (`router/routes.ts#RouterContext`) — and
+ * hands it to `RouterProvider`. `router/RootLayout.tsx` is what actually
+ * renders the header rail and the routed `MailSection`/`SettingsSection`/
+ * placeholder-App views underneath it.
  *
- * Deliberately still one stacked column rather than a routed two-pane app —
- * there is no router in this Client (`settings/SettingsSection.tsx` says
- * why), so settings is the compartment below the mail frame, not a
- * destination. The header rail is the app's governing left axis: the mark
- * and the signed-in User register to it, and every surface underneath lines
- * up on the same edge.
+ * `useState(() => …)` rather than a plain `useMemo`/module-scope constant:
+ * a Router is a stateful object (it owns its own subscriptions to
+ * `history`), so it needs to survive this component's own re-renders
+ * without being rebuilt, but it also has to be a *fresh* one each time a
+ * `User` signs back in — `AuthGate` unmounts this component entirely on
+ * logout, which is what makes "fresh" free here rather than something this
+ * component has to arrange itself.
  */
 export function AppShell({ user }: { user: User }) {
   const { logout } = useAuth();
-  const [signingOut, setSigningOut] = useState(false);
+  const [router] = useState(() => createAppRouter({ user, onLogout: logout }));
+  // The router itself is built once (above); a `User` object that changes
+  // identity mid-session (a fresh `/auth/session` read) still has to reach
+  // every route's `rootRoute.useRouteContext()` — `router.update` is
+  // TanStack Router's own seam for that, not a rebuild.
+  useEffect(() => {
+    router.update({ context: { user, onLogout: logout } });
+  }, [router, user, logout]);
 
-  async function handleLogout() {
-    setSigningOut(true);
-    try {
-      await logout();
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
-  return (
-    <div className="app-shell">
-      <header className="shell-rail">
-        <h1 className="wordmark">
-          <Mark size={22} />
-          <span className="wordmark-name">Wicket</span>
-        </h1>
-        <span className="shell-rail-spacer" />
-        <p className="shell-user">
-          Signed in as <strong>{user.username}</strong>
-          {user.role === "owner" ? <span className="shell-role">Owner</span> : null}
-        </p>
-        <button
-          type="button"
-          className="shell-signout"
-          onClick={handleLogout}
-          disabled={signingOut}
-        >
-          <Pictogram name="close" size={13} />
-          {signingOut ? "Logging out…" : "Log out"}
-        </button>
-      </header>
-      <div className="shell-mail">
-        <MailSection />
-      </div>
-      <SettingsSection />
-    </div>
-  );
+  return <RouterProvider router={router} />;
 }
