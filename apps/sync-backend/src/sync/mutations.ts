@@ -439,7 +439,8 @@ async function applyUserIntent(
   }
 }
 
-function isUniqueViolation(error: unknown): boolean {
+/** Also `routes/bulk-triage.ts`'s own ledger-insert race handling (#67) — same shape, same reason. */
+export function isUniqueViolation(error: unknown): boolean {
   return (
     typeof error === "object" &&
     error !== null &&

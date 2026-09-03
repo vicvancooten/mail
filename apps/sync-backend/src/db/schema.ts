@@ -850,6 +850,53 @@ export const appliedMutations = pgTable(
 );
 
 /**
+ * The idempotency ledger for a Bulk Triage batch (#67, `routes/bulk-triage.ts`,
+ * `@mail/shared`'s `bulkTriageBatchRequestSchema`) — the same
+ * Client-generated-ULID-key pattern `appliedMutations` is, kept as its own
+ * table rather than widened into it: a batch's outcome carries a
+ * per-account breakdown and the exact set of Threads it touched, neither of
+ * which `MutationOutcome`'s `{status, reason}` shape has room for, and a
+ * batch is scoped to the requesting **User** (Account Scope can name several
+ * Mail Accounts in one request) rather than to one Mail Account the way
+ * every `appliedMutations` row is.
+ *
+ * `affectedThreadIds` is what makes Undo exact rather than a re-run of the
+ * original target set (`routes/bulk-triage.ts#undoBulkTriageAction`): the
+ * target set is evaluated at the *original* request's instant, and a Thread
+ * that has since moved back into range on its own must not be swept up by a
+ * later Undo. `accounts` is the full per-account outcome, so a retried
+ * request replays it verbatim rather than recomputing it — recomputing could
+ * legitimately disagree (an account that reached Needs Reauth in between).
+ */
+export const bulkTriageBatches = pgTable(
+  "bulk_triage_batches",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    action: text("action", { enum: ["done", "markRead"] }).notNull(),
+    affectedThreadIds: text("affected_thread_ids").array().notNull().default([]),
+    accounts: jsonb("accounts").$type<BulkTriageAccountOutcomeRow[]>().notNull(),
+    /** Set the instant `POST /bulk-triage/undo` reverses this batch — null while it is still undoable (or was never undone). */
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** `createdAt` + the Undo window (`@mail/shared`'s `BULK_TRIAGE_UNDO_WINDOW_SECONDS`) — past this, `POST /bulk-triage/undo` answers `expired`. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("bulk_triage_batches_user_idx").on(table.userId)],
+);
+export type BulkTriageBatchRow = typeof bulkTriageBatches.$inferSelect;
+
+/** One Mail Account's recorded share of a batch — `accounts`'s element type, mirroring `@mail/shared`'s `BulkTriageAccountOutcome`. */
+export interface BulkTriageAccountOutcomeRow {
+  mailAccountId: string;
+  status: "applied" | "rejected";
+  affectedCount: number;
+  reason?: string;
+}
+
+/**
  * The write-through outbox for the two Protocol Features (#42, ADR-0006):
  * one row per real IMAP command still owed to the mail server after an
  * Optimistic Action's synchronous ack — `\Seen`/`\Flagged` for

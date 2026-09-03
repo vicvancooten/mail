@@ -4,6 +4,7 @@ import { runMigrations } from "../db/migrate.js";
 import {
   appliedMutations,
   attachmentBlobs,
+  bulkTriageBatches,
   claimTokens,
   composeSaveLedger,
   compositions,
@@ -64,6 +65,7 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(notifierOutbox);
   await db.delete(pushSubscriptions);
+  await db.delete(bulkTriageBatches);
   await db.delete(appliedMutations);
   await db.delete(composeSaveLedger);
   await db.delete(attachmentBlobs);

@@ -141,6 +141,13 @@
       "when": 1788289012800,
       "tag": "0019_gatekeeper",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788446227891,
+      "tag": "0020_tiny_lester",
+      "breakpoints": true
     }
   ]
 }
