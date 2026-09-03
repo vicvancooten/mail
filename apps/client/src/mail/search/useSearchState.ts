@@ -29,6 +29,25 @@ import { useSearchOverlay } from "./useSearchOverlay.js";
 /** How long after typing stops before `POST /search` fires (search-ux-spec.md §When a search runs). */
 const SERVER_DEBOUNCE_MS = 200;
 
+/**
+ * The Index Watermark line (search-ux-spec.md §Degraded states, #79's
+ * acceptance box: "shown when bodies are still being indexed") — shared
+ * between `SearchResultsView`'s own foot and the Command Palette's inline
+ * hits (`CommandPalette.tsx`), so the two surfaces read the same watermark
+ * the same way rather than growing their own phrasing.
+ */
+export function formatIndexWatermark(watermark: IndexWatermark | null): string | null {
+  if (!watermark || watermark.complete) return null;
+  if (!watermark.coveredSince) {
+    return "Still indexing this account — older mail matches on sender and subject only.";
+  }
+  const date = new Date(watermark.coveredSince).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+  });
+  return `Bodies indexed back to ${date} — older mail matches on sender and subject only.`;
+}
+
 export interface DisplayResult {
   threadId: string;
   /** The server's own snapshot when this row came from `POST /search`; `null` for a prefilter-only row. */

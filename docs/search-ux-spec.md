@@ -16,14 +16,27 @@ Search is an **overlay**, not a route (revised by #71 — see
 [ADR-0017](adr/0017-search-has-no-route.md); it was `/search?q=<raw query string>` before the Client
 had a router at all).
 
-A search field lives in the top bar, focused by `/` or `⌘K`/`Ctrl-K`. Typing opens the overlay, and
-**results replace the thread list inside the current view mode** — in Split the reading pane keeps
-working, so opening a result swaps the pane while the results stay in the list column.
-There is one list renderer and one set of triage affordances; search is another list, not a second
-application.
+Revised again by #79 (the Command Palette): the Client's discoverability surface is now `⌘K`/
+`Ctrl-K`, and the header search field is its other entry point — clicking or tapping it opens the
+same overlay, focused on its own input, rather than becoming an inline field itself. (`/` still
+focuses the header field directly with no Palette chrome, the fast path for someone who already
+knows what they're typing.) The Palette lists **every command in the Client with its binding,
+grouped by section**, unbound commands included — Mark read/unread among them, since #79 also
+rebinds `h` (was "previous", now Snooze) and `u` (was mark‑unread, now "back to list"). `?` opens
+the Shortcut Sheet, the same registry rendered read-only as a cheat sheet.
 
-This is what makes ADR-0016's "triage works on result rows" cheap: no modal to fight, no second row
-component, no special case for acting on a result.
+Typing in the Palette runs the same search this spec has always described — the 3-character floor,
+the ~200ms debounce, the Local Cache prefilter — and shows the **top few hits inline**, in a
+bounded, scrolling pane alongside the matching commands. **"See all results"** (or Enter on a hit)
+commits the query exactly like the header field's own Enter always has, which is what activates
+**the list pane behind the Palette**: it swaps into the results list — same row renderer, same
+Triage affordances — with the reading pane still live beside it in Split, so a result is triagable
+like any other row the moment the Palette stops covering it. The Index Watermark (below) surfaces
+here too, next to the inline hits, whenever bodies are still being indexed.
+
+There is one list renderer and one set of triage affordances; search is another list, not a second
+application. This is what makes ADR-0016's "triage works on result rows" cheap: no modal to fight,
+no second row component, no special case for acting on a result.
 
 **Stream mode is suppressed inside search**, falling back to the underlying Split/List choice it
 already remembers, and restores itself on exit. Stream is "read forward through everything new",
@@ -41,24 +54,33 @@ wait" and dismisses the prefilter dropdown.
 
 ### Leaving, and coming back
 
-- `Esc` with text in the field **clears the text**; `Esc` on an empty field **leaves search**.
-  Browser back leaves in one press.
+- `Esc` with text in the Palette's field **clears the text**; `Esc` on an empty field **leaves
+  search and closes the Palette**, same two-step `Esc` the header field always had. Browser back
+  leaves in one press.
 - Leaving **restores the origin exactly**: the folder, its scroll position, and the thread that was
   open in Split. Search is a place you dip into, not a mode you have to climb out of.
 - The **query survives leaving**. `/` or `⌘K` reopens with the last query still in the field and its
   results still rendered, until cleared. (The scope chip is the exception — see
   [Seeded scope](#seeded-scope).)
-- Opening a result in Split doesn't leave search at all.
+- Opening a result in Split doesn't leave search at all. Selecting a hit straight from the Palette's
+  inline list (rather than "See all results") behaves the same way: it opens that result and closes
+  the Palette, leaving the list pane already showing results underneath.
+- Closing the Palette without touching the query — clicking its backdrop, or its own Close button —
+  leaves whatever was already on screen exactly as it was: the Palette is a layer *over* the current
+  view, not a mode it swapped into.
 
 ### Phone
 
-At phone width a **search icon in the top bar expands the field in place**, pushing the folder title
-out; results replace the list; tapping a result pushes the thread route and back returns to the
-results. The chip row sits under the expanded field and scrolls with the results.
+At phone width a **search icon in the top bar opens the Command Palette full-screen** (#79) —
+there's no room beside it to expand a field in place, so the icon is a dedicated Palette trigger
+rather than the desktop click-to-open field. Everything above still applies at that width: commands
+and top hits inline, "See all results" swapping in the real results list, tapping a result pushing
+the thread route and back returning to the results. The chip row sits under the field and scrolls
+with the results.
 
-Same route, same parser, same renderer — the phone is a layout of this spec, not a second design. No
-dedicated search tab (a permanent slot for a bursty action, with its own navigation stack fighting
-origin-restore) and no pull-down-to-reveal (undiscoverable, and it fights pull-to-refresh).
+Same parser, same renderer, same registry — the phone is a layout of this spec, not a second
+design. No dedicated search tab (a permanent slot for a bursty action, with its own navigation stack
+fighting origin-restore) and no pull-down-to-reveal (undiscoverable, and it fights pull-to-refresh).
 
 ### The empty field
 

@@ -10,11 +10,15 @@ import type {
 
 /**
  * The search field's own props (#51, `docs/search-ux-spec.md` §The
- * surface): "A search field lives in the top bar, focused by `/` or
- * `⌘K`/`Ctrl-K`." Lives here rather than in `SearchResultsView` because the
- * field itself is visible (and keeps its text) whether or not the search
- * route is currently active — only the chip row and result list are
- * search-route-only.
+ * surface): "A search field lives in the top bar, focused by `/`." Lives
+ * here rather than in `SearchResultsView` because the field itself is
+ * visible (and keeps its text) whether or not the search route is currently
+ * active — only the chip row and result list are search-route-only.
+ *
+ * `onOpen` fires on focus (`/`, or a real click/tap) — `MailSection.tsx`
+ * decides what that means: the pre-#79 "just activate search" path for `/`,
+ * or opening the Command Palette for a click, its other entry point
+ * (#79, `command-palette/CommandPalette.tsx`).
  */
 export interface TopBarSearch {
   active: boolean;
@@ -40,7 +44,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
       <input
         ref={search.inputRef}
         type="text"
-        placeholder="Search mail… (/)"
+        placeholder="Search mail… (/, ⌘K)"
         aria-label="Search mail"
         value={search.queryText}
         onFocus={() => {
