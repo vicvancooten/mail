@@ -1,9 +1,19 @@
+import type { AppDef } from "./apps.js";
+
 /**
- * An empty routed view for one of the three placeholder Apps — Contacts,
- * Calendar, Tasks (#71, part of #66). Real URLs and a bounded pane are the
- * whole job here: the App switcher chrome and each app's actual placeholder
- * copy are the next ticket's, not this one's.
+ * The routed view for one of the three reserved Apps — Contacts, Calendar,
+ * Tasks (#72, part of #66). "Finished chrome, not a stub" (the ticket's own
+ * words): a name, one line of what the App will be, and a flat "Not built
+ * yet" — no date, no waitlist, because neither would be true.
  */
-export function PlaceholderRoute({ label }: { label: string }) {
-  return <section className="app-placeholder" aria-label={label} />;
+export function PlaceholderRoute({ app }: { app: AppDef }) {
+  return (
+    <section className="app-placeholder" aria-label={app.name}>
+      <div className="app-placeholder-card">
+        <h2>{app.name}</h2>
+        <p>{app.description}</p>
+        <p className="app-placeholder-status">Not built yet</p>
+      </div>
+    </section>
+  );
 }

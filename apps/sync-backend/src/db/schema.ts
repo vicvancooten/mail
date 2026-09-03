@@ -72,14 +72,14 @@ export const users = pgTable("users", {
    */
   undoSendDelaySeconds: integer("undo_send_delay_seconds").notNull().default(10),
   /**
-   * The rest of `Preference` (#54, poc-spec.md §Preferences): theme and
-   * Auto-advance, User-scoped alongside `undoSendDelaySeconds` above. Same
-   * posture as that column — one row per User, no separate table, because a
-   * User has exactly one of each.
+   * The rest of `Preference` (#54, poc-spec.md §Preferences): Auto-advance,
+   * User-scoped alongside `undoSendDelaySeconds` above. Same posture as that
+   * column — one row per User, no separate table, because a User has exactly
+   * one of each.
+   *
+   * Theme lived here too until #72 (ADR-0011 amended): moved to a Device
+   * Preference, since Appearance means something different per device.
    */
-  theme: text("theme", { enum: ["system", "light", "dark"] })
-    .notNull()
-    .default("system"),
   autoAdvanceEnabled: boolean("auto_advance_enabled").notNull().default(true),
   autoAdvanceDirection: text("auto_advance_direction", { enum: ["older", "newer"] })
     .notNull()

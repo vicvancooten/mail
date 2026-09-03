@@ -137,7 +137,8 @@ describe("passkey registration (#32)", () => {
 
     render(<App />);
     await screen.findByText(/Signed in as/);
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await user.click(await screen.findByRole("button", { name: "Add a passkey" }));

@@ -174,7 +174,6 @@ export async function syncMailAccountCollection(
 function toWirePreference(row: typeof users.$inferSelect): Preference {
   return {
     id: row.id,
-    theme: row.theme,
     autoAdvanceEnabled: row.autoAdvanceEnabled,
     autoAdvanceDirection: row.autoAdvanceDirection,
     undoSendDelaySeconds: UNDO_SEND_DELAY_OPTIONS.includes(

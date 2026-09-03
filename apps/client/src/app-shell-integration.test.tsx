@@ -93,7 +93,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/mail");
   });
 
-  it("Settings is reachable from the shell rail and is no longer rendered below the mail pane", async () => {
+  it("Settings is reachable from the avatar menu and is no longer rendered below the mail pane", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -104,11 +104,55 @@ describe("the app shell over a routed tree (#71)", () => {
     // scrolled past — until the route is entered.
     expect(screen.queryByText("Preferences")).toBeNull();
 
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
 
     expect(await screen.findByText("Preferences")).toBeDefined();
     expect(screen.queryByText("Routed thread")).toBeNull();
     expect(location.pathname).toBe("/settings");
+  });
+
+  it("the App Switcher names all four Apps by role and accessible name, the reserved three marked unavailable (#72)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+
+    expect(screen.getByRole("menuitem", { name: "Mail" })).toBeDefined();
+    for (const name of ["Contacts", "Calendar", "Tasks"]) {
+      const item = screen.getByRole("menuitem", { name: new RegExp(name) });
+      expect(item).toBeDefined();
+      expect(item.textContent).toContain("Not built yet");
+    }
+
+    await user.click(screen.getByRole("menuitem", { name: /Contacts/ }));
+
+    expect(await screen.findByLabelText("Contacts")).toBeDefined();
+    expect(screen.getByText("Not built yet")).toBeDefined();
+    expect(location.pathname).toBe("/contacts");
+  });
+
+  it("Appearance written from the header reaches Settings' own copy of the control (#72)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    const appearanceSelect = (await screen.findByLabelText("Appearance")) as HTMLSelectElement;
+    expect(appearanceSelect.value).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 
   it("a reload (a fresh mount at a URL already in hand) restores the view", async () => {
@@ -144,7 +188,7 @@ describe("the app shell over a routed tree (#71)", () => {
     stubFetch([account]);
 
     render(<App />);
-    await screen.findByRole("link", { name: "Settings" });
+    await screen.findByText(/Signed in as/);
     expect(screen.queryByText("Preferences")).toBeNull();
 
     act(() => {

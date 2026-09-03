@@ -414,12 +414,6 @@ async function applyUserIntent(
   intent: UserMutationIntent,
 ): Promise<IntentResult> {
   switch (intent.type) {
-    case "setTheme":
-      await db
-        .update(users)
-        .set({ theme: intent.theme, updatedAt: new Date() })
-        .where(eq(users.id, userId));
-      return { ok: true };
     case "setAutoAdvance":
       await db
         .update(users)

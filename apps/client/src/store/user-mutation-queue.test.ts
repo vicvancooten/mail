@@ -38,71 +38,81 @@ afterEach(async () => {
 
 describe("enqueueUserMutation", () => {
   it("queues an intent with a fresh id", async () => {
-    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    const id = await enqueueUserMutation({
+      type: "setAutoAdvance",
+      enabled: true,
+      direction: "older",
+    });
 
     const queued = await listQueuedUserMutations();
     expect(queued).toHaveLength(1);
-    expect(queued[0]).toMatchObject({ id, intent: { type: "setTheme", theme: "dark" } });
+    expect(queued[0]).toMatchObject({
+      id,
+      intent: { type: "setAutoAdvance", enabled: true, direction: "older" },
+    });
   });
 
   it("supersedes an earlier edit to the same field rather than queuing both", async () => {
-    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
-    await enqueueUserMutation({ type: "setTheme", theme: "light" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "older" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
 
     const queued = await listQueuedUserMutations();
     expect(queued).toHaveLength(1);
-    expect(queued[0]?.intent).toEqual({ type: "setTheme", theme: "light" });
+    expect(queued[0]?.intent).toEqual({
+      type: "setAutoAdvance",
+      enabled: false,
+      direction: "newer",
+    });
   });
 
   it("wakes the sync loop once the row lands (ADR-0011: no waiting for the next poll)", async () => {
-    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "older" });
 
     expect(requestSyncNow).toHaveBeenCalledTimes(1);
   });
 
   it("wakes the sync loop even when the edit supersedes an earlier one, unlike the per-Thread queue's coalesced-away skip", async () => {
-    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "older" });
     requestSyncNow.mockClear();
 
-    await enqueueUserMutation({ type: "setTheme", theme: "light" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
 
     expect(requestSyncNow).toHaveBeenCalledTimes(1);
   });
 
   it("keeps edits to different fields as independent queued rows", async () => {
-    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
-    await enqueueUserMutation({
-      type: "setAutoAdvance",
-      enabled: false,
-      direction: "newer",
-    });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
     await enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds: 0 });
 
-    expect(await listQueuedUserMutations()).toHaveLength(3);
+    expect(await listQueuedUserMutations()).toHaveLength(2);
   });
 
   it("preserves FIFO order across distinct fields", async () => {
     await enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds: 5 });
-    await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
 
     const queued = await listQueuedUserMutations();
     expect(queued.map((mutation) => mutation.intent.type)).toEqual([
       "setUndoSendDelay",
-      "setTheme",
+      "setAutoAdvance",
     ]);
   });
 });
 
 describe("resolveUserMutationOutcomes", () => {
   it("dequeues both applied and rejected outcomes", async () => {
-    const themeId = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    const advanceId = await enqueueUserMutation({
+      type: "setAutoAdvance",
+      enabled: false,
+      direction: "newer",
+    });
     const delayId = await enqueueUserMutation({
       type: "setUndoSendDelay",
       undoSendDelaySeconds: 0,
     });
 
     await resolveUserMutationOutcomes([
-      { id: themeId, status: "applied" },
+      { id: advanceId, status: "applied" },
       { id: delayId, status: "rejected", reason: "user_not_found" },
     ]);
 
