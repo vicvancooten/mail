@@ -10,7 +10,12 @@ import {
 } from "react";
 import { Pictogram } from "../brand/Pictogram.js";
 import type { CachedThread } from "../store/index.js";
-import { DEFAULT_LIST_DENSITY, type ListDensity } from "./device-preferences.js";
+import {
+  DEFAULT_LIST_DENSITY,
+  type ListDensity,
+  readGroupCollapsed,
+  writeGroupCollapsed,
+} from "./device-preferences.js";
 import { ThreadRow } from "./ThreadRow.js";
 import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
 import { groupThreadsByTime, PINNED_GROUP_LABEL, type TimeGroupTier } from "./time-groups.js";
@@ -47,7 +52,15 @@ export const GROUP_STAGGER_ROW_CAP = 8;
  */
 
 type ListItem =
-  | { kind: "header"; key: string; label: string; tier: TimeGroupTier; loadedCount: number }
+  | {
+      kind: "header";
+      key: string;
+      label: string;
+      tier: TimeGroupTier;
+      loadedCount: number;
+      /** This group's own collapsed state (#78) — read once per `items` pass, not re-read per render, so a header and the rows it hides (or doesn't) always agree within one frame. */
+      collapsed: boolean;
+    }
   | {
       kind: "thread";
       key: string;
@@ -125,6 +138,14 @@ export function VirtualizedThreadList({
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Collapsed state (#78) lives in `localStorage`, not React state — it's
+  // read fresh into `items` below on every pass, and `toggleCollapsed`
+  // forces that pass by bumping this counter. That keeps one source of
+  // truth (the device preference itself) rather than a React copy that
+  // could drift from it.
+  const [collapsedVersion, setCollapsedVersion] = useState(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `collapsedVersion` is a deliberate re-read trigger, not a value this reads directly.
   const items = useMemo<ListItem[]>(() => {
     if (!group) {
       return threads.map((thread, index) => ({
@@ -140,13 +161,16 @@ export function VirtualizedThreadList({
     const flat: ListItem[] = [];
     let index = 0;
     for (const groupItem of groups) {
+      const collapsed = readGroupCollapsed(groupItem.label);
       flat.push({
         kind: "header",
         key: `header:${groupItem.label}:${index}`,
         label: groupItem.label,
         tier: groupItem.tier,
         loadedCount: groupItem.threads.length,
+        collapsed,
       });
+      if (collapsed) continue;
       for (const thread of groupItem.threads) {
         flat.push({
           kind: "thread",
@@ -160,7 +184,13 @@ export function VirtualizedThreadList({
       }
     }
     return flat;
-  }, [threads, group]);
+  }, [threads, group, collapsedVersion]);
+
+  const toggleCollapsed = useCallback((label: string) => {
+    const next = !readGroupCollapsed(label);
+    writeGroupCollapsed(label, next);
+    setCollapsedVersion((version) => version + 1);
+  }, []);
 
   // The header checkmark's spine preview (#66, #77): hovering/focusing it
   // arms every row in *that one* group, matched by label rather than tier —
@@ -315,19 +345,23 @@ export function VirtualizedThreadList({
                   data-tier={item.tier}
                   style={{ height: itemHeight(item) }}
                 >
-                  {groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated" ? (
-                    <GroupHeaderCluster
-                      label={item.label}
-                      loadedCount={item.loadedCount}
-                      trueCount={groupBulk.countFor(item.label)}
-                      onArm={() => groupBulk.requestCount(item.label)}
-                      onDoneAll={() => groupBulk.onDoneAll(item.label)}
-                      onMarkAllRead={() => groupBulk.onMarkAllRead(item.label)}
-                      onPreview={(active) => setPreviewGroupLabel(active ? item.label : null)}
-                    />
-                  ) : (
-                    item.label
-                  )}
+                  <GroupHeaderCluster
+                    label={item.label}
+                    loadedCount={item.loadedCount}
+                    trueCount={groupBulk?.countFor(item.label) ?? null}
+                    collapsed={item.collapsed}
+                    onToggleCollapsed={() => toggleCollapsed(item.label)}
+                    bulk={
+                      groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
+                        ? {
+                            onArm: () => groupBulk.requestCount(item.label),
+                            onDoneAll: () => groupBulk.onDoneAll(item.label),
+                            onMarkAllRead: () => groupBulk.onMarkAllRead(item.label),
+                            onPreview: (active) => setPreviewGroupLabel(active ? item.label : null),
+                          }
+                        : undefined
+                    }
+                  />
                 </div>
               ) : (
                 <ThreadRow
@@ -358,15 +392,24 @@ export function VirtualizedThreadList({
   );
 }
 
+/** The group header cluster's own bulk-Triage wiring (#66, #77) — omitted for a group that isn't a valid bulk-Triage target (Pinned, Undated) or when `groupBulk` itself isn't wired in for the current folder; Collapse (#78) is unaffected either way. */
+interface GroupHeaderClusterBulk {
+  onArm: () => void;
+  onDoneAll: () => void;
+  onMarkAllRead: () => void;
+  onPreview: (active: boolean) => void;
+}
+
 /**
- * The group header's own row cluster (#66, #77): resting the pointer on a
- * header — or tapping it, on touch — arms **Done all** and **Mark all
- * read** inline, the header's own mirror of `ThreadRow`'s row-level Done
- * control (#75). Both buttons stay in the DOM (and the tab order)
- * regardless of armed state — `mail.css`'s `[data-armed]` rule only ever
- * changes their opacity, the same "real component state, not a CSS-only
- * trick" `ThreadRow`'s own doc comment insists on, and `:focus-visible`
- * reveals either one directly so Tab can always reach it.
+ * The group header's own row cluster (#66, #77, #78): resting the pointer
+ * on a header — or tapping it, on touch — arms **Collapse**, and where
+ * `bulk` is present, **Done all** and **Mark all read** too, the header's
+ * own mirror of `ThreadRow`'s row-level Done control (#75). Every button
+ * stays in the DOM (and the tab order) regardless of armed state —
+ * `mail.css`'s `[data-armed]` rule only ever changes their opacity, the
+ * same "real component state, not a CSS-only trick" `ThreadRow`'s own doc
+ * comment insists on, and `:focus-visible` reveals any one of them directly
+ * so Tab can always reach it.
  *
  * The checkmark is *also* the Done all trigger — hovering or focusing it
  * additionally previews the group: `onPreview` bubbles to
@@ -378,31 +421,29 @@ function GroupHeaderCluster({
   label,
   loadedCount,
   trueCount,
-  onArm,
-  onDoneAll,
-  onMarkAllRead,
-  onPreview,
+  collapsed,
+  onToggleCollapsed,
+  bulk,
 }: {
   label: string;
   loadedCount: number;
   trueCount: number | null;
-  onArm: () => void;
-  onDoneAll: () => void;
-  onMarkAllRead: () => void;
-  onPreview: (active: boolean) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  bulk?: GroupHeaderClusterBulk;
 }) {
   const [armed, setArmed] = useState(false);
   const count = trueCount ?? loadedCount;
 
   const arm = useCallback(() => {
     setArmed(true);
-    onArm();
-  }, [onArm]);
+    bulk?.onArm();
+  }, [bulk]);
   const disarm = useCallback(() => setArmed(false), []);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus arm the cluster (#66); every actual control below is a real, independently focusable <button>.
-    // biome-ignore lint/a11y/useKeyWithClickEvents: `onClick` here is touch's stand-in for hover, not an action — a keyboard User already arms the cluster by Tabbing to either button below (`onFocus`), and both buttons are ordinary, independently keyboard-operable `<button>`s.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: `onClick` here is touch's stand-in for hover, not an action — a keyboard User already arms the cluster by Tabbing to any button below (`onFocus`), and each is an ordinary, independently keyboard-operable `<button>`.
     <div
       className="group-header-cluster"
       data-armed={armed}
@@ -420,36 +461,53 @@ function GroupHeaderCluster({
         setArmed((current) => !current);
       }}
     >
-      <button
-        type="button"
-        className="group-done"
-        aria-label={`Done with ${label}`}
-        title="Done all"
-        onMouseEnter={() => onPreview(true)}
-        onMouseLeave={() => onPreview(false)}
-        onFocus={() => onPreview(true)}
-        onBlur={() => onPreview(false)}
-        onClick={(event) => {
-          event.stopPropagation();
-          onDoneAll();
-        }}
-      >
-        <Pictogram name="check" size={12} />
-      </button>
+      {bulk ? (
+        <button
+          type="button"
+          className="group-done"
+          aria-label={`Done with ${label}`}
+          title="Done all"
+          onMouseEnter={() => bulk.onPreview(true)}
+          onMouseLeave={() => bulk.onPreview(false)}
+          onFocus={() => bulk.onPreview(true)}
+          onBlur={() => bulk.onPreview(false)}
+          onClick={(event) => {
+            event.stopPropagation();
+            bulk.onDoneAll();
+          }}
+        >
+          <Pictogram name="check" size={12} />
+        </button>
+      ) : null}
       <span className="group-header-label">{label}</span>
       <span className="group-header-count">{count}</span>
       <button
         type="button"
-        className="group-mark-read"
-        aria-label={`Mark ${label} read`}
-        title="Mark all read"
+        className="group-collapse"
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+        aria-expanded={!collapsed}
+        title={collapsed ? "Expand" : "Collapse"}
         onClick={(event) => {
           event.stopPropagation();
-          onMarkAllRead();
+          onToggleCollapsed();
         }}
       >
-        <Pictogram name="opened" size={12} />
+        <Pictogram name={collapsed ? "expand" : "collapse"} size={12} />
       </button>
+      {bulk ? (
+        <button
+          type="button"
+          className="group-mark-read"
+          aria-label={`Mark ${label} read`}
+          title="Mark all read"
+          onClick={(event) => {
+            event.stopPropagation();
+            bulk.onMarkAllRead();
+          }}
+        >
+          <Pictogram name="opened" size={12} />
+        </button>
+      ) : null}
     </div>
   );
 }

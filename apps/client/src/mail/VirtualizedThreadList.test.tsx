@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
 import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
@@ -37,6 +37,10 @@ function makeThreads(count: number): CachedThread[] {
     ),
   );
 }
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 afterEach(() => {
   cleanup();
@@ -140,7 +144,9 @@ describe("VirtualizedThreadList — the taper (#75)", () => {
     renderTapered();
 
     const headers = Array.from(document.querySelectorAll(".group-header"));
-    expect(headers.map((h) => h.textContent)).toEqual(["Today", "Yesterday", "Last week", "Older"]);
+    expect(
+      Array.from(document.querySelectorAll(".group-header-label")).map((h) => h.textContent),
+    ).toEqual(["Today", "Yesterday", "Last week", "Older"]);
     expect(headers.map((h) => h.getAttribute("data-tier"))).toEqual(["1", "2", "3", "4"]);
 
     const rows = screen.getAllByRole("option");
@@ -333,7 +339,7 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     ).toBe(true);
   });
 
-  it("renders no cluster at all for Pinned or Undated — neither is a valid bulk-Triage target", () => {
+  it("renders no Done all/Mark all read for Pinned or Undated — neither is a valid bulk-Triage target — but still offers Collapse", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     const pinned: CachedThread = {
@@ -356,11 +362,11 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     );
 
     expect(screen.queryByRole("button", { name: /Done with/ })).toBeNull();
-    const headers = Array.from(document.querySelectorAll(".group-header"));
-    expect(headers.map((h) => h.textContent)).toEqual(["Pinned", "Undated"]);
+    expect(screen.getByRole("button", { name: "Collapse Pinned" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Collapse Undated" })).toBeDefined();
   });
 
-  it("renders every group's own label plainly with no cluster at all when groupBulk is omitted", () => {
+  it("still offers Collapse — but no Done all/Mark all read — when groupBulk is omitted", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     render(
@@ -372,8 +378,9 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
       />,
     );
 
-    expect(document.querySelector(".group-header-cluster")).toBeNull();
-    expect(document.querySelector(".group-header")?.textContent).toBe("Today");
+    expect(screen.queryByRole("button", { name: /Done with/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mark .* read/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Collapse Today" })).toBeDefined();
   });
 
   it("marks a clearing Thread's row with its stagger index, capped at the row cap", () => {
@@ -404,5 +411,72 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     // Past the 8-row stagger cap, every remaining row shares the last index —
     // still leaving with the group's own collapse, just not its own delay.
     expect(indices.slice(8)).toEqual(["7", "7"]);
+  });
+});
+
+describe("VirtualizedThreadList — collapsible groups as a Device Preference (#78)", () => {
+  const NOW = new Date("2026-06-25T12:00:00.000Z");
+
+  function renderGrouped(threads: CachedThread[]) {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+  }
+
+  it("collapsing a group hides its rows but keeps the header and its count", () => {
+    renderGrouped([
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"),
+    ]);
+
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(document.querySelector(".group-header")).not.toBeNull();
+    expect(document.querySelector(".group-header-count")?.textContent).toBe("2");
+  });
+
+  it("flips the control to Expand once collapsed, and back on a second tap", () => {
+    renderGrouped([makeThread("t1", "2026-06-25T09:00:00.000Z")]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    const expandButton = screen.getByRole("button", { name: "Expand Today" });
+    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(expandButton);
+    expect(screen.getByRole("button", { name: "Collapse Today" })).toBeDefined();
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+
+  it("persists collapsed state per device, keyed by label, across a remount — 'survives reload'", () => {
+    const threads = [makeThread("t1", "2026-06-25T09:00:00.000Z")];
+    renderGrouped(threads);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    cleanup();
+
+    renderGrouped(threads);
+    expect(screen.getByRole("button", { name: "Expand Today" })).toBeDefined();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+
+  it("collapsing one group leaves a sibling group's rows untouched", () => {
+    renderGrouped([
+      makeThread("t-today", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Collapse Yesterday" })).toBeDefined();
   });
 });
