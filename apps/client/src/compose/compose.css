@@ -1,8 +1,8 @@
 /*
  * The docked composer (compose-spec §Composer surface & keys): bottom-right
- * overlay, expandable to full screen. Reads Wicket's tokens (`src/index.css`)
- * rather than redefining a second palette. The docked layout is unchanged;
- * the material is not.
+ * overlay, expandable to full screen. Reads The Instrument's own tokens
+ * (`@mail/design-tokens`, wired through `src/index.css`) directly — no `--w-*`
+ * back-compat aliases left in this surface (#81).
  */
 
 .composer {
@@ -13,10 +13,10 @@
   height: min(560px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
-  background: var(--w-panel);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
   z-index: 50;
   overflow: hidden;
 }
@@ -35,10 +35,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: var(--w-panel-2);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--color-surface-strong);
+  border-bottom: var(--hairline) solid var(--color-border);
   font-size: 13px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 .composer-from {
@@ -56,20 +56,20 @@
 .composer-show-ccbcc {
   background: none;
   border: none;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
 }
 .composer-header-actions button:hover,
 .composer-show-ccbcc:hover {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 .composer-recipients {
   display: flex;
   flex-direction: column;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .recipient-field {
@@ -77,7 +77,7 @@
   align-items: flex-start;
   gap: 6px;
   padding: 4px 12px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
   position: relative;
 }
 .recipient-field:last-child {
@@ -85,7 +85,7 @@
 }
 .recipient-field-label {
   font-size: 13px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   padding-top: 4px;
   width: 28px;
   flex-shrink: 0;
@@ -103,19 +103,19 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--w-panel-sunk);
-  border-radius: var(--w-r-plate);
+  background: var(--color-field);
+  border-radius: var(--radius-md);
   padding: 2px 6px 2px 10px;
   font-size: 13px;
 }
 .recipient-chip.invalid {
-  outline: 1px solid var(--w-postal);
+  outline: 1px solid var(--color-danger);
 }
 .recipient-chip button {
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 14px;
   line-height: 1;
   padding: 0 2px;
@@ -129,7 +129,7 @@
   border: none;
   outline: none;
   background: none;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-size: 13px;
   width: 100%;
   padding: 4px 0;
@@ -144,10 +144,10 @@
   margin: 2px 0 0;
   padding: 4px;
   list-style: none;
-  background: var(--w-panel);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
 }
 .recipient-suggestions button {
   display: block;
@@ -156,25 +156,25 @@
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-size: 13px;
   padding: 6px 8px;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
 }
 .recipient-suggestions button.highlighted,
 .recipient-suggestions button:hover {
-  background: var(--w-panel-sunk);
+  background: var(--color-field);
 }
 
 .composer-subject {
   border: none;
   outline: none;
   background: none;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-size: 14px;
   font-weight: 500;
   padding: 8px 12px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .compose-toolbar {
@@ -183,28 +183,28 @@
   flex-wrap: wrap;
   gap: 2px;
   padding: 4px 8px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 .compose-toolbar-button {
   background: none;
   border: none;
-  color: var(--w-ink-2);
-  border-radius: var(--w-r-plate);
+  color: var(--color-ink-muted);
+  border-radius: var(--radius-md);
   padding: 4px;
   display: flex;
   cursor: pointer;
 }
 .compose-toolbar-button:hover {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 .compose-toolbar-button.active {
-  background: var(--w-panel-sunk);
-  color: var(--w-ink);
+  background: var(--color-field);
+  color: var(--color-ink);
 }
 .compose-toolbar-divider {
   width: 1px;
   height: 18px;
-  background: var(--w-rule-hard);
+  background: var(--color-border);
   margin: 0 4px;
 }
 
@@ -219,16 +219,16 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 6px;
-  background: var(--w-panel-2);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  background: var(--color-surface-strong);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   z-index: 60;
 }
 .compose-swatch {
   width: 18px;
   height: 18px;
-  border-radius: var(--w-r-plate);
-  border: var(--w-hair) solid var(--w-rule-hard);
+  border-radius: var(--radius-md);
+  border: var(--hairline) solid var(--color-border);
   cursor: pointer;
   padding: 0;
 }
@@ -237,7 +237,7 @@
   font-size: 12px;
   background: none;
   border: none;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   cursor: pointer;
   padding: 2px;
 }
@@ -246,10 +246,10 @@
   display: flex;
   gap: 2px;
   padding: 4px;
-  background: var(--w-panel-2);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  background: var(--color-surface-strong);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
 }
 
 /*
@@ -262,10 +262,10 @@
   flex-direction: column;
   min-width: 160px;
   padding: 4px;
-  background: var(--w-panel-2);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  background: var(--color-surface-strong);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
   z-index: 100;
 }
 
@@ -275,22 +275,22 @@
   gap: 8px;
   background: none;
   border: none;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   padding: 6px 8px;
   font-size: 13px;
-  color: var(--w-ink);
+  color: var(--color-ink);
   cursor: pointer;
   text-align: left;
 }
 .slash-menu-item:hover,
 .slash-menu-item.active {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 .slash-menu-empty {
   padding: 6px 8px;
   font-size: 13px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .composer-body {
@@ -304,11 +304,11 @@
   min-height: 100%;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 .composer-body .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   float: left;
   height: 0;
   pointer-events: none;
@@ -319,7 +319,7 @@
 }
 .composer-body .tiptap td,
 .composer-body .tiptap th {
-  border: var(--w-hair) solid var(--w-rule-hard);
+  border: var(--hairline) solid var(--color-border);
   padding: 4px 8px;
 }
 
@@ -332,8 +332,8 @@
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  border-top: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel-2);
+  border-top: var(--hairline) solid var(--color-border);
+  background: var(--color-surface-strong);
 }
 
 .composer-send-button {
@@ -342,17 +342,17 @@
   gap: 6px;
   padding: 6px 14px;
   border: none;
-  border-radius: var(--w-r-plate);
-  background: var(--w-aniline);
-  color: var(--w-bone);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .composer-send-button:disabled {
-  background: var(--w-rule-hard);
-  color: var(--w-ink-3);
+  background: var(--color-border);
+  color: var(--color-ink-faint);
   cursor: not-allowed;
 }
 
@@ -361,14 +361,14 @@
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 .composer-send-delay select {
-  background: var(--w-panel);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  color: var(--w-ink-2);
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
   font-size: 12px;
   padding: 2px 4px;
 }
@@ -394,12 +394,12 @@
   gap: 12px;
   max-width: min(420px, calc(100vw - 32px));
   padding: 8px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  box-shadow: var(--w-lift);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-overlay);
   font-size: 13px;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .pending-send-label {
@@ -414,10 +414,10 @@
   gap: 4px;
   flex: none;
   background: none;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 3px 8px;
-  color: var(--w-aniline);
+  color: var(--color-accent);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -432,10 +432,10 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: color-mix(in oklab, var(--w-fluor-flat) 13%, var(--w-panel));
-  color: var(--w-ink);
+  background: color-mix(in oklab, var(--color-warn) 13%, var(--color-surface));
+  color: var(--color-ink);
   font-size: 13px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .composer-conflict-banner span {
@@ -451,15 +451,15 @@
 
 .composer-conflict-actions button {
   background: none;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 3px 8px;
   font-size: 12px;
   cursor: pointer;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 .composer-conflict-actions button:hover {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 /*
@@ -470,7 +470,7 @@
 .send-failure-banner {
   display: flex;
   flex-direction: column;
-  border-top: var(--w-hair) solid var(--w-rule-hard);
+  border-top: var(--hairline) solid var(--color-border);
 }
 
 .send-failure {
@@ -478,8 +478,8 @@
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: color-mix(in oklab, var(--w-postal) 12%, var(--w-panel));
-  color: var(--w-ink);
+  background: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
+  color: var(--color-ink);
   font-size: 13px;
 }
 
@@ -501,16 +501,16 @@
 .send-failure-detail {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 .send-failure-open {
   flex: none;
   background: none;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 3px 8px;
-  color: var(--w-aniline);
+  color: var(--color-accent);
   font-size: 12px;
   cursor: pointer;
 }
@@ -530,11 +530,11 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--w-panel-2);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
+  background: var(--color-surface-strong);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 3px 8px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 12px;
   cursor: pointer;
 }
@@ -550,8 +550,8 @@
   /* A quotation rule, in the frame's own neutral rule colour — the Quoted
      Original is carried into the reply exactly as it arrived, so it is set
      off the way print sets off a quotation, not tinted or restyled. */
-  border-left: 2px solid var(--w-rule-hard);
-  color: var(--w-ink-2);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-ink-muted);
   font-size: 13px;
   max-height: 320px;
   overflow: auto;
@@ -560,7 +560,7 @@
 .mail-signature {
   margin: 0 0 1em 0;
   padding-top: 4px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 /* #48: attachments */
@@ -570,24 +570,24 @@
   flex-direction: column;
   gap: 4px;
   padding: 6px 12px;
-  border-top: var(--w-hair) solid var(--w-rule-hard);
+  border-top: var(--hairline) solid var(--color-border);
 }
 
 .attachments-budget-error {
   font-size: 12px;
-  color: var(--w-postal);
+  color: var(--color-danger);
 }
 
 .attachments-budget-bar {
   height: 3px;
   border-radius: 2px;
-  background: var(--w-rule-hard);
+  background: var(--color-border);
   overflow: hidden;
 }
 
 .attachments-budget-bar-fill {
   height: 100%;
-  background: var(--w-aniline);
+  background: var(--color-accent);
 }
 
 .attachment-row {
@@ -595,7 +595,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .attachment-row-name {
@@ -609,12 +609,12 @@
 
 .attachment-row-size,
 .attachment-row-progress {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   flex: none;
 }
 
 .attachment-row-error {
-  color: var(--w-postal);
+  color: var(--color-danger);
   flex: none;
 }
 
@@ -622,46 +622,57 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   display: flex;
   align-items: center;
 }
 
 /* ============================================================================
-   WICKET — the composer as a routing slip clipped to the frame.
-   Overrides sit at the end so the layout above stays the authority on
-   geometry and this section only speaks to material.
+   THE INSTRUMENT — material overrides.
+   Sit at the end so the layout above stays the authority on geometry and
+   this section only speaks to material: the tray-label header, the machine
+   face on addresses and send controls, rank-by-inversion on the primary and
+   active states.
    ========================================================================= */
 
 /* The composer floats above the frame, so it is one of the few things in the
    product entitled to the system's single shadow. */
 .composer {
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
 }
 
 /* Its head is a tray label. */
 .composer-header {
-  background: var(--w-panel-sunk);
-  font-stretch: var(--w-wd-label);
+  background: var(--color-field);
   font-weight: 640;
   font-size: 10px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .composer-from {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
+}
+
+/* #81: the explicit From picker — several Scope accounts, no reply context.
+   A plain `<select>`, reset to the same machine-face reading `.composer-from`
+   already has, so choosing an account never looks like a different control. */
+.composer-from-select {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  max-width: 200px;
 }
 
 .recipient-field-label,
 .composer-show-ccbcc {
-  font-stretch: var(--w-wd-label);
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.11em;
@@ -671,68 +682,65 @@
 /* A recipient is a Correspondent: an address the User has actually exchanged
    mail with. It reads in the machine face, like every other address. */
 .recipient-chip {
-  border-radius: var(--w-r-band);
-  background: var(--w-panel-sunk);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  font-family: var(--w-mono);
+  border-radius: var(--radius-sm);
+  background: var(--color-field);
+  border: var(--hairline) solid var(--color-border);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .recipient-chip.invalid {
-  border-color: var(--w-postal);
-  color: var(--w-postal);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
-.composer-subject input,
 .composer-subject {
-  font-stretch: 96%;
   font-weight: 660;
 }
 
 /* Toolbar controls take no ink colour — only relief and rule. The active one
    inverts, the way every other control in the frame ranks itself. */
 .compose-toolbar {
-  background: var(--w-panel-2);
+  background: var(--color-surface-strong);
 }
 
 .compose-toolbar-button {
-  border-radius: var(--w-r-plate);
-  color: var(--w-ink-2);
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
 }
 
 .compose-toolbar-button:hover {
-  background: var(--w-panel-sunk);
-  color: var(--w-ink);
+  background: var(--color-field);
+  color: var(--color-ink);
 }
 
 .compose-toolbar-button.active {
-  background: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-ink);
+  color: var(--color-bg);
 }
 
 .compose-swatch-menu,
 .recipient-suggestions,
 .slash-menu,
 .compose-bubble-menu {
-  box-shadow: var(--w-lift);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  border: var(--w-hair) solid var(--w-rule-hard);
+  box-shadow: var(--shadow-overlay);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: var(--hairline) solid var(--color-border);
 }
 
 /* Send is the primary and inverts the stock. */
 .composer-send {
-  background: var(--w-panel-sunk);
-  border-top: var(--w-hair) solid var(--w-rule-hard);
+  background: var(--color-field);
+  border-top: var(--hairline) solid var(--color-border);
 }
 
 .composer-send-button {
-  border-radius: var(--w-r-plate);
-  background: var(--w-aniline-flat);
-  border: 1.5px solid var(--w-aniline-flat);
-  color: var(--w-bone);
-  font-stretch: var(--w-wd-label);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  border: 1.5px solid var(--color-accent);
+  color: var(--color-accent-foreground);
   font-weight: 680;
   font-size: 11px;
   letter-spacing: 0.11em;
@@ -741,22 +749,21 @@
 
 .composer-send-delay,
 .composer-send-delay select {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
 }
 
 /* Undo Send: a Pending Send is owned by the backend and survives the Client
    closing, so the bar states the fact rather than counting at you. */
 .pending-send-bar {
-  background: var(--w-ink);
-  color: var(--w-frame);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  background: var(--color-ink);
+  color: var(--color-bg);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
 }
 
 .pending-send-label {
-  font-stretch: var(--w-wd-label);
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -764,11 +771,10 @@
 }
 
 .pending-send-undo {
-  border: 1.5px solid color-mix(in oklab, var(--w-frame) 45%, transparent);
-  border-radius: var(--w-r-plate);
+  border: 1.5px solid color-mix(in oklab, var(--color-bg) 45%, transparent);
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
-  font-stretch: var(--w-wd-label);
   font-weight: 660;
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -778,9 +784,9 @@
 /* A failed send persists in a changed state, so it is one of the places the
    strike belongs: NOT SENT, struck in postal red. */
 .send-failure-banner {
-  background: color-mix(in oklab, var(--w-postal) 12%, var(--w-panel));
-  border: var(--w-hair) solid color-mix(in oklab, var(--w-postal) 42%, var(--w-rule-hard));
-  border-radius: var(--w-r-plate);
+  background: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
+  border: var(--hairline) solid color-mix(in oklab, var(--color-danger) 42%, var(--color-border));
+  border-radius: var(--radius-md);
 }
 
 .send-failure-text::before {
@@ -788,9 +794,9 @@
   display: inline-block;
   margin-right: 9px;
   padding: 1px 6px;
-  border: 1.5px solid var(--w-postal);
-  border-radius: var(--w-r-plate);
-  color: var(--w-postal);
+  border: 1.5px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
   font-stretch: 74%;
   font-weight: 780;
   font-size: 9px;
@@ -805,50 +811,49 @@
 }
 
 .send-failure-detail {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 
 .composer-conflict-banner {
-  background: color-mix(in oklab, var(--w-fluor-flat) 14%, var(--w-panel));
-  border: var(--w-hair) solid color-mix(in oklab, var(--w-fluor-flat) 40%, var(--w-rule-hard));
-  border-radius: var(--w-r-plate);
+  background: color-mix(in oklab, var(--color-warn) 14%, var(--color-surface));
+  border: var(--hairline) solid color-mix(in oklab, var(--color-warn) 40%, var(--color-border));
+  border-radius: var(--radius-md);
 }
 
 /* Attachment sizes and the budget bar are measurement: machine face. */
 .attachment-row-size,
 .attachment-row-progress,
 .attachments-budget-error {
-  font-family: var(--w-mono);
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 
 .attachments-budget-bar {
-  border-radius: var(--w-r-band);
-  background: var(--w-panel-sunk);
+  border-radius: var(--radius-sm);
+  background: var(--color-field);
 }
 
 .attachments-budget-bar-fill {
-  background: var(--w-aniline);
+  background: var(--color-accent);
 }
 
 .attachment-row-error {
-  color: var(--w-postal);
-  font-family: var(--w-mono);
+  color: var(--color-danger);
+  font-family: var(--font-mono);
   font-size: 10px;
 }
 
 /* The Quoted Original is kept exactly as it arrived, never re-written into
    the User's formatting — so it is set off by a rule, not restyled. */
 .mail-quote-preview {
-  border-left: 2px solid var(--w-rule-hard);
-  color: var(--w-ink-2);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-ink-muted);
 }
 
 .mail-quote-toggle,
 .mail-quote-edit {
-  border-radius: var(--w-r-plate);
-  font-stretch: var(--w-wd-label);
+  border-radius: var(--radius-md);
   font-weight: 620;
   font-size: 10px;
   letter-spacing: 0.1em;
