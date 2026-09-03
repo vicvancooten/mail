@@ -1,5 +1,5 @@
 import type { MailAccount, MailAccountConnection } from "@mail/shared";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mailAccounts } from "../db/schema.js";
 import type { MailAccountCredential } from "./credential-crypto.js";
@@ -101,6 +101,24 @@ export async function getMailAccountById(db: Db, id: string): Promise<MailAccoun
 /** Every Mail Account on the instance — what boot uses to start a sync loop per account (#35). */
 export async function listAllMailAccounts(db: Db): Promise<MailAccountRow[]> {
   return db.select().from(mailAccounts);
+}
+
+/**
+ * Bumps a Mail Account's Thread rebuild epoch (`db/schema.ts`'s
+ * `threadsEpoch`) — the trigger `sync/collection-sync.ts#syncThreadCollection`
+ * checks a Client's token against, so the next Thread sync for this account
+ * answers `reset: true` regardless of how far behind that token actually is.
+ * Two callers: `sync/ingest.ts#applyUidValidity` (a UIDVALIDITY rebuild) and
+ * `routes/bulk-triage.ts` (#67, a batch past `BULK_TRIAGE_RESET_THRESHOLD`)
+ * — both are "the underlying state was rebuilt" in ADR-0011's sense, just
+ * from different causes, so both drive the one mechanism rather than each
+ * growing its own reset signal.
+ */
+export async function bumpThreadsEpoch(db: Db, id: string): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ threadsEpoch: sql`${mailAccounts.threadsEpoch} + 1` })
+    .where(eq(mailAccounts.id, id));
 }
 
 /**

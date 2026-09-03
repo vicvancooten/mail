@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import type { FetchMessageObject, ImapFlow, MessageAddressObject } from "imapflow";
 import type { Db } from "../db/client.js";
-import { folders, type MessageAddress, mailAccounts, messages } from "../db/schema.js";
+import { folders, type MessageAddress, messages } from "../db/schema.js";
+import { bumpThreadsEpoch } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { hasRealAttachments, readBodyParts } from "./body-structure.js";
 import {
@@ -233,10 +234,7 @@ export async function applyUidValidity(
 
   await db.delete(messages).where(eq(messages.folderId, folder.id));
   await deleteEmptyThreads(db, folder.mailAccountId);
-  await db
-    .update(mailAccounts)
-    .set({ threadsEpoch: sql`${mailAccounts.threadsEpoch} + 1` })
-    .where(eq(mailAccounts.id, folder.mailAccountId));
+  await bumpThreadsEpoch(db, folder.mailAccountId);
   return true;
 }
 
