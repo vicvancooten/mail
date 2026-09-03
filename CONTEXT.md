@@ -37,6 +37,26 @@ _Avoid_: proxy, bridge, API server
 **Client**:
 Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, never to a mail server directly.
 
+**App**:
+One of the personal-hub products a Client holds: Mail today, with Contacts, Calendar and Tasks
+named and reserved. An App is a whole product surface with its own navigation, not a screen inside
+Mail — which is why the Client's chrome makes room for four rather than treating Mail as the whole
+world.
+_Avoid_: module, section, tab
+
+**Account Scope**:
+Which of the User's Mail Accounts the Client is currently showing: any non-empty subset, defaulting
+to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing to one
+account is a question every App answers. Actions that can only mean one account — sending, or
+changing a Gatekeeper setting — ask for that account rather than inheriting the Scope.
+_Avoid_: account switcher, unified inbox, active account
+
+**App Switcher**:
+The Client chrome that moves the User between Apps and names the ones not yet built. Reserved Apps
+are shown and marked unavailable rather than hidden, because the Client's shape is a promise about
+what the instance will hold.
+_Avoid_: app rail, nav bar
+
 **Local Cache**:
 The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering.
 _Avoid_: local store, local database, replica, offline store
@@ -74,7 +94,17 @@ merged conversation is far harder to recover from than a split one.
 _Avoid_: conversation
 
 **Triage**:
-Processing the message list: archive, trash, pin, snooze, label, approve/block senders.
+Processing the message list: Done, trash, pin, snooze, label, approve/block senders.
+
+**Done**:
+Clearing a Thread out of the Inbox: the primary Triage action and the verb the UI uses. What it
+*does* is move the Thread to the Archive — Done is the act, Archive is the place it lands, and the
+two names are never swapped.
+_Avoid_: archive (as a verb), clear, dismiss
+
+**Archive**:
+Where a Thread lands once it is Done. A destination, never an action.
+_Avoid_: archive (as a verb), done (as a place)
 
 **Protocol Feature**:
 Triage state stored as a real IMAP flag or folder operation, visible to any other IMAP client against the same Mail Account. Reserved for the rare case where a clean, near-universal mapping exists across the PoC's target providers — currently just read/unread (`\Seen`) and starred (`\Flagged`).
@@ -176,5 +206,5 @@ _Avoid_: backfill progress
 ### Preferences
 
 **Device Preference**:
-A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout and list density. Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
+A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout, list density, and appearance (light/dark/system, default system). Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
 _Avoid_: local setting, client setting
