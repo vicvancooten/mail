@@ -229,3 +229,32 @@ export function readScreenerSeenUntil(mailAccountId: string): string {
 export function writeScreenerViewed(mailAccountId: string): void {
   writeStorage(SCREENER_SEEN_KEY_PREFIX + mailAccountId, new Date().toISOString());
 }
+
+/**
+ * Collapsed group state (#78, `mail#66` §"Collapse available from the armed
+ * group cluster and on tap"): keyed by the group's own label ("Today", "This
+ * week", a named month, …), not an id — the ladder's labels are already the
+ * User-facing identity a group has (`time-groups.ts`), and what "keyed by
+ * group label" in the acceptance criteria names directly. Device-local by
+ * the same reasoning as the rest of this file: which groups you've folded
+ * away means something different on a phone than on a laptop, so this
+ * deliberately never syncs.
+ */
+const GROUP_COLLAPSED_KEY_PREFIX = "mail.devicePref.groupCollapsed.";
+
+export function readGroupCollapsed(label: string): boolean {
+  return readStorage(GROUP_COLLAPSED_KEY_PREFIX + label) === "1";
+}
+
+/** Un-collapsing removes the key rather than writing "0" — a label with no key and one written false both read back as "not collapsed", so there's no reason to keep growing storage past what's actually folded away. */
+export function writeGroupCollapsed(label: string, collapsed: boolean): void {
+  if (collapsed) {
+    writeStorage(GROUP_COLLAPSED_KEY_PREFIX + label, "1");
+    return;
+  }
+  try {
+    globalThis.localStorage?.removeItem(GROUP_COLLAPSED_KEY_PREFIX + label);
+  } catch {
+    // Best-effort; see module docstring.
+  }
+}

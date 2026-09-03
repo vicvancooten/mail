@@ -578,6 +578,7 @@
    (#75): a fixed-size control whether armed or not, so arming a header
    never reflows the label or count beside it. */
 .group-header-cluster .group-done,
+.group-header-cluster .group-collapse,
 .group-header-cluster .group-mark-read {
   display: flex;
   align-items: center;
@@ -596,7 +597,10 @@
   transition: opacity var(--w-dur-fast) var(--w-ease);
 }
 
-.group-header-cluster .group-mark-read {
+/* Collapse (#78) is always the first right-aligned control — it pushes
+   itself, and whatever follows it (Mark all read, when the group is also a
+   bulk-Triage target), to the cluster's trailing edge. */
+.group-header-cluster .group-collapse {
   margin-left: auto;
 }
 
@@ -605,14 +609,17 @@
    same "real component state, not a CSS-only trick" `ThreadRow`'s own
    armed cluster already insists on (#75, #66). */
 .group-header-cluster[data-armed="true"] .group-done,
+.group-header-cluster[data-armed="true"] .group-collapse,
 .group-header-cluster[data-armed="true"] .group-mark-read,
 .group-header-cluster .group-done:focus-visible,
+.group-header-cluster .group-collapse:focus-visible,
 .group-header-cluster .group-mark-read:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
 
 .group-header-cluster .group-done:hover,
+.group-header-cluster .group-collapse:hover,
 .group-header-cluster .group-mark-read:hover {
   background: var(--w-panel-2);
   color: var(--w-ink);
