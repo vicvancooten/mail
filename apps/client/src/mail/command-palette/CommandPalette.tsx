@@ -1,3 +1,4 @@
+import type { MailAccount } from "@mail/shared";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Pictogram } from "../../brand/Pictogram.js";
 import type { CachedThread } from "../../store/index.js";
@@ -64,6 +65,8 @@ export function CommandPalette({
   onOpenShortcutSheet,
   search,
   searchOrigin,
+  accounts,
+  accountScope,
 }: {
   open: boolean;
   onClose: () => void;
@@ -78,6 +81,9 @@ export function CommandPalette({
   onOpenShortcutSheet: () => void;
   search: SearchState;
   searchOrigin: ViewOrigin;
+  accounts: readonly MailAccount[];
+  /** Which Mail Account a hit came from is only worth naming once a search actually spans more than one (#80, same "several are in Scope" gate `SearchResultsView`'s own row badge uses). */
+  accountScope: readonly string[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -134,6 +140,7 @@ export function CommandPalette({
   // stale hits under an unrelated command search.
   const showHits = query.trim().length > 0 && search.meetsFloor;
   const hits = showHits ? search.results.slice(0, 5) : [];
+  const showAccountBadge = accountScope.length > 1;
 
   const rows: PaletteRow[] = useMemo(
     () => [
@@ -282,6 +289,10 @@ export function CommandPalette({
                 const display = search.displayById.get(thread.id);
                 const participants =
                   thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
+                const accountLabel = showAccountBadge
+                  ? accounts.find((candidate) => candidate.id === thread.mailAccountId)
+                      ?.emailAddress
+                  : null;
                 return (
                   <button
                     type="button"
@@ -297,6 +308,9 @@ export function CommandPalette({
                       {thread.subject || "(no subject)"}
                     </span>
                     <span className="command-palette-hit-from">{participants}</span>
+                    {accountLabel ? (
+                      <span className="command-palette-hit-account">{accountLabel}</span>
+                    ) : null}
                     {display?.gatekeeper ? (
                       <span className="command-palette-hit-badge">{display.gatekeeper}</span>
                     ) : null}

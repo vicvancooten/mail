@@ -214,6 +214,7 @@ export function SearchResultsView({
   onReply,
   accounts,
   mailAccountId,
+  accountScope,
 }: {
   viewMode: "split" | "list";
   state: SearchState;
@@ -221,13 +222,16 @@ export function SearchResultsView({
   onReply: OnReply;
   accounts: readonly MailAccount[];
   mailAccountId: string | null;
+  /** Search's own account badge (#80's "each row shows which account it came from where several are in Scope") — the row itself already carries its `mailAccountId` (`sync.ts#threadSchema`); this is only what decides whether the badge is worth showing at all. */
+  accountScope: readonly string[];
 }) {
   const selectedThread =
     state.results.find((thread) => thread.id === state.selectedThreadId) ?? null;
   const watermark = formatWatermark(state);
   const account = accounts.find((candidate) => candidate.id === mailAccountId) ?? null;
+  const showAccountBadge = accountScope.length > 1;
 
-  const getRowExtra = (thread: { id: string }): RowExtra | undefined => {
+  const getRowExtra = (thread: { id: string; mailAccountId: string }): RowExtra | undefined => {
     const display = state.displayById.get(thread.id);
     if (!display) return undefined;
     const overlaid = state.results.find((candidate) => candidate.id === thread.id);
@@ -240,6 +244,10 @@ export function SearchResultsView({
       actionBadge:
         state.actedOnThreadIds.has(thread.id) && overlaid && !overlaid.inInbox ? "Removed" : null,
       gatekeeperBadge: display.gatekeeper,
+      accountBadge: showAccountBadge
+        ? (accounts.find((candidate) => candidate.id === thread.mailAccountId)?.emailAddress ??
+          null)
+        : null,
     };
   };
 
