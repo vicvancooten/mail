@@ -8,6 +8,7 @@ import type { Db } from "../db/client.js";
 import { mailAccounts, oauthSignInAttempts, users } from "../db/schema.js";
 import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import type {
+  AuthorizationCallbackError,
   AuthorizationUrlInput,
   ExchangeCodeInput,
   ProviderAdapter,
@@ -21,6 +22,7 @@ import {
 } from "../provider-registrations/store.js";
 import type { SyncManager } from "../sync/manager.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
+import { defaultProviderAdapters } from "./oauth-signin.js";
 
 /**
  * Sign in with Google to add a Mail Account (#116, ADR-0021), driven end to
@@ -64,9 +66,15 @@ function fakeGrant(overrides: Partial<ProviderGrant> = {}): ProviderGrant {
 interface FakeAdapterOptions {
   exchange?: (input: ExchangeCodeInput) => Promise<ProviderGrant>;
   seen?: { authorization: AuthorizationUrlInput[]; exchange: ExchangeCodeInput[] };
+  /** #117: lets a test drive the tenant_refused branch without naming Microsoft. */
+  isTenantRefusal?: (failure: AuthorizationCallbackError) => boolean;
 }
 
-function fakeAdapter({ exchange, seen }: FakeAdapterOptions = {}): ProviderAdapter {
+function fakeAdapter({
+  exchange,
+  seen,
+  isTenantRefusal,
+}: FakeAdapterOptions = {}): ProviderAdapter {
   return {
     connection: {
       imap: { host: "imap.fake.test", port: 993, security: "tls" },
@@ -91,6 +99,7 @@ function fakeAdapter({ exchange, seen }: FakeAdapterOptions = {}): ProviderAdapt
     async refresh() {
       return { ok: false, reason: "transient", detail: "not exercised here" };
     },
+    ...(isTenantRefusal ? { isTenantRefusal } : {}),
   };
 }
 
@@ -465,6 +474,66 @@ describe("GET /auth/oauth/:provider/callback", () => {
     expect(await db.select().from(mailAccounts)).toHaveLength(0);
   });
 
+  it("reports tenant_refused when the authorize redirect carries an error the adapter classifies as one (#117)", async () => {
+    const app = buildTestApp({
+      adapter: fakeAdapter({ isTenantRefusal: ({ error }) => error === "consent_required" }),
+    });
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const state = await start(app, cookie);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ error: "consent_required", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("tenant_refused");
+    expect(await db.select().from(mailAccounts)).toHaveLength(0);
+  });
+
+  it("keeps an unclassified authorize error as provider_error even with a tenant-aware adapter", async () => {
+    const app = buildTestApp({
+      adapter: fakeAdapter({ isTenantRefusal: ({ error }) => error === "consent_required" }),
+    });
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const state = await start(app, cookie);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ error: "server_error", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("provider_error");
+  });
+
+  it("reports tenant_refused when the token exchange throws an error the adapter classifies as one (#117)", async () => {
+    const app = buildTestApp({
+      adapter: fakeAdapter({
+        isTenantRefusal: ({ error }) => error === "unauthorized_client",
+        exchange: async () => {
+          throw Object.assign(new Error("Microsoft token endpoint: unauthorized_client"), {
+            error: "unauthorized_client",
+          });
+        },
+      }),
+    });
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const state = await start(app, cookie);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("tenant_refused");
+    expect(await db.select().from(mailAccounts)).toHaveLength(0);
+  });
+
   it("refuses an address already among this User's Mail Accounts", async () => {
     const app = buildTestApp();
     const { userId, cookie } = await createUserWithCookie();
@@ -549,5 +618,11 @@ describe("GET /auth/oauth/:provider/callback", () => {
 
     expect(outcomeOf(response.headers.location as string)).toBe("provider_not_registered");
     expect(await db.select().from(mailAccounts)).toHaveLength(0);
+  });
+});
+
+describe("defaultProviderAdapters", () => {
+  it("wires in both Google (#116) and Microsoft (#117), the only two Providers", () => {
+    expect(Object.keys(defaultProviderAdapters).sort()).toEqual(["google", "microsoft"]);
   });
 });

@@ -18,6 +18,7 @@ import {
   unsealSecret,
 } from "../mail-accounts/credential-crypto.js";
 import { googleProviderAdapter } from "../mail-accounts/google-adapter.js";
+import { microsoftProviderAdapter } from "../mail-accounts/microsoft-adapter.js";
 import type { ProviderAdapter, ProviderAdapters } from "../mail-accounts/provider-adapter.js";
 import { consumeSignInAttempt, startSignInAttempt } from "../mail-accounts/sign-in-attempts.js";
 import { getMailAccountForUserByAddress, insertMailAccount } from "../mail-accounts/store.js";
@@ -40,9 +41,14 @@ import { noopSyncManager, type SyncManager } from "../sync/manager.js";
  *   Accounts settings page with an outcome code in the query string that the
  *   Client turns into a toast.
  *
- * Everything Google-shaped is behind `ProviderAdapter` — this file names no
- * endpoint, no scope and no token field, which is what lets its tests drive
- * the entire flow with a fake adapter.
+ * Everything Google- or Microsoft-shaped is behind `ProviderAdapter` — this
+ * file names no endpoint, no scope and no token field, which is what lets
+ * its tests drive the entire flow with a fake adapter. The one exception is
+ * `tenant_refused` (#117): ADR-0021's admin-consent/blocked-IMAP outcome is
+ * classified by the adapter (`isTenantRefusal`) but read out here through
+ * the standard OAuth 2.0/OIDC `error` codes both an authorization redirect
+ * and a token-exchange failure carry — a shape the spec defines, not either
+ * Provider.
  *
  * Both live under `/auth` on purpose: `isApiPath()` (`@mail/shared`) and the
  * Client's Vite dev proxy already cover that prefix, and #115's
@@ -59,7 +65,7 @@ export interface OAuthSignInRoutesOptions {
   publicUrl: string;
   /** `env.MAIL_CREDENTIAL_KEY` (ADR-0003) — unseals the Registration's client secret, seals the Grant. */
   mailCredentialKey: string;
-  /** The one new seam (#116). Defaults to the real Google adapter; tests pass a fake. Microsoft has no entry until #117. */
+  /** The one new seam (#116). Defaults to the real Google and Microsoft adapters; tests pass a fake. */
   providerAdapters?: ProviderAdapters;
   /** Overridable in tests, same reason `routes/mail-accounts.ts` overrides it: no real IMAP/SMTP server in a unit test. */
   verify?: typeof verifyMailAccountCredentials;
@@ -67,7 +73,10 @@ export interface OAuthSignInRoutesOptions {
   syncManager?: SyncManager;
 }
 
-export const defaultProviderAdapters: ProviderAdapters = { google: googleProviderAdapter };
+export const defaultProviderAdapters: ProviderAdapters = {
+  google: googleProviderAdapter,
+  microsoft: microsoftProviderAdapter,
+};
 
 export async function oauthSignInRoutes(
   app: FastifyInstance,
@@ -161,7 +170,12 @@ export async function oauthSignInRoutes(
       return finish(reply, "session_expired");
     }
 
-    const query = request.query as { code?: string; state?: string; error?: string };
+    const query = request.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+      error_description?: string;
+    };
     if (typeof query.state !== "string") {
       return finish(reply, "invalid_state");
     }
@@ -177,16 +191,26 @@ export async function oauthSignInRoutes(
       return finish(reply, "invalid_state");
     }
 
+    const adapter = providerAdapters[provider];
+
     // `access_denied` is the User pressing Cancel on the consent screen —
     // ADR-0021's "plain toast", not an error worth a different word for.
+    // Anything else the adapter recognises as a tenant refusal (#117: an
+    // M365 tenant blocking IMAP or withholding admin consent) is a distinct,
+    // never-retry outcome; everything left over is an ordinary provider_error.
     if (query.error) {
+      if (
+        query.error !== "access_denied" &&
+        adapter?.isTenantRefusal?.({ error: query.error, detail: query.error_description })
+      ) {
+        return finish(reply, "tenant_refused");
+      }
       return finish(reply, query.error === "access_denied" ? "cancelled" : "provider_error");
     }
     if (typeof query.code !== "string" || query.code.length === 0) {
       return finish(reply, "provider_error");
     }
 
-    const adapter = providerAdapters[provider];
     const registration = await getProviderRegistration(db, provider);
     if (!adapter || !registration) {
       // The Owner removed the Registration while the User was at the consent
@@ -204,6 +228,17 @@ export async function oauthSignInRoutes(
         codeVerifier: attempt.codeVerifier,
       });
     } catch (err) {
+      const errorCode = errorCodeOf(err);
+      if (
+        errorCode &&
+        adapter.isTenantRefusal?.({
+          error: errorCode,
+          detail: err instanceof Error ? err.message : undefined,
+        })
+      ) {
+        request.log.warn({ err, provider }, "A tenant refused the sign-in (ADR-0021).");
+        return finish(reply, "tenant_refused");
+      }
       request.log.warn({ err, provider }, "Provider rejected the authorization code exchange.");
       return finish(reply, "provider_error");
     }
@@ -260,6 +295,21 @@ export async function oauthSignInRoutes(
 
     return finish(reply, "signed_in");
   });
+}
+
+/**
+ * Structurally duck-types a Provider's own token-error shape (Google's
+ * `GoogleTokenError`, Microsoft's `MicrosoftTokenError`) without naming
+ * either — both carry their machine-readable `.error` code the same way,
+ * which is all `isTenantRefusal` (#117) needs to read off whatever
+ * `exchangeCode` threw.
+ */
+function errorCodeOf(err: unknown): string | undefined {
+  if (err && typeof err === "object" && "error" in err) {
+    const value = (err as { error: unknown }).error;
+    return typeof value === "string" ? value : undefined;
+  }
+  return undefined;
 }
 
 /** Parses `:provider`, replying 400 for anything but `google`/`microsoft` — mirrors `routes/instance.ts`'s own. */

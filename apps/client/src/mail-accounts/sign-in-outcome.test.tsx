@@ -48,6 +48,14 @@ describe("readSignInOutcome", () => {
     });
   });
 
+  it("reads tenant_refused (#117) as a failure that names the organisation as the refuser", () => {
+    expect(readSignInOutcome("?oauth=tenant_refused")).toMatchObject({
+      outcome: "tenant_refused",
+      succeeded: false,
+      message: expect.stringContaining("organisation"),
+    });
+  });
+
   it("ignores a query string with no outcome, or an outcome this build doesn't know", () => {
     expect(readSignInOutcome("")).toBeNull();
     expect(readSignInOutcome("?other=1")).toBeNull();
