@@ -13,7 +13,7 @@ import {
   normalizeLabelName,
   UNDO_SEND_DELAY_OPTIONS,
 } from "@mail/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import type { Db } from "../db/client.js";
@@ -259,13 +259,19 @@ async function applyIntent(
     case "unsnooze":
       // Undo's own real inverse of `snooze` (#95) — an App Feature exactly
       // like `snooze` itself, so the Thread row is the whole of it, no
-      // protocol write. A Thread that was never snoozed (Undo racing the
-      // wake sweep, say) is a harmless no-op, same tolerance `removeLabel`
-      // gives a name that was never applied.
+      // protocol write. Guarded on `snoozeUntil` actually being set: a
+      // Thread that was never snoozed (Undo racing the wake sweep, say) is
+      // a harmless no-op, same tolerance `removeLabel` gives a name that
+      // was never applied — but without this guard it was not a no-op at
+      // all, it unconditionally forced `inInbox: true`, which would
+      // un-triage a Thread the User had since archived or trashed out from
+      // under that later, more deliberate decision (#90's review). Whoever
+      // fires `unsnooze` for a Thread no longer snoozed gets exactly
+      // nothing changed, the same as this comment always claimed.
       await db
         .update(threads)
         .set({ inInbox: true, snoozeUntil: null })
-        .where(eq(threads.id, intent.threadId));
+        .where(and(eq(threads.id, intent.threadId), isNotNull(threads.snoozeUntil)));
       return { ok: true };
 
     case "applyLabel": {

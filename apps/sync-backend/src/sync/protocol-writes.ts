@@ -21,9 +21,18 @@ import { findFolderByRole } from "./folders.js";
  */
 export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash" | "inbox" | "junk";
 
-/** `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty list. */
+/** The transaction handle `db.transaction(async (tx) => ...)` hands its callback — same query surface as `Db`, per `compose/blob-store.ts`'s own alias. */
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty
+ * list. Takes `Db | Tx` rather than `Db` alone so `sync/restore-to-inbox.ts`
+ * can enqueue the "inbox" reversal inside the same transaction that cancels
+ * a still-queued original — one insert statement either way, so there is
+ * nothing transaction-specific here to get wrong.
+ */
 export async function enqueueProtocolWrites(
-  db: Db,
+  db: Db | Tx,
   mailAccountId: string,
   messageIds: string[],
   kind: ProtocolWriteKind,

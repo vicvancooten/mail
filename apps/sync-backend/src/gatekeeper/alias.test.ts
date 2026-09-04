@@ -42,14 +42,34 @@ describe("resolveRecipientAlias (#103)", () => {
     expect(alias).toBe("catchall@mycompany.com");
   });
 
-  it("discards a Delivered-To that names a different domain — noise, not this mailbox's own Alias", () => {
+  it("accepts a Delivered-To at a different domain than the Mail Account's own login address — the leaked-catch-all case #103 exists for", () => {
+    // The ticket's own Problem statement: a catch-all domain handed out per
+    // correspondent has no reason to share a domain with the Mail Account's
+    // login address. An earlier revision required every candidate to match
+    // that login domain, which discarded exactly this Alias — #90's review
+    // caught it as an undeclared constraint the ticket's Decision never
+    // named.
     const alias = resolveRecipientAlias({
       mailAccountEmailAddress: ACCOUNT,
-      headerBlock: headerBlock(["Delivered-To: someone@unrelated.example"]),
+      headerBlock: headerBlock(["Delivered-To: somecompany@theirdomain.com"]),
       toAddresses: [{ name: null, address: "catchall@mycompany.com" }],
       ccAddresses: [],
     });
-    expect(alias).toBe("catchall@mycompany.com");
+    expect(alias).toBe("somecompany@theirdomain.com");
+  });
+
+  it("still requires a To/Cc fallback candidate to sit at the Mail Account's own domain — the weak-evidence tier", () => {
+    // Unlike a header stamp, a `To`/`Cc` entry carries no MDA behind it
+    // vouching for it — a co-recipient's own address sitting there must
+    // never become "my Alias", which is exactly what the domain gate still
+    // guards for this tier.
+    const alias = resolveRecipientAlias({
+      mailAccountEmailAddress: ACCOUNT,
+      headerBlock: undefined,
+      toAddresses: [{ name: null, address: "co-recipient@unrelated.example" }],
+      ccAddresses: [],
+    });
+    expect(alias).toBeNull();
   });
 
   it("resolves the account's own primary address when that's genuinely what the message named", () => {
@@ -72,11 +92,25 @@ describe("resolveRecipientAlias (#103)", () => {
     expect(alias).toBeNull();
   });
 
-  it("returns null for an account address with no parseable domain", () => {
+  it("still trusts a Delivered-To header even when the Mail Account's own address has no parseable domain", () => {
+    // The header tier never consults `ownDomain` at all (see this module's
+    // own doc comment) — a garbled stored login address is this Mail
+    // Account's problem elsewhere, not a reason to distrust an MDA's own
+    // stamp of who actually received the message.
     const alias = resolveRecipientAlias({
       mailAccountEmailAddress: "not-an-address",
       headerBlock: headerBlock(["Delivered-To: sales@mycompany.com"]),
       toAddresses: [],
+      ccAddresses: [],
+    });
+    expect(alias).toBe("sales@mycompany.com");
+  });
+
+  it("returns null for an account address with no parseable domain, once the To/Cc fallback is all there is", () => {
+    const alias = resolveRecipientAlias({
+      mailAccountEmailAddress: "not-an-address",
+      headerBlock: undefined,
+      toAddresses: [{ name: null, address: "sales@mycompany.com" }],
       ccAddresses: [],
     });
     expect(alias).toBeNull();

@@ -136,8 +136,9 @@ export const threadSchema = z.object({
    * a Thread, so there is exactly one recipient Alias to name.
    *
    * What the Screener's Block split menu reads to offer *Block everything
-   * sent to `<alias>`* (#103) — a fourth, recipient-scoped Verdict alongside
-   * `heldSender`'s address/domain ones, beating even an Approved Sender.
+   * sent to `<alias>`* (#103) — a third, recipient-scoped Verdict scope
+   * alongside `heldSender`'s address/domain ones, beating even an Approved
+   * Sender.
    */
   heldRecipientAlias: z.string().nullable(),
   /**
@@ -398,8 +399,8 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
  * above for why they ride this queue rather than a new collection.
  *
- * The five Gatekeeper intents (#55, #102) are the Screener's decisions and
- * the Blocked Senders list's undo. They ride this queue rather than their own
+ * The Gatekeeper intents (#55, #102) are the Screener's decisions and the
+ * Blocked Senders list's undo. They ride this queue rather than their own
  * routes because CONTEXT.md files "approve/block senders" under **Triage**:
  * they are decisions the User makes while processing the list, and they want
  * the same durable, offline-survivable, ULID-idempotent delivery every other
@@ -447,15 +448,22 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * Pin's own toggle works: no protocol write, just the Thread row. Both name
  * one Thread, exactly like the actions they reverse, which is what lets
  * `store/mutation-queue.ts`'s coalescer cancel a still-queued original for
- * free. `unblockAndRestore` undoes Deny, Block, **or** #103's Block-Alias:
- * `sender` is who (or, at `scope: "recipient"`, which Alias) the
- * Verdict-clear targets (a no-op for Deny, which left none), and
- * `threadIds` — captured by the Client at decision time, the same way
- * `ScreenerSenderGroup.threadIds` already is — names exactly the Threads
- * that decision trashed, since by the time Undo fires the sender (or Alias)
- * may be holding a fresh, unrelated stranger's mail again. The payload grows
- * no new field for Block-Alias: `sender` at `scope: "recipient"` is already
- * what `blockSender` used to create the Verdict, so undoing it is the exact
+ * free. `unblockAndRestore` undoes Deny, Block, Spam, **or** #103's
+ * Block-Alias: `sender` is who (or, at `scope: "recipient"`, which Alias)
+ * the Verdict-clear targets (a no-op for Deny, which left none, and the
+ * one call that also drops Spam's `spam` flag, since it deletes the whole
+ * row), and `threadIds` — captured by the Client at decision time, the same
+ * way `ScreenerSenderGroup.threadIds` already is — names exactly the Threads
+ * that decision trashed *or moved to Junk*, since by the time Undo fires the
+ * sender (or Alias) may be holding a fresh, unrelated stranger's mail again.
+ * `restoreThreadsToInbox` (`sync/restore-to-inbox.ts`) is what actually
+ * widened to bring a Thread back out of Junk, not a new field here — Spam
+ * rides this exact intent rather than one of its own, because a Spam
+ * Verdict *is* a Blocked Verdict (`spam: true` alongside it) for every other
+ * purpose one answers, and undoing it is "clear the Verdict, restore the
+ * Threads" either way. The payload grows no new field for Block-Alias:
+ * `sender` at `scope: "recipient"` is already what `blockSender` used to
+ * create the Verdict, so undoing it is the exact
  * same `clearVerdict` call `address`/`domain` scopes already get.
  *
  * `discardComposition`/`undiscardComposition` (#101, ADR-0012's "deletion is
