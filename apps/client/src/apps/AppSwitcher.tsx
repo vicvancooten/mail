@@ -1,9 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import type { LucideIcon } from "lucide-react";
-import { Calendar, ChevronDown, ListChecks, Mail, Users } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Mark } from "../brand/Mark.js";
-import { APPS, appForPath } from "./apps.js";
+import { APPS, appForPath, appIconFor } from "./apps.js";
 
 /**
  * Header-left (#72, part of #66; rebuilt against the comp in #86): the hub
@@ -26,18 +25,11 @@ import { APPS, appForPath } from "./apps.js";
  * same rail at any width.
  */
 
-const APP_ICONS: Record<string, LucideIcon> = {
-  mail: Mail,
-  contacts: Users,
-  calendar: Calendar,
-  tasks: ListChecks,
-};
-
 export function AppSwitcher({ pathname }: { pathname: string }) {
   const current = appForPath(pathname);
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const CurrentIcon = APP_ICONS[current?.key ?? "mail"] ?? Mail;
+  const CurrentIcon = appIconFor(current?.key ?? "mail");
 
   // A click anywhere else, or Escape, closes it — the comp's own two exits.
   // Bound only while open, so the shell carries no idle document listener.
@@ -82,7 +74,7 @@ export function AppSwitcher({ pathname }: { pathname: string }) {
         <div>
           <div className="tabs-row">
             {APPS.map((app) => {
-              const Icon = APP_ICONS[app.key] ?? Mail;
+              const Icon = appIconFor(app.key);
               return (
                 <Link
                   key={app.key}

@@ -16,10 +16,7 @@ export function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor={htmlFor}
-        className="text-[10px] font-semibold tracking-[0.11em] text-muted-foreground uppercase"
-      >
+      <label htmlFor={htmlFor} className="text-[11.5px] font-semibold text-muted-foreground">
         {label}
       </label>
       {children}

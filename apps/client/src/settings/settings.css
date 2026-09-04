@@ -30,9 +30,7 @@
   background: var(--color-field);
   border-bottom: var(--hairline) solid var(--color-border);
   font-weight: 660;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 13px;
   color: var(--color-ink);
 }
 
@@ -98,10 +96,8 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 5px;
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 11.5px;
   color: var(--color-ink-faint);
 }
 
@@ -111,10 +107,17 @@
   gap: 8px;
   font-weight: 400;
   font-size: 13px;
-  letter-spacing: 0;
-  text-transform: none;
   color: var(--color-ink-muted);
+  /* Centers the checkbox row on the *row*-flex top-level `<section>`s
+     (beside `<select>` fields sharing a flex-end-aligned line). Restored to
+     `flex-start` inside `.account-preferences`, a column-flex container
+     where `align-self: center` centers on the horizontal axis instead and
+     otherwise strands the row in the middle of the panel. */
   align-self: center;
+}
+
+.settings-section .account-preferences label:has(> input[type="checkbox"]) {
+  align-self: flex-start;
 }
 
 .settings-section select,
@@ -147,10 +150,8 @@
   background: var(--color-surface-strong);
   color: var(--color-ink);
   font-family: inherit;
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 12.5px;
   transition:
     background var(--dur-press) linear,
     transform var(--dur-press) var(--ease-out);
@@ -190,10 +191,8 @@
   display: block;
   cursor: pointer;
   padding: 9px 0;
-  font-weight: 640;
-  font-size: 11px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 680;
+  font-size: 14px;
   color: var(--color-ink);
   list-style: none;
 }
