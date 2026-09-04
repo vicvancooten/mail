@@ -34,11 +34,13 @@ import {
   unblockAndRestore,
   unblockSender,
 } from "../gatekeeper/decisions.js";
+import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import {
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
+import { isInInbox } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { restoreThreadsToInbox } from "./restore-to-inbox.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -60,23 +62,40 @@ export async function flushMutations(
   mailAccountId: string,
   queued: QueuedMutation[],
 ): Promise<MutationOutcome[]> {
+  // Resolved once per flush, not per intent (`sync/thread-rollup.ts`'s own
+  // "resolve the account once" shape) — `archive`/`trash`/`restoreToInbox`
+  // are the only intents that read it (#124, ADR-0020).
+  const serverKind = await accountServerKind(db, mailAccountId);
   const outcomes: MutationOutcome[] = [];
   for (const { id, intent } of queued) {
-    outcomes.push(await applyOne(db, mailAccountId, id, intent));
+    outcomes.push(await applyOne(db, mailAccountId, serverKind, id, intent));
   }
   return outcomes;
+}
+
+async function accountServerKind(
+  db: Db,
+  mailAccountId: string,
+): Promise<MailAccountServerKind | null> {
+  const [row] = await db
+    .select({ serverKind: mailAccounts.serverKind })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.id, mailAccountId))
+    .limit(1);
+  return row?.serverKind ?? null;
 }
 
 async function applyOne(
   db: Db,
   mailAccountId: string,
+  serverKind: MailAccountServerKind | null,
   id: string,
   intent: MutationIntent,
 ): Promise<MutationOutcome> {
   const existing = await ledgerRow(db, id);
   if (existing) return toOutcome(id, existing);
 
-  const result = await applyIntent(db, mailAccountId, intent);
+  const result = await applyIntent(db, mailAccountId, serverKind, intent);
   try {
     await db.insert(appliedMutations).values({
       id,
@@ -125,10 +144,18 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
  * snoozed into the past. `restoreToInbox`/`unsnooze` (#95, ADR-0019) are
  * their real inverses — Undo's own intents, applied through this exact same
  * Thread lookup and rejection, never a queue cancellation.
+ *
+ * On Gmail (#124, ADR-0020), `archive` no longer needs an Archive-role
+ * Folder to reject against — Done there is a `\Inbox` label removal on the
+ * All Mail UID, never a move, so `no_archive_folder` is a generic-account
+ * rejection only. `trash` is unchanged on every server: Gmail still syncs a
+ * real Trash Folder (`sync/sync-plan.ts#GMAIL_SYNCED_ROLES`), and Trash stays
+ * a real move there too.
  */
 async function applyIntent(
   db: Db,
   mailAccountId: string,
+  serverKind: MailAccountServerKind | null,
   intent: MutationIntent,
 ): Promise<IntentResult> {
   // The four Composition intents (#46, #101) and the two Preference intents
@@ -200,12 +227,18 @@ async function applyIntent(
       // The synchronous half of the Optimistic Action's ack (ADR-0006): the
       // Sync Backend's own store is truth, so the Thread drops out of the
       // Client's one list the moment this lands, in the very same round
-      // trip that acks the mutation — not once the real IMAP `MOVE` below
+      // trip that acks the mutation — not once the real IMAP write below
       // eventually completes. Rejected outright, rather than left to always
       // "succeed" with nothing to show for it, when this account simply has
-      // no folder to move the message into.
-      const target = await findFolderByRole(db, mailAccountId, intent.type);
-      if (!target) return { ok: false, reason: `no_${intent.type}_folder` };
+      // no folder to move the message into — except a Gmail `archive`
+      // (#124, ADR-0020), which needs no such Folder: Done there removes the
+      // `\Inbox` label instead of moving anything, so there is nothing to
+      // reject against.
+      const needsTargetFolder = !(intent.type === "archive" && serverKind === "gmail");
+      if (needsTargetFolder) {
+        const target = await findFolderByRole(db, mailAccountId, intent.type);
+        if (!target) return { ok: false, reason: `no_${intent.type}_folder` };
+      }
 
       const inboxMessageIds = await inboxResidentMessageIds(db, intent.threadId);
       await db
@@ -417,14 +450,20 @@ async function threadMessageIds(db: Db, threadId: string): Promise<string[]> {
   return rows.map((row) => row.id);
 }
 
-/** The subset of a Thread's Messages `archive`/`trash` actually move — Sent/other-folder copies stay put. */
+/**
+ * The subset of a Thread's Messages `archive`/`trash` actually act on —
+ * Sent/other-folder copies stay put. Read through `sync/inbox.ts#isInInbox`
+ * (#124, ADR-0020) rather than a join on `folders.role === "inbox"`: on a
+ * generic account that's the same set either way, but on Gmail the Inbox is
+ * a Label on the one All Mail copy, never a Folder of its own.
+ */
 async function inboxResidentMessageIds(db: Db, threadId: string): Promise<string[]> {
   const rows = await db
-    .select({ id: messages.id })
+    .select({ id: messages.id, folderRole: folders.role, gmailLabels: messages.gmailLabels })
     .from(messages)
     .innerJoin(folders, eq(messages.folderId, folders.id))
-    .where(and(threadIs(threadId), eq(folders.role, "inbox")));
-  return rows.map((row) => row.id);
+    .where(threadIs(threadId));
+  return rows.filter((row) => isInInbox(row.folderRole, row.gmailLabels)).map((row) => row.id);
 }
 
 async function ledgerRow(

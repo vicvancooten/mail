@@ -2,6 +2,7 @@ import type { BulkTriageAction, BulkTriageFolderRole } from "@mail/shared";
 import { and, eq, gte, inArray, lt } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, messages, protocolWrites, threads } from "../db/schema.js";
+import { isInInbox } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 
@@ -101,8 +102,13 @@ export async function applyBulkTriageAction(
 /**
  * Mirrors `sync/mutations.ts#applyIntent`'s `archive` case: the synchronous
  * half (`inInbox: false`) lands here, in the same statement for every
- * targeted Thread; the asynchronous IMAP move rides the existing
- * write-through outbox exactly like a single-Thread archive does.
+ * targeted Thread; the asynchronous write-through outbox row rides the same
+ * "archive" kind a single-Thread archive enqueues — `protocol-writes.ts`'s
+ * own server-kind gate (#124, ADR-0020) is what turns that into a real move
+ * or a Gmail `\Inbox` label removal, needing no Archive Folder on this
+ * account either way. The Inbox-resident set is read through
+ * `sync/inbox.ts#isInInbox`, not a join on `folders.role === "inbox"` — the
+ * same reasoning `sync/mutations.ts#inboxResidentMessageIds` gives.
  */
 async function applyDone(db: Db, mailAccountId: string, threadIds: string[]): Promise<void> {
   await db
@@ -110,11 +116,12 @@ async function applyDone(db: Db, mailAccountId: string, threadIds: string[]): Pr
     .set({ inInbox: false, folderRole: "archive" })
     .where(inArray(threads.id, threadIds));
 
-  const inboxMessageIds = await db
-    .select({ id: messages.id })
+  const candidates = await db
+    .select({ id: messages.id, folderRole: folders.role, gmailLabels: messages.gmailLabels })
     .from(messages)
     .innerJoin(folders, eq(folders.id, messages.folderId))
-    .where(and(inArray(messages.threadId, threadIds), eq(folders.role, "inbox")));
+    .where(inArray(messages.threadId, threadIds));
+  const inboxMessageIds = candidates.filter((row) => isInInbox(row.folderRole, row.gmailLabels));
   await enqueueProtocolWrites(
     db,
     mailAccountId,
