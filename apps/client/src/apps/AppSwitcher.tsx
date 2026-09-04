@@ -51,7 +51,7 @@ export function AppSwitcher({ pathname }: { pathname: string }) {
 
   return (
     <div className="switcher-wrap" ref={wrapRef}>
-      <div className={`switcher-cell${open ? "" : " open"}`}>
+      <div className={`switcher-cell${open ? " open" : ""}`}>
         <div>
           <button
             type="button"
