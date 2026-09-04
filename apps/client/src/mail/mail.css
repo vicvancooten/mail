@@ -1421,8 +1421,15 @@
   background: var(--color-bg);
 }
 
+/* The Width decision (#98, grill Q10): the reading header centers at the
+   same 74ch column as the Snippet and a plain-text body, regardless of how
+   wide the HTML body below it fills the pane — `max-width` plus centering,
+   not the padding alone, so it stays a readable column at wide Split-pane
+   widths too. */
 .reading-header {
   flex: none;
+  max-width: 74ch;
+  margin-inline: auto;
   padding: 28px 34px 0;
 }
 
@@ -1597,9 +1604,11 @@
   padding: 0 34px 32px;
 }
 
+/* The Width decision (#98, grill Q10): centered at the same 74ch column as
+   the reading header and a plain-text body, not merely capped. */
 .reading-snippet {
-  margin: 0;
-  max-width: 70ch;
+  margin: 0 auto;
+  max-width: 74ch;
   font-size: 14.5px;
   line-height: 1.7;
   color: var(--color-ink);
@@ -1653,11 +1662,16 @@
    by a rule: the same rule the rest of the surface follows.
    ========================================================================= */
 
+/* The Width decision (#98, grill Q10): the HTML iframe fills the pane and
+   the sender's own document decides its width, same as any other mail
+   client — no `max-width` here any more. A plain-text message (no native
+   HTML alternative) narrows itself back to a centered readable column via
+   `.message-body-frame-plain` below, matching the Snippet and reading
+   header. */
 .message-list {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-width: 74ch;
 }
 
 .message-item {
@@ -1760,6 +1774,15 @@
   /* No transition on `height`: the iframe is measured once as the sanitized
      body lays out, so animating it buys a layout-thrashing reflow for a
      change the reader never sees mid-flight. */
+}
+
+/* A plain-text message (`Message.bodyIsPlainText` — no native HTML
+   alternative) reads as a centered column instead of filling the pane
+   (#98, grill Q10): there is no sender-authored layout here to defer to,
+   just `plainTextToHtml`'s escaped, `<br />`-joined lines. */
+.message-body-frame-plain {
+  max-width: 74ch;
+  margin-inline: auto;
 }
 
 .attachment-list {

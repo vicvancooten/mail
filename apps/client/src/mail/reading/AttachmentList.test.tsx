@@ -22,6 +22,7 @@ function makeMessage(attachments: MessageAttachment[]): Message {
     attachments,
     bodyText: "hi",
     bodyHtml: "<p>hi</p>",
+    bodyIsPlainText: false,
     remoteImagesAllowed: false,
   };
 }

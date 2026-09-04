@@ -34,29 +34,53 @@ export function deriveImageProxyKey(mailCredentialKey: string): Buffer {
   return createHash("sha256").update(`image-proxy:${mailCredentialKey}`, "utf8").digest();
 }
 
-function signature(key: Buffer, messageId: string, url: string): string {
-  return createHmac("sha256", key).update(`${messageId}:${url}`, "utf8").digest("base64url");
+/**
+ * How long a signed image-proxy URL stays valid (ADR-0018: "signed,
+ * expiring, session-free image URLs"). Rewritten on every serve
+ * (`rewriteRemoteImageReferences` runs at read time, not ingest), so this
+ * only has to outlast one render of the reading pane, not the message's
+ * whole lifetime — a User re-opening the same Thread later gets a freshly
+ * signed URL regardless.
+ */
+export const IMAGE_PROXY_TTL_MS = 60 * 60 * 1000;
+
+function signature(key: Buffer, messageId: string, url: string, expiresAt: number): string {
+  return createHmac("sha256", key)
+    .update(`${messageId}:${url}:${expiresAt}`, "utf8")
+    .digest("base64url");
 }
 
 /** The path a rewritten `<img src>`/`url()` reference points at. */
-export function buildImageProxyPath(key: Buffer, messageId: string, url: string): string {
-  const sig = signature(key, messageId, url);
-  const query = new URLSearchParams({ url, sig });
+export function buildImageProxyPath(
+  key: Buffer,
+  messageId: string,
+  url: string,
+  now: number = Date.now(),
+): string {
+  const expiresAt = now + IMAGE_PROXY_TTL_MS;
+  const sig = signature(key, messageId, url, expiresAt);
+  const query = new URLSearchParams({ url, exp: String(expiresAt), sig });
   return `/messages/${encodeURIComponent(messageId)}/image-proxy?${query.toString()}`;
 }
 
 /**
  * Constant-time signature check — a byte-by-byte `===` would leak timing
  * information about how many leading bytes matched, letting an attacker
- * forge a valid `sig` for an arbitrary `url` one byte at a time.
+ * forge a valid `sig` for an arbitrary `url` one byte at a time. The expiry
+ * itself is checked in plain time (there's nothing secret about "is this
+ * number in the past") before the signature is even computed, so an
+ * expired-but-otherwise-genuine URL 403s without needing HMAC math at all.
  */
 export function verifyImageProxySignature(
   key: Buffer,
   messageId: string,
   url: string,
   sig: string,
+  expiresAt: number,
+  now: number = Date.now(),
 ): boolean {
-  const expected = Buffer.from(signature(key, messageId, url), "utf8");
+  if (!Number.isFinite(expiresAt) || expiresAt < now) return false;
+  const expected = Buffer.from(signature(key, messageId, url, expiresAt), "utf8");
   const actual = Buffer.from(sig, "utf8");
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }

@@ -171,6 +171,18 @@ describe("buildMessageDocument", () => {
     expect(doc).toContain("<p>hello</p>");
   });
 
+  it("carries the click bridge (ADR-0018) under the same nonce as the resize script", () => {
+    const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
+    expect(doc).toContain("mail-link-click");
+    expect(doc).toContain('closest("a[href]")');
+  });
+
+  it("carries the image-error handler and its visible-error style", () => {
+    const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
+    expect(doc).toContain("mail-image-error");
+    expect(doc).toContain('"error"');
+  });
+
   it("applies the double-invert wrapper only when dark mode is on and the sender hasn't opted out", () => {
     const dark = buildMessageDocument({ ...baseOpts, html: "<p>hi</p>", darkMode: true });
     expect(dark).toContain("mail-invert");

@@ -1,6 +1,7 @@
 import type { Message } from "@mail/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type CidBlob, findCidReferences, resolveCidBlobs, revokeCidBlobs } from "./cid.js";
+import { type MailtoLink, parseMailtoHref } from "./mailto.js";
 import { generateNonce } from "./nonce.js";
 import { buildMessageDocument, hasProxiedImages } from "./sandbox-document.js";
 
@@ -48,8 +49,23 @@ function usePrefersDark(): boolean {
  * and a fresh mount per Message is what resets both when the User moves to
  * a different one, rather than an effect keyed on `message.id` that lint
  * would (correctly) flag as depending on something its body never reads.
+ *
+ * The click bridge (ADR-0018, `sandbox-document.ts`'s `LINK_BRIDGE_SCRIPT`)
+ * is the only way a link inside the sandboxed frame ever does anything: the
+ * frame posts `{type:"mail-link-click",href}`, and this component decides —
+ * `http(s)` opens a new tab with `noopener` (never `noreferrer`'s cousin
+ * `opener`, matching the sanitizer's own `rel` at ingest), `mailto:` opens
+ * the Composer prefilled (`onMailtoLink`), anything else is ignored. Never
+ * `allow-popups`: handing the click to the browser would lose this seam
+ * entirely (ADR-0018's considered-and-rejected options).
  */
-export function MessageBody({ message }: { message: Message }) {
+export function MessageBody({
+  message,
+  onMailtoLink,
+}: {
+  message: Message;
+  onMailtoLink: (link: MailtoLink) => void;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [cidBlobs, setCidBlobs] = useState<CidBlob[]>([]);
   // Seeded from the sender's Verdict, then the User's own per-message
@@ -104,22 +120,43 @@ export function MessageBody({ message }: { message: Message }) {
     function onMessage(event: MessageEvent) {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const data = event.data as unknown;
+      if (!data || typeof data !== "object") return;
+      const type = (data as { type?: unknown }).type;
+
       if (
-        data &&
-        typeof data === "object" &&
-        (data as { type?: unknown }).type === "mail-body-resize" &&
+        type === "mail-body-resize" &&
         typeof (data as { height?: unknown }).height === "number" &&
         Number.isFinite((data as { height: number }).height)
       ) {
         const next = (data as { height: number }).height;
         setHeight(Math.min(Math.max(next, MIN_HEIGHT), MAX_HEIGHT));
+        return;
+      }
+
+      if (type === "mail-link-click" && typeof (data as { href?: unknown }).href === "string") {
+        const href = (data as { href: string }).href;
+        const mailto = parseMailtoHref(href);
+        if (mailto) {
+          onMailtoLink(mailto);
+          return;
+        }
+        if (/^https?:\/\//i.test(href)) {
+          window.open(href, "_blank", "noopener");
+        }
+        // Anything else (relative paths, `tel:`, `javascript:` — the last
+        // already stripped by both sanitize passes but never trusted on
+        // that alone) is ignored: the click bridge only ever knows how to
+        // open two kinds of link.
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [onMailtoLink]);
 
   const showLoadImages = !imagesLoaded && hasProxiedImages(bodyHtml);
+  const frameClassName = message.bodyIsPlainText
+    ? "message-body-frame message-body-frame-plain"
+    : "message-body-frame";
 
   return (
     <div className="message-body">
@@ -137,7 +174,12 @@ export function MessageBody({ message }: { message: Message }) {
         title={`Message body from ${message.from?.name ?? message.from?.address ?? "unknown sender"}`}
         sandbox="allow-scripts"
         srcDoc={srcDoc}
-        className="message-body-frame"
+        // The Width decision (#98, grill Q10): HTML mail fills the pane —
+        // the sender's own document decides its width, same as it would in
+        // any other mail client — while a plain-text message (no native
+        // HTML alternative, `plainTextToHtml` at ingest) reads as a
+        // centered column instead, matching the Snippet and reading header.
+        className={frameClassName}
         style={{ height }}
       />
     </div>

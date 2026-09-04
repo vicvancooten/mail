@@ -30,6 +30,8 @@ export interface FetchedMessageBody {
   text: string | null;
   /** Already sanitized — `sanitizeMessageHtml` has run. */
   html: string | null;
+  /** `true` when `html` was synthesized from `text` (no native HTML part) — the Width decision (#98, `db/schema.ts#bodyIsPlainText`'s own doc comment). */
+  isPlainText: boolean;
 }
 
 /**
@@ -51,7 +53,7 @@ export async function fetchMessageBody(
   ]);
 
   if (html !== null) {
-    return { text, html: sanitizeMessageHtml(html) };
+    return { text, html: sanitizeMessageHtml(html), isPlainText: false };
   }
   // No native HTML part (plain-text-only mail, the 35%-ish share
   // corpus-bench models): the reading pane only ever renders `bodyHtml`
@@ -59,7 +61,7 @@ export async function fetchMessageBody(
   // it opens to a blank pane — the "always sanitizer output" invariant
   // above means "always populated when there's anything to show", not
   // "html or nothing".
-  return { text, html: text === null ? null : plainTextToHtml(text) };
+  return { text, html: text === null ? null : plainTextToHtml(text), isPlainText: text !== null };
 }
 
 /** Escapes plain text and turns newlines into `<br />` — safe HTML with no markup of its own. */
@@ -165,6 +167,7 @@ export async function storeMessageBody(
     .set({
       bodyText: body.text,
       bodyHtml: body.html,
+      bodyIsPlainText: body.isPlainText,
       bodyFetchedAt: new Date(),
       snippet: current.snippet ?? deriveSnippet(body),
       updatedAt: new Date(),
