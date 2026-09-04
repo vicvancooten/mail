@@ -202,7 +202,7 @@ describe("Composer", () => {
       expect((await localCache().compositions.get("comp-1"))?.status).toBe("draft");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Discard draft" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard draft" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
     await waitFor(async () => {
