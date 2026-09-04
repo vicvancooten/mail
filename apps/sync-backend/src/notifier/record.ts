@@ -40,7 +40,6 @@ export async function recordNewMailNotifications(
   // (poc-scope.md) for new-mail pushes — gated here, before the Inbox check,
   // so a disabled account never even queries for content.
   if (!account.notificationsEnabled) return;
-  if (!isInboxArrival(folder)) return;
 
   const rows = await db
     .select({
@@ -50,11 +49,14 @@ export async function recordNewMailNotifications(
       fromAddress: messages.fromAddress,
       subject: messages.subject,
       snippet: messages.snippet,
+      gmailLabels: messages.gmailLabels,
     })
     .from(messages)
     .where(inArray(messages.id, createdMessageIds));
 
   for (const row of rows) {
+    // Per-message, not per-folder (#125) — see `policy.ts#isInboxArrival`.
+    if (!isInboxArrival(folder.role, row.gmailLabels)) continue;
     await insertOutboxEntry(db, {
       userId: account.userId,
       mailAccountId: account.id,

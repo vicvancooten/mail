@@ -949,3 +949,146 @@ describe("the Trash folder's absence (#55)", () => {
     ).toHaveLength(0);
   });
 });
+
+describe("Gmail Inbox arrivals (#125, ADR-0020)", () => {
+  /** A Gmail-shaped Mail Account: an All Mail Folder (role "all") and a real Trash Folder — never a Folder with role "inbox" (#122). */
+  async function seedGmailAccount(): Promise<{ gmailAccount: MailAccountRow; allMail: FolderRow }> {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const [allMail] = await db
+      .insert(folders)
+      .values({
+        id: randomUUID(),
+        mailAccountId: gmailAccount.id,
+        path: "[Gmail]/All Mail",
+        name: "All Mail",
+        role: "all",
+      })
+      .returning();
+    if (!allMail) throw new Error("folder insert returned no row");
+    await db.insert(folders).values({
+      id: randomUUID(),
+      mailAccountId: gmailAccount.id,
+      path: "[Gmail]/Trash",
+      name: "Trash",
+      role: "trash",
+    });
+    return { gmailAccount, allMail };
+  }
+
+  /** One Message stored on All Mail the way #122's Gmail ingest would, then run through the live arrival path. */
+  async function deliverToAllMail(
+    gmailAccount: MailAccountRow,
+    allMail: FolderRow,
+    input: { from: string; subject?: string; gmailLabels: string[] | null },
+  ): Promise<{ messageId: string; threadId: string }> {
+    const receivedAt = new Date();
+    const threadId = await resolveThread(db, {
+      mailAccountId: gmailAccount.id,
+      threadingIds: [randomUUID()],
+      subject: input.subject ?? "Hello",
+      receivedAt,
+    });
+    const id = randomUUID();
+    await db.insert(messages).values({
+      id,
+      mailAccountId: gmailAccount.id,
+      threadId,
+      folderId: allMail.id,
+      uid: Math.floor(Math.random() * 1_000_000) + 1,
+      subject: input.subject ?? "Hello",
+      fromAddress: input.from,
+      toAddresses: [{ name: null, address: gmailAccount.emailAddress }],
+      sentAt: receivedAt,
+      receivedAt,
+      gmailLabels: input.gmailLabels,
+    });
+    await refreshThreadRollups(db, [threadId]);
+    await handleNewArrivals(db, allMail, gmailAccount, [id]);
+    return { messageId: id, threadId };
+  }
+
+  it("holds a \\Inbox-labelled stranger and fires the digest, keyed on the Label rather than a Folder role", async () => {
+    const { gmailAccount, allMail } = await seedGmailAccount();
+    await enableGatekeeper(db, gmailAccount.id);
+    const account = await getMailAccountById(db, gmailAccount.id);
+    if (!account) throw new Error("account vanished");
+
+    const { threadId } = await deliverToAllMail(account, allMail, {
+      from: "stranger@example.test",
+      gmailLabels: ["\\Inbox"],
+    });
+
+    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(thread?.heldSender).toBe("stranger@example.test");
+    expect(thread?.inInbox).toBe(true);
+    expect((await listUndelivered(db)).map((row) => row.kind)).toEqual(["gatekeeper_digest"]);
+  });
+
+  it("never holds or notifies an unlabelled All Mail message — it never left the archive", async () => {
+    const { gmailAccount, allMail } = await seedGmailAccount();
+    await enableGatekeeper(db, gmailAccount.id);
+    const account = await getMailAccountById(db, gmailAccount.id);
+    if (!account) throw new Error("account vanished");
+
+    const { threadId } = await deliverToAllMail(account, allMail, {
+      from: "stranger@example.test",
+      gmailLabels: null,
+    });
+
+    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(thread?.heldSender).toBeNull();
+    expect(await listUndelivered(db)).toEqual([]);
+  });
+
+  it("notifies a \\Inbox-labelled arrival from an Approved sender, same as a generic account's Inbox", async () => {
+    const { gmailAccount, allMail } = await seedGmailAccount();
+    await enableGatekeeper(db, gmailAccount.id);
+    await setVerdict(
+      db,
+      gmailAccount.id,
+      { scope: "address", value: "friend@example.test" },
+      "approved",
+      "seed",
+    );
+    const account = await getMailAccountById(db, gmailAccount.id);
+    if (!account) throw new Error("account vanished");
+
+    await deliverToAllMail(account, allMail, {
+      from: "friend@example.test",
+      gmailLabels: ["\\Inbox"],
+    });
+
+    expect((await listUndelivered(db)).map((row) => row.kind)).toEqual(["new_mail"]);
+  });
+
+  it("Block trashes the arriving message via a move from All Mail, and the Thread's projection reads trash", async () => {
+    const { gmailAccount, allMail } = await seedGmailAccount();
+    await enableGatekeeper(db, gmailAccount.id);
+    await setVerdict(
+      db,
+      gmailAccount.id,
+      { scope: "address", value: "villain@example.test" },
+      "blocked",
+      "screener",
+    );
+    const account = await getMailAccountById(db, gmailAccount.id);
+    if (!account) throw new Error("account vanished");
+
+    const { threadId, messageId } = await deliverToAllMail(account, allMail, {
+      from: "villain@example.test",
+      gmailLabels: ["\\Inbox"],
+    });
+
+    const thread = await threadRow(threadId);
+    expect(thread.inInbox).toBe(false);
+    expect(thread.folderRole).toBe("trash");
+    expect(await pendingKinds()).toEqual([]);
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, gmailAccount.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "trash", messageId, mailAccountId: gmailAccount.id }),
+    ]);
+  });
+});
