@@ -17,7 +17,7 @@ export function AuthGate() {
       // for less time than it took to draw.
       return (
         <div className="flex min-h-dvh items-center justify-center bg-background" aria-busy="true">
-          <p className="m-0 flex items-center gap-2.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          <p className="m-0 flex items-center gap-2.5 text-[13px] font-semibold text-muted-foreground">
             <Mark size={26} className="text-primary" />
             <span>Opening the frame…</span>
           </p>

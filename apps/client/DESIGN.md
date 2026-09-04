@@ -1,389 +1,446 @@
 ---
-name: Wicket
-description: Self-hosted mail with a door on it — an institutional sorting frame, two stocks and four inks.
+name: The Instrument
+description: A calm, ground-and-gap mail instrument — one electric accent, tonal surfaces, no hairlines, no plates.
 colors:
-  frame: "#d5d8ce"
-  panel: "#e7e8e0"
-  panel-2: "#dddfd5"
-  panel-sunk: "#c9cdc1"
-  rule: "#bec2b5"
-  rule-hard: "#9aa093"
-  ink: "#1f1d18"
-  ink-2: "#575349"
-  ink-3: "#65624f"
-  aniline: "#5b3e8c"
-  fluor: "#9c3000"
-  fluor-flat: "#ff5a0f"
-  postal: "#b0231c"
-  phosphor: "#256b42"
-  bone: "#f4f2e9"
-  # The sender's own ground, not ours: the sandboxed message-body iframe and
-  # the PDF preview. The design system stops at that boundary.
-  sender-ground: "#ffffff"
+  bg: "#fbfbfc"
+  surface: "#ffffff"
+  surface-strong: "#f5f5f8"
+  hover: "#f1f1f4"
+  field: "#f0f0f3"
+  field-strong: "#e7e7ec"
+  ink: "#14151a"
+  ink-muted: "#5a5d6b"
+  ink-faint: "#93969f"
+  border: "#e3e4ea"
+  accent: "#4338ca"
+  accent-foreground: "#ffffff"
+  accent-soft: "#eeecfc"
+  danger: "#c8402f"
+  warn: "#b3790a"
+  success: "#1a8f5c"
+  tile-a-bg: "#e4e1fb"
+  tile-a-ink: "#3730a3"
+  tile-b-bg: "#d9f2ec"
+  tile-b-ink: "#0f6656"
+  tile-c-bg: "#fdeccb"
+  tile-c-ink: "#8a5a06"
+  tile-d-bg: "#fbe0ea"
+  tile-d-ink: "#9d174d"
+  tile-e-bg: "#e2e8f4"
+  tile-e-ink: "#33415c"
 typography:
-  display:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "27px"
-    fontWeight: 800
-    lineHeight: 1
-    letterSpacing: "-0.02em"
-    fontVariation: "wdth 118"
-  headline:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
+  heading:
+    fontFamily: "Inter Variable, Helvetica Neue, Arial, sans-serif"
     fontSize: "21px"
-    fontWeight: 700
-    lineHeight: 1.25
-    letterSpacing: "-0.012em"
-    fontVariation: "wdth 96"
-  title:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "16px"
-    fontWeight: 700
-    lineHeight: 1.3
-    letterSpacing: "-0.008em"
-    fontVariation: "wdth 96"
+    fontWeight: 650
+    lineHeight: 1.28
+    letterSpacing: "-0.017em"
   body:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "13px"
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: "normal"
-    fontVariation: "wdth 100"
-  sender:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "13px"
-    fontWeight: 620
-    lineHeight: 1.4
-    letterSpacing: "normal"
-    fontVariation: "wdth 92"
-  label:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "10px"
-    fontWeight: 620
-    lineHeight: 1.2
-    letterSpacing: "0.11em"
-    fontVariation: "wdth 78"
-  machine:
-    fontFamily: "Martian Mono Variable, ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "10px"
-    fontWeight: 400
-    lineHeight: 1.4
-    letterSpacing: "normal"
-  legend:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "11px"
-    fontWeight: 700
-    letterSpacing: "0.14em"
-    fontVariation: "wdth 78"
-  secondary:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "12px"
-    fontWeight: 400
-    fontVariation: "wdth 100"
-  field:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
+    fontFamily: "Inter Variable, Helvetica Neue, Arial, sans-serif"
     fontSize: "14px"
     fontWeight: 400
-    fontVariation: "wdth 100"
-  micro:
-    fontFamily: "Martian Mono Variable, ui-monospace, Menlo, monospace"
-    fontSize: "9px"
+    lineHeight: 1.5
+  secondary:
+    fontFamily: "Inter Variable, Helvetica Neue, Arial, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.4
+  label:
+    fontFamily: "Inter Variable, Helvetica Neue, Arial, sans-serif"
+    fontSize: "11.5px"
+    fontWeight: 600
+    letterSpacing: "normal"
+    fontVariation: "none — sentence case, never uppercase"
+  machine:
+    fontFamily: "Martian Mono Variable, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "11px"
     fontWeight: 500
-  strike:
-    fontFamily: "Archivo Variable, Helvetica Neue, Arial, sans-serif"
-    fontSize: "21px"
-    fontWeight: 800
-    lineHeight: 1
-    letterSpacing: "0.16em"
-    fontVariation: "wdth 70"
+    fontFeature: "tabular-nums"
 rounded:
-  band: "1px"
-  plate: "2px"
-  hair: "1px"
-spacing:
-  xs: "4px"
   sm: "6px"
-  md: "9px"
-  lg: "12px"
-  xl: "14px"
-  2xl: "18px"
-  3xl: "22px"
+  md: "8px"
+  row: "11px"
+  panel: "16px"
+  pill: "999px"
+spacing:
+  header-height: "60px"
+  header-pad-x: "20px"
+  gutter: "16px"
 components:
   button-primary:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.frame}"
-    typography: "{typography.label}"
-    rounded: "{rounded.plate}"
-    padding: "6px 12px"
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.accent-foreground}"
+    typography: "{typography.body}"
+    rounded: "{rounded.pill}"
+    padding: "0 20px"
+    height: "38px"
   button-primary-hover:
-    backgroundColor: "{colors.ink-2}"
-    textColor: "{colors.frame}"
-  button-secondary:
-    backgroundColor: "{colors.panel-2}"
-    textColor: "{colors.ink-2}"
-    typography: "{typography.label}"
-    rounded: "{rounded.plate}"
-    padding: "6px 11px"
-  button-secondary-hover:
-    backgroundColor: "{colors.panel-sunk}"
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.accent-foreground}"
+  button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-muted}"
+    rounded: "{rounded.md}"
+  button-ghost-hover:
+    backgroundColor: "{colors.hover}"
     textColor: "{colors.ink}"
-  button-destructive:
-    backgroundColor: "transparent"
-    textColor: "{colors.postal}"
-    typography: "{typography.label}"
-    rounded: "{rounded.plate}"
-    padding: "6px 11px"
-  button-held:
-    backgroundColor: "transparent"
-    textColor: "{colors.fluor}"
-    typography: "{typography.label}"
-    rounded: "{rounded.plate}"
-    padding: "5px 10px"
+  button-ghost-current:
+    backgroundColor: "{colors.accent-soft}"
+    textColor: "{colors.accent}"
   input-field:
-    backgroundColor: "{colors.frame}"
+    backgroundColor: "{colors.field}"
     textColor: "{colors.ink}"
     typography: "{typography.body}"
-    rounded: "{rounded.plate}"
-    padding: "9px 11px"
-  chip-label:
-    backgroundColor: "{colors.panel-sunk}"
-    textColor: "{colors.ink-2}"
-    typography: "{typography.label}"
-    rounded: "{rounded.band}"
-    padding: "1px 6px"
+    rounded: "{rounded.md}"
+    padding: "8px 12px"
   row-thread:
-    backgroundColor: "{colors.panel}"
+    backgroundColor: "transparent"
     textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    padding: "0 14px"
-    height: "60px"
+    rounded: "{rounded.row}"
+    padding: "0 8px"
+  row-thread-hover:
+    backgroundColor: "{colors.hover}"
   row-thread-selected:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.frame}"
-    height: "60px"
-  row-thread-compact:
-    backgroundColor: "{colors.panel}"
-    textColor: "{colors.ink}"
-    padding: "0 12px"
-    height: "40px"
-  plate-head:
-    backgroundColor: "{colors.panel-sunk}"
-    textColor: "{colors.ink}"
+    backgroundColor: "{colors.accent-soft}"
+  chip-tag:
+    backgroundColor: "{colors.field}"
+    textColor: "{colors.ink-muted}"
     typography: "{typography.label}"
-    padding: "7px 12px"
-  toast:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.frame}"
-    typography: "{typography.body}"
-    rounded: "{rounded.plate}"
-    padding: "9px 15px"
-  screener-surface:
-    backgroundColor: "{colors.fluor-flat}"
+    rounded: "{rounded.sm}"
+    padding: "2px 8px"
+  panel-floating:
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
-    padding: "13px 16px"
+    rounded: "{rounded.panel}"
+  toast:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.panel}"
+    padding: "10px 14px"
 ---
 
-# Design System: Wicket
-
-<!-- One ramp, no half-steps: 9 / 10 / 11 / 12 / 13 / 14 / 16 / 21 / 27px. -->
+# Design System: The Instrument
 
 ## Overview
 
-**Creative North Star: "The Sorting Office"**
+**Creative North Star: "The Instrument"**
 
-Wicket is a room, not a page. The ground is never paper: the light theme is the day bench — institutional pale grey-green enamel and painted steel — and the dark theme is the night frame, warm near-black aged hardwood with text in bone, the colour of label stock, never blue graphite and never white. Kraft is the item; the app is the joinery around it. Compartments divide on hairline rules that meet at the corners. There are no cards, no gaps between compartments, and only one shadow in the entire system.
+The Instrument is a near-white (or near-black) ground with exactly one electric accent
+(`#4338ca` light / `#8b80ff` dark) doing every job that matters: primary actions, focus,
+selection, current-state. Nothing else in the palette is decorative — three ink strengths
+carry all text, three semantic signals (danger/warn/success) carry all state, and five
+tinted "tile" pairs give correspondent initials just enough variety to scan without noise.
+There is no second accent and no per-feature color.
 
-The system ranks by inversion, never by brightness or by weight. A selected Thread takes the ink and turns its stock inside out; a read Thread steps back in tonal value rather than the unread one stepping forward in bold. Controls take no ink colour at all — relief and rule only. Colour is reserved for four role inks, each of which appears only for its own job, so a row is never ambiguous about what happened to it. The saturated fluorescent orange of the Screener exists because you are in that bay for fifteen seconds a day; that scarcity is what buys it the right to be drenched.
+Regions are separated by **ground and gap**, never by joinery. A list row, a menu item, a
+settings compartment — none of them sit inside a hairline box or a bordered plate. The one
+shadow in the system (`--shadow-overlay`) is reserved for things that genuinely float above
+the ground: the Command Palette, popovers, the composer, toasts. Everything else is flat,
+and rank between things at rest is expressed by a soft accent tint, not by inverting to
+solid ink and not by a colored badge bolted onto the side of a row.
 
-State is struck across the item, never badged beside it. The `.strike` primitive prints an uppercase, tilted, ruled word over the thing whose state changed, blended into its stock. It is scoped by hard contract to state that persists, and its one home in the daily flow is the Screener verdict. Everything else the frame does is quiet: one authored motion moment, a 120–190ms budget, no entrance animations, no stagger, and a hard reduced-motion floor under all of it.
-
-The repo-facing marks are part of the same system, not a separate identity: the favicon (`apps/client/public/favicon.svg`), the PWA icon set and maskable pair (`apps/client/public/icon-*.png`, `apple-touch-icon.png`), the manifest theming (`apps/client/public/manifest.webmanifest`), and the social card (`docs/brand/wicket-social-card.png`, built from `docs/brand/social-card.source.html`). All of them carry the postmark on aniline with bone strokes, and the card and README banner repeat the drawn left stile.
+This replaces an older system ("Wicket / The Sorting Office" — institutional stock,
+hairline joinery, struck ink, uppercase letterspaced "plates" for every label) which is
+fully retired from the Mail surface, the chrome, and the App Switcher. See
+[Named Rules](#named-rules) below for where its vocabulary still needs to be finished off.
 
 **Key Characteristics:**
-- Two stocks (day bench, night frame) and four role inks; no third palette.
-- Rank by inversion, never brightness, weight, or a coloured badge.
-- Hairline joinery: compartments meet, they do not float or gap.
-- One shadow in the whole system, for things that genuinely float.
-- One type family at four widths, plus a machine face for measured values.
-- State is struck across the item, and only where the state persists.
+- One electric accent, everywhere rank or action needs marking; nothing else is decorative.
+- Ground and gap, not joinery: no hairline box around a control, no plate behind a row.
+- Rank is a soft accent tint (`--color-accent-soft`) at rest, `--color-hover` under the
+  pointer — nothing inverts to solid ink.
+- Corners come from one ladder: control → row → panel → pill, never an ad hoc radius.
+- Actions live in reserved whitespace, revealed on hover/focus rather than inserted, so
+  arming a control never reflows its neighbors.
+- Type carries rank by size and weight. Labels are sentence case, small, and quiet —
+  **never uppercase, never letterspaced.**
+- The document itself never scrolls: the shell owns the viewport, every routed pane scrolls
+  on its own.
 
 ## Colors
 
-Two stocks and four inks: a painted institutional ground with a small, jealously rationed set of role colours that each mean exactly one thing.
+A near-white ground in light, a near-black one in dark, one electric accent that carries
+every call to action, focus ring and selection, plus ink at three strengths and three
+semantic signals. No per-feature colors: a new surface reaches for these same names.
 
 ### Primary
-- **Aniline Violet** (`{colors.aniline}`): the brand ink. The postmark, the drawn left stile, the focus ring, text selection, links and download affordances, the caret, and the small set of flat statements that carry it as a ground behind bone text — the Send button, the archive swipe reveal, the PWA update strip. In dark it lightens to `#a98cd9` for text and rules, with `#6b4aaf` as the flat ground.
-
-### Secondary
-- **Fluorescent Held** (`{colors.fluor}`): the Held verdict as a *tint* — the outline Held plate on the tray-label head, the Held gatekeeper badge, the search-offline notice. Darkened until it clears 4.5:1 on sunk stock.
-- **Fluorescent Drench** (`{colors.fluor-flat}`): the same ink as a full ground, used only in the Screener bay and its entry banner. This is the single saturated surface in the product.
+- **Accent** (`{colors.accent}`, `#4338ca` light / `#8b80ff` dark): the one electric color
+  in the system — primary buttons (Compose, Send, Approve), the focus ring, text selection,
+  the caret, the current nav tab/segment, a selected thread's tint, the unread dot. In dark
+  it lifts to a lighter violet so it still reads as *the* accent against a near-black ground
+  rather than needing extra contrast tricks.
+- **Accent Soft** (`{colors.accent-soft}`): the quiet tint behind anything "current" — a
+  selected thread row, the active nav tab, the App Switcher's badge. This, not solid ink, is
+  how rank is shown at rest.
 
 ### Tertiary
-- **Postal Red** (`{colors.postal}`): destructive and failed only — Blocked, Returned, Trash, a failed send, the Lifted rollback overprint, invalid recipients.
-- **Phosphor Green** (`{colors.phosphor}`): confirmed only — Admitted, Sent.
-- **Bone** (`{colors.bone}`): label stock. Text and glyphs sitting on a flat ink, never a page background.
+- **Danger** (`{colors.danger}`): destructive actions and failure states (Block, delete,
+  a failed send, error banners).
+- **Warn** (`{colors.warn}`): held/attention states that are not failures.
+- **Success** (`{colors.success}`): confirmed/admitted states (Approve, a completed send).
 
 ### Neutral
-- **Day Bench** (`{colors.frame}`): the frame itself, and the ground of inset fields. Body background in light.
-- **Bench Plate** (`{colors.panel}`): the working surface — lists, panes, the pre-session plate, popovers.
-- **Raised Plate** (`{colors.panel-2}`): hover stock, secondary control fill, pinned rows.
-- **Sunk Plate** (`{colors.panel-sunk}`): recessed label-holder stock — every compartment head, day dividers, the app rail, chips, avatar plates.
-- **Hairline Rule** (`{colors.rule}`): the soft divider inside a compartment (row to row).
-- **Hard Rule** (`{colors.rule-hard}`): the structural divider between compartments, and every control border.
-- **Ink** (`{colors.ink}`): primary text, and the inverted ground of any selected or primary control.
-- **Ink 2** (`{colors.ink-2}`): secondary text, and anything sitting on sunk stock (`ink-3` does not clear contrast there).
-- **Ink 3** (`{colors.ink-3}`): tertiary text on panel stock — snippets, timestamps, read rows, placeholders.
+- **Bg** (`{colors.bg}`): the page ground. Body background.
+- **Surface** (`{colors.surface}`): a raised surface on the ground — panels, popovers,
+  the composer, before hover.
+- **Surface Strong** (`{colors.surface-strong}`): a step further off the ground — the
+  global header, the app-placeholder ground.
+- **Hover** (`{colors.hover}`): any surface under pointer/keyboard interaction.
+- **Field** / **Field Strong** (`{colors.field}` / `{colors.field-strong}`): a form
+  control's fill at rest and once it holds focus or a value.
+- **Ink** / **Ink Muted** / **Ink Faint** (`{colors.ink}` / `{colors.ink-muted}` /
+  `{colors.ink-faint}`): primary text, secondary text (labels, metadata, a read row's
+  sender/subject), and the quietest reading (placeholders, snippets, timestamps).
+- **Border** (`{colors.border}`): the one hairline that still exists — dividing rows in a
+  bordered list context (Settings, Screener cards), never used to box in a Mail row.
 
-Dark inverts the stocks to warm hardwood (`#1a1611` frame through `#38312a` sunk) with bone ink (`#ede7da`), and lifts the role inks (`#ff7a3c`, `#f2685e`, `#5cc98a`). Bare `:root` is the light set, so nothing depends on a media query having matched; `@media (prefers-color-scheme: dark) :root:not(.light)` and `:root.dark` carry the dark set, so an explicit choice always wins.
+### The avatar tile palette
+Five tinted fill/ink pairs (`{colors.tile-a-bg}`…`{colors.tile-e-bg}`) a correspondent's
+initials circle is drawn from, picked deterministically off their address
+(`mail/Avatar.tsx`) so the same correspondent keeps the same tile forever. A closed set of
+five, not a hue wheel: a scanned list wants variety without noise.
 
 ### Named Rules
-**The Four Inks Rule.** Aniline, fluorescent, postal, phosphor. Each appears only for its own job — brand/focus, held, destructive/failed, confirmed. A new state does not get a new colour; it gets one of these four or none.
+**The One Accent Rule.** `{colors.accent}` is the only color that means "this is the
+primary action or the current thing." A new state does not get a new color; it gets a tint
+of accent, one of the three semantic signals, or nothing.
 
-**The Rank-By-Inversion Rule.** Rank is inversion, never brightness. A selected row, an active toggle, a primary button take `{colors.ink}` as ground and `{colors.frame}` as text. Controls take no ink colour: relief and rule only.
-
-**The One Drenched Room Rule.** `{colors.fluor-flat}` as a ground belongs to the Screener and its entry banner and nowhere else. The tray-label head carries the outline Held plate; the bay carries the solid statement. Two fluorescent statements on one screen is a defect, not emphasis.
-
-**The Sunk Stock Contrast Rule.** Anything set on `{colors.panel-sunk}` takes `{colors.ink-2}` or darker. `{colors.ink-3}` measures 3.8:1 there and is reserved for panel stock.
+**The Tint-Not-Invert Rule.** Rank at rest is `{colors.accent-soft}` with accent ink, never
+`{colors.ink}` as a solid ground. The old system's "the selected row takes the ink and turns
+inside out" is retired everywhere the rebuild has touched.
 
 ## Typography
 
-**Display / Body Font:** Archivo Variable (with Helvetica Neue, Arial, sans-serif)
-**Label/Mono Font:** Martian Mono Variable (with ui-monospace, SFMono-Regular, Menlo, monospace)
-
-Both are self-hosted from the app's own origin via `@fontsource-variable`, using the `standard.css` slice because it carries the **width** axis as well as weight. A client whose promise is that you own your server does not fetch fonts from a CDN on cold start.
-
-**Character:** One grotesque set at four widths does the whole job — the type program is a rack of label stocks, not a font pairing. Narrow, tracked, uppercase Archivo is the printed label; the wide cut is signage; the machine face is anything a machine measured.
+**Body/Display Font:** Inter Variable (with Helvetica Neue, Arial, sans-serif), self-hosted
+from the app's own origin — a client whose promise is that you own your server has no
+business fetching fonts from a CDN on cold start.
+**Machine Font:** Martian Mono Variable (with ui-monospace, SFMono-Regular, Menlo, monospace),
+reserved for anything a machine measured: timestamps, byte sizes, counts. Tabular figures are
+on for `time` and `.tabular`.
 
 ### Hierarchy
-- **Display** (800, 21–27px, width 118%, uppercase, -0.02em): the wordmark only — the pre-session plate at 27px, the app rail at 16px, the bay sign.
-- **Headline** (700, 21px, width 96%, -0.012em, `text-wrap: balance`): the Thread subject in detail view.
-- **Title** (700, 15–17px, width 92–96%): the pre-session form heading, the Screener sender name, settings sub-heads.
-- **Sender** (600–660, 12.5–13px, width 92%): the sender column in the timetable and the per-Message header. Its own width step so a column of names sets tighter than running text.
-- **Body** (400, 13–14px, 1.5–1.6): running UI text. Body copy caps at 46–74ch depending on compartment; the Thread snippet at 70ch, settings prose at 68ch.
-- **Label** (600–720, 9–11.5px, width 78%, 0.10–0.14em, uppercase): every control, compartment head, chip, legend, and empty-state line. This is the most common type in the app.
-- **Machine** (Martian Mono, 9–11px): timestamps, email addresses, byte sizes, counts, the Index Watermark, keyboard keys, cutoffs. Tabular figures are on for `time` and `.tabular`.
-- **Strike** (800, 20px, width 70%, 0.16em, uppercase, 2.5px rule, tilted -5deg): the struck verdict. The inline `.overprint` cut is the same voice at 9.5px / width 74% / 1.5px rule / -3deg.
+- **Heading** (650, 21px, -0.017em, `text-wrap: balance`): the open Thread's subject —
+  the loudest text in the app, and the only place that size appears.
+- **Body** (400, 14px, 1.5): a thread row's subject/sender, message content, running UI text.
+- **Secondary** (400, 13px): meta lines, the reading pane's correspondent line, snippets.
+- **Label** (600, 11–11.5px, sentence case): section labels, group-header names, the command
+  palette's section captions. Small and quiet, never uppercase and never letterspaced.
+- **Machine** (Martian Mono, 10–11px, tabular): timestamps, group counts, byte sizes, key caps.
 
 ### Named Rules
-**The Width-Axis Rule.** Hierarchy is carried by the width axis before size or weight. Label 78%, sender 92%, running text 100%, display 118%. Never substitute a non-variable fallback face and never simulate the narrow cut with letter-spacing alone.
-
-**The Machine Face Rule.** Anything a machine measured or generated — a timestamp, an address, a byte count, a key cap, an index-coverage watermark — is set in Martian Mono. Anything a person wrote is set in Archivo.
-
-**The Tracked Label Rule.** Uppercase always comes with the narrow width and 0.10em+ tracking. Uppercase at 100% width with normal tracking is not part of this system.
+**The Sentence-Case Rule.** Every label, heading, and caption in the rebuilt system is
+sentence case. `text-transform: uppercase` plus 0.10em+ tracking was the old system's
+signature "Label" voice and does not belong here — see [Superseded Vocabulary](#superseded-vocabulary-still-to-finish)
+for where it still lingers.
 
 ## Layout
 
-The app is one frame filling the viewport, and the shell owns it: `.app-shell` is `100dvh` with `overflow: hidden`, never `min-height`/`100vh`, so the document itself never scrolls at any width. Whichever route is current (Mail, Settings, or a placeholder App — `router/routes.tsx`) renders into `.app-viewport`, a bounded pane below the header rail; each route's own top-level element is itself `height: 100%; min-height: 0` and scrolls independently. A drawn 3px aniline **stile** is fixed to the left edge of the shell and the pre-session frame as a structural member (not a border), and every level of the app registers to it via a matching 3px left inset. The same edge appears on the social card and the README banner.
+**The bounded-pane rule (standing policy).** `.app-shell` is `100dvh` with `overflow:
+hidden` — never `min-height` or `100vh` — so the document itself never scrolls, at any
+width. Whichever route is current (Mail, Settings, or a placeholder App —
+`router/routes.tsx`) renders into `.app-viewport`, and that route's own top-level element is
+itself `height: 100%; min-height: 0` and scrolls independently. This is a hard rule, not a
+convention: a new routed screen that grows past its own bounds without this pattern
+regresses the two phone layout bugs #71 fixed (the virtualized Thread list needing a bounded
+ancestor, and Settings being unreachable below the fold). Any new top-level route must
+follow it.
 
-Compartments divide on hairline rules that meet at the corners: `{colors.rule-hard}` between compartments and around controls, `{colors.rule}` between rows inside one. Nothing gaps, nothing rounds away from its neighbour, nothing casts a shadow onto the frame.
+The global header is a fixed 60px, three-column grid (`minmax(0,1fr) auto minmax(0,1fr)`) —
+the App Switcher on the left, one centered search entry, appearance + avatar on the right —
+so the search field centers on the *viewport*, not on whatever space is left beside the
+switcher.
 
-**Spacing rhythm.** Control padding runs 4–7px vertical / 6–12px horizontal; compartment padding is 7–13px on heads and 16–22px on bodies; settings compartments use 18px with a 16px × 26px wrapping field run. `env(safe-area-inset-*)` is added unconditionally to every edge-touching pad rather than gated behind a standalone media query.
+**Row geometry is load-bearing and tapered, not flat.** The thread list ranks
+reverse-chronologically by *scale*, not just position: four tiers taper from 54px
+(Pinned/Today) down to 32px (Older/Undated), with header heights tapering 26px → 20px plus a
+26px lead. These values live once in `mail/taper.ts` and are consumed both as
+`VirtualizedThreadList`'s `estimateSize` and as the row's own inline height — change them in
+one place or the virtualizer and the rendered box disagree. `compact` density shifts every
+tier by a fixed delta (-6px rows, -8px headers) rather than flattening the taper to one size.
 
-**Row geometry is load-bearing.** 60px default row, 40px compact row, 32px day divider. These match `ROW_HEIGHT`, `COMPACT_ROW_HEIGHT` and `HEADER_HEIGHT` in `VirtualizedThreadList.tsx`; changing either side alone breaks virtualisation.
-
-**Responsive.** The split list is `clamp(360px, 36%, 620px)`, widening to `clamp(548px, 41%, 680px)` past 1100px so the single-line timetable actually renders at desktop. Below 700px the split collapses to one pane at a time (both panes stay mounted, one is hidden, so keyboard triage and in-flight swipes survive), the tray-label head wraps to two rows with icon-only controls, and the sender column narrows to 104px. The row fold is a **container** query, not a media query: at `≤520px` of list width the row becomes a two-line grid (plate spanning both rows, sender + time on line one, subject on line two) and finally uses the 60px it already occupied.
-
-**Density and layout mode are Device Preferences.** They are stored per device and never sync.
+**Responsive.** Below 700px: the list/detail split collapses to one pane at a time (both
+stay mounted, one hidden), the permanent folder rail becomes a bottom sheet behind
+`.side-nav-toggle`, and the header's row of view controls goes icon-only. `env(safe-area-
+inset-*)` is added unconditionally to every edge-touching pad.
 
 ### Named Rules
-**The Joinery Rule.** Compartments are divided, not spaced. No card, no gap, no drop shadow between two parts of the frame. If two regions need separating, they get a hairline rule that meets the corners.
+**The Bounded Pane Rule.** `.app-shell` is `100dvh` + `overflow: hidden`; every routed pane
+is its own `height: 100%; min-height: 0` scroller. No exceptions — this is how the phone
+layout bugs stay fixed.
 
-**The Pinned Geometry Rule.** 60 / 40 / 32 are contract values shared with `VirtualizedThreadList.tsx`. Change them in both places or not at all.
+**The Ground-and-Gap Rule.** Regions separate by background-color change and whitespace, not
+by a hairline box or a card. A control that needs a boundary gets `{rounded.md}` and
+`{colors.field}`, not a 1px border around a `{colors.surface}` box.
 
 ## Elevation & Depth
 
-The frame is flat. Depth is tonal — four steps of stock (`frame` → `panel` → `panel-2` → `panel-sunk`) plus hairline rules — and rank is inversion. There is exactly **one** shadow token, and it belongs only to things that genuinely float above the frame.
+Mostly flat: depth is tonal (`bg` → `surface` → `surface-strong` → `hover`/`accent-soft`),
+and rank is a soft accent tint. There is exactly **one** shadow token
+(`--shadow-overlay`), for things that genuinely float above the ground.
 
 ### Shadow Vocabulary
-- **Lift** (`box-shadow: var(--w-lift)` = `0 10px 30px -10px rgb(31 29 24 / 0.38), 0 2px 4px -2px rgb(31 29 24 / 0.24)`; in dark `0 12px 34px -10px rgb(0 0 0 / 0.66), 0 2px 6px -2px rgb(0 0 0 / 0.5)`): popovers, dialogs, the label picker, search history, the composer and its menus, toasts, the pending-send bar.
-- **Grommet** (`box-shadow: inset 3px 0 0 -1px var(--w-rule-hard)`): the pinned Thread only. A pinned item sits proud of the stock; it is never tinted to mark it.
+- **Overlay** (`box-shadow: var(--shadow-overlay)` = `0 16px 40px -12px rgb(20 21 26/.20),
+  0 4px 14px -4px rgb(20 21 26/.12)`; dark: `0 22px 50px -14px rgb(0 0 0/.6), 0 6px 16px
+  -4px rgb(0 0 0/.45)`): the Command Palette, the Shortcut Sheet, the composer, popovers,
+  toasts.
+- The global header's separation from the ground is `--shadow-header`, an inset relief
+  (`inset 0 1px 0 white/.5, inset 0 -1px 2px ink/.045, 0 1px 2px ink/.03`) rather than a
+  drop shadow — the one shadow-like treatment that isn't the overlay token, because the
+  header never floats *above* anything, it sits at the top of the same ground.
 
 ### Named Rules
-**The One Shadow Rule.** If it is part of the frame, it has no shadow. If it floats over the frame, it takes `--w-lift` — the same value, never a softer or harder variant.
+**The One Float Rule.** If it's part of the frame at rest, it has no shadow. If it floats
+over the frame (Palette, popover, composer, toast), it takes `--shadow-overlay` — the same
+value, never a softer or harder variant.
 
 ## Shapes
 
-Corners are square by intent: 2px on plates and controls (`{rounded.plate}` — metal label holders have square corners) and 1px on bands and chips (`{rounded.band}`). Every Tailwind radius step from `md` up is mapped to the same 2px, so a `rounded-2xl` utility cannot smuggle in a soft corner. Borders are 1px hairlines (`{rounded.hair}`) at `{colors.rule-hard}`; 1.5px is the heavier cut used on inverted controls, overprints and outline statements; 2.5px is the strike's own rule.
+One radius ladder, walked by every surface: `{rounded.sm}` (6px, inline chips), `{rounded.md}`
+(8px, the default control corner — buttons, inputs, icon buttons), `{rounded.row}` (11px, a
+list row or menu item — the comp's own row corner), `{rounded.panel}` (16px, anything that
+floats: the Command Palette, a popover, the composer), `{rounded.pill}` (999px, Compose, the
+global search entry, primary Send/Approve buttons). Every Tailwind radius step from `md` up
+maps onto this same ladder, so a `rounded-2xl` utility cannot smuggle in an off-ladder corner.
 
-The correspondent mark is a **square plate**, 26px (20px compact), sunk stock with a hard rule, carrying initials drawn from the address — never a circle and never a fetched image, because remote images are blocked until a sender is Approved.
+The correspondent mark is a **circle**, filled from the tile palette, carrying initials drawn
+from the address — never a fetched image, since remote images stay blocked until a sender is
+Approved.
 
-The signature silhouette is the **postmark**: a circular date stamp broken at the lower left (the wicket you pass through single file) with killer bars trailing off to the right. Geometry is fixed: `r=32` at `cx=44 cy=64`, 8.5 stroke, `stroke-dasharray="161 40"` rotated 171deg so the break sits lower-left, bars at `x=72 w=48 h=8.5`. Three bars at ≥26px, two below (the favicon ships the two-bar cut). Bars trail the ring and never cross it — crossed, the mark reads as a currency glyph.
-
-Pictograms are a single authored set on one 24 grid, **solid fills, no strokes**: signage, not hairline icons. A tray for Archive, a grommet for Pin, a barred disc for Block. Type-formatting controls are set in the brand face as letterforms (B / I / U / S) rather than drawn.
+Icons are a single Lucide stroke set at 1.6px weight (set once in `index.css`, not per call
+site) — the hand-authored solid pictogram set from the old system is gone. The postmark mark
+(`brand/Mark.tsx`) is the one drawn signature glyph that survives, on the same 24 grid as
+every Lucide icon so weights line up; it appears as a solid mark at the pre-auth card and as
+a stroked cut inside the App Switcher's hub mark.
 
 ## Components
 
 ### Buttons
-- **Shape:** square-cornered plates (2px), 1px hard rule, or 1.5px on inverted primaries.
-- **Primary:** inverts the stock — `{colors.ink}` ground, `{colors.frame}` text, label type, 6px × 12px. Hover goes to `{colors.ink-2}`. Compose, Admit, the pre-session submit, active toggles and segmented items all use this.
-- **Secondary / Ghost:** `{colors.panel-2}` on hard rule with `{colors.ink-2}` text; hover fills to `{colors.panel-sunk}` and darkens text to `{colors.ink}`. Alternate routes (passkey login, Back) drop to transparent on the same rule.
-- **Destructive:** stays outline, `{colors.postal}` text on a neutral rule, and takes a deliberate `22px` left margin (14px in the Screener) to put distance between it and the button beside it. Hover borders in postal and fills at 12% postal.
-- **Held:** outline in `{colors.fluor}` at 1.5px, hover at 16% `fluor-flat`. The one place fluorescent reaches the triage screen.
-- **Press:** every button in the mail frame answers with `transform: scale(0.97)` over 120ms. A physical control that answers nothing feels broken.
+- **Shape:** `{rounded.pill}` for primary actions (Compose, Send, Approve, the global
+  search entry), `{rounded.md}` for everything else (icon buttons, ghost/segmented
+  controls).
+- **Primary:** solid `{colors.accent}` fill, `{colors.accent-foreground}` text. The only
+  place solid accent-as-ground appears; everything else uses the soft tint.
+- **Ghost (the default control voice):** transparent at rest, `{colors.hover}` under the
+  pointer, `{colors.accent-soft}` + accent ink when "current" (a nav tab, a toggled view
+  control, an armed toolbar icon). No compartments, no dividers, no uppercase letterspaced
+  plates.
+- **Press:** every button answers a press with `transform: scale(0.97)` — kept from the
+  incumbent system because a control that answers nothing feels broken.
 
-### Chips
-- **Style:** 1px band radius, sunk stock, hard rule, label type at 9–9.5px. Labels, folder pills, search scopes, recipient chips (machine face).
-- **State:** a toggled search chip inverts (`ink` ground). A seeded scope chip goes dashed and `{colors.ink-3}`. Inside a selected row, every chip drops to transparent with a `frame`-tinted rule.
-- A Label chip is a **bundle band**: the tint goes the whole way round the chip. Never a stripe down one edge.
+### Chips / Badges
+- **Style:** `{rounded.sm}`, `{colors.field}` fill, `{colors.ink-muted}` text, label
+  typography — folder pills, account badges, the Screener's Held count.
+- The App Switcher's reserved-App badge ("SOON") is the one place a small caption still
+  carries light tracking (0.03em) at 10px — a deliberate, restrained exception for a status
+  chip, not a return to the old label voice.
 
 ### Cards / Containers
-There are no cards. The container is a **plate**: a compartment with a sunk head (`{colors.panel-sunk}`, label type, hairline bottom rule) over a `{colors.panel}` body, bounded by hard rules, radius 2px, no shadow. The pre-session plate is the canonical cut — 420px max width, head at 22px × 26px, body at 24px × 26px.
+There are no bordered cards on the Mail surface. A "container" is a **tonal step**: a
+compartment that changes background from `bg` to `surface`/`surface-strong` rather than
+gaining a border. Settings and the Screener's per-sender cards are the one place a hairline
+border (`{colors.border}`) still appears, to separate stacked compartments in a form-like
+context — kept intentionally narrow to that context, not spread onto Mail rows.
 
 ### Inputs / Fields
-- **Style:** inset — `{colors.frame}` ground (a step *below* the plate it sits on), 1px hard rule, 2px radius, 9px × 11px, 13–14px body type.
-- **Hover:** rule darkens to `{colors.ink-3}`. **Focus:** rule takes `{colors.aniline}`; the global `:focus-visible` outline is 2px aniline at 1px offset, and the caret is aniline.
-- **Field label:** stacked above the control, label type at 10px / width 78% / 0.11em uppercase in `{colors.ink-3}` — a routing slip, legend over value. A checkbox is the exception: control first, sentence-case words after.
-- **Checkbox:** a 16px punched box, band radius, that fills with `{colors.ink}` and takes a drawn tick in frame colour. No accent colour.
-- **Select:** UA appearance removed; the chevron is two drawn strokes in `{colors.ink-2}`, never a system glyph.
-- **Error:** `role="alert"` block at 12% postal over panel, 45% postal rule, text mixed 74% postal into ink.
+- **Style:** `{colors.field}` fill (a step below the surface it sits on), no border at
+  rest, `{rounded.md}`, 8px × 12px padding, body typography.
+- **Focus:** ring in `{colors.accent}` (`:focus-visible`, 2px, 1px offset); caret is accent.
+- **Composer fields (To/Cc/Subject/body):** placeholder-as-label, not a caption above the
+  field — the composer never surfaces a separate uppercase field label.
 
-### Navigation
-The app rail is a sunk plate (9px × 14px, hairline bottom rule) carrying the wordmark at 16px, the signed-in user in label type, a role band tinted 16% aniline, and an outline sign-out that takes no ink until reached for. In-frame navigation is the **segmented control**: a run of compartments divided by hairlines inside one 2px plate with `overflow: hidden`, where the active segment inverts. It goes 50% opacity when the view it controls is not in play. Below 700px the head wraps to two rows and its controls become icon-only (`font-size: 0` collapses the text nodes; the Held plate keeps its count via `::after`).
+### Navigation — the App Switcher (signature)
+The left header cell: a `hub-mark` (a soft rounded-square tile carrying the postmark and a
+badge for the current App) that expands, via a `grid-template-columns` transition, into a
+row of pill tabs — one per App (Mail, Contacts, Calendar, Tasks) — when opened. The current
+tab takes `{colors.accent-soft}` + accent ink and bold weight; a reserved App's tab carries
+a small "SOON" caption rather than being disabled or hidden. Below 700px the switcher
+collapses to icon-only pills.
 
-### The Timetable Row (signature)
-A 60px single-line row on panel stock with a hairline bottom rule: square correspondent plate, 148px sender column, subject with an `{colors.ink-3}` snippet trailing it, label bands, and a right-aligned tabular monospace time. Hover raises to `{colors.panel-2}`; selection inverts to ink and softens its own secondary text via `color-mix` toward frame; a read Thread drops sender and subject to `{colors.ink-3}` (a read row steps back, an unread row never steps forward in weight); a pinned Thread takes raised stock plus the grommet inset. No entrance animation and no stagger: a list that reflows hundreds of times a session must never animate its own arrival. Touch adds a swipe reveal — the tray the item is dropped into — aniline for Archive on the left, postal for Trash on the right, bone label type.
+### The Thread Row (signature)
+A borderless, rounded (`{rounded.row}`) row on the page ground: sender (max 40%, ink-muted),
+subject (flex, ink-faint), a right-aligned tabular-mono time, and a Done control that lives
+in reserved whitespace, revealed on hover/keyboard-focus/selection (`data-armed`) rather than
+inserted — arming it never reflows anything beside it. Hover takes `{colors.hover}`;
+selection takes `{colors.accent-soft}` (a tint, never an inversion); unread bumps the sender
+to full ink + weight 600 and leaves the subject at ink-muted — a read row steps back in
+tone, an unread row never steps forward in size. Row height and its group header's height
+taper across four tiers (see Layout) so the ladder itself carries rank, not just position.
+No entrance animation, no stagger. Touch swipes reveal Archive (left) / Snooze or Trash
+(right) under the row rather than needing the hover-revealed Done control.
 
-### The Strike (signature)
-`.strike` prints `data-strike` across the centre of the item: uppercase, width 70%, weight 800, 0.16em tracked, ruled at 2.5px, tilted -5deg, blended into the stock beneath it (`multiply` in light, `plus-lighter` in dark). Two settings: **wet** at 0.4 opacity (light: 0.32 dark) while the Sync Backend has not answered, and **set** at 0.84 (0.76 dark) once confirmed; on rollback the ink lifts. `.overprint` is the inline, badge-sized cut of the same voice, in fluor (held), postal (blocked/failed), aniline (done) or phosphor (admitted).
+### The Command Palette (signature)
+A centered overlay (`{rounded.panel}`, `--shadow-overlay`, max 560px wide) behind a blurred
+scrim, opened by ⌘K from anywhere in the app. One text field, then sectioned rows (Commands,
+Mail results) each carrying a keycap for its binding. The active row takes
+`{colors.accent-soft}`. Section captions are the Label tier — sentence case, 11.5px, weight
+600, never uppercase. Entrance is a 150ms rise-and-scale (`--dur-fast`/`--ease-out`); the
+Shortcut Sheet shares the same shell.
 
-Where it appears: a search result already acted on, a held or blocked sender, a failed send (`NOT SENT` in postal), the rollback toast (`LIFTED`), and — its one home in the daily flow — the Screener verdict, where the decided slip is replayed for 900ms after the write, struck in the bay's own near-black, then cleared over 190ms. It never appears on a triage keystroke: `store/reads.ts` drops an archived Thread the instant the mutation is queued, and holding that row open to show ink would tax the one thing that must stay snap-instant.
-
-### The Screener (signature)
-The one drenched room: a full `{colors.fluor-flat}` ground with `#1f1d18` ink, its own near-black rules at 24–50% alpha, and focus outlines in the same near-black. One facing slip per Unscreened Sender — never one per message — with the sender block at 210px, a peek line, and three verdict controls: Admit inverts to near-black on bone, Return and Block stay outline, and Block keeps a 14px distance. The bay closes on its own stated rule rather than empty ground.
+### The Screener (calm panel)
+Deliberately the *quietest* screen in the app, not the loudest: each Unscreened Sender is a
+plain `{colors.surface}` (selected: `{colors.accent-soft}`) card on the page ground — sender
+identity, a peek line, and three actions (Approve solid-accent, Deny/Block ghost/outline).
+No drenched color, no struck ink, no per-verdict color coding beyond the buttons themselves.
+This is a deliberate departure from the old system's "one drenched fluorescent room" — the
+Instrument treats screening as an ordinary triage surface, not a special occasion.
 
 ### Toasts
-Ink ground, frame text, 2px radius, `--w-lift`, entering with `toast-enter` (8px rise + fade, 150ms, `--w-ease-strike`). Rollback toasts lead with the `LIFTED` overprint in postal; new-mail toasts stack top-right at 320px max.
+`{colors.surface}` ground, `{rounded.panel}`, `--shadow-overlay`, entering with an 8px
+rise + fade over 150ms.
 
 ### Motion
-The whole budget: `--w-dur-press` 120ms (presses, colour and border changes, linear), `--w-dur-fast` 150ms (toast entry, opacity, disclosure rotation, `--w-ease` `cubic-bezier(0.25, 1, 0.5, 1)`), `--w-dur-strike` 190ms (the strike's clear, `--w-ease-strike` `cubic-bezier(0.16, 0.9, 0.12, 1)`). Nothing animates height. `prefers-reduced-motion: reduce` clamps every animation and transition in the app to 1ms.
-
-### shadcn primitives (installed, not yet adopted)
-`src/components/ui/` carries button, select, dialog, dropdown-menu and tooltip. Every colour and corner they render is mapped onto Wicket tokens through the shadcn token surface in `index.css` (`--primary` → aniline-flat, `--destructive` → postal, `--border`/`--input` → rule-hard, `--ring` → aniline, `--radius` → 2px). **No screen adopts them yet.** Their internal glyphs are Lucide hairline icons; `lucide-react` remains a dependency for that reason alone. The first screen to adopt one must swap its glyph for the matching `Pictogram` name, so the app never puts a hairline outline icon beside a solid one.
+The whole budget: `--dur-press` 120ms (presses, color/border changes, linear), `--dur-fast`
+190ms (toast/palette entry, disclosure rotation). Nothing animates height. A list that
+reflows hundreds of times a session never animates its own arrival — no entrance animation,
+no stagger, anywhere in the thread list. `prefers-reduced-motion: reduce` clamps every
+animation/transition in the app to 1ms.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** rank by inversion: ink ground, frame text, on the selected row, the active toggle, and the primary button.
-- **Do** divide compartments with hairline rules that meet at the corners (`{colors.rule-hard}` between compartments, `{colors.rule}` between rows).
-- **Do** carry hierarchy on the width axis first — label 78%, sender 92%, text 100%, display 118%.
-- **Do** set every machine-measured value (time, address, byte size, count, key cap) in Martian Mono with tabular figures.
-- **Do** put anything sitting on sunk stock in `{colors.ink-2}` or darker.
-- **Do** give destructive actions physical distance (22px in the frame, 14px in the bay) and leave them outline until reached for.
-- **Do** use the authored `Pictogram` set for every glyph the app renders, solid fill on the 24 grid.
-- **Do** use CONTEXT.md's vocabulary verbatim in UI copy: **Thread** not conversation, **Mail Account** not mailbox, **Screener** not quarantine or spam folder, **Verdict** as Unscreened / Approved / Blocked. **Star** and **Pin** are different features and their words are not interchangeable.
-- **Do** keep `env(safe-area-inset-*)` in every edge-touching pad.
+- **Do** reach for `{colors.accent}`/`{colors.accent-soft}` for anything primary or
+  "current." It is the only color that carries that meaning.
+- **Do** separate regions by background-color step and whitespace, not by a hairline box.
+- **Do** use the radius ladder (`sm` → `md` → `row` → `panel` → `pill`) — never an ad hoc
+  value, never a Tailwind utility above `md` expecting anything but the same mapped corner.
+- **Do** keep every label, caption, and heading in sentence case.
+- **Do** set every machine-measured value (time, byte size, count, key cap) in Martian Mono
+  with tabular figures.
+- **Do** give an action reserved whitespace and reveal it on hover/focus/selection rather
+  than inserting it and reflowing neighbors.
+- **Do** keep `.app-shell` at `100dvh` + `overflow: hidden` and give every new routed screen
+  its own `height: 100%; min-height: 0` scroller — this is what keeps the phone layout bugs
+  fixed.
+- **Do** use CONTEXT.md's vocabulary verbatim in UI copy: **Thread** not conversation,
+  **Mail Account** not mailbox, **Screener** not quarantine, **Verdict** as
+  Unscreened/Approved/Blocked.
 - **Do** self-host faces from the app's own origin.
 
 ### Don't:
-- **Don't** put a card, a gap, or a drop shadow between two parts of the frame. `--w-lift` is only for things that genuinely float.
-- **Don't** give a control an ink colour. Controls take relief and rule; colour belongs to state.
-- **Don't** use `{colors.fluor-flat}` as a ground anywhere but the Screener and its entry banner — one fluorescent statement per screen.
-- **Don't** invent a fifth role ink, or reuse an existing one for a state it does not name.
-- **Don't** strike a triage keystroke, or any state that does not persist. The strike belongs to decided, durable state.
-- **Don't** mark unread with bold or a coloured dot; the read row steps back in tone instead.
-- **Don't** stripe a Label down one edge of a row — a Label is a band, tinted the whole way round.
+- **Don't** invert a selected/current element to solid ink. Rank is a soft tint, never an
+  inversion, anywhere the rebuild has touched.
+- **Don't** set a label, heading, or caption in uppercase with letterspacing — that is the
+  old system's signature voice and does not belong in The Instrument (see below).
+- **Don't** put a border around a Mail-surface row or panel to separate it from its
+  neighbor; change its background instead.
+- **Don't** give a control an ink color at rest. Ghost is the default voice: transparent →
+  hover fill → soft-tint-when-current.
 - **Don't** animate a list's arrival, stagger rows, or transition height.
-- **Don't** round past 2px, or reach for a Tailwind radius utility expecting a soft corner.
-- **Don't** fetch a correspondent's image or a font from a CDN; marks are drawn from the address and faces are self-hosted.
-- **Don't** mix hairline outline glyphs with the solid set — including inside an adopted shadcn primitive.
-- **Don't** restyle a message body. It is third-party HTML in a sandboxed iframe and the design system stops at that boundary.
+- **Don't** fetch a correspondent's image or a font from a CDN.
+- **Don't** restyle a message body — it is third-party HTML in a sandboxed iframe and the
+  design system stops at that boundary.
+
+## Superseded vocabulary
+
+The identity page for the old system (`docs/design/wicket-identity.html`, "Wicket / The
+Sorting Office") carries a superseded-by header pointing here and is kept as history, not
+deleted. Its retired typographic voice (`text-transform: uppercase` + 0.10–0.14em
+letterspacing) was found surviving in the pre-auth screens (`auth/AuthCard.tsx`,
+`auth/form-controls.tsx`, `auth/AuthGate.tsx`) and in Settings (`settings/settings.css`) —
+the wordmark's tagline, every field label, the "SETTINGS" header, section captions and
+buttons — during this ticket's finish review, and has been migrated to this system's
+sentence-case Label tier. The one deliberate exception left in place is the App Switcher's
+"SOON" badge on a reserved App's tab (`router/shell.css`'s `.tp-soon`), which keeps a light
+0.03em tracking as a restrained status-chip treatment, not a return to the old voice —
+it is not paired with `text-transform: uppercase` and the shipped literal copy is already
+short and quiet ("SOON").

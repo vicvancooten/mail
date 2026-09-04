@@ -389,6 +389,22 @@
   text-align: center;
 }
 
+/* The comp's `.ph-icon` (`docs/design/prototypes/the-instrument.html`): a
+   rounded-square field tile carrying the same icon the App Switcher's tab
+   row already renders for this App, so a reserved App's placeholder isn't
+   two lines of bare text. */
+.app-placeholder-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  background: var(--color-field);
+  color: var(--color-ink-faint);
+}
+
 .app-placeholder-card h2 {
   margin: 0 0 6px;
   font-weight: 650;
@@ -407,9 +423,7 @@
 .app-placeholder-status {
   margin-top: 14px;
   font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 11.5px;
   color: var(--color-ink-faint);
 }
 

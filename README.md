@@ -9,8 +9,11 @@ A fast, modern, self-hosted email client. Mail from a stranger waits in the
 and the server it waits on is yours.
 
 Named for the post-office service window, and for the small gate beside a large
-one that people pass through single file. The visual system is documented in
-[`docs/design/wicket-identity.html`](docs/design/wicket-identity.html).
+one that people pass through single file. The visual system — "The Instrument" —
+is documented in [`apps/client/DESIGN.md`](apps/client/DESIGN.md); the approved
+comp is [`docs/design/prototypes/the-instrument.html`](docs/design/prototypes/the-instrument.html).
+The prior identity, [`docs/design/wicket-identity.html`](docs/design/wicket-identity.html),
+is superseded and kept only as history.
 
 ## Getting started
 

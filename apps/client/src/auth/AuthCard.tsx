@@ -28,9 +28,9 @@ export function AuthCard({ children }: { children: ReactNode }) {
         <header className="rounded-t-[var(--radius-md)] border-b border-border bg-muted px-6 py-5">
           <h1 className="m-0 flex items-center gap-2 text-foreground">
             <Mark size={28} />
-            <span className="text-[21px] font-extrabold tracking-tight uppercase">Wicket</span>
+            <span className="text-[21px] font-extrabold tracking-tight">Wicket</span>
           </h1>
-          <p className="mt-2 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          <p className="mt-2 text-[12.5px] font-medium text-muted-foreground">
             Self-hosted mail, with a door on it
           </p>
         </header>
