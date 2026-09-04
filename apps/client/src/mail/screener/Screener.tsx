@@ -160,16 +160,28 @@ export function Screener({
         VERDICT_HOLD_MS,
       );
 
-      // Undo (#95, ADR-0019): Deny and Block are the two undoable Screener
-      // decisions — Approve isn't (CONTEXT.md's Undo entry doesn't list it,
-      // and releasing a stranger's mail needs no second thoughts the way
-      // trashing it does). `group.threadIds` is exactly what this sender is
-      // holding *right now*, captured before the decision so Undo still
-      // names the right Threads however long the toast's window runs — by
-      // the time it fires this sender may be holding a fresh stranger's
-      // mail again.
-      if (type === "denySender" || type === "blockSender") {
-        announceUndoableAction(type === "blockSender" ? "block" : "deny", () => {
+      // Undo (#95, ADR-0019): Deny, Block, and Mark as spam are the three
+      // undoable Screener decisions — Approve isn't (CONTEXT.md's Undo entry
+      // doesn't list it, and releasing a stranger's mail needs no second
+      // thoughts the way trashing it does). `group.threadIds` is exactly
+      // what this sender is holding *right now*, captured before the
+      // decision so Undo still names the right Threads however long the
+      // toast's window runs — by the time it fires this sender may be
+      // holding a fresh stranger's mail again.
+      //
+      // Spam folds into the "block" toast kind rather than a `"spam"` one
+      // of its own: `undo-toast.ts`'s `UndoableActionKind` union and its
+      // `LABELS` table are a second fix worker's own surface this batch
+      // (see this branch's own PR description), so this reuses the kind
+      // whose *reversal* is byte-for-byte identical — Spam's Verdict is a
+      // Blocked one (`spam: true` alongside it, CONTEXT.md's Spam) — rather
+      // than adding a fourth kind there. The one visible cost is the toast
+      // reading "Blocked" for a Spam decision rather than a Spam-specific
+      // label; the reversal itself (`unblockAndRestore`, which now also
+      // pulls a Thread back out of Junk) is the part #102's Acceptance box
+      // actually asks for.
+      if (type === "denySender" || type === "blockSender" || type === "spamSender") {
+        announceUndoableAction(type === "denySender" ? "deny" : "block", () => {
           void enqueueMutation(
             { type: "unblockAndRestore", sender: decidedSender, threadIds: group.threadIds },
             group.mailAccountId,

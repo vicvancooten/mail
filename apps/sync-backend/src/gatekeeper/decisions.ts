@@ -149,11 +149,13 @@ export async function unblockSender(
 }
 
 /**
- * Undo's own real inverse of Deny, Block, *and* #103's Block-Alias (#95,
- * ADR-0019) — never a queue cancellation, so this reverses the decision
- * whether or not `denySender`/`blockSender` has already flushed. Clears the
- * Verdict (a no-op for Deny, which never set one) and restores exactly the
- * Threads the Client named — captured at decision time
+ * Undo's own real inverse of Deny, Block, Spam, *and* #103's Block-Alias
+ * (#95, ADR-0019, #90's Spam-Undo close-out) — never a queue cancellation,
+ * so this reverses the decision whether or not `denySender`/`blockSender`/
+ * `spamSender` has already flushed. Clears the Verdict (a no-op for Deny,
+ * which never set one — and, for Spam, the one `clearVerdict` call that also
+ * drops the `spam` flag, since it deletes the whole row) and restores
+ * exactly the Threads the Client named — captured at decision time
  * (`ScreenerSenderGroup.threadIds`), since by the time Undo fires this
  * sender (or Alias) may be holding a fresh, unrelated stranger's mail again
  * and re-deriving "what did this decision trash" from the sender alone would
@@ -161,7 +163,8 @@ export async function unblockSender(
  *
  * Restores to the Inbox, never back into the Screener's hold — the same
  * "release, don't re-ask" effect an Approve has, reusing its own
- * `restoreThreadsToInbox` step. A Thread already purged from Trash by the
+ * `restoreThreadsToInbox` step, which now knows Junk (Spam's destination)
+ * as well as Archive/Trash. A Thread already purged from Trash/Junk by the
  * mail server (ADR-0008: "most servers auto-purge Trash after ~30 days") is
  * a harmless no-op there — the Verdict still clears, which is all Undo can
  * promise past that point.

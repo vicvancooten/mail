@@ -111,3 +111,28 @@ path), taking `text/plain` as the plaintext alternative when present and accepti
 constructs normalise. On import the Composition adopts the foreign UID and does not immediately
 re-push. Only `draft`-status Compositions accept inbound changes. Inbound detection rides the standard
 non-INBOX folder poll — no dedicated `IDLE` connection for the least time-critical folder there is.
+
+## Amendment (#90): Undo of Discard restores the Draft, not its attachments
+
+Discard (#101, CONTEXT.md's Delete) extends "deletion is asymmetric" above with a second asymmetry
+inside the Mail-side half of it: `discardComposition` (`compose/discard.ts`) drops the Composition's
+attachment blobs and clears its `attachments` metadata in the same transaction as the `draft →
+discarded` status flip, and `undiscardComposition` — Undo's real inverse (#95, ADR-0019) — restores
+only the status. A discarded-then-undone Draft comes back with its text intact and its attachments
+gone.
+
+This is deliberate, not an oversight the code forgot to finish: #101's own ticket text says "delete
+blobs" for Discard, and the Blob Store (above) is a transient pre-submission store — bytes waiting to
+become a `Sent` `APPEND`, not an indefinite home for a deleted Draft's files. Undoing the *status*
+Discard changed is what ADR-0019 promises Undo does everywhere else (a real inverse of the action,
+not a replay of everything that action happened to touch); undoing the blob deletion too would make
+Discard's own "delete blobs" a lie whenever a User later clicks Undo, and would mean attachment bytes
+this ADR already treats as disposable outlive their Composition's discarded state on the strength of
+a 10-second toast window.
+
+**Consequence**: a discarded Draft, undone or not, is missing its attachments from that point on —
+the User must re-attach. `CONTEXT.md`'s Undo entry ("always a real inverse action") is read here as
+inverting the state Discard is named for (`draft`/`discarded`), not every side effect a real inverse
+of that state change happens to leave in its wake, the same way `restoreThreadsToInbox` undoing a
+Screener Block does not un-expire a purged Trash copy either (ADR-0008's own "recovers nothing"
+past that point).

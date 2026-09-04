@@ -2,7 +2,7 @@ import type { Message } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations } from "../../store/mutation-queue.js";
@@ -16,6 +16,35 @@ import {
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { MailSection } from "../MailSection.js";
+import { resetUndoToastsForTest } from "../undo-toast.js";
+
+/**
+ * Undo (#95, ADR-0019) rides `undo-toast.ts`'s real `announceUndoableAction`
+ * — the same module every other Triage Undo goes through — so the toast
+ * this file needs to click is a real Sonner `toast()` call. Mocking Sonner
+ * itself (`undo-toast.test.ts`'s own pattern) is what lets a test reach the
+ * `action.onClick` a toast carries without also mounting a `<Toaster />`
+ * this suite otherwise has no reason to render.
+ */
+interface ToastCallOptions {
+  id: string;
+  duration: number;
+  action?: { label: string; onClick(): void };
+}
+const toastCalls: [string, ToastCallOptions][] = [];
+vi.mock("sonner", () => ({
+  toast: Object.assign(
+    (message: string, opts: ToastCallOptions) => toastCalls.push([message, opts]),
+    { dismiss: () => {} },
+  ),
+}));
+
+/** The most recently raised toast for one `id` — mirrors `undo-toast.test.ts#lastToastFor`. */
+function lastToastFor(id: string): ToastCallOptions {
+  const call = [...toastCalls].reverse().find(([, opts]) => opts.id === id);
+  if (!call) throw new Error(`no toast raised for ${id}`);
+  return call[1];
+}
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -81,6 +110,8 @@ function stubFetch(threadMessages: Record<string, Message[]> = {}) {
 
 beforeEach(async () => {
   resetSyncStatus();
+  resetUndoToastsForTest();
+  toastCalls.length = 0;
   const name = `screener-integration-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
@@ -89,6 +120,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   cleanup();
+  resetUndoToastsForTest();
   localCache().close();
   for (const name of names.splice(0)) await Dexie.delete(name);
 });
@@ -561,5 +593,60 @@ describe("the View dialog and Block's split menu (#102)", () => {
     await user.click(screen.getByRole("button", { name: /More block options/ }));
     const item = await screen.findByText("Block everything sent to their Alias");
     expect(item.closest("[data-disabled]")).not.toBeNull();
+  });
+});
+
+describe("Mark as spam has a real Undo (#90's close-out of #102's Acceptance box)", () => {
+  it("Mark as spam raises an Undo toast whose Undo enqueues unblockAndRestore", async () => {
+    const user = userEvent.setup();
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-spam-undo", "acct-1", {
+            subject: "Please read",
+            heldSender: "villain@example.test",
+            participants: [{ name: "A Villain", address: "villain@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Villain");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Mark as spam"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent.type)).toContain("spamSender");
+    });
+
+    // Same coalesced toast Block/Deny already raise (`undo-toast.ts`'s
+    // `"block"` kind) — Spam is a Blocked Verdict for every purpose this
+    // reversal answers, see `Screener.tsx`'s own doc comment on why it
+    // rides that kind rather than a new one.
+    const toastOptions = lastToastFor("undo-toast-block");
+    expect(toastOptions.action?.label).toBe("Undo");
+
+    toastOptions.action?.onClick();
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "villain@example.test" },
+        threadIds: ["held-spam-undo"],
+      });
+    });
   });
 });

@@ -150,14 +150,22 @@ export async function messageRoutes(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
-    const [row] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
-    if (!row) return reply.code(404).send({ error: "not_found" });
-
+    // Signature first, row second (ADR-0018: "authorization is the
+    // signature itself"). `verifyImageProxySignature` only ever needs
+    // `messageId` as a string — never the row — so checking it before the
+    // `SELECT` below is free, and it is what keeps this route from
+    // answering an unsigned or forged request with a 404/403 split that
+    // tells an attacker whether a given `messageId` exists at all. The row
+    // read past this point exists only to refuse an image for a message
+    // that's gone (deleted, evicted), never as part of authorization.
     if (
       !verifyImageProxySignature(imageProxyKey, messageId, query.url, query.sig, Number(query.exp))
     ) {
       return reply.code(403).send({ error: "invalid_signature" });
     }
+
+    const [row] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
+    if (!row) return reply.code(404).send({ error: "not_found" });
 
     try {
       const image = await fetchProxiedImage(query.url);

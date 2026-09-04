@@ -427,6 +427,22 @@ describe("GET /messages/:messageId/image-proxy", () => {
     expect(response.statusCode).toBe(403);
   });
 
+  it("403s a forged signature for a messageId that doesn't exist — never a 404, which would be an existence oracle (ADR-0018)", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/messages/${randomUUID()}/image-proxy?url=${encodeURIComponent("https://sender.example/t.gif")}&exp=${Date.now() + 60_000}&sig=forged`,
+      headers: { cookie },
+    });
+    // A 404 here (the row lookup running before the signature check) would
+    // tell a caller with no valid signature at all whether a `messageId`
+    // exists — the exact oracle ADR-0018's "authorization is the signature
+    // itself" rules out.
+    expect(response.statusCode).toBe(403);
+  });
+
   it("403s an otherwise-genuine signature that has expired", async () => {
     const app = buildTestApp();
     const cookie = await claimOwner(app);

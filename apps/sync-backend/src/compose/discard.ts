@@ -31,8 +31,9 @@ export type DiscardCompositionResult =
  * This is the one place attachments are lost to Delete: `undiscardComposition`
  * below restores `draft` but not the blobs, a deliberate, documented
  * trade-off (the ticket's own "delete blobs") rather than an oversight —
- * ADR-0012's Blob Store is a transient pre-submission store, not a place a
- * deleted Draft's files should be recoverable from indefinitely.
+ * see ADR-0012's "Undo of Discard restores the Draft, not its attachments"
+ * amendment for why undoing the status Discard changed is not the same
+ * promise as undoing everything it touched.
  */
 export async function discardComposition(
   db: Db,

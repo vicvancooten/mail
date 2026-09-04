@@ -10,14 +10,25 @@ import type { MessageAddress } from "../db/schema.js";
  * visible `To`/`Cc` list is only trusted as a fallback for a server that
  * stamps neither.
  *
- * Every candidate is required to sit at the Mail Account's own domain
- * (`senderDomain(mailAccountEmailAddress)`) before it is accepted — an Alias
- * is "an address at a domain the User controls" (CONTEXT.md), so a
- * `Delivered-To` some intermediate relay stamped for an unrelated domain, or
- * a co-recipient's own address sitting in `To`/`Cc`, is noise this discards
- * rather than something to offer blocking. `sync/ingest.ts#storeMessage` is
- * the only caller — this module is otherwise pure and knows nothing about
- * the database.
+ * The two tiers are trusted differently, on purpose. `Delivered-To`/
+ * `X-Original-To` are accepted outright, at *any* domain: the ticket's own
+ * case is a catch-all domain the User hands out per-correspondent
+ * (`somecompany@theirdomain`) that has no reason to share a domain with the
+ * Mail Account's own login address — an MDA only ever stamps the envelope
+ * recipient that caused *this* mailbox to receive the message, so the
+ * header is already "this arrived at me", regardless of what domain it
+ * names. `To`/`Cc`, by contrast, is genuinely weak evidence — a co-recipient
+ * of a message sent to several people, or a mailing list's own address,
+ * sits there with no MDA behind it vouching for it — so that fallback still
+ * requires a match against the one domain this module can actually check,
+ * `senderDomain(mailAccountEmailAddress)`: treating a stranger's address in
+ * `To`/`Cc` as the User's own Alias is the real hazard, and the domain gate
+ * is what stops it. (An earlier revision held every candidate, headers
+ * included, to that same gate — which defeated the ticket's whole use case
+ * whenever the catch-all domain wasn't the login domain, #90's review.)
+ *
+ * `sync/ingest.ts#storeMessage` is the only caller — this module is
+ * otherwise pure and knows nothing about the database.
  */
 export function resolveRecipientAlias(input: {
   mailAccountEmailAddress: string;
@@ -25,17 +36,26 @@ export function resolveRecipientAlias(input: {
   toAddresses: readonly MessageAddress[];
   ccAddresses: readonly MessageAddress[];
 }): string | null {
+  const headerCandidates = [
+    extractHeaderAddress(input.headerBlock, "delivered-to"),
+    extractHeaderAddress(input.headerBlock, "x-original-to"),
+  ];
+  for (const candidate of headerCandidates) {
+    if (!candidate) continue;
+    const normalized = normalizeSenderAddress(candidate);
+    // Still requires *a* parseable domain — a malformed stamp identifies no
+    // Alias to block, the same "guessing from garbage" refusal
+    // `senderDomain` itself gives every other caller.
+    if (senderDomain(normalized)) return normalized;
+  }
+
   const ownDomain = senderDomain(input.mailAccountEmailAddress);
   if (!ownDomain) return null;
 
-  const candidates = [
-    extractHeaderAddress(input.headerBlock, "delivered-to"),
-    extractHeaderAddress(input.headerBlock, "x-original-to"),
-    ...input.toAddresses.map((address) => address.address),
-    ...input.ccAddresses.map((address) => address.address),
-  ];
-
-  for (const candidate of candidates) {
+  const toCcCandidates = [...input.toAddresses, ...input.ccAddresses].map(
+    (address) => address.address,
+  );
+  for (const candidate of toCcCandidates) {
     if (!candidate) continue;
     const normalized = normalizeSenderAddress(candidate);
     if (senderDomain(normalized) === ownDomain) return normalized;

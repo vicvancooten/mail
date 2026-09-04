@@ -359,7 +359,7 @@ export const ACTIONS: readonly Action[] = [
         ? unavailable("No Time Group here.")
         : ctx.group.bulkAvailable
           ? available
-          : unavailable("This group can't be cleared in one action."),
+          : unavailable("This group can't be done in one action."),
     run: (ctx) => ctx.group?.onDoneAll(),
   },
   {

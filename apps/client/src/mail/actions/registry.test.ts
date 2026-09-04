@@ -143,7 +143,7 @@ describe("the Action registry", () => {
     expect(applyLabel).not.toHaveBeenCalled();
   });
 
-  it("hides a Time Group's bulk entries for a group that can't be cleared in one action", () => {
+  it("hides a Time Group's bulk entries for a group that can't be done in one action", () => {
     const ctx = withGroup(noopActionContext(), {
       label: "Pinned",
       collapsed: false,
