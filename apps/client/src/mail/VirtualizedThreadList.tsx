@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, ChevronDown, ChevronUp, MailOpen } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, MailOpen, MoreHorizontal } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -9,6 +9,13 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet.js";
 import type { CachedThread } from "../store/index.js";
 import {
   DEFAULT_LIST_DENSITY,
@@ -326,7 +333,16 @@ export function VirtualizedThreadList({
               key={item.key}
               data-index={virtualItem.index}
               data-clearing={clearIndex !== undefined || undefined}
-              ref={virtualizer.measureElement}
+              // Mid-leave, this element's own box never changes size — only
+              // its opacity/transform animate — but it's still handed to
+              // `measureElement` in every other frame, which means a fresh
+              // `ResizeObserver` subscription churns for a row about to
+              // vanish anyway (#97's bug 3: "still fed to measureElement
+              // while transforming"). Skipping the ref while clearing costs
+              // nothing: `hiddenThreadIds` removes the row from `items`
+              // outright once the animation ends, and the virtualizer
+              // recomputes from scratch on that pass regardless.
+              ref={clearIndex === undefined ? virtualizer.measureElement : undefined}
               style={
                 {
                   position: "absolute",
@@ -405,28 +421,42 @@ interface GroupHeaderClusterBulk {
 }
 
 /**
- * The group header's own cluster (#66, #77, #78), rebuilt in #87 against the
- * comp's `.group-header` (`docs/design/prototypes/the-instrument.html`): the
- * group's own **rail** on the left — the same 26px gutter the rows below
- * reserve, so the header's Done-all node sits exactly above every row's own
- * Done control — then the label, the count in the machine face, and, pushed
- * to the trailing edge, the actions that only appear once the header is
- * armed.
+ * The group header's own cluster (#66, #77, #78, rebuilt in #87 against the
+ * comp's `.group-header` and fixed in #97 against it): the group's own
+ * **rail** on the left — the same 26px gutter the rows below reserve, so
+ * the header's Done-all node sits exactly above every row's own Done
+ * control — then the label, the count in the machine face, and, pushed to
+ * the trailing edge, the actions that only appear once the header is armed.
  *
- * Resting the pointer on a header — or tapping it, on touch — arms
+ * Resting the pointer on the header, or focusing anything inside it, arms
  * **Collapse**, and where `bulk` is present, **Done all** and **Mark all
  * read** too. Every button stays in the DOM (and the tab order) regardless
  * of armed state: `mail.css`'s `[data-armed]` rule only ever changes their
  * opacity and scale, the same "real component state, not a CSS-only trick"
  * `ThreadRow`'s own doc comment insists on, and `:focus-visible` reveals any
- * one of them directly so Tab can always reach it.
+ * one of them directly so Tab can always reach it. Clicking the header's own
+ * background (never one of these buttons — each stops its own propagation)
+ * toggles **Collapse** directly (#97's bug 1: a click used to toggle the
+ * same `armed` flag hover already controlled, so a click while hovering
+ * immediately disarmed the cluster under the pointer and the just-revealed
+ * buttons vanished mid-click).
  *
  * The rail's node is *also* the Done all trigger — hovering or focusing it
- * additionally previews the group: `onPreview` bubbles to
+ * (never the header at large) previews the group: `onPreview` bubbles to
  * `VirtualizedThreadList`, which force-arms every row in this one group
- * (`ThreadRow`'s `previewArmed`), lighting the timeline spine straight down
- * the gutter and every row's Done control with it, so the User sees exactly
- * what committing would do before they click.
+ * (`ThreadRow`'s `previewArmed`), and this component mirrors the same
+ * signal onto its own `data-group-preview` so `mail.css` lights the
+ * header's rail segment and every row segment off the one identical
+ * condition (#97's bug 2 — the header side used to light on the broader
+ * `data-armed`, one hover target for the header's own spine and a
+ * different one for every row's).
+ *
+ * Touch has no hover to reveal any of this, so phone gets its own entry
+ * point instead of a tap-to-arm stand-in: `.gh-overflow`, always visible
+ * below `mail.css`'s narrow-viewport breakpoint, opens a `Sheet` listing
+ * Done all / Mark all read / Collapse as plain rows — previewing the group
+ * (and its spine) for as long as the sheet stays open, the touch equivalent
+ * of hovering the rail node.
  */
 function GroupHeaderCluster({
   label,
@@ -444,6 +474,8 @@ function GroupHeaderCluster({
   bulk?: GroupHeaderClusterBulk;
 }) {
   const [armed, setArmed] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const count = trueCount ?? loadedCount;
 
   const arm = useCallback(() => {
@@ -452,12 +484,35 @@ function GroupHeaderCluster({
   }, [bulk]);
   const disarm = useCallback(() => setArmed(false), []);
 
+  const setPreviewing = useCallback(
+    (active: boolean) => {
+      setPreview(active);
+      bulk?.onPreview(active);
+    },
+    [bulk],
+  );
+
+  const openSheet = useCallback(() => {
+    bulk?.onArm();
+    setPreviewing(true);
+    setSheetOpen(true);
+  }, [bulk, setPreviewing]);
+
+  const closeSheet = useCallback(
+    (open: boolean) => {
+      setSheetOpen(open);
+      if (!open) setPreviewing(false);
+    },
+    [setPreviewing],
+  );
+
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus arm the cluster (#66); every actual control below is a real, independently focusable <button>.
-    // biome-ignore lint/a11y/useKeyWithClickEvents: `onClick` here is touch's stand-in for hover, not an action — a keyboard User already arms the cluster by Tabbing to any button below (`onFocus`), and each is an ordinary, independently keyboard-operable `<button>`.
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus arm the cluster (#66); clicking its own background toggles Collapse (#97), a mouse convenience layered on the real, independently focusable `<button>` below that does the same thing. Every other control here is its own real button too.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: this `onClick` duplicates the `.group-collapse` button below rather than adding a keyboard-inaccessible action — a keyboard User reaches the identical toggle by Tabbing to that real, independently operable `<button>`.
     <div
       className="group-header-cluster"
       data-armed={armed}
+      data-group-preview={preview}
       onMouseEnter={arm}
       onMouseLeave={disarm}
       onFocus={arm}
@@ -466,11 +521,7 @@ function GroupHeaderCluster({
         // all read, say) must not disarm it mid-Tab.
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) disarm();
       }}
-      onClick={() => {
-        // Touch has no hover: tapping the header arms it the same way
-        // resting the pointer does at desktop (#66's own acceptance bar).
-        setArmed((current) => !current);
-      }}
+      onClick={onToggleCollapsed}
     >
       <span className="gh-rail">
         {bulk ? (
@@ -479,10 +530,10 @@ function GroupHeaderCluster({
             className="gh-node"
             aria-label={`Done with ${label}`}
             title="Done all"
-            onMouseEnter={() => bulk.onPreview(true)}
-            onMouseLeave={() => bulk.onPreview(false)}
-            onFocus={() => bulk.onPreview(true)}
-            onBlur={() => bulk.onPreview(false)}
+            onMouseEnter={() => setPreviewing(true)}
+            onMouseLeave={() => setPreviewing(false)}
+            onFocus={() => setPreviewing(true)}
+            onBlur={() => setPreviewing(false)}
             onClick={(event) => {
               event.stopPropagation();
               bulk.onDoneAll();
@@ -524,6 +575,66 @@ function GroupHeaderCluster({
           {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
       </div>
+      <button
+        type="button"
+        className="gh-overflow"
+        aria-label={`More actions for ${label}`}
+        title="More"
+        onClick={(event) => {
+          event.stopPropagation();
+          openSheet();
+        }}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      <Sheet open={sheetOpen} onOpenChange={closeSheet}>
+        <SheetContent side="bottom" className="group-header-sheet">
+          <SheetHeader className="sr-only">
+            <SheetTitle>{label}</SheetTitle>
+            <SheetDescription>Actions for this group.</SheetDescription>
+          </SheetHeader>
+          <div className="group-sheet-actions">
+            {bulk ? (
+              <button
+                type="button"
+                className="group-sheet-action"
+                onClick={() => {
+                  bulk.onDoneAll();
+                  setSheetOpen(false);
+                  setPreviewing(false);
+                }}
+              >
+                <Check size={14} /> Done all
+              </button>
+            ) : null}
+            {bulk ? (
+              <button
+                type="button"
+                className="group-sheet-action"
+                onClick={() => {
+                  bulk.onMarkAllRead();
+                  setSheetOpen(false);
+                  setPreviewing(false);
+                }}
+              >
+                <MailOpen size={14} /> Mark all read
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="group-sheet-action"
+              onClick={() => {
+                onToggleCollapsed();
+                setSheetOpen(false);
+                setPreviewing(false);
+              }}
+            >
+              {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              {collapsed ? "Expand" : "Collapse"}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

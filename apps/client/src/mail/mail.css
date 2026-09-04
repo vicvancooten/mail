@@ -732,15 +732,70 @@
   color: var(--color-ink);
 }
 
+/* Phone's own entry to Done all / Mark all read / Collapse (#97's grill
+   decision: "no hover — an always-visible small overflow button... opens a
+   Sheet"). Hidden at every width that still has hover to grow the rail's
+   own node into a real target; the narrow-viewport media query below is
+   what actually shows it. */
+.gh-overflow {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.group-header-sheet {
+  padding: 4px 8px;
+}
+
+/* The overflow Sheet's own action list — one full-width row per action,
+   sharing the ground-and-gap posture (rounded, no rule between them) every
+   other list in the app already has. */
+.group-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+}
+
+.group-sheet-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-sheet-action:hover {
+  background: var(--color-hover);
+}
+
 /* ---------- the staggered collapse (#66): "the first ~8 rows stagger out,
  * then the group collapses as one" ---------------------------------------
  * `--group-clear-index` is set inline per row (`VirtualizedThreadList`),
  * capped at the same 8-row stagger — this only ever reads that one number,
- * never re-derives it. Reduced motion is handled globally (`index.css`'s
- * `prefers-reduced-motion` rule collapses every duration to 1ms), not
- * re-implemented here. */
+ * never re-derives it. The duration is `--dur-leave` (#97: this used to be
+ * a hardcoded 220ms, adrift from both the token budget and the 260ms
+ * `MailSection` actually waits before unmounting the row). Reduced motion
+ * is handled globally (`index.css`'s `prefers-reduced-motion` rule
+ * collapses every duration to 1ms), not re-implemented here. */
 .thread-list [data-clearing="true"] {
-  animation: group-row-leave 220ms var(--ease) both;
+  animation: group-row-leave var(--dur-leave) var(--ease) both;
   animation-delay: calc(var(--group-clear-index, 0) * 45ms);
 }
 
@@ -940,13 +995,18 @@
   transform: translate(-50%, -50%) scale(1.12);
 }
 
-/* The spine preview (#66: "hovering the header checkmark previews the whole
-   group's timeline spine and every row's Done action"): one accent line
-   drawn down the gutter of every row in the previewed group — the "spine"
-   is that line, not a novel widget. `ThreadRow`'s `previewArmed` is what
-   sets both this and the row's own armed state. */
+/* The spine preview (#66, #97: "hovering the header checkmark previews the
+   whole group's timeline spine and every row's Done action"): one accent
+   line drawn down the gutter of every row in the previewed group, and the
+   matching segment in the header's own rail — the "spine" is that one
+   line, not two independently-lit ones. Both sides key off the *node's*
+   own hover/focus, never the cluster's broader `data-armed` (#97 bug: a
+   header armed by hovering its label alone used to light the spine with
+   no row segments to match) — `GroupHeaderCluster`'s own `data-group-
+   preview` mirrors the `onPreview` callback that already drives
+   `ThreadRow`'s `previewArmed`, so header and rows always agree. */
 .thread-row[data-group-preview="true"] .row-check::before,
-.group-header-cluster[data-armed="true"] .gh-rail::before {
+.group-header-cluster[data-group-preview="true"] .gh-rail::before {
   opacity: 1;
 }
 
@@ -2849,15 +2909,17 @@ button.search-chip-toggle.on {
     display: flex;
   }
 
-  /* Phone: the row's Done, Snooze and Pin controls are persistent rather
-     than hover-gated (#66 user story 47, #75, #76) — there is no hover on
-     touch, so the primary actions have to be reachable without one. Swipe
-     still commits the same actions (`useSwipeToTriage.ts`); these are the
-     tap-targets for them. */
-  .thread-row .done-btn {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translate(-50%, -50%) scale(1);
+  /* Phone: Snooze and Pin stay persistent rather than hover-gated (#66 user
+     story 47, #75, #76) — there is no hover on touch, so those two need a
+     permanent tap-target. Done is deliberately *not* among them (#97's
+     grill decision: "no persistent per-row check on phone") — swipe right
+     (`useSwipeToTriage.ts`) is the row's own Done gesture on touch, and the
+     group header's overflow Sheet (`.gh-overflow` below) covers a whole
+     Time Group at once, so the row's `done-btn` stays reserved whitespace
+     here exactly as it is everywhere else. */
+
+  .gh-overflow {
+    display: flex;
   }
 
   /* With the actions permanently on, the time cannot share their box the
