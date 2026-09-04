@@ -8,7 +8,7 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
-import { enqueueUserMutation } from "../store/index.js";
+import { enqueueUserMutation, useMailAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
@@ -25,8 +25,10 @@ import {
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
+import { AccountScope } from "./AccountScope.js";
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { useAccountScope } from "./useAccountScope.js";
 
 /** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
 vi.mock("../api/attachments.js", () => ({
@@ -129,9 +131,27 @@ async function seedTwoThreads(): Promise<void> {
   );
 }
 
+/**
+ * Account Scope's own control lives in the Hub now (#96,
+ * `router/RootLayout.tsx`), a separate component from `MailSection` — this
+ * stands in for it here, wired to the same reactive store
+ * (`useAccountScope.ts`) `MailSection` itself reads, so these tests still
+ * exercise the real production components (`AccountScope.tsx`,
+ * `useAccountScope`) end to end rather than asserting on `MailSection`'s
+ * internals directly. Renders nothing with 0-1 Mail Accounts
+ * (`AccountScope.tsx`'s own guard), so every single-account test above is
+ * unaffected.
+ */
+function AccountScopeHarness() {
+  const mailAccounts = useMailAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(mailAccounts);
+  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+}
+
 function renderMail() {
   return render(
     <AuthProvider>
+      <AccountScopeHarness />
       <MailSection />
       <Toaster />
     </AuthProvider>,
@@ -742,14 +762,14 @@ describe("Sidebar (#74)", () => {
 });
 
 describe("MailSection", () => {
-  it("lists a synced Label in the filter-by-label picker, hidden entirely when there are none", async () => {
+  it("lists a synced Label in the Sidebar, hidden entirely when there are none (#96: the top bar's own picker is gone, redundant with this)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
     const { unmount } = renderMail();
     await screen.findByText("Newer thread");
-    // No Labels synced yet — the picker doesn't show at all.
-    expect(screen.queryByLabelText("Filter by label")).toBeNull();
+    // No Labels synced yet — the Sidebar's "Labels" section doesn't show at all.
+    expect(screen.queryByText("Labels")).toBeNull();
     unmount();
     cleanup();
 
@@ -760,12 +780,10 @@ describe("MailSection", () => {
     );
     renderMail();
     await screen.findByText("Newer thread");
-    const filter = await screen.findByLabelText<HTMLSelectElement>("Filter by label");
-    expect(screen.getByRole("option", { name: "Work" })).toBeDefined();
-    expect(filter.value).toBe(""); // "All mail" by default
+    expect(await screen.findByRole("button", { name: "Work" })).toBeDefined();
   });
 
-  it("applies and removes a Label from the keyboard, and the filter-by-label view narrows the corpus (#43)", async () => {
+  it("applies and removes a Label from the keyboard, and selecting it in the Sidebar narrows the corpus (#43, #96)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -782,19 +800,19 @@ describe("MailSection", () => {
     const detail = document.querySelector(".thread-detail") as HTMLElement;
     expect(await within(detail).findByText("Work", { selector: ".label-chip" })).toBeDefined();
 
-    // The filter-by-label picker in the top bar already lists it (derived
-    // from the Thread's own overlay, not a round trip through the `Label`
-    // collection) and filtering to it narrows the corpus.
-    const filter = await screen.findByLabelText<HTMLSelectElement>("Filter by label");
-    expect(screen.getByRole("option", { name: "Work" })).toBeDefined();
-    fireEvent.change(filter, { target: { value: labelId("acct-1", "Work") } });
+    // The Sidebar's own Labels list already shows it (derived from the
+    // Thread's own overlay, not a round trip through the `Label`
+    // collection) — selecting it narrows the corpus (#96: the top bar's own
+    // filter-by-label picker is gone, redundant with this).
+    fireEvent.click(await screen.findByRole("button", { name: "Work" }));
     await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
     expect(screen.getByText("Newer thread")).toBeDefined();
 
-    // Back to "All mail" (switching the filter clears the selection) and
-    // reopen the Thread so its detail pane stays reachable once the Label
-    // currently filtering it to view is removed.
-    fireEvent.change(filter, { target: { value: "" } });
+    // Back to Inbox (selecting a folder clears the Label filter, same as the
+    // old "All mail" option did) and reopen the Thread so its detail pane
+    // stays reachable once the Label currently filtering it to view is
+    // removed.
+    fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
     fireEvent.click(await screen.findByText("Newer thread"));
     const reopenedDetail = document.querySelector(".thread-detail") as HTMLElement;
 

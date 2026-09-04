@@ -47,7 +47,6 @@ import {
 import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
-  type AccountScope as AccountScopeIds,
   readOpenComposerId,
   readStreamMode,
   useListDensity,
@@ -69,10 +68,10 @@ import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
 import { Screener } from "./screener/Screener.js";
+import { SearchField } from "./search/SearchField.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
-import { TopBar } from "./TopBar.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
@@ -342,41 +341,58 @@ export function MailSection({
   // fallback — lives in `useAccountScope` itself now (#73); this component
   // only ever reads `accountScope`/`accountId` back.
 
+  // Account Scope's own control lives in the Hub now (#96,
+  // `router/RootLayout.tsx`), a different component instance from this one —
+  // so "reset the transient view state when the *primary* account (Scope's
+  // first member) actually changes" can no longer be a side effect wrapped
+  // around the setter a caller here hands out (the old `changeAccountScope`).
+  // Instead this watches `accountId` itself, the same "react to the shared
+  // store's value, not to who wrote it" posture the count-invalidation
+  // effect below already takes on `accountScope[0]`. Adding or removing a
+  // non-primary account from Scope doesn't change `accountId` and so still
+  // doesn't drop whatever the User was looking at. `narrowScopeTo` below
+  // stamps this ref itself, synchronously, so this effect's own reset never
+  // fires a render *after* one of that callback's own callers (the
+  // notification handlers) already placed a specific Thread/Composition —
+  // this effect would otherwise wipe that out a tick later.
+  const previousPrimaryAccountRef = useRef(accountId);
+  useEffect(() => {
+    const previousPrimary = previousPrimaryAccountRef.current;
+    previousPrimaryAccountRef.current = accountId;
+    if (accountId === previousPrimary) return;
+    // `null` means "Scope hadn't resolved to a real primary account yet"
+    // (`useMailAccounts` resolves the Local Cache a render or two after
+    // mount) — that first settling is not a User-driven Scope change, and
+    // resetting `initialThreadId`'s own selection out from under a fresh
+    // routed mount (`router/MailRoute.tsx`'s own `?thread=` restore) would
+    // be exactly the drift this effect exists to prevent, not fix.
+    if (previousPrimary === null) return;
+    setSelectedThreadId(null);
+    setLimit(THREAD_PAGE_SIZE);
+    setLabelFilter(null);
+    setFolder(DEFAULT_FOLDER);
+  }, [accountId]);
+
   // Narrows Scope to exactly one account: the one path (a notification
   // click landing on an account not currently primary) where a *single*
   // account still has to be picked out from the rest, the same "switch to
   // it" behavior the pre-Scope account switcher had. Resets the transient
-  // view state the same way a User-driven Scope change to a new primary
-  // does (`changeAccountScope` below) — including the folder (#74), since a
-  // narrowed Scope may not have the previous folder's contents at all.
+  // view state the same way the effect above does for a User-driven Scope
+  // change — including the folder (#74), since a narrowed Scope may not
+  // have the previous folder's contents at all — and stamps
+  // `previousPrimaryAccountRef` itself so that effect doesn't redo (and
+  // re-fire a render behind) the same reset once `accountId` actually
+  // catches up.
   const narrowScopeTo = useCallback(
     (id: string) => {
       setAccountScope([id]);
+      previousPrimaryAccountRef.current = id;
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
       setLabelFilter(null);
       setFolder(DEFAULT_FOLDER);
     },
     [setAccountScope],
-  );
-
-  // The Account Scope control's own onChange (#73): the transient view
-  // state (selection, label filter, folder, Screener, page size) only
-  // resets when the *primary* account (Scope's first member) actually
-  // changes — adding or removing a non-primary account from Scope shouldn't
-  // drop whatever the User was looking at.
-  const changeAccountScope = useCallback(
-    (ids: AccountScopeIds) => {
-      const previousPrimary = accountId;
-      setAccountScope(ids);
-      if (ids[0] !== previousPrimary) {
-        setSelectedThreadId(null);
-        setLimit(THREAD_PAGE_SIZE);
-        setLabelFilter(null);
-        setFolder(DEFAULT_FOLDER);
-      }
-    },
-    [accountId, setAccountScope],
   );
 
   // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own
@@ -892,48 +908,48 @@ export function MailSection({
   return (
     <ActionsProvider value={actionContext}>
       <section className="mail-section">
-        <TopBar
-          streamMode={streamMode}
-          onStreamMode={changeStreamMode}
-          accounts={mailAccounts}
-          accountScope={accountScope}
-          onAccountScopeChange={changeAccountScope}
-          labels={labelsForPicker}
-          labelFilter={labelFilter}
-          onLabelFilter={selectLabelFilter}
-          screener={{ count: screenerSenderCount, onOpen: openScreener }}
-          search={{
-            active: search.active,
-            queryText: search.queryText,
-            inputRef: searchInputRef,
-            onChange: search.onFieldChange,
-            onCommit: search.onCommit,
-            onEsc: search.onEsc,
-            onBackspaceEmpty: search.onBackspaceEmpty,
-            // The header field's own click/focus (#79: "the header search
-            // field is its other entry point" for the Palette) — unless it
-            // was `/` that focused it a moment ago (`suppressPaletteOnFocusRef`
-            // above), in which case this is the pre-#79 "just open search"
-            // path, matching `search-integration.test.tsx`'s own `/`-driven
-            // coverage exactly.
-            onOpen: () => {
-              if (suppressPaletteOnFocusRef.current) {
-                suppressPaletteOnFocusRef.current = false;
-                search.open(searchOrigin);
-              } else {
-                openPalette();
-              }
-            },
-            recentSearches: search.recentSearches,
-            onRunRecent: search.runRecent,
-            onClearRecent: search.clearRecent,
-          }}
-        />
+        {/* Mail's own search bar (#96): all that's left of `mail/TopBar.tsx`
+            after Account Scope moved into the Hub, the label filter and
+            Screener chip were dropped as redundant with the Sidebar's own
+            Labels/Screener entries, and Stream's toggle moved to the Sidebar
+            (`Sidebar.tsx`'s own doc comment) — a single field, not a row of
+            view-mode controls, so this isn't "the Mail toolbar" the ticket's
+            acceptance box says is gone. */}
+        <div className="mail-search-bar">
+          <SearchField
+            search={{
+              active: search.active,
+              queryText: search.queryText,
+              inputRef: searchInputRef,
+              onChange: search.onFieldChange,
+              onCommit: search.onCommit,
+              onEsc: search.onEsc,
+              onBackspaceEmpty: search.onBackspaceEmpty,
+              // The header field's own click/focus (#79: "the header search
+              // field is its other entry point" for the Palette) — unless it
+              // was `/` that focused it a moment ago (`suppressPaletteOnFocusRef`
+              // above), in which case this is the pre-#79 "just open search"
+              // path, matching `search-integration.test.tsx`'s own `/`-driven
+              // coverage exactly.
+              onOpen: () => {
+                if (suppressPaletteOnFocusRef.current) {
+                  suppressPaletteOnFocusRef.current = false;
+                  search.open(searchOrigin);
+                } else {
+                  openPalette();
+                }
+              },
+              recentSearches: search.recentSearches,
+              onRunRecent: search.runRecent,
+              onClearRecent: search.clearRecent,
+            }}
+          />
+        </div>
         {/* Unmounted rather than merely hidden while the Screener is open: a
-          `readScreenerSeenUntil` read only happens on mount/account change
-          (`GatekeeperBanner`'s own doc comment), and `openScreener` just
-          wrote a fresh cursor — remounting is what picks it up, so the
-          banner doesn't still claim "unseen" for holds it was just shown. */}
+            `readScreenerSeenUntil` read only happens on mount/account change
+            (`GatekeeperBanner`'s own doc comment), and `openScreener` just
+            wrote a fresh cursor — remounting is what picks it up, so the
+            banner doesn't still claim "unseen" for holds it was just shown. */}
         {!screenerOpen && <GatekeeperBanner accountScope={accountScope} onOpen={openScreener} />}
         <div className="mail-frame">
           <Sidebar
@@ -945,6 +961,8 @@ export function MailSection({
             onCompose={openCompose}
             screenerCount={screenerSenderCount}
             draftsCount={draftCompositions.length}
+            streamMode={streamMode}
+            onStreamMode={changeStreamMode}
           />
           <div className="mail-body">
             {screenerOpen && accountScope.length > 0 ? (

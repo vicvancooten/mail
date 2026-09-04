@@ -166,9 +166,7 @@ export type AccountScope = readonly string[];
 
 const ACCOUNT_SCOPE_KEY = "mail.devicePref.accountScope";
 
-/** The stored Scope verbatim, or `null` if never set or unreadable — callers resolve that against the live account list (`resolveAccountScope`), never render it directly. */
-export function readAccountScope(): AccountScope | null {
-  const stored = readStorage(ACCOUNT_SCOPE_KEY);
+function parseAccountScope(stored: string | null): AccountScope | null {
   if (!stored) return null;
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -179,10 +177,41 @@ export function readAccountScope(): AccountScope | null {
   }
 }
 
+// `readAccountScope` is `useAccountScope.ts`'s own `useSyncExternalStore`
+// snapshot (#96) — React's contract there requires it to return the *same*
+// reference across calls when nothing actually changed, or every render
+// schedules another ("Maximum update depth exceeded"). A bare
+// `JSON.parse` would fail that: it returns a fresh array every call even
+// when the underlying string didn't move. Cached on the raw string itself
+// (not just "have we read since the last write") so an external
+// `localStorage.clear()` — every test file's own `afterEach` — is picked
+// up too, not just this module's own `writeAccountScope`.
+let cachedRaw: string | null | undefined;
+let cachedParsed: AccountScope | null = null;
+
+/** The stored Scope verbatim, or `null` if never set or unreadable — callers resolve that against the live account list (`resolveAccountScope`), never render it directly. */
+export function readAccountScope(): AccountScope | null {
+  const stored = readStorage(ACCOUNT_SCOPE_KEY);
+  if (stored !== cachedRaw) {
+    cachedRaw = stored;
+    cachedParsed = parseAccountScope(stored);
+  }
+  return cachedParsed;
+}
+
 /** Scope "cannot be emptied" (#73's acceptance criteria) — a no-op guard here too, so a caller that skips the UI-level guard can't wipe a device's Scope preference by accident. */
 export function writeAccountScope(accountIds: AccountScope): void {
   if (accountIds.length === 0) return;
   writeStorage(ACCOUNT_SCOPE_KEY, JSON.stringify(accountIds));
+  for (const listener of accountScopeListeners) listener();
+}
+
+const accountScopeListeners = new Set<() => void>();
+
+/** Reactive subscription for the stored Scope (#96): the control moved from `mail/TopBar.tsx` into the Hub (`RootLayout.tsx`), while `MailSection.tsx` still resolves it against its own `mailAccounts` to filter the Thread list — same "one write reaches every mounted subscriber" shape as view mode/density/sidebar-collapsed above, or the two would drift the instant they're rendered by two different components. */
+export function subscribeAccountScope(listener: () => void): () => void {
+  accountScopeListeners.add(listener);
+  return () => accountScopeListeners.delete(listener);
 }
 
 /**

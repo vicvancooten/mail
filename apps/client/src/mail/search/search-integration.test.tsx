@@ -3,13 +3,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
+import { useMailAccounts } from "../../store/index.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../../store/mutation-queue.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { AccountScope } from "../AccountScope.js";
 import { MailSection } from "../MailSection.js";
+import { useAccountScope } from "../useAccountScope.js";
 
 /**
  * End-to-end coverage of #51's acceptance boxes, driven the way
@@ -75,9 +78,23 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
+/**
+ * Account Scope's own control lives in the Hub now (#96,
+ * `router/RootLayout.tsx`), a separate component from `MailSection` — this
+ * stands in for it here, wired to the same reactive store
+ * (`useAccountScope.ts`) `MailSection` itself reads (`MailSection.test.tsx`'s
+ * own harness of the same shape). Renders nothing with 0-1 Mail Accounts.
+ */
+function AccountScopeHarness() {
+  const mailAccounts = useMailAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(mailAccounts);
+  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+}
+
 function renderMail() {
   return render(
     <AuthProvider>
+      <AccountScopeHarness />
       <MailSection />
     </AuthProvider>,
   );

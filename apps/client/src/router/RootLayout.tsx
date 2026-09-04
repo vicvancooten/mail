@@ -2,11 +2,15 @@ import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
+import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { AccountScope } from "../mail/AccountScope.js";
 import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
+import { useAccountScope } from "../mail/useAccountScope.js";
 import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
+import { useMailAccounts } from "../store/index.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
 import { rootRoute } from "./routes.js";
@@ -24,13 +28,23 @@ import "./shell.css";
  * the fold).
  *
  * The header is the comp's `.app-header`
- * (`docs/design/prototypes/the-instrument.html`): a three-column grid whose
- * outer columns are equal fractions, so the centred search field is centred
- * on the *viewport* rather than on whatever is left over beside the
- * switcher. Left is the App Switcher, centre the global search entry, right
- * the appearance toggle and the User's avatar menu. Nothing here names the
+ * (`docs/design/prototypes/the-instrument.html`), reshaped by #96's own
+ * acceptance box: a three-column grid whose outer columns are equal
+ * fractions, so the centred search field is centred on the *viewport*
+ * rather than on whatever is left over beside the switcher. Left is the
+ * home mark (`HomeLink.tsx`, a plain `Link` to `/mail`) and, as its own
+ * adjacent control, the App Switcher; centre the global search entry;
+ * right is Account Scope (`AccountScope.tsx`, moved here from
+ * `mail/TopBar.tsx` — Client chrome per `CONTEXT.md`'s own Hub entry), the
+ * appearance toggle, and the User's avatar menu. Nothing here names the
  * signed-in User in prose any more — the avatar and its menu carry that,
  * the way the comp does.
+ *
+ * The App itself renders inside `.app-card` (#96): a raised card on the
+ * Hub's own ground at ≥701px (`shell.css`'s own breakpoint, matching every
+ * other Split/List layout switch in the app) and full-bleed on the phone —
+ * `.app-viewport`'s padding and `.app-card`'s radius/shadow both toggle at
+ * that width, rather than either route rendering two different trees.
  *
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
@@ -39,6 +53,12 @@ import "./shell.css";
 export function RootLayout() {
   const { user, onLogout } = rootRoute.useRouteContext();
   const [signingOut, setSigningOut] = useState(false);
+  // Account Scope (#96): moved into the Hub, so it needs the same
+  // `mailAccounts`/`useAccountScope` pair `MailSection.tsx` reads — the two
+  // stay in sync through `device-preferences.ts#subscribeAccountScope`
+  // (`useAccountScope.ts`'s own doc comment), not through a shared prop.
+  const mailAccounts = useMailAccounts() ?? [];
+  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
   // `Link`'s own `data-status="active"` would do this, but only for exact
   // matches — `/mail` should still read as current while a Thread or label
   // is selected within it (`/mail?thread=…`), which `useRouterState` here
@@ -103,6 +123,7 @@ export function RootLayout() {
       <div className="app-shell">
         <header className="app-header">
           <div className="header-left">
+            <HomeLink />
             <AppSwitcher pathname={pathname} />
           </div>
           <div className="header-center">
@@ -113,6 +134,7 @@ export function RootLayout() {
             </button>
           </div>
           <div className="header-right">
+            <AccountScope accounts={mailAccounts} scope={accountScope} onChange={setAccountScope} />
             <button
               type="button"
               className="header-icon-btn"
@@ -131,7 +153,9 @@ export function RootLayout() {
           </div>
         </header>
         <div className="app-viewport">
-          <Outlet />
+          <div className="app-card">
+            <Outlet />
+          </div>
         </div>
         <Toaster />
       </div>

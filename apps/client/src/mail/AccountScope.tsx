@@ -13,18 +13,23 @@ function scopeAccessibleName(accounts: MailAccount[], scope: AccountScopeIds): s
 }
 
 /**
- * Account Scope (#73, `mail#66` §"Account Scope in the Client's own chrome"):
- * one control, immediately right of the search field (`TopBar.tsx`), that
- * selects any non-empty subset of the User's Mail Accounts — Client-level
- * chrome rather than Mail-level, because narrowing to one account is a
- * question every App answers. Replaces the single-account `<select>`
- * (`AccountSwitcher`, #40) it superseded: a Scope is a *set*, so a checkbox
- * per Mail Account is the accessible primitive a `<select>` can't express.
+ * Account Scope (#73, `mail#66` §"Account Scope in the Client's own chrome";
+ * moved into the Hub in #96): one control, in `RootLayout.tsx`'s
+ * `header-right`, that selects any non-empty subset of the User's Mail
+ * Accounts — Client-level chrome rather than Mail-level, because narrowing
+ * to one account is a question every App answers (`CONTEXT.md`'s own
+ * definition names it as one of the five things the Hub holds). Replaces the
+ * single-account `<select>` (`AccountSwitcher`, #40) it superseded: a Scope
+ * is a *set*, so a checkbox per Mail Account is the accessible primitive a
+ * `<select>` can't express.
  *
  * Renders nothing with a single Mail Account, same "nothing here worth
- * narrowing" guard `AccountSwitcher` had. "Cannot be emptied" is enforced
- * right here, per toggle — `useAccountScope.setScope`'s own guard is this
- * component's backstop, not its only line of defense.
+ * narrowing" guard `AccountSwitcher` had — which is also why it renders
+ * unconditionally in the Hub rather than being Mail-specific: a placeholder
+ * App with no Mail Account to scope shows nothing here either. "Cannot be
+ * emptied" is enforced right here, per toggle —
+ * `useAccountScope.ts#useAccountScope`'s own guard is this component's
+ * backstop, not its only line of defense.
  */
 export function AccountScope({
   accounts,
