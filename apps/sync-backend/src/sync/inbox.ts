@@ -1,4 +1,18 @@
+import { eq, type SQL } from "drizzle-orm";
+import type { Db } from "../db/client.js";
+import { folders, messages } from "../db/schema.js";
 import type { FolderRole } from "./folders.js";
+
+/**
+ * Gmail's own literal `X-GM-LABELS` values for its Inbox/Sent pseudo-labels
+ * — matched literally rather than by role, the same way every Gmail Label
+ * string is (`gmail-labels.ts`'s own doc comment). The one seam so
+ * `gmail-labels.ts#SYSTEM_GMAIL_LABEL_NAMES` (#126) — its own superset of
+ * every Gmail system pseudo-label — names these two off this file instead of
+ * re-typing them.
+ */
+export const GMAIL_INBOX_LABEL = "\\Inbox";
+export const GMAIL_SENT_LABEL = "\\Sent";
 
 /**
  * The Inbox predicate (#122, ADR-0020, CONTEXT.md §Inbox): "this message is
@@ -21,7 +35,7 @@ export function isInInbox(
   gmailLabels: readonly string[] | null | undefined,
 ): boolean {
   if (folderRole === "inbox") return true;
-  return (gmailLabels ?? []).includes("\\Inbox");
+  return (gmailLabels ?? []).includes(GMAIL_INBOX_LABEL);
 }
 
 /**
@@ -40,7 +54,7 @@ export function isSentMessage(
   gmailLabels: readonly string[] | null | undefined,
 ): boolean {
   if (folderRole === "sent") return true;
-  return (gmailLabels ?? []).includes("\\Sent");
+  return (gmailLabels ?? []).includes(GMAIL_SENT_LABEL);
 }
 
 /** The wire-facing states a Thread's Gmail projection resolves to — `threads.folderRole`'s own enum, minus `"all"`. */
@@ -68,4 +82,28 @@ export function projectGmailThreadStatus(
   if (folderRole === "junk") return { folderRole: "junk", inInbox: false };
   if (isInInbox(folderRole, gmailLabels)) return { folderRole: "inbox", inInbox: true };
   return { folderRole: "archive", inInbox: false };
+}
+
+/**
+ * The Inbox-resident subset of Messages matching `where` — the join-`folders`
+ * -then-filter-by-`isInInbox` shape `sync/mutations.ts#inboxResidentMessageIds`,
+ * `sync/bulk-triage.ts#applyDone`, `gatekeeper/decisions.ts#trashHeldThreads`
+ * and `gatekeeper/screening.ts#moveOnArrival` each independently repeated
+ * (#124, #125, ADR-0020) before this was pulled out. `where` is each
+ * caller's own scope — one Thread, several Threads, or a Thread minus the
+ * arrivals just enqueued — the join and the residency filter are the part
+ * that never varies.
+ */
+export async function selectInboxResidentMessageIds(
+  db: Db,
+  where: SQL | undefined,
+): Promise<string[]> {
+  const candidates = await db
+    .select({ id: messages.id, folderRole: folders.role, gmailLabels: messages.gmailLabels })
+    .from(messages)
+    .innerJoin(folders, eq(messages.folderId, folders.id))
+    .where(where);
+  return candidates
+    .filter((row) => isInInbox(row.folderRole, row.gmailLabels))
+    .map((row) => row.id);
 }

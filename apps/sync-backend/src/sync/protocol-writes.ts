@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { asc, eq, inArray } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
-import type { Db } from "../db/client.js";
-import { folders, mailAccounts, messages, protocolWrites } from "../db/schema.js";
-import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import type { Db, Tx } from "../db/client.js";
+import { folders, messages, protocolWrites } from "../db/schema.js";
+import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { getMailAccountServerKind } from "../mail-accounts/store.js";
 import { type FolderRole, findFolderByRole } from "./folders.js";
 import { projectGmailThreadStatus } from "./inbox.js";
 
@@ -16,7 +17,7 @@ import { projectGmailThreadStatus } from "./inbox.js";
  * value captured at enqueue time.
  *
  * `archive`/`inbox` gain a second shape on Gmail (#124, ADR-0020): the
- * server-kind gate below (`serverKind === "gmail"`) decides, for every row
+ * server-kind gate below (`isGmailAccount(serverKind)`) decides, for every row
  * of either kind, whether it becomes a real `MOVE` (every other server) or
  * an `X-GM-LABELS` add/remove of `\Inbox` on the All Mail UID — imapflow
  * returns `false` silently for a label `STORE` against a non-Gmail server,
@@ -26,9 +27,6 @@ import { projectGmailThreadStatus } from "./inbox.js";
  * Spam real moves (ADR-0020's Consequences).
  */
 export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash" | "inbox" | "junk";
-
-/** The transaction handle `db.transaction(async (tx) => ...)` hands its callback — same query surface as `Db`, per `compose/blob-store.ts`'s own alias. */
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
  * `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty
@@ -94,12 +92,7 @@ export async function drainProtocolWrites(
 
   // One lookup for the whole batch, not per row — the same "resolve the
   // account once" shape `thread-rollup.ts` uses for its own Gmail branch.
-  const [accountRow] = await db
-    .select({ serverKind: mailAccounts.serverKind })
-    .from(mailAccounts)
-    .where(eq(mailAccounts.id, mailAccountId))
-    .limit(1);
-  const serverKind: MailAccountServerKind | null = accountRow?.serverKind ?? null;
+  const serverKind = await getMailAccountServerKind(db, mailAccountId);
 
   const messageIds = [...new Set(rows.map((row) => row.messageId))];
   const current = await db
@@ -165,13 +158,13 @@ export async function drainProtocolWrites(
  * the real move back out of Trash/Junk has happened.
  */
 function isAlreadyApplied(
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   kind: ProtocolWriteKind,
   msg: CurrentMessage,
 ): boolean {
   if (kind === "trash" || kind === "junk") return msg.folderRole === kind;
   if (kind === "archive" || kind === "inbox") {
-    if (serverKind === "gmail") {
+    if (isGmailAccount(serverKind)) {
       const inInbox = projectGmailThreadStatus(msg.folderRole, msg.gmailLabels).inInbox;
       return kind === "archive" ? !inInbox : inInbox;
     }
@@ -190,7 +183,7 @@ async function drainFolder(
   db: Db,
   client: ImapFlow,
   mailAccountId: string,
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   folderRows: OutboxRow[],
   byMessageId: Map<string, CurrentMessage>,
   done: Set<string>,
@@ -242,7 +235,7 @@ async function drainFolder(
   // a real Deny/Block/Spam move out of Trash/Junk (`restore-to-inbox.ts`),
   // which needs the real `MOVE` back into All Mail those two Folders are the
   // one place a Gmail `inbox` write still is one.
-  if (serverKind === "gmail") {
+  if (isGmailAccount(serverKind)) {
     const { toLabel, toMove } = partitionGmailInboxRows(inboxRows, byMessageId);
     await labelBatch(db, client, byMessageId, archiveRows, "\\Inbox", false, done);
     await labelBatch(db, client, byMessageId, toLabel, "\\Inbox", true, done);

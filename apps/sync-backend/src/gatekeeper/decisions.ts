@@ -2,9 +2,9 @@ import type { GatekeeperSender } from "@mail/shared";
 import { normalizeGatekeeperSender } from "@mail/shared";
 import { and, eq, inArray, like, or } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { folders, messages, threads } from "../db/schema.js";
+import { messages, threads } from "../db/schema.js";
 import { findFolderByRole } from "../sync/folders.js";
-import { isInInbox } from "../sync/inbox.js";
+import { selectInboxResidentMessageIds } from "../sync/inbox.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
 import { restoreThreadsToInbox } from "../sync/restore-to-inbox.js";
 import {
@@ -281,8 +281,8 @@ async function releaseHeldThreads(
  * Spam are the two places ADR-0020 keeps as real moves even there — but the
  * held Messages are read off All Mail with the `\Inbox` Label, never a
  * Folder with role `"inbox"` (that role never exists on a Gmail account), so
- * the resident set is read through `sync/inbox.ts#isInInbox`, the same
- * reasoning `sync/mutations.ts#inboxResidentMessageIds` gives.
+ * the resident set is read through `sync/inbox.ts#selectInboxResidentMessageIds`,
+ * the same reasoning `sync/mutations.ts#inboxResidentMessageIds` gives.
  */
 async function trashHeldThreads(
   db: Db,
@@ -299,18 +299,11 @@ async function trashHeldThreads(
 
   const targetFolder = await findFolderByRole(db, mailAccountId, target);
   if (targetFolder) {
-    const candidates = await db
-      .select({ id: messages.id, folderRole: folders.role, gmailLabels: messages.gmailLabels })
-      .from(messages)
-      .innerJoin(folders, eq(messages.folderId, folders.id))
-      .where(inArray(messages.threadId, heldThreadIds));
-    const inboxResident = candidates.filter((row) => isInInbox(row.folderRole, row.gmailLabels));
-    await enqueueProtocolWrites(
+    const inboxResidentIds = await selectInboxResidentMessageIds(
       db,
-      mailAccountId,
-      inboxResident.map((row) => row.id),
-      target,
+      inArray(messages.threadId, heldThreadIds),
     );
+    await enqueueProtocolWrites(db, mailAccountId, inboxResidentIds, target);
   }
 
   await db

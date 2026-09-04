@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.js";
-import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import { type FolderRole, type FolderRow, listSelectableFolders } from "./folders.js";
 
 /**
@@ -19,11 +19,11 @@ export const GMAIL_SYNCED_ROLES: readonly FolderRole[] = ["all", "junk", "trash"
 const GMAIL_SYNCED_ROLE_SET: ReadonlySet<FolderRole> = new Set(GMAIL_SYNCED_ROLES);
 
 export function resolveSyncPlan(
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   folders: FolderRow[],
 ): FolderRow[] {
   const selectable = folders.filter((folder) => folder.selectable);
-  if (serverKind !== "gmail") return selectable;
+  if (!isGmailAccount(serverKind)) return selectable;
   return selectable.filter(
     (folder) => folder.role !== null && GMAIL_SYNCED_ROLE_SET.has(folder.role),
   );
@@ -33,7 +33,7 @@ export function resolveSyncPlan(
 export async function listSyncPlanFolders(
   db: Db,
   mailAccountId: string,
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
 ): Promise<FolderRow[]> {
   const selectable = await listSelectableFolders(db, mailAccountId);
   return resolveSyncPlan(serverKind, selectable);
@@ -46,9 +46,9 @@ export async function listSyncPlanFolders(
  * polled instead (`live-session.ts`'s resident loop).
  */
 export function resolveWatchFolder(
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   plan: FolderRow[],
 ): FolderRow | null {
-  const role: FolderRole = serverKind === "gmail" ? "all" : "inbox";
+  const role: FolderRole = isGmailAccount(serverKind) ? "all" : "inbox";
   return plan.find((folder) => folder.role === role) ?? null;
 }

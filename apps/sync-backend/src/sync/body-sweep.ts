@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages } from "../db/schema.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { readBodyParts } from "./body-structure.js";
 import { GMAIL_DOWNLOAD_CAP_RESUME_MS, isGmailDownloadCapError } from "./gmail-download-cap.js";
@@ -137,7 +138,7 @@ export async function runBodySweepBatch(
       }
     }
   } catch (err) {
-    if (account?.serverKind === "gmail" && isGmailDownloadCapError(err)) {
+    if (isGmailAccount(account?.serverKind) && isGmailDownloadCapError(err)) {
       const pausedUntil = new Date(Date.now() + GMAIL_DOWNLOAD_CAP_RESUME_MS);
       await db
         .update(mailAccounts)

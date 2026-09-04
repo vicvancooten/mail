@@ -17,15 +17,7 @@ import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import type { Db } from "../db/client.js";
-import {
-  appliedMutations,
-  folders,
-  labels,
-  mailAccounts,
-  messages,
-  threads,
-  users,
-} from "../db/schema.js";
+import { appliedMutations, labels, mailAccounts, messages, threads, users } from "../db/schema.js";
 import {
   approveSender,
   blockSender,
@@ -34,13 +26,14 @@ import {
   unblockAndRestore,
   unblockSender,
 } from "../gatekeeper/decisions.js";
-import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import {
+  getMailAccountServerKind,
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
-import { isInInbox } from "./inbox.js";
+import { selectInboxResidentMessageIds } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { restoreThreadsToInbox } from "./restore-to-inbox.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -65,7 +58,7 @@ export async function flushMutations(
   // Resolved once per flush, not per intent (`sync/thread-rollup.ts`'s own
   // "resolve the account once" shape) — `archive`/`trash`/`restoreToInbox`
   // are the only intents that read it (#124, ADR-0020).
-  const serverKind = await accountServerKind(db, mailAccountId);
+  const serverKind = await getMailAccountServerKind(db, mailAccountId);
   const outcomes: MutationOutcome[] = [];
   for (const { id, intent } of queued) {
     outcomes.push(await applyOne(db, mailAccountId, serverKind, id, intent));
@@ -73,22 +66,10 @@ export async function flushMutations(
   return outcomes;
 }
 
-async function accountServerKind(
-  db: Db,
-  mailAccountId: string,
-): Promise<MailAccountServerKind | null> {
-  const [row] = await db
-    .select({ serverKind: mailAccounts.serverKind })
-    .from(mailAccounts)
-    .where(eq(mailAccounts.id, mailAccountId))
-    .limit(1);
-  return row?.serverKind ?? null;
-}
-
 async function applyOne(
   db: Db,
   mailAccountId: string,
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   id: string,
   intent: MutationIntent,
 ): Promise<MutationOutcome> {
@@ -155,7 +136,7 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
 async function applyIntent(
   db: Db,
   mailAccountId: string,
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   intent: MutationIntent,
 ): Promise<IntentResult> {
   // The four Composition intents (#46, #101) and the two Preference intents
@@ -234,7 +215,7 @@ async function applyIntent(
       // (#124, ADR-0020), which needs no such Folder: Done there removes the
       // `\Inbox` label instead of moving anything, so there is nothing to
       // reject against.
-      const needsTargetFolder = !(intent.type === "archive" && serverKind === "gmail");
+      const needsTargetFolder = !(intent.type === "archive" && isGmailAccount(serverKind));
       if (needsTargetFolder) {
         const target = await findFolderByRole(db, mailAccountId, intent.type);
         if (!target) return { ok: false, reason: `no_${intent.type}_folder` };
@@ -452,18 +433,14 @@ async function threadMessageIds(db: Db, threadId: string): Promise<string[]> {
 
 /**
  * The subset of a Thread's Messages `archive`/`trash` actually act on —
- * Sent/other-folder copies stay put. Read through `sync/inbox.ts#isInInbox`
- * (#124, ADR-0020) rather than a join on `folders.role === "inbox"`: on a
- * generic account that's the same set either way, but on Gmail the Inbox is
- * a Label on the one All Mail copy, never a Folder of its own.
+ * Sent/other-folder copies stay put. Read through
+ * `sync/inbox.ts#selectInboxResidentMessageIds` (#124, ADR-0020) rather than
+ * a join on `folders.role === "inbox"`: on a generic account that's the same
+ * set either way, but on Gmail the Inbox is a Label on the one All Mail
+ * copy, never a Folder of its own.
  */
 async function inboxResidentMessageIds(db: Db, threadId: string): Promise<string[]> {
-  const rows = await db
-    .select({ id: messages.id, folderRole: folders.role, gmailLabels: messages.gmailLabels })
-    .from(messages)
-    .innerJoin(folders, eq(messages.folderId, folders.id))
-    .where(threadIs(threadId));
-  return rows.filter((row) => isInInbox(row.folderRole, row.gmailLabels)).map((row) => row.id);
+  return selectInboxResidentMessageIds(db, threadIs(threadId));
 }
 
 async function ledgerRow(

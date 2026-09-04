@@ -2,6 +2,7 @@ import type { ExistsEvent, ExpungeEvent, FlagsEvent, ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { getMailAccountById, type MailAccountRow, setSyncStatus } from "../mail-accounts/store.js";
 import { establishFolderBaseline, runAccountBackfill } from "./backfill.js";
 import { runBodySweep } from "./body-sweep.js";
@@ -225,7 +226,7 @@ async function runSession(db: Db, accountId: string, ctx: RunSessionContext): Pr
     const plan = resolveSyncPlan(account.serverKind, live);
     const watchFolder = resolveWatchFolder(account.serverKind, plan);
     if (!watchFolder) {
-      const label = account.serverKind === "gmail" ? "All Mail" : "INBOX";
+      const label = isGmailAccount(account.serverKind) ? "All Mail" : "INBOX";
       throw new Error(`Mail Account ${accountId} has no selectable ${label} folder`);
     }
 

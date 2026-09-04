@@ -95,7 +95,7 @@ export async function syncMailAccount(
  */
 function selectFolders(
   live: FolderRow[],
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   roles: FolderRole[] | undefined,
 ): FolderRow[] {
   const plan = resolveSyncPlan(serverKind, live);
