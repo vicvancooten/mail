@@ -27,12 +27,20 @@ the Shortcut Sheet, the same registry rendered read-only as a cheat sheet.
 
 Typing in the Palette runs the same search this spec has always described — the 3-character floor,
 the ~200ms debounce, the Local Cache prefilter — and shows the **top few hits inline**, in a
-bounded, scrolling pane alongside the matching commands. **"See all results"** (or Enter on a hit)
-commits the query exactly like the header field's own Enter always has, which is what activates
-**the list pane behind the Palette**: it swaps into the results list — same row renderer, same
-Triage affordances — with the reading pane still live beside it in Split, so a result is triagable
-like any other row the moment the Palette stops covering it. The Index Watermark (below) surfaces
-here too, next to the inline hits, whenever bodies are still being indexed.
+bounded, scrolling pane alongside the matching commands. Typing here **never** swaps the list pane
+behind the Palette; whatever it already showed (a folder, the results view from an earlier commit)
+stays exactly as it was (#100). **Enter opens the top (or arrow-selected) hit** — in Split, in the
+reading pane only, the list pane still untouched — the same "opens without leaving search" move as
+clicking a row in the results view itself. **"See all results"** is the only way into the full
+results view: it swaps the list pane into the results list — same row renderer, same Triage
+affordances — with the reading pane still live beside it in Split, so a result is triagable like any
+other row the moment the Palette stops covering it. The Index Watermark (below) surfaces here too,
+next to the inline hits, whenever bodies are still being indexed.
+
+The results view itself carries a visible **Close**, first in the chip row: one click restores the
+origin exactly (the folder, its scroll position, the Thread that was open), the same restoration
+`Esc` on an empty field already does, just without the two-stage wait. The field's own ✕ is
+unrelated — it only ever clears the field's text.
 
 There is one list renderer and one set of triage affordances; search is another list, not a second
 application. This is what makes ADR-0016's "triage works on result rows" cheap: no modal to fight,
@@ -48,9 +56,10 @@ Live, debounced. The Local Cache prefilter renders on every keystroke; `POST /se
 after typing stops, from **3 characters** (ADR-0016's floor — below it, nothing renders rather than
 something bad).
 
-The URL is **replaced** while typing and **pushed** on commit (Enter, or blur), so the back button
-walks committed searches rather than eleven half-typed ones. Enter also means "search now, don't
-wait" and dismisses the prefilter dropdown.
+Search has no URL to update (ADR-0017: it deliberately isn't a route), so there is nothing to
+replace or push while typing. Enter means "search now, don't wait" — it skips the debounce — and,
+in the Palette, dismisses the inline hits by opening whatever it targets (the top hit, or, from "See
+all results", the full results view).
 
 ### Leaving, and coming back
 
@@ -63,11 +72,14 @@ wait" and dismisses the prefilter dropdown.
   results still rendered, until cleared. (The scope chip is the exception — see
   [Seeded scope](#seeded-scope).)
 - Opening a result in Split doesn't leave search at all. Selecting a hit straight from the Palette's
-  inline list (rather than "See all results") behaves the same way: it opens that result and closes
-  the Palette, leaving the list pane already showing results underneath.
+  inline list (rather than "See all results") behaves the same way, minus the swap: it opens that
+  result in the reading pane and closes the Palette, leaving the list pane showing exactly what it
+  already did (#100) — the results view stays closed until "See all results" opens it.
 - Closing the Palette without touching the query — clicking its backdrop, or its own Close button —
   leaves whatever was already on screen exactly as it was: the Palette is a layer *over* the current
-  view, not a mode it swapped into.
+  view, not a mode it swapped into. Typing and then closing it this way is no different: the search
+  keeps running in the background (so reopening shows the same hits instantly), but the list pane
+  was never touched to begin with.
 
 ### Phone
 

@@ -158,6 +158,83 @@ describe("Command Palette (#79)", () => {
     expect(document.querySelector(".search-chip-row")).not.toBeNull();
   });
 
+  it("typing never swaps the list pane behind the Palette (#100)", async () => {
+    await seedOneThread();
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-invoice", "acct-1", { subject: "Invoice March" }),
+          matchedMessageId: "t-invoice-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderMail();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "invoice" } });
+    await screen.findByText("Invoice March", { selector: ".command-palette-hit-subject" });
+
+    // Still typing, hits showing inline — the results view (and its
+    // search-only chip row) must never have appeared behind the Palette.
+    expect(document.querySelector(".search-chip-row")).toBeNull();
+
+    // Closing the Palette without "See all results" leaves the origin
+    // exactly as it was.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+    expect(document.querySelector(".search-chip-row")).toBeNull();
+    expect(screen.getAllByText("Origin thread").length).toBeGreaterThan(0);
+  });
+
+  it("Enter opens the top hit in the reading pane without opening the results view (#100)", async () => {
+    await seedOneThread();
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-invoice", "acct-1", { subject: "Invoice March" }),
+          matchedMessageId: "t-invoice-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderMail();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "invoice" } });
+    await screen.findByText("Invoice March", { selector: ".command-palette-hit-subject" });
+
+    // Nothing in the Client's own command set matches "invoice", so the top
+    // hit is already `activeIndex`'s default 0 — Enter opens it directly.
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+    // The results view never opened…
+    expect(document.querySelector(".search-chip-row")).toBeNull();
+    // …but the hit is open in the reading pane, and the origin list is
+    // still what it was (still showing "Origin thread").
+    expect(
+      await screen.findByText("Invoice March", { selector: ".reading-subject" }),
+    ).toBeDefined();
+    expect(screen.getByText("Origin thread")).toBeDefined();
+  });
+
   it("Escape clears Palette text first, then leaves and closes it on the next Escape", async () => {
     await seedOneThread();
     stubFetch();
