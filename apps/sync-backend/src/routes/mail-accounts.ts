@@ -70,7 +70,12 @@ export async function mailAccountRoutes(
     }
     const { emailAddress, imap, smtp, username, password } = body.data;
 
-    const result = await verify({ imap, smtp, username, password });
+    const result = await verify({
+      imap,
+      smtp,
+      username,
+      credential: { kind: "password", password },
+    });
     if (!result.ok) {
       return reply
         .code(result.reason === "credentials_rejected" ? 422 : 502)
@@ -111,7 +116,12 @@ export async function mailAccountRoutes(
 
     const imap = { host: row.imapHost, port: row.imapPort, security: row.imapSecurity };
     const smtp = { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity };
-    const result = await verify({ imap, smtp, username, password });
+    const result = await verify({
+      imap,
+      smtp,
+      username,
+      credential: { kind: "password", password },
+    });
     if (!result.ok) {
       return reply
         .code(result.reason === "credentials_rejected" ? 422 : 502)

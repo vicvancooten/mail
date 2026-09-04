@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveCredentialKey,
+  sealOAuthCredential,
   sealPasswordCredential,
   sealSecret,
+  unsealOAuthAccessToken,
   unsealPasswordCredential,
   unsealSecret,
 } from "./credential-crypto.js";
@@ -54,5 +56,45 @@ describe("sealPasswordCredential / unsealPasswordCredential", () => {
       scope: ["https://mail.google.com/"],
     };
     expect(() => unsealPasswordCredential(oauthCredential, "mail-account-1", key)).toThrow();
+  });
+});
+
+describe("sealOAuthCredential / unsealOAuthAccessToken", () => {
+  it("round-trips the access token — the one XOAUTH2 needs", () => {
+    const credential = sealOAuthCredential(
+      {
+        provider: "google",
+        accessToken: "ya29.the-access-token",
+        refreshToken: "1//the-refresh-token",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        scope: ["https://mail.google.com/"],
+      },
+      "mail-account-1",
+      key,
+    );
+    expect(credential.kind).toBe("oauth");
+    expect(unsealOAuthAccessToken(credential, "mail-account-1", key)).toBe("ya29.the-access-token");
+  });
+
+  it("never stores either token plaintext in the sealed envelope", () => {
+    const credential = sealOAuthCredential(
+      {
+        provider: "microsoft",
+        accessToken: "the-access-token",
+        refreshToken: "the-refresh-token",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        scope: ["offline_access"],
+      },
+      "mail-account-1",
+      key,
+    );
+    const serialized = JSON.stringify(credential);
+    expect(serialized).not.toContain("the-access-token");
+    expect(serialized).not.toContain("the-refresh-token");
+  });
+
+  it("refuses to unseal a password credential as oauth", () => {
+    const passwordCredential = sealPasswordCredential("swordfish", "mail-account-1", key);
+    expect(() => unsealOAuthAccessToken(passwordCredential, "mail-account-1", key)).toThrow();
   });
 });

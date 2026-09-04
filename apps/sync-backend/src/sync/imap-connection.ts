@@ -1,6 +1,6 @@
 import { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
-import { unsealPasswordCredential } from "../mail-accounts/credential-crypto.js";
+import { toImapAuth, unsealMailAccountSecret } from "../mail-accounts/credential-auth.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordNeedsReauthNotification } from "../notifier/record.js";
 
@@ -71,7 +71,7 @@ export async function connectMailAccount(
   account: MailAccountRow,
   { credentialKey, logger = false, qresync = false, autoIdleDelay }: ImapConnectionOptions,
 ): Promise<ImapFlow> {
-  const password = unsealPasswordCredential(account.credential, account.id, credentialKey);
+  const secret = unsealMailAccountSecret(account.credential, account.id, credentialKey);
   const client = new ImapFlow({
     host: account.imapHost,
     port: account.imapPort,
@@ -80,7 +80,7 @@ export async function connectMailAccount(
     // listener needs (docs/dev-setup.md). Same convention as
     // `mail-accounts/verify.ts`.
     secure: account.imapSecurity === "tls",
-    auth: { user: account.username, pass: password },
+    auth: toImapAuth(account.username, secret),
     logger,
     socketTimeout: SOCKET_TIMEOUT_MS,
     qresync,
