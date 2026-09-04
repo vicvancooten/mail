@@ -110,7 +110,7 @@ describe("enqueueMutation", () => {
     expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
   });
 
-  it("never coalesces archive or trash — there is no inverse intent for either (#42)", async () => {
+  it("does not coalesce archive then trash on the same Thread — both leave the Inbox, neither is the other's inverse", async () => {
     await enqueueMutation({ type: "archive", threadId: "t1" }, ACCOUNT);
     await enqueueMutation({ type: "trash", threadId: "t1" }, ACCOUNT);
     await enqueueMutation({ type: "archive", threadId: "t1" }, ACCOUNT);
@@ -118,7 +118,23 @@ describe("enqueueMutation", () => {
     expect(await listQueuedMutations(ACCOUNT)).toHaveLength(3);
   });
 
-  it("never coalesces snooze — there is no un-snooze intent yet (#76)", async () => {
+  it("cancels a still-queued archive when Undo's restoreToInbox is queued before it flushes (#95, ADR-0019)", async () => {
+    await enqueueMutation({ type: "archive", threadId: "t1" }, ACCOUNT);
+    const secondId = await enqueueMutation({ type: "restoreToInbox", threadId: "t1" }, ACCOUNT);
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("cancels a still-queued trash the same way, via the same shared inverse (#95, ADR-0019)", async () => {
+    await enqueueMutation({ type: "trash", threadId: "t1" }, ACCOUNT);
+    const secondId = await enqueueMutation({ type: "restoreToInbox", threadId: "t1" }, ACCOUNT);
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("does not coalesce two same-direction snooze actions", async () => {
     await enqueueMutation(
       { type: "snooze", threadId: "t1", until: "2026-06-02T08:00:00.000Z" },
       ACCOUNT,
@@ -129,6 +145,74 @@ describe("enqueueMutation", () => {
     );
 
     expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
+  });
+
+  it("cancels a still-queued snooze when Undo's unsnooze is queued before it flushes (#95, ADR-0019)", async () => {
+    await enqueueMutation(
+      { type: "snooze", threadId: "t1", until: "2026-06-02T08:00:00.000Z" },
+      ACCOUNT,
+    );
+    const secondId = await enqueueMutation({ type: "unsnooze", threadId: "t1" }, ACCOUNT);
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("does not cancel an unrelated Thread's archive when restoreToInbox targets a different one", async () => {
+    await enqueueMutation({ type: "archive", threadId: "t1" }, ACCOUNT);
+    await enqueueMutation({ type: "restoreToInbox", threadId: "t2" }, ACCOUNT);
+
+    expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
+  });
+
+  it("cancels a still-queued denySender/blockSender when Undo's unblockAndRestore is queued before it flushes (#95, ADR-0019)", async () => {
+    await enqueueMutation(
+      { type: "blockSender", sender: { scope: "address", value: "v@example.test" } },
+      ACCOUNT,
+    );
+    const secondId = await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "V@Example.test" },
+        threadIds: ["t1"],
+      },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("cancels a still-queued denySender the same way (#95, ADR-0019)", async () => {
+    await enqueueMutation(
+      { type: "denySender", sender: { scope: "address", value: "v@example.test" } },
+      ACCOUNT,
+    );
+    const secondId = await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "v@example.test" },
+        threadIds: ["t1"],
+      },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("exempts every Thread unblockAndRestore names, not just one, from eviction (#95)", async () => {
+    const id = await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "v@example.test" },
+        threadIds: ["t1", "t2"],
+      },
+      ACCOUNT,
+    );
+
+    const queued = await listQueuedMutations(ACCOUNT);
+    expect(queued[0]).toMatchObject({ id, referencedThreadIds: ["t1", "t2"] });
   });
 
   it("re-queues after a star/unstar/star sequence, leaving exactly the last action", async () => {

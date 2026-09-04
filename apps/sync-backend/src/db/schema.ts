@@ -943,7 +943,8 @@ export interface BulkTriageAccountOutcomeRow {
  * one row per real IMAP command still owed to the mail server after an
  * Optimistic Action's synchronous ack — `\Seen`/`\Flagged` for
  * `setRead`/`setStarred`, a `MOVE` to the account's Archive/Trash folder for
- * `archive`/`trash`. `sync/mutations.ts` is the only writer;
+ * `archive`/`trash`, and a `MOVE` back to Inbox for `inbox` — Undo's own
+ * real inverse (#95, ADR-0019). `sync/mutations.ts` is the only writer;
  * `sync/protocol-writes.ts#drainProtocolWrites` is the only reader, run
  * periodically against a short-lived connection
  * (`sync/protocol-write-loop.ts`) rather than the resident IDLE session, so
@@ -967,7 +968,7 @@ export const protocolWrites = pgTable(
     messageId: text("message_id")
       .notNull()
       .references(() => messages.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["seen", "flagged", "archive", "trash"] }).notNull(),
+    kind: text("kind", { enum: ["seen", "flagged", "archive", "trash", "inbox"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("protocol_writes_account_idx").on(table.mailAccountId, table.createdAt)],

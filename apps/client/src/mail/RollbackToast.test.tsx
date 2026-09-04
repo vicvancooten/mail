@@ -1,11 +1,15 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import type { ReactElement } from "react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Toaster } from "../components/ui/sonner.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
-import { enqueueMutation, resolveMutationOutcomes } from "../store/mutation-queue.js";
+import {
+  enqueueMutation,
+  listQueuedMutations,
+  resolveMutationOutcomes,
+} from "../store/mutation-queue.js";
 import { RollbackToast } from "./RollbackToast.js";
 
 /** `toast()` only ever renders through a mounted `<Toaster />` (#93) — every case renders one alongside the component under test. */
@@ -132,5 +136,60 @@ describe("RollbackToast", () => {
       expect(screen.getByText("Couldn't move to trash — restored to the list.")).toBeTruthy(),
     );
     expect(screen.queryByText("Couldn't archive — restored to the list.")).toBeNull();
+  });
+
+  it("describes a failed Undo of an archive/trash (restoreToInbox) and of a snooze (unsnooze) (#95)", async () => {
+    renderWithToaster(<RollbackToast autoDismissMs={10_000} />);
+
+    await act(async () => {
+      await rejectOne({ type: "restoreToInbox", threadId: "t1" }, "thread_not_found");
+    });
+    await waitFor(() => expect(screen.getByText("Couldn't restore to the Inbox.")).toBeTruthy());
+
+    await act(async () => {
+      await rejectOne({ type: "unsnooze", threadId: "t2" }, "thread_not_found");
+    });
+    await waitFor(() => expect(screen.getByText("Couldn't unsnooze.")).toBeTruthy());
+  });
+
+  it("describes a failed Undo of a Screener Deny/Block (unblockAndRestore) (#95)", async () => {
+    renderWithToaster(<RollbackToast autoDismissMs={10_000} />);
+
+    await act(async () => {
+      await rejectOne(
+        {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "stranger@example.test" },
+          threadIds: ["t1"],
+        },
+        "server_error",
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Couldn't undo — they're still blocked and the mail is still in Trash."),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("re-enqueues the exact same intent on Retry (#95, ADR-0011's own promise)", async () => {
+    renderWithToaster(<RollbackToast autoDismissMs={10_000} />);
+
+    await act(async () => {
+      await rejectOne({ type: "archive", threadId: "t1" }, "thread_not_found");
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't archive — restored to the list.")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByText("Retry"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "archive", threadId: "t1" },
+      ]);
+    });
   });
 });

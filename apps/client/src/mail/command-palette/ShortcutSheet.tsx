@@ -6,10 +6,11 @@ import { buildCommands, COMMAND_SECTIONS } from "./commands.js";
 /** Every `Triage` method as a no-op — the Shortcut Sheet only ever reads
  * `buildCommands`' `label`/`section`/`shortcut`, never calls `run`, so this
  * exists purely to satisfy `CommandContext`'s shape with no live Thread. */
+const NOOP_UNDO = () => {};
 const NOOP_TRIAGE: Triage = {
-  archive: () => {},
-  trash: () => {},
-  snooze: () => {},
+  archive: () => NOOP_UNDO,
+  trash: () => NOOP_UNDO,
+  snooze: () => NOOP_UNDO,
   toggleStar: () => {},
   toggleRead: () => {},
   togglePin: () => {},

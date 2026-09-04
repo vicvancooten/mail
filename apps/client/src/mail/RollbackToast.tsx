@@ -1,7 +1,7 @@
 import type { MutationIntent } from "@mail/shared";
 import { useEffect } from "react";
-import { toast } from "sonner";
-import { subscribeMutationRejections } from "../store/index.js";
+import { enqueueMutation, subscribeMutationRejections } from "../store/index.js";
+import { raiseActionToast } from "./action-toast.js";
 
 /**
  * The "visible rollback on failure" acceptance box (#44) — swipe's own
@@ -13,12 +13,21 @@ import { subscribeMutationRejections } from "../store/index.js";
  * (its own doc comment) landing: one line, auto-dismissing, naming what
  * failed rather than just that something did.
  *
- * Raised through Sonner (#93) — mounted once as `<Toaster />` in
- * `RootLayout`, so a rollback is visible from any route, not just Mail.
- * Renders no DOM of its own; a fixed `id` means a second rejection arriving
- * before the first toast dismisses replaces it in place rather than
- * stacking, the same "one message at a time" posture the hand-rolled
- * version had.
+ * Raised through the same `action-toast.ts` call every other Triage toast
+ * uses (#95, `undo-toast.ts`/`GroupBulkToast.tsx`) — mounted once as
+ * `<Toaster />` in `RootLayout`, so a rollback is visible from any route,
+ * not just Mail. Renders no DOM of its own; a fixed `id` means a second
+ * rejection arriving before the first toast dismisses replaces it in place
+ * rather than stacking, the same "one message at a time" posture the
+ * hand-rolled version had.
+ *
+ * Gains the Retry ADR-0011 promised (#95): "a rollback as the row visibly
+ * reverting plus a toast naming the action, with a retry" — clicking it
+ * re-enqueues the exact same intent that was rejected, on the same Mail
+ * Account. A distinct surface from `undo-toast.ts`'s Undo toasts on
+ * purpose (ADR-0019's own "never `revert`/`rollback`, which is the Sync
+ * Backend rejecting an action, not the User reversing one") — this is the
+ * Sync Backend saying no, not the User changing their mind.
  *
  * Mounted once in `MailSection` — not per-row — since a rejection can
  * arrive well after the row that triggered it has scrolled out of view or
@@ -36,6 +45,10 @@ function describeIntent(intent: MutationIntent): string | null {
       return "Couldn't move to trash — restored to the list.";
     case "snooze":
       return "Couldn't snooze — restored to the list.";
+    case "restoreToInbox":
+      return "Couldn't restore to the Inbox.";
+    case "unsnooze":
+      return "Couldn't unsnooze.";
     case "setStarred":
       return intent.starred ? "Couldn't star — undone." : "Couldn't unstar — undone.";
     case "setRead":
@@ -70,6 +83,8 @@ function describeIntent(intent: MutationIntent): string | null {
       return "Couldn't block — the sender is still waiting in the Screener.";
     case "unblockSender":
       return "Couldn't unblock — they are still blocked.";
+    case "unblockAndRestore":
+      return "Couldn't undo — they're still blocked and the mail is still in Trash.";
   }
 }
 
@@ -85,7 +100,17 @@ export function RollbackToast({
       // clear a toast a real rollback is still showing.
       const described = describeIntent(rejection.intent);
       if (described) {
-        toast(described, { id: TOAST_ID, duration: autoDismissMs });
+        raiseActionToast({
+          id: TOAST_ID,
+          message: described,
+          durationMs: autoDismissMs,
+          action: {
+            label: "Retry",
+            onClick: () => {
+              void enqueueMutation(rejection.intent, rejection.mailAccountId);
+            },
+          },
+        });
       }
     });
   }, [autoDismissMs]);

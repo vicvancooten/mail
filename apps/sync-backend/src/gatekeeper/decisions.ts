@@ -5,6 +5,7 @@ import type { Db } from "../db/client.js";
 import { folders, messages, threads } from "../db/schema.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
+import { restoreThreadsToInbox } from "../sync/restore-to-inbox.js";
 import { BarredVerdictDomainError, clearVerdict, setVerdict } from "./verdicts.js";
 
 /**
@@ -104,6 +105,36 @@ export async function unblockSender(
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
     await clearVerdict(db, mailAccountId, sender);
+  });
+}
+
+/**
+ * Undo's own real inverse of Deny *and* Block (#95, ADR-0019) — never a
+ * queue cancellation, so this reverses the decision whether or not
+ * `denySender`/`blockSender` has already flushed. Clears the Verdict (a
+ * no-op for Deny, which never set one) and restores exactly the Threads the
+ * Client named — captured at decision time
+ * (`ScreenerSenderGroup.threadIds`), since by the time Undo fires this
+ * sender may be holding a fresh, unrelated stranger's mail again and
+ * re-deriving "what did this decision trash" from the sender alone would
+ * risk sweeping that up too.
+ *
+ * Restores to the Inbox, never back into the Screener's hold — the same
+ * "release, don't re-ask" effect an Approve has, reusing its own
+ * `restoreThreadsToInbox` step. A Thread already purged from Trash by the
+ * mail server (ADR-0008: "most servers auto-purge Trash after ~30 days") is
+ * a harmless no-op there — the Verdict still clears, which is all Undo can
+ * promise past that point.
+ */
+export async function unblockAndRestore(
+  db: Db,
+  mailAccountId: string,
+  sender: GatekeeperSender,
+  threadIds: string[],
+): Promise<DecisionResult> {
+  return withVerdictWrite(async () => {
+    await clearVerdict(db, mailAccountId, sender);
+    await restoreThreadsToInbox(db, mailAccountId, threadIds);
   });
 }
 
