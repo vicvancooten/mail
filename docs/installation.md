@@ -77,7 +77,7 @@ Optional, with sane defaults:
 | `MAIL_VERSION` | `edge` | Which GHCR image tag `compose.yaml` pulls. See [Upgrading](#upgrading). |
 | `POSTGRES_USER` / `POSTGRES_DB` | `mail` | Postgres user/database name. |
 | `ATTACHMENT_BUDGET_BYTES` | `26214400` (25MB) | Per-instance attachment size budget, encoded bytes. |
-| `MAIL_VAPID_PUBLIC_KEY` / `MAIL_VAPID_PRIVATE_KEY` | unset | Web Push keypair. Unset simply means no push notifications — everything else works. See [Enabling Web Push](#enabling-web-push-optional). |
+| `MAIL_VAPID_PUBLIC_KEY` / `MAIL_VAPID_PRIVATE_KEY` | unset | Web Push keypair. Leave unset: the instance mints and keeps its own. Set both only to own the keypair yourself. See [Web Push](#web-push). |
 | `MAIL_VAPID_CONTACT` | `mailto:admin@localhost` | Contact URI Web Push's protocol requires alongside the VAPID keypair — set it to a real `mailto:` if you enable Web Push. |
 
 ## First run: claiming the instance
@@ -118,17 +118,35 @@ If the proxy runs on a different host than `app`, set `MAIL_BIND` to an address 
 (e.g. `MAIL_BIND=0.0.0.0:3000`, or a specific LAN address) — traffic between the two hosts is then
 plaintext HTTP, so keep that hop on a network you trust.
 
-## Enabling Web Push (optional)
+## Web Push
 
-Push notifications need a VAPID keypair, generated once with the operator CLI baked into the image:
+Nothing to do: the instance mints its own VAPID keypair on its first boot and keeps it in the
+database, sealed under `MAIL_CREDENTIAL_KEY` like every other secret it holds
+([ADR-0015](adr/0015-realtime-is-sse-hints-plus-web-push.md), as amended). **Settings → Instance**
+reports it as configured, and each User turns notifications on per device from
+**Settings → Notifications**.
+
+The keypair is never rotated on its own — every existing push subscription is bound to the key it
+was created under, so changing it silently stops notifications until every device re-enables them.
+Two things follow:
+
+- **Back up the database, not just `.env`.** The keypair travels with `pg_dump`, alongside the
+  subscriptions it signs; a restore brings both back together.
+- **Never change `MAIL_CREDENTIAL_KEY` on a running instance.** The keypair is sealed under it, the
+  same as your Mail Account passwords. If it has already been changed, Settings → Instance offers a
+  **Generate keys** button — pressing it mints a fresh keypair, and every device then has to enable
+  notifications again.
+
+To hold the keypair in your own environment instead, generate one with the operator CLI baked into
+the image:
 
 ```sh
 docker compose run --rm app mail generate-vapid-keys
 ```
 
 Copy the two printed lines into `.env` as `MAIL_VAPID_PUBLIC_KEY` / `MAIL_VAPID_PRIVATE_KEY`, then
-`docker compose up -d` to pick them up. The pair is generated once and reused across restarts —
-regenerating it invalidates every browser's existing push subscription.
+`docker compose up -d` to pick them up. Those win over anything stored, so keep them safe: losing
+them while the database survives orphans every existing subscription.
 
 ## Enabling Gmail and Outlook sign-in (optional)
 

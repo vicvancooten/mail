@@ -28,6 +28,7 @@ import {
   threads,
   totpCredentials,
   users,
+  vapidKeys,
   webauthnChallenges,
 } from "../db/schema.js";
 
@@ -65,6 +66,7 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  * keeps the intent readable and survives a future FK losing its cascade.
  */
 export async function resetTestDb(db: Db): Promise<void> {
+  await db.delete(vapidKeys);
   await db.delete(notifierOutbox);
   await db.delete(pushSubscriptions);
   await db.delete(bulkTriageBatches);

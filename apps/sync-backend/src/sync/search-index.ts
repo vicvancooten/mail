@@ -1,4 +1,4 @@
-import { asc, inArray, ne, sql } from "drizzle-orm";
+import { asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import {
   type MessageAddress,
@@ -195,23 +195,52 @@ export async function reindexMessages(db: Db, messageIds: string[]): Promise<voi
 
 export interface SearchIndexRebuildBatchResult {
   processed: number;
-  /** True once nothing anywhere was left at a stale `indexVersion` — the sweep just went idle. */
+  /** True once every Message has a row and no row is left at a stale `indexVersion` — the sweep just went idle. */
   complete: boolean;
 }
 
 /**
  * One batch of the background rebuild sweep (#50, ADR-0016's "the index is
- * re-buildable without touching the mail table"): the oldest-version rows
- * across every Mail Account, recomputed at the current version. Never runs
- * inside `db/migrate.ts` — an analyzer bump is a code change, not a schema
- * change, and rebuilding 250k rows synchronously at boot is exactly the
- * "startup stall mid-dogfood" ADR-0009 rules out for the generated-column
+ * re-buildable without touching the mail table"): every Message with no
+ * `message_search` row at all, then the oldest-version rows across every
+ * Mail Account, recomputed at the current version. Never runs inside
+ * `db/migrate.ts` — an analyzer bump is a code change, not a schema change,
+ * and rebuilding 250k rows synchronously at boot is exactly the "startup
+ * stall mid-dogfood" ADR-0009 rules out for the generated-column
  * alternative this table already avoids.
+ *
+ * The missing-row pass goes first, and it is what makes the claim above
+ * actually true. `reindexMessages` runs at ingest (`sync/ingest.ts`) and when
+ * a body lands (`sync/bodies.ts`), so a Message that was already stored
+ * before this table existed (migration `0015`) — or whose ingest-time index
+ * write was lost to a crash between the two statements — has no row for the
+ * version sweep to find stale, and every such Message was invisible to
+ * `POST /search` permanently while still sitting in the Client's own list.
+ * That reads, from the Client, as "results appear and then vanish": the
+ * Local Cache prefilter finds the Thread, and the authoritative server
+ * answer that replaces it wholesale (ADR-0016) honestly has nothing.
+ * Anti-joining `messages` against the index is the only pass that can heal
+ * it, and it costs one bounded anti-join over two primary keys per tick.
  */
 export async function runSearchIndexRebuildBatch(
   db: Db,
   batchSize = DEFAULT_REBUILD_BATCH_SIZE,
 ): Promise<SearchIndexRebuildBatchResult> {
+  const missing = await db
+    .select({ messageId: messages.id })
+    .from(messages)
+    .leftJoin(messageSearch, eq(messageSearch.messageId, messages.id))
+    .where(isNull(messageSearch.messageId))
+    .limit(batchSize);
+
+  if (missing.length > 0) {
+    await reindexMessages(
+      db,
+      missing.map((row) => row.messageId),
+    );
+    return { processed: missing.length, complete: false };
+  }
+
   const pending = await db
     .select({ messageId: messageSearch.messageId })
     .from(messageSearch)

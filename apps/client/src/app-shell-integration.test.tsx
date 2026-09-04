@@ -44,7 +44,11 @@ function authResponses(role: "owner" | "member" = "owner"): Record<string, () =>
       jsonResponse({
         version: "0.0.0",
         imageTag: "test-tag",
-        webPush: { configured: false, generateCommand: "mail generate-vapid-keys" },
+        webPush: {
+          configured: false,
+          generateCommand: "mail generate-vapid-keys",
+          canGenerate: true,
+        },
         systemMailer: { configured: false },
         publicUrl: { value: "http://localhost:3000", isSecureContext: true },
         // Provider Health (#115) — empty here; `InstancePage.test.tsx` and

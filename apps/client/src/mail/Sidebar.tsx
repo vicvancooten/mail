@@ -264,7 +264,25 @@ export function Sidebar(props: SidebarProps) {
     // expanded), so the rail needs a provider in reach wherever it mounts,
     // including a test that renders `MailSection` on its own.
     <TooltipProvider>
-      <SidebarProvider open={!collapsed} onOpenChange={(open) => setCollapsed(!open)}>
+      {/* `display: contents` is load-bearing. shadcn's `SidebarProvider`
+          renders a wrapper carrying `flex min-h-svh w-full` — an *app-shell*
+          box, meant to contain a rail and the page beside it. Here the
+          provider is used for its context alone (collapse state, the phone
+          sheet): the rail below is one flex item of `.mail-frame`, with
+          `.mail-body` as its sibling. Left as a box, that wrapper claims the
+          frame's entire width, `.mail-body` computes to `0px`, and every
+          Mail view renders off the right edge of the card — the whole App
+          reads as blank while this rail beside it looks perfect (#93's
+          regression). An inline style rather than a class in `mail.css`
+          deliberately: it beats Tailwind's own `flex`/`w-full` utilities
+          without depending on cascade layers or bundle order, and it is the
+          one form of this fix a jsdom test can actually assert, since jsdom
+          computes no layout at all. */}
+      <SidebarProvider
+        style={{ display: "contents" }}
+        open={!collapsed}
+        onOpenChange={(open) => setCollapsed(!open)}
+      >
         <SidebarBody {...props} />
       </SidebarProvider>
     </TooltipProvider>

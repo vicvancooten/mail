@@ -1273,6 +1273,39 @@ export type AttachmentBlobRow = typeof attachmentBlobs.$inferSelect;
  * A device re-registering the same endpoint (a reload, a second tab open on
  * the same install) upserts rather than duplicating.
  */
+/**
+ * The instance's Web Push VAPID keypair (#53, ADR-0015 as amended): exactly
+ * one row, `id: "singleton"`, minted by the Sync Backend itself the first
+ * time it boots without `MAIL_VAPID_PUBLIC_KEY`/`MAIL_VAPID_PRIVATE_KEY` in
+ * its environment — the "operator runs a CLI command and pastes two values
+ * into `.env`" step is now an optional override rather than the only way in.
+ *
+ * Living here rather than in the environment is what makes the keypair
+ * *co-located with the subscriptions it signs* (`push_subscriptions`, below):
+ * a `pg_dump`/restore moves both together, where an env var is the half that
+ * can go missing on its own and silently orphan every subscription. Nothing
+ * ever replaces a working row — a fresh keypair invalidates every existing
+ * subscription, so generation only happens when there is none (or when the
+ * stored one can no longer be unsealed, which is the one case where it is
+ * already unusable and re-minting is the repair).
+ *
+ * `privateKey` is sealed exactly like a Mail Account's password (ADR-0003,
+ * `mail-accounts/credential-crypto.ts`), with this row's own id as the
+ * associated data: a stolen database alone cannot push to anyone's devices,
+ * which is the same bar the rest of this schema holds.
+ */
+export const vapidKeys = pgTable("vapid_keys", {
+  /** Always `VAPID_KEYS_ROW_ID` — a one-row table, so the id is a constant rather than a minted value. */
+  id: text("id").primaryKey(),
+  publicKey: text("public_key").notNull(),
+  privateKey: jsonb("private_key").$type<SealedSecret>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type VapidKeyRow = typeof vapidKeys.$inferSelect;
+
+/** The `vapid_keys` primary key, since there is only ever one row. */
+export const VAPID_KEYS_ROW_ID = "singleton";
+
 export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {

@@ -218,6 +218,13 @@
       "when": 1788549439676,
       "tag": "0030_late_lily_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788552487590,
+      "tag": "0031_safe_tigra",
+      "breakpoints": true
     }
   ]
 }

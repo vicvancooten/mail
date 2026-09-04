@@ -1,4 +1,5 @@
 import {
+  generateVapidKeysResponseSchema,
   instanceInfoResponseSchema,
   PROVIDERS,
   type Provider,
@@ -18,6 +19,7 @@ import {
 import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import { markNeedsReauth } from "../mail-accounts/store.js";
 import { recordNeedsReauthNotification } from "../notifier/record.js";
+import type { VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
   countMailAccountsForProvider,
   countNeedsReauthMailAccountsForProvider,
@@ -34,8 +36,12 @@ export interface InstanceRoutesOptions {
   publicUrl: string;
   /** `env.MAIL_CREDENTIAL_KEY` (ADR-0003) — seals/unseals a Provider Registration's client secret, same as a Mail Account's own credential. */
   mailCredentialKey: string;
-  /** `env.MAIL_VAPID_PUBLIC_KEY` — `null` when the operator has never run `generate-vapid-keys`. */
-  vapidPublicKey: string | null;
+  /**
+   * Where the Web Push keypair lives (#53, ADR-0015 as amended) — the same
+   * store `routes/push.ts` and the Notifier read, so "configured" here and
+   * "the Client is offered notifications" can never disagree.
+   */
+  vapidKeys: VapidKeyStore;
   /** `env.MAIL_VERSION` (`compose.yaml`'s `${MAIL_VERSION:-edge}`), or `"dev"` outside Docker. */
   imageTag: string;
 }
@@ -60,15 +66,19 @@ function providerStatus(
 
 /**
  * The Owner-only Instance page's routes (#104, #115): the four running-
- * instance facts from #104, plus ADR-0021's Provider Health and Provider
- * Registration CRUD under the same `/instance` prefix (poc-scope.md: no new
- * top-level route prefix). Every one of these is gated on `requireOwner`
- * rather than `requireAuth` — CONTEXT.md's "the one thing a Member cannot
- * fix" applies to reading Provider Health exactly as it does to changing it.
+ * instance facts from #104, the one repair the page offers — minting the Web
+ * Push keypair (ADR-0015 as amended) — plus ADR-0021's Provider Health and
+ * Provider Registration CRUD, all under the same `/instance` prefix
+ * (poc-scope.md: no new top-level route prefix). Every one of these is gated
+ * on `requireOwner` rather than `requireAuth` — CONTEXT.md's "the one thing a
+ * Member cannot fix" applies to reading Provider Health exactly as it does to
+ * changing it, and a Member gets no nav entry to this page at all
+ * (`SettingsLayout.tsx`) — these routes are the backstop if one navigates
+ * here directly.
  */
 export async function instanceRoutes(
   app: FastifyInstance,
-  { db, publicUrl, mailCredentialKey, vapidPublicKey, imageTag }: InstanceRoutesOptions,
+  { db, publicUrl, mailCredentialKey, vapidKeys, imageTag }: InstanceRoutesOptions,
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
 
@@ -96,8 +106,9 @@ export async function instanceRoutes(
       version: getAppVersion(),
       imageTag,
       webPush: {
-        configured: vapidPublicKey !== null,
+        configured: (await vapidKeys.readPublicKey()) !== null,
         generateCommand: GENERATE_VAPID_KEYS_COMMAND,
+        canGenerate: vapidKeys.canGenerate,
       },
       // System Mailer (CONTEXT.md) has no implementation yet — always
       // unconfigured until it exists to configure.
@@ -107,6 +118,46 @@ export async function instanceRoutes(
         isSecureContext: isSecureContext(publicUrl),
       },
       providers,
+    });
+  });
+
+  /**
+   * "Generate keys" on the Instance page (ADR-0015 as amended). Idempotent
+   * in the only direction that matters: a keypair already in force is
+   * answered with itself rather than replaced, because every live
+   * subscription is bound to the key it was created under and re-minting
+   * would silently kill all of them — the exact failure the original
+   * decision was written to avoid.
+   *
+   * The one re-mint (`repair`, `replaced: true` in the response) is a stored
+   * keypair this instance can no longer unseal, which cannot sign anything
+   * as it stands; the Client says devices will need to re-enable
+   * notifications. `409` is an env-pinned instance, where the environment
+   * would override whatever this wrote on the next boot.
+   */
+  app.post("/instance/vapid-keys", { preHandler: app.requireOwner }, async (_request, reply) => {
+    if (!vapidKeys.canGenerate) {
+      return reply.code(409).send({ error: "env_managed" });
+    }
+    const existing = await vapidKeys.ensure();
+    if (existing) {
+      return generateVapidKeysResponseSchema.parse({
+        publicKey: existing.publicKey,
+        replaced: false,
+      });
+    }
+    const repaired = await vapidKeys.repair();
+    if (!repaired) {
+      // `ensure` found nothing and `repair` refused, which only happens if a
+      // readable keypair appeared between the two — the caller's request is
+      // already satisfied, so re-read rather than reporting a failure.
+      const publicKey = await vapidKeys.readPublicKey();
+      if (!publicKey) return reply.code(500).send({ error: "generation_failed" });
+      return generateVapidKeysResponseSchema.parse({ publicKey, replaced: false });
+    }
+    return generateVapidKeysResponseSchema.parse({
+      publicKey: repaired.publicKey,
+      replaced: true,
     });
   });
 

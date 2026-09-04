@@ -127,6 +127,41 @@ describe("rewriteRemoteImageReferences", () => {
     expect(rewriteRemoteImageReferences(html, { messageId: "msg-1", key: KEY })).toBe(html);
   });
 
+  it("signs and fetches the entity-decoded url, not the escaped one the sanitizer emitted", () => {
+    // `sync/sanitize.ts` serializes attribute values, so a two-parameter
+    // tracking URL reaches this function as `?id=42&amp;u=abc`. Signing that
+    // verbatim asked the upstream for a parameter literally named `amp;u` —
+    // every remote image with more than one query parameter failed to load.
+    const out = rewriteRemoteImageReferences(
+      `<img src="https://sender.example/t.gif?id=42&amp;u=abc">`,
+      { messageId: "msg-1", key: KEY },
+    );
+    const proxied = new URL(
+      (out.match(/src="([^"]+)"/)?.[1] ?? "").replaceAll("&amp;", "&"),
+      "http://localhost",
+    );
+    expect(proxied.searchParams.get("url")).toBe("https://sender.example/t.gif?id=42&u=abc");
+    // And it is still the url that was signed, so the proxy accepts it.
+    expect(
+      verifyImageProxySignature(
+        KEY,
+        "msg-1",
+        proxied.searchParams.get("url") as string,
+        proxied.searchParams.get("sig") as string,
+        Number(proxied.searchParams.get("exp")),
+      ),
+    ).toBe(true);
+  });
+
+  it("entity-decodes a url() reference too", () => {
+    const out = rewriteRemoteImageReferences(
+      `<div style="background:url('https://sender.example/bg.png?a=1&amp;b=2')">x</div>`,
+      { messageId: "msg-1", key: KEY },
+    );
+    const proxied = new URL(out.match(/url\('([^']+)'\)/)?.[1] as string, "http://localhost");
+    expect(proxied.searchParams.get("url")).toBe("https://sender.example/bg.png?a=1&b=2");
+  });
+
   it("mints a different signature per message id for the same url", () => {
     const a = rewriteRemoteImageReferences(`<img src="https://sender.example/t.gif">`, {
       messageId: "msg-1",
@@ -260,6 +295,31 @@ describe("fetchOnce (streaming mechanics, address validation bypassed by constru
     const ok = result as ProxiedImage;
     expect(ok.contentType).toBe("image/png");
     expect([...ok.body]).toEqual([1, 2, 3, 4]);
+  });
+
+  it("connects through a hostname, honouring the `{ all: true }` lookup contract", async () => {
+    // Every other case here targets `127.0.0.1` — an IP literal, which Node
+    // connects to *without* ever calling the `lookup` option, so none of
+    // them exercised the pinning shim at all. Production always has a real
+    // hostname, `autoSelectFamily` is on by default (Node 22), and `net`
+    // then calls `lookup` with `{ all: true }` and expects an array back:
+    // answering with the three-argument form left it holding
+    // `addresses === undefined` and every single remote image 502'd on
+    // `Invalid IP address: undefined`. A hostname that resolves nowhere is
+    // deliberate — if the shim is ignored, this cannot accidentally pass by
+    // reaching the server some other way.
+    const port = await listen((_req, res) => {
+      res.setHeader("content-type", "image/gif");
+      res.end(Buffer.from([7, 7]));
+    });
+
+    const result = await fetchOnce(new URL(`http://images.invalid:${port}/pixel.gif`), LOOPBACK, {
+      maxBytes: 1_000,
+      timeoutMs: 1_000,
+    });
+
+    expect(result.kind).toBe("ok");
+    expect([...(result as ProxiedImage).body]).toEqual([7, 7]);
   });
 
   it("reports a redirect instead of following it", async () => {

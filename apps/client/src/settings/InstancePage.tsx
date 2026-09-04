@@ -1,6 +1,6 @@
 import type { InstanceInfoResponse } from "@mail/shared";
 import { useCallback, useEffect, useState } from "react";
-import { fetchInstanceInfo } from "../api/instance.js";
+import { fetchInstanceInfo, generateVapidKeys } from "../api/instance.js";
 import { ProviderRegistrationCard } from "./ProviderRegistrationCard.js";
 
 /**
@@ -22,6 +22,27 @@ import { ProviderRegistrationCard } from "./ProviderRegistrationCard.js";
 export function InstancePage() {
   const [info, setInfo] = useState<InstanceInfoResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  // The Web Push keypair's own generate action (ADR-0015 as amended) — the
+  // one thing this page *does* rather than states, so it carries its own
+  // in-flight/failed state rather than reloading the whole page's facts.
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(false);
+  const [replacedKeypair, setReplacedKeypair] = useState(false);
+
+  function onGenerateVapidKeys() {
+    setGenerating(true);
+    setGenerateError(false);
+    void generateVapidKeys()
+      .then((result) => {
+        setReplacedKeypair(result.replaced);
+        // Restate the fact from the same source the page loaded it from,
+        // rather than patching `configured` locally and trusting that the
+        // write landed the way the Client assumed.
+        return fetchInstanceInfo().then(setInfo);
+      })
+      .catch(() => setGenerateError(true))
+      .finally(() => setGenerating(false));
+  }
 
   const reload = useCallback(() => {
     return fetchInstanceInfo()
@@ -56,8 +77,35 @@ export function InstancePage() {
             <span className="instance-fact-label">Web Push</span>
             <span>
               {info.webPush.configured ? (
-                "Configured"
+                <>
+                  Configured
+                  {replacedKeypair && (
+                    <> — with a new keypair, so every device has to enable notifications again.</>
+                  )}
+                </>
+              ) : info.webPush.canGenerate ? (
+                // The instance owns the keypair, so the fix is a press, not a
+                // shell (ADR-0015 as amended). Reachable at all only on an
+                // instance whose stored keypair can't be opened — an ordinary
+                // one mints it at first boot and never shows this.
+                <>
+                  Not configured
+                  <button
+                    type="button"
+                    className="instance-fact-action"
+                    onClick={onGenerateVapidKeys}
+                    disabled={generating}
+                  >
+                    {generating ? "Generating…" : "Generate keys"}
+                  </button>
+                  {generateError && (
+                    <span role="alert"> Couldn't generate a keypair — check the server logs.</span>
+                  )}
+                </>
               ) : (
+                // Env-pinned: a button here would write a keypair the
+                // environment overrides on the next boot, so the command
+                // stays the honest answer.
                 <>
                   Not configured — generate keys with <code>{info.webPush.generateCommand}</code>
                 </>

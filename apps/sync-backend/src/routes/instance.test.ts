@@ -8,6 +8,7 @@ import type { Db } from "../db/client.js";
 import { mailAccounts, notifierOutbox, users } from "../db/schema.js";
 import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
+import { createVapidKeyStore, type VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
   recordProviderRefreshOutcome,
   upsertProviderRegistration,
@@ -38,14 +39,23 @@ afterAll(async () => {
 });
 
 function buildTestApp(
-  options: { vapidPublicKey?: string | null; publicUrl?: string; imageTag?: string } = {},
+  options: { vapidKeys?: VapidKeyStore; publicUrl?: string; imageTag?: string } = {},
 ) {
   return buildApp({
     db,
     publicUrl: options.publicUrl ?? PUBLIC_URL,
     mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
-    vapidPublicKey: options.vapidPublicKey ?? null,
+    vapidKeys: options.vapidKeys,
     imageTag: options.imageTag ?? "test-tag",
+  });
+}
+
+/** The real store, over this test's own database — what `main.ts` wires in. */
+function realVapidKeys(overrides: { envKeypair?: { publicKey: string; privateKey: string } } = {}) {
+  return createVapidKeyStore(db, {
+    mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
+    envKeypair: overrides.envKeypair ?? null,
+    generate: () => ({ publicKey: "generated-public", privateKey: "generated-private" }),
   });
 }
 
@@ -118,7 +128,7 @@ describe("GET /instance/health", () => {
   });
 
   it("reports Web Push unconfigured with the exact generate command, and System Mailer unconfigured", async () => {
-    const app = buildTestApp({ vapidPublicKey: null, imageTag: "sha-abc123" });
+    const app = buildTestApp({ imageTag: "sha-abc123" });
     const cookie = await createUserWithCookie("owner");
     const response = await app.inject({
       method: "GET",
@@ -134,7 +144,11 @@ describe("GET /instance/health", () => {
   });
 
   it("reports Web Push configured when a VAPID public key is set", async () => {
-    const app = buildTestApp({ vapidPublicKey: "test-key" });
+    const app = buildTestApp({
+      vapidKeys: realVapidKeys({
+        envKeypair: { publicKey: "test-key", privateKey: "test-private" },
+      }),
+    });
     const cookie = await createUserWithCookie("owner");
     const response = await app.inject({
       method: "GET",
@@ -142,6 +156,36 @@ describe("GET /instance/health", () => {
       headers: { cookie },
     });
     expect(response.json()).toMatchObject({ webPush: { configured: true } });
+  });
+
+  it("says it can generate the keypair itself when the environment doesn't pin one", async () => {
+    const app = buildTestApp({ vapidKeys: realVapidKeys() });
+    const cookie = await createUserWithCookie("owner");
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    expect(response.json()).toMatchObject({
+      webPush: { configured: false, canGenerate: true },
+    });
+  });
+
+  it("says it cannot generate on an env-pinned instance, where a button would be overridden on the next boot", async () => {
+    const app = buildTestApp({
+      vapidKeys: realVapidKeys({
+        envKeypair: { publicKey: "env-public", privateKey: "env-private" },
+      }),
+    });
+    const cookie = await createUserWithCookie("owner");
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    expect(response.json()).toMatchObject({
+      webPush: { configured: true, canGenerate: false },
+    });
   });
 
   it("flags a non-localhost http:// PUBLIC_URL as not a secure context", async () => {
@@ -495,5 +539,75 @@ describe("DELETE /instance/providers/:provider", () => {
         expect.objectContaining({ provider: "google", status: "not_registered" }),
       ]),
     );
+  });
+});
+
+describe("POST /instance/vapid-keys", () => {
+  it("mints the keypair and reports it, so Web Push works without a shell", async () => {
+    const app = buildTestApp({ vapidKeys: realVapidKeys() });
+    const cookie = await createUserWithCookie("owner");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/instance/vapid-keys",
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ publicKey: "generated-public", replaced: false });
+
+    // And the Client's own read of it agrees immediately — no restart.
+    const config = await app.inject({ method: "GET", url: "/push/config", headers: { cookie } });
+    expect(config.json()).toEqual({ vapidPublicKey: "generated-public" });
+  });
+
+  it("is idempotent: a second press answers with the same keypair rather than invalidating every subscription", async () => {
+    const app = buildTestApp({ vapidKeys: realVapidKeys() });
+    const cookie = await createUserWithCookie("owner");
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/instance/vapid-keys",
+      headers: { cookie },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/instance/vapid-keys",
+      headers: { cookie },
+    });
+
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual(first.json());
+  });
+
+  it("refuses on an env-pinned instance, which would override whatever it wrote", async () => {
+    const app = buildTestApp({
+      vapidKeys: realVapidKeys({
+        envKeypair: { publicKey: "env-public", privateKey: "env-private" },
+      }),
+    });
+    const cookie = await createUserWithCookie("owner");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/instance/vapid-keys",
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "env_managed" });
+  });
+
+  it("is Owner-only, like every other fact on this page", async () => {
+    const app = buildTestApp({ vapidKeys: realVapidKeys() });
+    const cookie = await createUserWithCookie("member");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/instance/vapid-keys",
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(403);
   });
 });
