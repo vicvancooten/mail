@@ -10,6 +10,14 @@
  * a full quota, a disabled setting), and a lost preference costs nothing
  * more than falling back to the default — never worth surfacing as an
  * error on a triage surface that is silent when healthy.
+ *
+ * View mode, list density and sidebar-collapsed are reactive (#99): each
+ * gets a `use*` hook built on `useSyncExternalStore`, the same shape
+ * `theme/device-theme.ts#useAppearance` already established — a write from
+ * `mail/TopBar.tsx`/`Sidebar.tsx` and one from Settings' "This device" page
+ * reach every mounted subscriber the same instant, so the two surfaces can
+ * never drift out of sync (the reason this ticket exists: `SettingsSection`
+ * used to have no reactive subscription to these at all).
  */
 
 import { useCallback, useSyncExternalStore } from "react";
@@ -47,8 +55,23 @@ export function readViewMode(): ViewMode {
   return stored === "split" || stored === "list" ? stored : DEFAULT_VIEW_MODE;
 }
 
+const viewModeListeners = new Set<() => void>();
+
 export function writeViewMode(mode: ViewMode): void {
   writeStorage(VIEW_MODE_KEY, mode);
+  for (const listener of viewModeListeners) listener();
+}
+
+function subscribeViewMode(listener: () => void): () => void {
+  viewModeListeners.add(listener);
+  return () => viewModeListeners.delete(listener);
+}
+
+/** Reactive pair for View mode (Split/List) — read by `mail/MailSection.tsx`, written from there and from `settings/ThisDeviceSection.tsx`; both stay in sync. */
+export function useViewMode(): [ViewMode, (mode: ViewMode) => void] {
+  const mode = useSyncExternalStore(subscribeViewMode, readViewMode, () => DEFAULT_VIEW_MODE);
+  const setMode = useCallback((next: ViewMode) => writeViewMode(next), []);
+  return [mode, setMode];
 }
 
 export function readListDensity(): ListDensity {
@@ -56,8 +79,64 @@ export function readListDensity(): ListDensity {
   return stored === "comfortable" || stored === "compact" ? stored : DEFAULT_LIST_DENSITY;
 }
 
+const listDensityListeners = new Set<() => void>();
+
 export function writeListDensity(density: ListDensity): void {
   writeStorage(LIST_DENSITY_KEY, density);
+  for (const listener of listDensityListeners) listener();
+}
+
+function subscribeListDensity(listener: () => void): () => void {
+  listDensityListeners.add(listener);
+  return () => listDensityListeners.delete(listener);
+}
+
+/** Reactive pair for list density — read by `mail/MailSection.tsx`, written from there and from `settings/ThisDeviceSection.tsx`; both stay in sync. */
+export function useListDensity(): [ListDensity, (density: ListDensity) => void] {
+  const density = useSyncExternalStore(
+    subscribeListDensity,
+    readListDensity,
+    () => DEFAULT_LIST_DENSITY,
+  );
+  const setDensity = useCallback((next: ListDensity) => writeListDensity(next), []);
+  return [density, setDensity];
+}
+
+/**
+ * Whether the folder rail (`mail/Sidebar.tsx`, shadcn's `Sidebar` with
+ * `collapsible="icon"` since #93) is collapsed to icons-only (#99): a
+ * Device Preference — a phone and a widescreen monitor want different
+ * answers — set from `settings/ThisDeviceSection.tsx` *or* the rail's own
+ * collapse toggle, and read reactively by every mounted `SidebarProvider`
+ * the instant either writes, same shape as view mode/density above (and
+ * Appearance's `theme/device-theme.ts`).
+ */
+const SIDEBAR_COLLAPSED_KEY = "mail.devicePref.sidebarCollapsed";
+
+export function readSidebarCollapsed(): boolean {
+  return readStorage(SIDEBAR_COLLAPSED_KEY) === "1";
+}
+
+const sidebarCollapsedListeners = new Set<() => void>();
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  writeStorage(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  for (const listener of sidebarCollapsedListeners) listener();
+}
+
+function subscribeSidebarCollapsed(listener: () => void): () => void {
+  sidebarCollapsedListeners.add(listener);
+  return () => sidebarCollapsedListeners.delete(listener);
+}
+
+export function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
+  const collapsed = useSyncExternalStore(
+    subscribeSidebarCollapsed,
+    readSidebarCollapsed,
+    () => false,
+  );
+  const setCollapsed = useCallback((next: boolean) => writeSidebarCollapsed(next), []);
+  return [collapsed, setCollapsed];
 }
 
 export function readStreamMode(): boolean {
@@ -259,41 +338,4 @@ export function writeGroupCollapsed(label: string, collapsed: boolean): void {
   } catch {
     // Best-effort; see module docstring.
   }
-}
-
-/**
- * The folder rail's collapse state (#93) — shadcn's `Sidebar` with
- * `collapsible="icon"`, opened to an icon rail rather than every other
- * Device Preference's plain read/write, because `SidebarProvider` needs to
- * *react* to a write the instant it happens: same posture
- * `theme/device-theme.ts` already has for Appearance ("a write in the
- * header must reach a read in Settings the same instant"), applied here to
- * one `SidebarProvider` reading what another tab's just wrote.
- */
-const SIDEBAR_COLLAPSED_KEY = "mail.devicePref.sidebarCollapsed";
-
-export function readSidebarCollapsed(): boolean {
-  return readStorage(SIDEBAR_COLLAPSED_KEY) === "1";
-}
-
-const sidebarCollapsedListeners = new Set<() => void>();
-
-export function writeSidebarCollapsed(collapsed: boolean): void {
-  writeStorage(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
-  for (const listener of sidebarCollapsedListeners) listener();
-}
-
-export function subscribeSidebarCollapsed(listener: () => void): () => void {
-  sidebarCollapsedListeners.add(listener);
-  return () => sidebarCollapsedListeners.delete(listener);
-}
-
-export function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
-  const collapsed = useSyncExternalStore(
-    subscribeSidebarCollapsed,
-    readSidebarCollapsed,
-    () => false,
-  );
-  const setCollapsed = useCallback((next: boolean) => writeSidebarCollapsed(next), []);
-  return [collapsed, setCollapsed];
 }

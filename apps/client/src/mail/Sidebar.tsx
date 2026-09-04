@@ -51,12 +51,13 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * count ever render one, and only once there's something to act on — a
  * `0` renders no badge at all.
  *
- * Collapses to an icon-only rail on desktop (#93's own acceptance box) —
+ * Collapses to an icon-only rail on desktop (#93's own acceptance box; #99's
+ * "This device" page toggle is the other place that flips it) —
  * `SidebarMenuButton`'s own `tooltip` prop names each entry while
  * collapsed, since the label itself is hidden. Collapse state is a Device
  * Preference (`device-preferences.ts#useSidebarCollapsed`), reactive across
- * every mounted rail the same instant a write lands, like Appearance
- * (`theme/device-theme.ts`).
+ * every mounted rail — and `settings/ThisDeviceSection.tsx`'s own control —
+ * the instant either writes, like Appearance (`theme/device-theme.ts`).
  *
  * On phone this isn't a permanent rail at all: it's a `Sheet` bottom sheet
  * (#93), opened from its own trigger — the header's hub mark stays the App

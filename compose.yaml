@@ -17,6 +17,10 @@ services:
     environment:
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL is required}
       MAIL_CREDENTIAL_KEY: ${MAIL_CREDENTIAL_KEY:?MAIL_CREDENTIAL_KEY is required}
+      # The same variable that picked which tag `image:` above pulls,
+      # passed through so the running process can report its own image tag
+      # on the Owner-only Instance page (#104).
+      MAIL_VERSION: ${MAIL_VERSION:-edge}
       # Always all-interfaces *inside* the container: the container's network
       # namespace is already isolated by Docker, so this is only ever reached
       # through the `ports:` mapping below. MAIL_BIND itself governs that

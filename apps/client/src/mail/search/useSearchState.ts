@@ -84,6 +84,7 @@ function additionalScopeIds(accountScope: readonly string[]): string[] | undefin
 }
 
 export interface SearchState {
+  /** The results view is swapped into the list pane — `useSearchOverlay`'s own doc comment explains why this is a separate concern from the search merely running. */
   active: boolean;
   queryText: string;
   parsed: ParsedSearchQuery;
@@ -108,6 +109,12 @@ export interface SearchState {
   recentSearches: string[];
 
   open: (origin: ViewOrigin) => void;
+  /** Engages the session (prefilter + server round trip run) without opening the results view — the Command Palette's own first keystroke, seeding the scope from `origin` exactly like `open` does (#100). */
+  engage: (origin: ViewOrigin) => void;
+  /** Opens the results view for an already-engaged session — the Palette's "See all results" (#100). */
+  openResultsView: () => void;
+  /** Leaves outright, restoring the origin — the results view's own visible Close (#100), unlike the field's two-stage `onEsc`. */
+  close: () => void;
   onFieldChange: (text: string) => void;
   onCommit: (text: string) => void;
   onEsc: () => void;
@@ -139,7 +146,15 @@ export function useSearchState(
   const [seed, setSeed] = useState<SeededScope>(null);
   const [seedPopped, setSeedPopped] = useState(false);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [serverResponse, setServerResponse] = useState<SearchResponse | null>(null);
+  // Tagged with the request key it answers (#100, bug 6): a response is
+  // only trusted — including an honestly empty one — once the query it was
+  // requested for matches the one on screen right now, so a slow response
+  // that lands after the User has already changed the query can't wholesale
+  // erase local hits for a query it never actually answered.
+  const [serverResponseState, setServerResponseState] = useState<{
+    response: SearchResponse;
+    forKey: string;
+  } | null>(null);
   const [serverLoading, setServerLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -174,24 +189,60 @@ export function useSearchState(
     [parsed, effectiveFolder, effectiveLabel],
   );
   const prefilterThreads =
-    useSearchPrefilter(overlay.active && meetsFloor ? mailAccountId : null, prefilterFilters) ?? [];
+    useSearchPrefilter(overlay.engaged && meetsFloor ? mailAccountId : null, prefilterFilters) ??
+    [];
+
+  // Stable identity for the round trip's own dep array (#100, bug 3):
+  // `accountScope` is a fresh array every render/live-query emission by
+  // design (`useAccountScope`'s own doc comment) — that's the *desired*
+  // re-run trigger when Scope actually widens or narrows, but keying the
+  // effect on the array itself re-runs it, cancelling an in-flight request,
+  // on every render that merely re-creates an equal-content array. Keying
+  // on the joined ids instead re-runs the effect only when membership
+  // actually changes; the effect's own closure still reads the current
+  // `accountScope` value, which is what the request itself needs.
+  const accountScopeKey = accountScope.join(",");
+
+  // What request "now" means — everything a `POST /search` response is an
+  // answer *for*. Tagging the response with this (below) is bug 6's fix:
+  // an empty response can only replace local hits once it's an answer to
+  // the query still on screen, not a slow answer to one the User has since
+  // changed past.
+  const requestKey = useMemo(
+    () =>
+      JSON.stringify([
+        mailAccountId,
+        accountScopeKey,
+        buildFilters(parsed, effectiveFolder, effectiveLabel),
+      ]),
+    [mailAccountId, accountScopeKey, parsed, effectiveFolder, effectiveLabel],
+  );
 
   // The server round trip (search-ux-spec.md §When a search runs): live,
   // debounced ~200ms after typing stops, from the 3-character floor. Enter
-  // (`onCommit`) skips the wait — `immediateRef` is that seam.
+  // (`onCommit`) skips the wait — `immediateRef` is that seam. Engaged
+  // (`overlay.engaged`) rather than the results view being open
+  // (`overlay.active`) is what gates this — the Palette's own inline hits
+  // (#100) need this running well before "See all results" ever opens the
+  // results view.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `accountScope` itself (read in the body, for the request) is deliberately *not* a dep — bug 3's fix is keying this on `accountScopeKey` instead, since `accountScope` is a fresh array identity every render (`useAccountScope`'s own doc comment) and would re-run this on every one of them; `requestKey` already folds in everything `accountScopeKey`/`effectiveFolder`/`effectiveLabel`/`parsed` mean for the request, kept alongside them for readability rather than in place of them.
   useEffect(() => {
-    if (!overlay.active || !mailAccountId || !meetsFloor) {
-      setServerResponse(null);
-      return;
-    }
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setOffline(true);
+    if (!overlay.engaged || !mailAccountId || !meetsFloor) {
+      // Always clear loading on settle (#100, bug 3): this branch settles
+      // the search (there is nothing left to wait for), so a `serverLoading`
+      // left over from a request an earlier effect instance started — and
+      // whose own `.finally` a stale-response guard skipped — can't stick.
+      setServerLoading(false);
       return;
     }
     let cancelled = false;
-    const delay = immediateRef.current ? 0 : SERVER_DEBOUNCE_MS;
-    immediateRef.current = false;
-    const timer = setTimeout(() => {
+    const requestedKey = requestKey;
+    const run = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        setOffline(true);
+        setServerLoading(false);
+        return;
+      }
       setServerLoading(true);
       runServerSearch({
         mailAccountId,
@@ -200,38 +251,58 @@ export function useSearchState(
       })
         .then((response) => {
           if (cancelled) return;
-          setServerResponse(response);
+          setServerResponseState({ response, forKey: requestedKey });
           setOffline(false);
         })
         .catch(() => {
           if (!cancelled) setOffline(true);
         })
         .finally(() => {
-          if (!cancelled) setServerLoading(false);
+          // Unconditional (#100, bug 3): a superseded request must not leave
+          // loading stuck true just because its own response is discarded.
+          setServerLoading(false);
         });
-    }, delay);
+    };
+    const delay = immediateRef.current ? 0 : SERVER_DEBOUNCE_MS;
+    immediateRef.current = false;
+    const timer = setTimeout(run, delay);
+    // Bug 8: `offline` otherwise only ever clears from a *later* request's
+    // own success — stuck indefinitely if nothing else prompts a re-run
+    // once connectivity actually returns. Retrying immediately on the
+    // browser's own `online` event (registered unconditionally, so a query
+    // that started life offline still gets one) is the same "no background
+    // retry loop" contract (search-ux-spec.md §Degraded states) since it
+    // fires once, from the network telling us something changed, not a poll.
+    const handleOnline = () => run();
+    window.addEventListener("online", handleOnline);
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      window.removeEventListener("online", handleOnline);
     };
     // `parsed` is a `useMemo` keyed on `overlay.query` (above), so its
     // identity is already stable across unrelated renders — listing it
     // directly here is exactly as narrow as comparing its fields would be.
-    // `accountScope` (#80): widening or narrowing it re-runs the current
-    // search — a fresh array identity every render (`useAccountScope`'s own
-    // doc comment) is exactly the re-run trigger this effect wants.
   }, [
-    overlay.active,
+    overlay.engaged,
     mailAccountId,
     meetsFloor,
     effectiveFolder,
     effectiveLabel,
     parsed,
-    accountScope,
+    accountScopeKey,
+    requestKey,
   ]);
+
+  // Only trusted once it answers the query on screen right now (bug 6,
+  // above) — a response tagged for an older `requestKey` is treated as not
+  // having arrived yet, same as before the request was ever sent.
+  const serverResponse =
+    serverResponseState?.forKey === requestKey ? serverResponseState.response : null;
 
   const usingServerResults = serverResponse !== null;
   const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
+  const previousSourceRef = useRef<"server" | "prefilter" | null>(null);
   const displayResults = useMemo(() => {
     const next = serverResponse
       ? serverResponse.results
@@ -248,6 +319,7 @@ export function useSearchState(
             gatekeeper: thread.heldSender ? ("held" as const) : null,
           }),
         );
+    const nextSource = serverResponse ? "server" : "prefilter";
 
     // ADR-0016: the prefilter is "rendered identically to server results...
     // and replaced wholesale when they arrive (skipping the re-render when
@@ -255,13 +327,21 @@ export function useSearchState(
     // on screen — not a deep comparison of every field — is the cheap check
     // that catches the common case (the prefilter already found exactly
     // what the server did) without chasing every possible id order.
+    //
+    // Bug 7: that shortcut used to fire across a prefilter→server
+    // transition too, whenever the ids happened to land in the same order —
+    // silently keeping the prefilter's thinner rows (no headline, no folder
+    // pill) on screen instead of the richer server ones that had actually
+    // arrived. Gating it on the source staying the same closes that.
     const previous = previousDisplayResultsRef.current;
     const sameOrder =
+      previousSourceRef.current === nextSource &&
       previous.length === next.length &&
       previous.every((result, index) => result.thread.id === next[index]?.thread.id);
     if (sameOrder) return previous;
 
     previousDisplayResultsRef.current = next;
+    previousSourceRef.current = nextSource;
     return next;
   }, [serverResponse, prefilterThreads]);
 
@@ -290,6 +370,29 @@ export function useSearchState(
     },
     [overlay],
   );
+
+  // The Palette's own first keystroke (#100): engages the round
+  // trip/prefilter — same scope-seeding as `open` — without opening the
+  // results view, so top hits compute while the list pane behind the
+  // Palette stays exactly what it already was.
+  const engage = useCallback(
+    (origin: ViewOrigin) => {
+      setSeed(seedScopeFromOrigin(origin));
+      setSeedPopped(false);
+      setSelectedThreadId(null);
+      overlay.engage();
+    },
+    [overlay],
+  );
+
+  // "See all results" (#100): opens the results view for the session the
+  // Palette already engaged, without `open()`'s fresh-entry reset — the
+  // seed and any arrow-selected hit carry straight over.
+  const openResultsView = useCallback(() => overlay.openResultsView(), [overlay]);
+
+  // The results view's own visible Close (#100): leaves outright and
+  // restores the origin, in one click, unlike the field's two-stage `onEsc`.
+  const close = useCallback(() => overlay.leave(), [overlay]);
 
   const onFieldChange = useCallback(
     (text: string) => {
@@ -345,6 +448,7 @@ export function useSearchState(
   const loadOlder = useCallback(() => {
     if (!mailAccountId || !serverResponse?.cursor) return;
     setLoadingOlder(true);
+    const forKey = requestKey;
     runServerSearch({
       mailAccountId,
       additionalMailAccountIds: additionalScopeIds(accountScope),
@@ -352,14 +456,17 @@ export function useSearchState(
       cursor: serverResponse.cursor,
     })
       .then((response) => {
-        setServerResponse((current) =>
+        setServerResponseState((current) =>
           current
             ? {
-                results: [...current.results, ...response.results],
-                cursor: response.cursor,
-                indexWatermark: response.indexWatermark,
+                response: {
+                  results: [...current.response.results, ...response.results],
+                  cursor: response.cursor,
+                  indexWatermark: response.indexWatermark,
+                },
+                forKey,
               }
-            : response,
+            : { response, forKey },
         );
         setOffline(false);
       })
@@ -372,6 +479,7 @@ export function useSearchState(
     parsed,
     effectiveFolder,
     effectiveLabel,
+    requestKey,
   ]);
 
   const clearRecent = useCallback(() => {
@@ -413,6 +521,9 @@ export function useSearchState(
     select: setSelectedThreadId,
     recentSearches,
     open,
+    engage,
+    openResultsView,
+    close,
     onFieldChange,
     onCommit,
     onEsc,

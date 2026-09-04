@@ -1,7 +1,7 @@
 import type { MailAccount } from "@mail/shared";
 import { Command as CommandPrimitive } from "cmdk";
 import { Search, X } from "lucide-react";
-import { type KeyboardEvent, useMemo } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 import type { CachedThread } from "../../store/index.js";
 import { useThreadMessages } from "../reading/useThreadMessages.js";
 import type { ViewOrigin } from "../search/scope.js";
@@ -42,12 +42,14 @@ function matchesQuery(command: PaletteCommand, query: string): boolean {
  *
  * Deliberately reuses `search` wholesale rather than a second search
  * pipeline: typing here calls `search.onFieldChange` exactly like the top
- * bar field does, which is what activates `search.active` and, with it,
- * `MailSection`'s own `<SearchResultsView>` swap underneath this overlay —
- * "the list pane behind the palette" is already live by the time "See all
- * results" is reached; this overlay just stops covering it. Committing (via
- * "See all results", or Enter on a hit) calls `search.onCommit`, the same
- * "Enter commits" contract the header field keeps.
+ * bar field does, plus `search.engage()` on the first keystroke — which
+ * runs the same prefilter/server round trip `search.active` always has,
+ * *without* opening the results view (#100: the Palette must never swap the
+ * list pane just because someone is typing). Enter on a hit
+ * (`search.select`) opens it in the reading pane the same way, still
+ * without opening the results view. **"See all results"** is the only row
+ * that calls `search.openResultsView()` — that's what swaps the list pane
+ * into `MailSection`'s own `<SearchResultsView>` for real.
  *
  * The list/input/keyboard-nav shell is cmdk (#93) — `shouldFilter={false}`
  * since `matchedCommands`/`hits` are already the pre-filtered set
@@ -98,6 +100,20 @@ export function CommandPalette({
   // `useThreadMessages("")`'s own doc comment is what makes that a no-op.
   const { messages } = useThreadMessages(selectedThread?.id ?? "");
   const latestMessage = messages?.at(-1) ?? null;
+  // `search.engage` (#100) seeds the scope from `searchOrigin` the same way
+  // `open` does, so it must fire once per Palette session rather than on
+  // every keystroke — otherwise a mid-session `popSeed` (backspace on an
+  // empty field) would be undone by the very next character typed.
+  const engagedRef = useRef(false);
+
+  // Autofocus (cmdk's `Input` `autoFocus`) handles focus on each fresh
+  // mount, but this component never unmounts while closed (`if (!open)
+  // return null` below, after every hook) — `engagedRef` needs its own
+  // reset on reopen, or a second Palette session would skip `search.engage`
+  // entirely, believing an earlier session already ran it.
+  useEffect(() => {
+    if (open) engagedRef.current = false;
+  }, [open]);
 
   const query = search.queryText;
 
@@ -150,11 +166,15 @@ export function CommandPalette({
       return;
     }
     if (row.kind === "hit") {
+      // Opens the top (or arrow-selected) hit in Split — the reading pane
+      // only. The list pane stays exactly what it already was; "See all
+      // results", below, is the only row that swaps it (#100).
       search.select(row.thread.id);
       onClose();
       return;
     }
     search.onCommit(query);
+    search.openResultsView();
     onClose();
   }
 
@@ -201,7 +221,13 @@ export function CommandPalette({
             placeholder="Search commands or mail…"
             value={query}
             onValueChange={(value) => {
-              if (!search.active) search.open(searchOrigin);
+              // Engages the round trip (prefilter + debounced server search)
+              // without opening the results view — the list pane behind the
+              // Palette stays untouched while typing (#100).
+              if (!engagedRef.current) {
+                engagedRef.current = true;
+                search.engage(searchOrigin);
+              }
               search.onFieldChange(value);
             }}
             onKeyDown={handleInputKeyDown}

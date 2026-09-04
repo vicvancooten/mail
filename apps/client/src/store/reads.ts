@@ -15,6 +15,7 @@ import {
   senderDomain,
 } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useRef } from "react";
 import {
   type CachedThread,
   DEFAULT_VIEW,
@@ -708,15 +709,30 @@ export async function readSearchPrefilter(
   );
 }
 
+/**
+ * A live query re-subscribes on every keystroke (`mailAccountId`/`filters`
+ * both change), and `useLiveQuery` returns `undefined` for every render in
+ * between the old subscription tearing down and the new one's first emit —
+ * by design, not a bug in it. Falling through to `?? []` at each call site
+ * used to render "No matches" for that one frame (#100, bug 5); holding the
+ * last non-`undefined` result across that gap instead means the prefilter
+ * only ever *replaces* what's on screen, never blanks it first.
+ */
 export function useSearchPrefilter(
   mailAccountId: string | null,
   filters: SearchPrefilterFilters,
 ): CachedThread[] | undefined {
-  return useLiveQuery(
+  const lastRef = useRef<CachedThread[] | undefined>(undefined);
+  const live = useLiveQuery(
     () =>
       mailAccountId === null ? Promise.resolve([]) : readSearchPrefilter(mailAccountId, filters),
     [mailAccountId, JSON.stringify(filters)],
   );
+  if (live !== undefined) lastRef.current = live;
+  // `mailAccountId === null` means search itself isn't engaged (or is below
+  // the floor) rather than "still loading" — that's a real empty, not a gap
+  // to paper over, so it isn't held onto the way an in-flight resubscribe is.
+  return mailAccountId === null ? live : (live ?? lastRef.current);
 }
 
 /**

@@ -169,6 +169,13 @@
       "when": 1788460475522,
       "tag": "0023_steep_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788520636914,
+      "tag": "0024_gigantic_johnny_storm",
+      "breakpoints": true
     }
   ]
 }

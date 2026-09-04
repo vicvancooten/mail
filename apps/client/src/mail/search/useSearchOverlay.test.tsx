@@ -40,4 +40,32 @@ describe("useSearchOverlay", () => {
     expect(result.current.active).toBe(false);
     expect(result.current.query).toBe("report");
   });
+
+  it("engage() runs the search without opening the results view (#100)", () => {
+    const { result } = renderHook(() => useSearchOverlay());
+
+    act(() => result.current.engage());
+
+    expect(result.current.engaged).toBe(true);
+    expect(result.current.active).toBe(false);
+  });
+
+  it("openResultsView() opens the results view for an already-engaged session (#100)", () => {
+    const { result } = renderHook(() => useSearchOverlay());
+    act(() => result.current.engage());
+
+    act(() => result.current.openResultsView());
+
+    expect(result.current.engaged).toBe(true);
+    expect(result.current.active).toBe(true);
+  });
+
+  it("open() engages and opens the results view together", () => {
+    const { result } = renderHook(() => useSearchOverlay());
+
+    act(() => result.current.open());
+
+    expect(result.current.engaged).toBe(true);
+    expect(result.current.active).toBe(true);
+  });
 });

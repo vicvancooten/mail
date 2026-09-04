@@ -1,5 +1,6 @@
 import type { CachedThread } from "../store/index.js";
 import type { ListDensity } from "./device-preferences.js";
+import type { MailtoLink } from "./reading/mailto.js";
 import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
@@ -22,6 +23,7 @@ export function ListView({
   onLoadMore,
   triage,
   onReply,
+  onMailtoLink,
   initialScrollThreadId,
   density,
   groupBulk,
@@ -35,6 +37,7 @@ export function ListView({
   onLoadMore?: () => void;
   triage: Triage;
   onReply: OnReply;
+  onMailtoLink: (link: MailtoLink) => void;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
   /** Passed straight through to `VirtualizedThreadList` — the `compact` List Density Device Preference (#54, #75). */
@@ -56,6 +59,7 @@ export function ListView({
         onNext={nextId ? () => onSelect(nextId) : undefined}
         triage={triage}
         onReply={onReply}
+        onMailtoLink={onMailtoLink}
       />
     );
   }

@@ -17,6 +17,13 @@ declare module "fastify" {
      * `preHandler` and read `request.user` (non-null past this point).
      */
     requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    /**
+     * `requireAuth` plus a role check (#104): the Instance page's route is
+     * the first thing in this repo an ordinary Member must not reach at
+     * all, not just see a User-scoped slice of — CONTEXT.md's Owner is
+     * "the only role that can... change instance settings".
+     */
+    requireOwner(request: FastifyRequest, reply: FastifyReply): Promise<void>;
   }
 }
 
@@ -59,6 +66,16 @@ async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions) {
   app.decorate("requireAuth", async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
       await reply.code(401).send({ error: "unauthenticated" });
+    }
+  });
+
+  app.decorate("requireOwner", async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) {
+      await reply.code(401).send({ error: "unauthenticated" });
+      return;
+    }
+    if (request.user.role !== "owner") {
+      await reply.code(403).send({ error: "forbidden" });
     }
   });
 }

@@ -1,29 +1,82 @@
 /* ============================================================================
-   SETTINGS — a run of compartments in the same frame (#71, part of #66).
-   Tokens: `src/index.css` and `@mail/design-tokens`. Moved out of the
-   deleted `brand/brand.css` (#83) and updated to reference tokens
-   directly — this restyle already carried the Settings sections onto The
-   Instrument; only its file moved.
+   SETTINGS — sub-routes with a side nav (#99), each page a run of
+   compartments in the same frame (#71, part of #66). Tokens: `src/index.css`
+   and `@mail/design-tokens`. Moved out of the deleted `brand/brand.css`
+   (#83) and updated to reference tokens directly — this restyle already
+   carried the Settings sections onto The Instrument; only its file moved.
 
-   `SettingsSection` and the sections it composes (`GatekeeperSection`,
+   `SettingsLayout`'s pages (`GeneralSection`, `ThisDeviceSection`,
+   `MailAccountsPage`, `GatekeeperPage`, `NotificationsPage`, `SecurityPage`,
+   `InstancePage` (#104, Owner-only) and the sections they compose — `GatekeeperSection`,
    `PushNotificationsSection`, `AuthMethodsSection`, `PasskeysSection`,
    `TotpSection`, `MailAccountsSection`, …) emit bare semantic markup, so
    this file styles the elements rather than asking every section to carry
    class names it has no other use for. */
 
-/* Its own routed view (#71), not a compartment scrolled to below the mail
-   pane — `height: 100%; min-height: 0` is what makes it the bounded,
-   independently scrolling pane `.app-viewport` expects from whichever
-   route is current. */
-.settings-section {
+/* Its own routed view (#71, #99), not a compartment scrolled to below the
+   mail pane — `height: 100%; min-height: 0` is what makes `.settings-shell`
+   the bounded pane `.app-viewport` expects from whichever route is
+   current. The side nav is a fixed-width rail beside it, same shape
+   `mail/Sidebar.tsx` gives Mail's folder rail; `.settings-content` is the
+   independently-scrolling pane each sub-route renders into — the Bounded
+   Pane Rule applied per page, not once for the whole Settings screen. */
+.settings-shell {
   height: 100%;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 0 calc(56px + env(safe-area-inset-bottom));
+  display: flex;
   background: var(--color-bg);
 }
 
-.settings-section h2 {
+.settings-nav {
+  flex: 0 0 auto;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  overflow-y: auto;
+  min-height: 0;
+  border-right: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-row);
+  color: var(--color-ink-muted);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.settings-nav-item:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.settings-nav-item[data-status="active"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.settings-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-page {
+  padding: 0 0 calc(56px + env(safe-area-inset-bottom));
+}
+
+.settings-page h2 {
   margin: 0;
   padding: 10px 18px 9px;
   padding-left: calc(18px + env(safe-area-inset-left));
@@ -34,15 +87,15 @@
   color: var(--color-ink);
 }
 
-.settings-section h3 {
+.settings-page h3 {
   margin: 0 0 4px;
   font-weight: 680;
   font-size: 14px;
   color: var(--color-ink);
 }
 
-.settings-section section,
-.settings-section > div {
+.settings-page section,
+.settings-page > div {
   padding: 18px;
   padding-left: calc(18px + env(safe-area-inset-left));
   padding-right: calc(18px + env(safe-area-inset-right));
@@ -50,7 +103,7 @@
   background: var(--color-surface);
 }
 
-.settings-section p {
+.settings-page p {
   margin: 0 0 10px;
   font-size: 13px;
   line-height: 1.5;
@@ -58,7 +111,7 @@
   max-width: 68ch;
 }
 
-.settings-section [role="alert"] {
+.settings-page [role="alert"] {
   margin: 0 0 10px;
   padding: 9px 11px;
   background: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
@@ -73,25 +126,25 @@
    A field stacks its legend over its control, the way a routing slip does;
    a checkbox is the exception, because there the control comes first and the
    words are what it is labelling. */
-.settings-section > section,
-.settings-section > div {
+.settings-page > section,
+.settings-page > div {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 16px 26px;
 }
 
-.settings-section > section > h3,
-.settings-section > section > p,
-.settings-section > section > section,
-.settings-section > section > details,
-.settings-section > div > h3,
-.settings-section > div > p {
+.settings-page > section > h3,
+.settings-page > section > p,
+.settings-page > section > section,
+.settings-page > section > details,
+.settings-page > div > h3,
+.settings-page > div > p {
   flex: 1 1 100%;
   min-width: 0;
 }
 
-.settings-section label {
+.settings-page label {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -101,7 +154,7 @@
   color: var(--color-ink-faint);
 }
 
-.settings-section label:has(> input[type="checkbox"]) {
+.settings-page label:has(> input[type="checkbox"]) {
   flex-direction: row;
   align-items: center;
   gap: 8px;
@@ -116,15 +169,15 @@
   align-self: center;
 }
 
-.settings-section .account-preferences label:has(> input[type="checkbox"]) {
+.settings-page .account-preferences label:has(> input[type="checkbox"]) {
   align-self: flex-start;
 }
 
-.settings-section select,
-.settings-section input[type="text"],
-.settings-section input[type="number"],
-.settings-section input[type="password"],
-.settings-section textarea {
+.settings-page select,
+.settings-page input[type="text"],
+.settings-page input[type="number"],
+.settings-page input[type="password"],
+.settings-page textarea {
   padding: 7px 9px;
   background: var(--color-bg);
   border: var(--hairline) solid var(--color-border);
@@ -134,14 +187,14 @@
   font-size: 13px;
 }
 
-.settings-section textarea {
+.settings-page textarea {
   width: 100%;
   box-sizing: border-box;
   min-height: 92px;
   resize: vertical;
 }
 
-.settings-section button {
+.settings-page button {
   appearance: none;
   cursor: pointer;
   padding: 7px 12px;
@@ -157,37 +210,37 @@
     transform var(--dur-press) var(--ease-out);
 }
 
-.settings-section button:hover:not(:disabled) {
+.settings-page button:hover:not(:disabled) {
   background: var(--color-field);
 }
 
-.settings-section button:active:not(:disabled) {
+.settings-page button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-.settings-section button:disabled {
+.settings-page button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
 /* Removing a passkey, blocking a sender, deleting a Mail Account: these get
    deliberate distance and stay outline until they are reached for. */
-.settings-section button[data-destructive="true"] {
+.settings-page button[data-destructive="true"] {
   margin-left: 22px;
   border-color: var(--color-border);
   background: transparent;
   color: var(--color-danger);
 }
 
-.settings-section button[data-destructive="true"]:hover:not(:disabled),
-.settings-section button[data-destructive="true"]:focus-visible {
+.settings-page button[data-destructive="true"]:hover:not(:disabled),
+.settings-page button[data-destructive="true"]:focus-visible {
   border-color: var(--color-danger);
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
 }
 
 /* The collapsible sub-sections (`Sign-in methods`, Mail Accounts) are label
    holders you can open. */
-.settings-section summary {
+.settings-page summary {
   display: block;
   cursor: pointer;
   padding: 9px 0;
@@ -197,11 +250,11 @@
   list-style: none;
 }
 
-.settings-section summary::-webkit-details-marker {
+.settings-page summary::-webkit-details-marker {
   display: none;
 }
 
-.settings-section summary::before {
+.settings-page summary::before {
   content: "";
   display: inline-block;
   width: 0;
@@ -214,11 +267,11 @@
   transition: rotate var(--dur-fast) var(--ease);
 }
 
-.settings-section details[open] > summary::before {
+.settings-page details[open] > summary::before {
   rotate: 90deg;
 }
 
-.settings-section ul {
+.settings-page ul {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -227,7 +280,7 @@
   gap: 8px;
 }
 
-.settings-section li {
+.settings-page li {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -238,7 +291,7 @@
   font-size: 13px;
 }
 
-.settings-section code {
+.settings-page code {
   font-family: var(--font-mono);
   font-size: 11px;
   padding: 2px 6px;
@@ -252,7 +305,7 @@
    inside `SettingsSection`'s "Mail Account preferences" compartment — a
    sub-panel per account rather than one flat run of fields, since each
    account's controls are its own group. */
-.settings-section .account-preferences {
+.settings-page .account-preferences {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -264,12 +317,12 @@
   border-radius: var(--radius-md);
 }
 
-.settings-section .account-preferences > strong {
+.settings-page .account-preferences > strong {
   font-size: 13px;
   color: var(--color-ink);
 }
 
-.settings-section .signature-editor {
+.settings-page .signature-editor {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -277,7 +330,7 @@
   flex: 1 1 100%;
 }
 
-.settings-section .signature-editor [role="status"] {
+.settings-page .signature-editor [role="status"] {
   margin: 0;
   font-size: 11px;
   color: var(--color-success);
@@ -288,7 +341,7 @@
    The parts we did not draw still carry the design.
    ========================================================================= */
 
-.settings-section select {
+.settings-page select {
   appearance: none;
   padding-right: 26px;
   cursor: pointer;
@@ -305,13 +358,13 @@
   background-repeat: no-repeat;
 }
 
-.settings-section select:hover {
+.settings-page select:hover {
   border-color: var(--color-ink-faint);
 }
 
 /* A checkbox is a punched box that takes a struck mark, and it takes no ink
    colour — relief and rule only, like every other control in the frame. */
-.settings-section input[type="checkbox"] {
+.settings-page input[type="checkbox"] {
   appearance: none;
   width: 16px;
   height: 16px;
@@ -326,7 +379,7 @@
   transition: background var(--dur-press) linear;
 }
 
-.settings-section input[type="checkbox"]::after {
+.settings-page input[type="checkbox"]::after {
   content: "";
   width: 9px;
   height: 5px;
@@ -337,21 +390,51 @@
   opacity: 0;
 }
 
-.settings-section input[type="checkbox"]:checked {
+.settings-page input[type="checkbox"]:checked {
   background: var(--color-ink);
   border-color: var(--color-ink);
 }
 
-.settings-section input[type="checkbox"]:checked::after {
+.settings-page input[type="checkbox"]:checked::after {
   opacity: 1;
 }
 
-.settings-section input[type="checkbox"]:hover:not(:checked) {
+.settings-page input[type="checkbox"]:hover:not(:checked) {
   border-color: var(--color-ink-faint);
 }
 
 /* The signature field is a slip of a fixed size, not a draggable box. */
-.settings-section textarea {
+.settings-page textarea {
   resize: none;
   max-width: 620px;
+}
+
+/* The Instance page's four facts (#104): a label:value row apiece rather
+   than the wrapping run of `label`-plus-control fields above — there is
+   nothing here to edit, so the layout says "read this" instead of
+   "fill this in". `flex: 1 1 100%` opts each row out of the parent
+   `<section>`'s row-flex wrap, same as `p`/`h3` already do above. */
+.instance-fact {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.instance-fact-label {
+  min-width: 120px;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--color-ink-faint);
+}
+
+.instance-fact code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: var(--color-bg);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 1px 5px;
 }

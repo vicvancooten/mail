@@ -88,22 +88,6 @@
   background: var(--color-bg);
 }
 
-/* Split/List: two buttons that sit together as one choice, spaced rather
-   than divided — the gap between groups is what separates them from the
-   toggles beside them. */
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  transition: opacity var(--dur-fast) var(--ease);
-}
-
-/* Stream mode or search has taken the view over; the underlying Split/List
-   choice stays visible and selectable, just no longer in charge. */
-.toolbar-group.muted {
-  opacity: 0.45;
-}
-
 .toolbar-btn {
   width: 32px;
   height: 32px;
@@ -1439,8 +1423,15 @@
   background: var(--color-bg);
 }
 
+/* The Width decision (#98, grill Q10): the reading header centers at the
+   same 74ch column as the Snippet and a plain-text body, regardless of how
+   wide the HTML body below it fills the pane — `max-width` plus centering,
+   not the padding alone, so it stays a readable column at wide Split-pane
+   widths too. */
 .reading-header {
   flex: none;
+  max-width: 74ch;
+  margin-inline: auto;
   padding: 28px 34px 0;
 }
 
@@ -1615,9 +1606,11 @@
   padding: 0 34px 32px;
 }
 
+/* The Width decision (#98, grill Q10): centered at the same 74ch column as
+   the reading header and a plain-text body, not merely capped. */
 .reading-snippet {
-  margin: 0;
-  max-width: 70ch;
+  margin: 0 auto;
+  max-width: 74ch;
   font-size: 14.5px;
   line-height: 1.7;
   color: var(--color-ink);
@@ -1671,11 +1664,16 @@
    by a rule: the same rule the rest of the surface follows.
    ========================================================================= */
 
+/* The Width decision (#98, grill Q10): the HTML iframe fills the pane and
+   the sender's own document decides its width, same as any other mail
+   client — no `max-width` here any more. A plain-text message (no native
+   HTML alternative) narrows itself back to a centered readable column via
+   `.message-body-frame-plain` below, matching the Snippet and reading
+   header. */
 .message-list {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-width: 74ch;
 }
 
 .message-item {
@@ -1778,6 +1776,15 @@
   /* No transition on `height`: the iframe is measured once as the sanitized
      body lays out, so animating it buys a layout-thrashing reflow for a
      change the reader never sees mid-flight. */
+}
+
+/* A plain-text message (`Message.bodyIsPlainText` — no native HTML
+   alternative) reads as a centered column instead of filling the pane
+   (#98, grill Q10): there is no sender-authored layout here to defer to,
+   just `plainTextToHtml`'s escaped, `<br />`-joined lines. */
+.message-body-frame-plain {
+  max-width: 74ch;
+  margin-inline: auto;
 }
 
 .attachment-list {
@@ -2124,6 +2131,33 @@
   gap: 6px;
   padding: 10px 16px;
   background: var(--color-bg);
+}
+
+/* The results view's own visible Close (#100) — same icon-button language
+   as `.command-palette-close`, first in the row so leaving is never a
+   scavenger hunt through the chips. */
+.search-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.search-close:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 
 .search-chip {
@@ -2779,6 +2813,11 @@ button.search-chip-toggle.on {
     padding: 0;
     background: transparent;
   }
+
+  /* The collapsed rail is a desktop-width convenience (#93, #99): the
+     phone sheet always renders `RailContents` with `collapsed={false}`
+     regardless of the Device Preference — there's no icon-rail read of a
+     bottom sheet's own width to reclaim. */
 
   /* Split collapses to List's own "one pane at a time" behavior: there's
      no room for list + reading pane side by side on a phone. `has-selection`

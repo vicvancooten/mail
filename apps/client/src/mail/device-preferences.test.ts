@@ -1,8 +1,13 @@
+import { renderHook } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   readAccountScope,
   readGroupCollapsed,
   resolveAccountScope,
+  useListDensity,
+  useSidebarCollapsed,
+  useViewMode,
   writeAccountScope,
   writeGroupCollapsed,
 } from "./device-preferences.js";
@@ -91,5 +96,50 @@ describe("readGroupCollapsed / writeGroupCollapsed", () => {
     writeGroupCollapsed("Today", false);
     expect(readGroupCollapsed("Today")).toBe(false);
     expect(localStorage.getItem("mail.devicePref.groupCollapsed.Today")).toBeNull();
+  });
+});
+
+/**
+ * View mode, list density and sidebar-collapsed are reactive Device
+ * Preferences now (#99): a write from one mounted subscriber (e.g.
+ * `settings/ThisDeviceSection.tsx`) has to reach every other
+ * (`mail/MailSection.tsx`, `mail/Sidebar.tsx`) without either remounting —
+ * exercised here with two independent `renderHook`s of the same `use*` hook,
+ * the same "two surfaces, one store" shape `theme/device-theme.ts#useAppearance`
+ * already has (`MailSection.test.tsx`'s own view-mode test covers the same
+ * seam end to end, through a real component rather than a bare hook).
+ */
+describe("useViewMode / useListDensity / useSidebarCollapsed", () => {
+  it("useViewMode: a write from one subscriber reaches another instantly", () => {
+    const a = renderHook(() => useViewMode());
+    const b = renderHook(() => useViewMode());
+    expect(a.result.current[0]).toBe("split");
+
+    act(() => a.result.current[1]("list"));
+
+    expect(a.result.current[0]).toBe("list");
+    expect(b.result.current[0]).toBe("list");
+  });
+
+  it("useListDensity: a write from one subscriber reaches another instantly", () => {
+    const a = renderHook(() => useListDensity());
+    const b = renderHook(() => useListDensity());
+    expect(a.result.current[0]).toBe("comfortable");
+
+    act(() => a.result.current[1]("compact"));
+
+    expect(a.result.current[0]).toBe("compact");
+    expect(b.result.current[0]).toBe("compact");
+  });
+
+  it("useSidebarCollapsed: a write from one subscriber reaches another instantly", () => {
+    const a = renderHook(() => useSidebarCollapsed());
+    const b = renderHook(() => useSidebarCollapsed());
+    expect(a.result.current[0]).toBe(false);
+
+    act(() => a.result.current[1](true));
+
+    expect(a.result.current[0]).toBe(true);
+    expect(b.result.current[0]).toBe(true);
   });
 });

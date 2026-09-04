@@ -1,5 +1,4 @@
 import type {
-  AutoAdvanceDirection,
   BulkTriageAccountOutcome,
   BulkTriageAction,
   Label,
@@ -24,7 +23,7 @@ import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
-  enqueueUserMutation,
+  EMPTY_COMPOSE_CONTENT,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
@@ -47,14 +46,12 @@ import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
   type AccountScope as AccountScopeIds,
-  readListDensity,
   readOpenComposerId,
   readStreamMode,
-  readViewMode,
-  writeListDensity,
+  useListDensity,
+  useViewMode,
   writeScreenerViewed,
   writeStreamMode,
-  writeViewMode,
 } from "./device-preferences.js";
 import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
 import { showGroupBulkToast } from "./GroupBulkToast.js";
@@ -63,6 +60,7 @@ import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
+import type { MailtoLink } from "./reading/mailto.js";
 import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
@@ -151,13 +149,17 @@ export function MailSection({
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
 
-  const [viewMode, setViewMode] = useState(readViewMode);
+  // View mode and list density (#99): reactive Device Preferences now
+  // (`device-preferences.ts#useViewMode`/`useListDensity`), so a change made
+  // from Settings' "This device" page (`settings/ThisDeviceSection.tsx`)
+  // reaches this component instantly — the ticket's own acceptance
+  // criterion ("changing density in Settings updates the list immediately").
+  // Stream mode stays a plain seeded `useState`: its own toggle lives here
+  // in the toolbar still, and its Device Preference is retired by a
+  // separate ticket (#105), not this one.
+  const [viewMode] = useViewMode();
   const [streamMode, setStreamMode] = useState(readStreamMode);
-  // List density (#54, CONTEXT.md's Device Preference): local `useState`
-  // seeded from `localStorage`, same mechanics as `viewMode`/`streamMode`
-  // above — deliberately never synced, because density means something
-  // different on each device the User signs in from.
-  const [density, setDensity] = useState(readListDensity);
+  const [density] = useListDensity();
   // Account Scope (#73): the Thread list's own accounts; `accountId` below
   // is derived from it, not tracked separately — see the doc comment above.
   const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
@@ -309,6 +311,32 @@ export function MailSection({
     [composeId, mailAccounts],
   );
 
+  // A `mailto:` link clicked inside a Message body (ADR-0018's click
+  // bridge, `MessageBody.tsx`): the same "one composer at a time" guard as
+  // `openReply`, but there is no arriving Message to settle the From
+  // account against, so it follows `openCompose`'s own choice instead
+  // (Account Scope's primary account, or a picker when Scope holds
+  // several) — a `mailto:` link says nothing about which of the User's
+  // Mail Accounts should send the reply.
+  const openMailto = useCallback(
+    (link: MailtoLink) => {
+      if (composeId !== null || !mailAccounts || !accountId) return;
+      setComposeFromChoices(
+        accountScope.length > 1
+          ? mailAccounts.filter((account) => accountScope.includes(account.id))
+          : null,
+      );
+      const id = newCompositionId();
+      void saveComposition(
+        id,
+        accountId,
+        { ...EMPTY_COMPOSE_CONTENT, to: link.to, subject: link.subject ?? "" },
+        { force: true },
+      ).then(() => openComposer(id));
+    },
+    [composeId, mailAccounts, accountId, accountScope, openComposer],
+  );
+
   // Account Scope resolution — which accounts exist, and the default-to-all
   // fallback — lives in `useAccountScope` itself now (#73); this component
   // only ever reads `accountScope`/`accountId` back.
@@ -415,31 +443,10 @@ export function MailSection({
     if (labelId !== null) setFolder(DEFAULT_FOLDER);
   }, []);
 
-  const changeViewMode = useCallback((mode: typeof viewMode) => {
-    setViewMode(mode);
-    writeViewMode(mode);
-  }, []);
-
   const changeStreamMode = useCallback((enabled: boolean) => {
     setStreamMode(enabled);
     writeStreamMode(enabled);
   }, []);
-
-  const changeDensity = useCallback((next: typeof density) => {
-    setDensity(next);
-    writeListDensity(next);
-  }, []);
-
-  const changeDirection = useCallback(
-    (next: AutoAdvanceDirection) => {
-      void enqueueUserMutation({
-        type: "setAutoAdvance",
-        enabled: autoAdvanceEnabled,
-        direction: next,
-      });
-    },
-    [autoAdvanceEnabled],
-  );
 
   const view = useMemo(
     () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : folderToView(folder)),
@@ -696,10 +703,23 @@ export function MailSection({
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
   // the same "nothing cached yet" shape `useThreadWindow` already handles.
+  // The Palette's "Enter opens the top hit" (#100): opens a search hit in
+  // the reading pane while the results view stays closed and the list pane
+  // keeps showing whatever it already was — "Enter opens the top (or
+  // arrow-selected) hit in Split", never the results view itself, which
+  // only "See all results" opens. Derived straight off `search`'s own
+  // selection rather than tracked separately, so it disappears on its own
+  // once the hit falls out of `search.results` (a new query, say).
+  const openedSearchThread = search.active
+    ? null
+    : (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null);
+
   // Stream is suppressed and the view-mode pair muted while searching
   // (search-ux-spec.md §The surface) — `search.active` joins `composeId` in
   // disabling this hook's own keydown listener so a result row's `j`/`k`
-  // (handled by `searchTriage` below) is the only scheme live at once.
+  // (handled by `searchTriage` below) is the only scheme live at once. An
+  // opened search hit (above) counts too: the reading pane it occupies
+  // belongs to `searchTriage`, not the folder's own selection.
   const triage = useTriage({
     mailAccountId: accountId,
     threads,
@@ -708,7 +728,8 @@ export function MailSection({
     onSelect: setSelectedThreadId,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || search.active || screenerOpen,
+    shortcutsDisabled:
+      composeId !== null || search.active || Boolean(openedSearchThread) || screenerOpen,
   });
   const rawSearchTriage = useTriage({
     mailAccountId: accountId,
@@ -718,7 +739,8 @@ export function MailSection({
     onSelect: search.select,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || !search.active || screenerOpen,
+    shortcutsDisabled:
+      composeId !== null || !(search.active || Boolean(openedSearchThread)) || screenerOpen,
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
 
@@ -754,17 +776,20 @@ export function MailSection({
   useEffect(() => subscribeGlobalPaletteOpen(openPalette), [openPalette]);
 
   // Whichever Thread is actually open right now — the ordinary Inbox
-  // pairing or Search's own, matching the same branch the JSX below already
-  // takes — is what the Palette's Triage commands (and "back to list") act
-  // on; there is no third, Palette-owned notion of "the current Thread".
+  // pairing, Search's own results-view selection, or an opened search hit
+  // (#100), matching the same branch the JSX below already takes — is what
+  // the Palette's Triage commands (and "back to list") act on; there is no
+  // fourth, Palette-owned notion of "the current Thread".
   const activeSelectedThread = search.active
     ? (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null)
-    : (threads.find((candidate) => candidate.id === selectedThreadId) ?? null);
-  const activeTriage = search.active ? searchTriage : triage;
+    : (openedSearchThread ??
+      threads.find((candidate) => candidate.id === selectedThreadId) ??
+      null);
+  const activeTriage = search.active || openedSearchThread ? searchTriage : triage;
   const backToList = useCallback(() => {
-    if (search.active) search.select(null);
+    if (search.active || openedSearchThread) search.select(null);
     else setSelectedThreadId(null);
-  }, [search.active, search.select]);
+  }, [search.active, search.select, openedSearchThread]);
 
   // `/`, `⌘K`/`Ctrl-K` and `?` — all three inert while typing elsewhere, the
   // composer's open, or the Screener's up (the same "not typing" guard
@@ -807,14 +832,8 @@ export function MailSection({
   return (
     <section className="mail-section">
       <TopBar
-        viewMode={viewMode}
-        onViewMode={changeViewMode}
         streamMode={streamMode}
         onStreamMode={changeStreamMode}
-        density={density}
-        onDensity={changeDensity}
-        direction={direction}
-        onDirection={changeDirection}
         accounts={mailAccounts}
         accountScope={accountScope}
         onAccountScopeChange={changeAccountScope}
@@ -875,9 +894,33 @@ export function MailSection({
               state={search}
               triage={searchTriage}
               onReply={openReply}
+              onMailtoLink={openMailto}
               accounts={mailAccounts}
               mailAccountId={accountId}
               accountScope={accountScope}
+            />
+          ) : openedSearchThread ? (
+            // "Enter opens the top hit... in Split" (#100): forced to Split
+            // regardless of `viewMode`/`streamMode`/the current folder — the
+            // list pane below is still `visibleThreads`, untouched, with
+            // nothing in it highlighted; only the reading pane shows the hit.
+            <SplitView
+              threads={visibleThreads}
+              ids={ids}
+              complete={page.complete}
+              selectedThreadId={null}
+              selectedThreadOverride={openedSearchThread}
+              onSelect={(id) => {
+                search.select(null);
+                setSelectedThreadId(id);
+              }}
+              onClearSelection={() => search.select(null)}
+              onLoadMore={loadMore}
+              triage={searchTriage}
+              onReply={openReply}
+              onMailtoLink={openMailto}
+              density={density}
+              groupBulk={groupBulk}
             />
           ) : folder === "drafts" ? (
             <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
@@ -889,6 +932,7 @@ export function MailSection({
               onSelect={setSelectedThreadId}
               triage={triage}
               onReply={openReply}
+              onMailtoLink={openMailto}
             />
           ) : viewMode === "split" ? (
             <SplitView
@@ -901,6 +945,7 @@ export function MailSection({
               onLoadMore={loadMore}
               triage={triage}
               onReply={openReply}
+              onMailtoLink={openMailto}
               initialScrollThreadId={selectedThreadId}
               density={density}
               groupBulk={groupBulk}
@@ -916,6 +961,7 @@ export function MailSection({
               onLoadMore={loadMore}
               triage={triage}
               onReply={openReply}
+              onMailtoLink={openMailto}
               initialScrollThreadId={selectedThreadId}
               density={density}
               groupBulk={groupBulk}
