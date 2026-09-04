@@ -209,5 +209,5 @@ _Avoid_: backfill progress
 ### Preferences
 
 **Device Preference**:
-A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout, list density, and appearance (light/dark/system, default system; #72, ADR-0011 amended). Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
+A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout, list density, and appearance (light/dark/system; defaults to system; #72, ADR-0011 amended). Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
 _Avoid_: local setting, client setting
