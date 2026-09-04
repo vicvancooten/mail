@@ -1382,3 +1382,40 @@ export const providerRegistrations = pgTable("provider_registrations", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
+
+/**
+ * One in-flight "Sign in with Google" (#116, ADR-0021): the state that has
+ * to survive the full-page round trip to the Provider and back, and nothing
+ * more. Written by `POST /auth/oauth/:provider/start`, consumed — deleted —
+ * by `GET /auth/oauth/:provider/callback` the moment its `state` matches, so
+ * a replayed callback finds nothing and fails as `invalid_state`.
+ *
+ * `id` is the SHA-256 of the `state` parameter, the same
+ * hash-the-bearer-token convention `sessions`, `claim_tokens` and
+ * `login_challenges` already use: the value that travels through the
+ * Provider and the browser's URL bar is never what sits in the table.
+ * `codeVerifier` is PKCE's own secret and is stored in the clear — it is
+ * useless without the matching authorization code, lives for minutes, and is
+ * the same tradeoff `totp_credentials.secret` already states plainly.
+ *
+ * `purpose` is `add_mail_account` for every row this ticket writes; reauth
+ * ("sign in again", never a password form) is the second purpose and arrives
+ * with its own ticket, which is why the column exists now rather than being
+ * inferred from the absence of something later.
+ */
+export const oauthSignInAttempts = pgTable(
+  "oauth_sign_in_attempts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["google", "microsoft"] }).notNull(),
+    codeVerifier: text("code_verifier").notNull(),
+    purpose: text("purpose", { enum: ["add_mail_account"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("oauth_sign_in_attempts_user_id_idx").on(table.userId)],
+);
+export type OAuthSignInAttemptRow = typeof oauthSignInAttempts.$inferSelect;

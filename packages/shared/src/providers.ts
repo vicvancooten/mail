@@ -69,3 +69,69 @@ export const providerMailAccountCountResponseSchema = z.object({
 export type ProviderMailAccountCountResponse = z.infer<
   typeof providerMailAccountCountResponseSchema
 >;
+
+/**
+ * What a User adding a Mail Account may actually do with a Provider (#116,
+ * ADR-0021's "Members cannot fix a missing Registration, so an unregistered
+ * Provider is shown as unavailable ... never hidden"). The choice is always
+ * rendered; `unavailableReason` is why it can't be taken:
+ *
+ * - `not_registered` — no Provider Registration on this instance yet. A
+ *   Member is told to ask the Owner; the Owner gets a link to Provider Health.
+ * - `not_supported` — this build has no adapter for the Provider yet.
+ *   Microsoft's is the next slice (#117), so its choice renders unavailable
+ *   for a reason no Owner can fix by registering anything.
+ */
+export const providerUnavailableReasonSchema = z.enum(["not_registered", "not_supported"]);
+export type ProviderUnavailableReason = z.infer<typeof providerUnavailableReasonSchema>;
+
+export const providerAvailabilitySchema = z.object({
+  provider: providerSchema,
+  available: z.boolean(),
+  /** Null exactly when `available` is true. */
+  unavailableReason: providerUnavailableReasonSchema.nullable(),
+});
+export type ProviderAvailability = z.infer<typeof providerAvailabilitySchema>;
+
+/** `GET /auth/oauth/providers` (#116): one entry per Provider, in `PROVIDERS` order. Readable by any User — unlike Provider Health, it carries no Registration detail, only whether signing in is possible. */
+export const providerAvailabilityListResponseSchema = z.object({
+  providers: z.array(providerAvailabilitySchema),
+});
+export type ProviderAvailabilityListResponse = z.infer<
+  typeof providerAvailabilityListResponseSchema
+>;
+
+/** `POST /auth/oauth/:provider/start` (#116): the Provider's own authorization URL for the Client to send the browser to as a full-page redirect. */
+export const startProviderSignInResponseSchema = z.object({
+  authorizationUrl: z.url(),
+});
+export type StartProviderSignInResponse = z.infer<typeof startProviderSignInResponseSchema>;
+
+/**
+ * How a Provider sign-in ended (#116). The callback can't answer with JSON —
+ * it is a browser navigation, not a fetch — so it redirects back to the Mail
+ * Accounts settings page carrying one of these in the query string, and the
+ * Client turns it into a toast and clears it. Every failure means nothing was
+ * created.
+ */
+export const OAUTH_SIGN_IN_OUTCOME_PARAM = "oauth";
+
+export const oauthSignInOutcomeSchema = z.enum([
+  /** A Mail Account now exists on the signed-in address and is syncing. */
+  "signed_in",
+  /** The User declined at the Provider's own consent screen, or pressed back. */
+  "cancelled",
+  /** The session cookie was gone by the time the Provider redirected back — nothing to attach the account to. */
+  "session_expired",
+  /** No matching sign-in attempt: a replayed, tampered-with, or expired `state`. */
+  "invalid_state",
+  /** The signed-in address is already one of this User's Mail Accounts. */
+  "duplicate_address",
+  /** IMAP or SMTP refused the Grant — verify-before-save, so no row was written. */
+  "verification_failed",
+  /** The Provider itself failed the token exchange or the identity lookup. */
+  "provider_error",
+  /** The Registration was removed between starting the sign-in and coming back. */
+  "provider_not_registered",
+]);
+export type OAuthSignInOutcome = z.infer<typeof oauthSignInOutcomeSchema>;

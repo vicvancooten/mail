@@ -1,5 +1,6 @@
 import { MailAccountsSection } from "../mail-accounts/MailAccountsSection.js";
 import { SignatureEditor } from "../mail-accounts/SignatureEditor.js";
+import { rootRoute } from "../router/routes.js";
 import { enqueueMutation, useMailAccounts } from "../store/index.js";
 
 /**
@@ -17,11 +18,15 @@ import { enqueueMutation, useMailAccounts } from "../store/index.js";
  */
 export function MailAccountsPage() {
   const mailAccounts = useMailAccounts() ?? [];
+  // Only to choose the wording for an unregistered Provider (#116,
+  // ADR-0021): the Owner is told where to fix it, a Member whom to ask.
+  // The same seam `SettingsLayout` reads the role through.
+  const { user } = rootRoute.useRouteContext();
 
   return (
     <section className="settings-page">
       <h2>Mail Accounts</h2>
-      <MailAccountsSection />
+      <MailAccountsSection isOwner={user.role === "owner"} />
 
       {mailAccounts.length > 0 && (
         <section>
