@@ -1,5 +1,5 @@
 import type { GatekeeperMutationResponse, GatekeeperStatusResponse } from "@mail/shared";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as gatekeeperApi from "../api/gatekeeper.js";
@@ -96,6 +96,54 @@ describe("GatekeeperSection", () => {
     expect(queued[0]?.intent).toEqual({
       type: "unblockSender",
       sender: { scope: "address", value: "spammer@example.test" },
+    });
+  });
+
+  it("lists a Blocked Alias in its own Blocked Aliases section, and Unblock queues a recipient-scoped Optimistic Action (#103)", async () => {
+    vi.mocked(gatekeeperApi.fetchGatekeeperStatus).mockResolvedValue(
+      status({
+        gatekeeper: { enabled: true, cutoff: "2026-06-01T00:00:00.000Z" },
+        blocked: [
+          {
+            scope: "address",
+            value: "spammer@example.test",
+            source: "screener",
+            spam: false,
+            decidedAt: "2026-06-01T00:00:00.000Z",
+          },
+          {
+            scope: "recipient",
+            value: "sales@mycompany.test",
+            source: "screener",
+            spam: false,
+            decidedAt: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    render(<GatekeeperSection account={makeMailAccount("acct-1")} />);
+    // Each address/Alias renders once, under its own section heading — never
+    // mixed into the other's list.
+    await screen.findByText("spammer@example.test");
+    expect(await screen.findByText("sales@mycompany.test")).toBeDefined();
+    expect(screen.getByText("Blocked Aliases")).toBeDefined();
+
+    expect(screen.getAllByRole("button", { name: "Unblock" })).toHaveLength(2);
+    const aliasRow = screen.getByText("sales@mycompany.test").closest("li");
+    if (!aliasRow) throw new Error("Blocked Alias row not found");
+    fireEvent.click(within(aliasRow).getByRole("button", { name: "Unblock" }));
+
+    await waitFor(() => expect(screen.queryByText("sales@mycompany.test")).toBeNull());
+    // The Blocked Senders list is untouched by the Alias's own Unblock.
+    expect(screen.getByText("spammer@example.test")).toBeDefined();
+    expect(screen.getByText("No blocked Aliases.")).toBeDefined();
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.intent).toEqual({
+      type: "unblockSender",
+      sender: { scope: "recipient", value: "sales@mycompany.test" },
     });
   });
 

@@ -327,7 +327,12 @@ describe("Gatekeeper banner and Screener (#56)", () => {
 });
 
 describe("the View dialog and Block's split menu (#102)", () => {
-  async function seedOneHeldSender(threadId: string, address: string, name: string) {
+  async function seedOneHeldSender(
+    threadId: string,
+    address: string,
+    name: string,
+    alias: string | null = null,
+  ) {
     await applyMailAccountDelta(
       delta({
         created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
@@ -342,6 +347,7 @@ describe("the View dialog and Block's split menu (#102)", () => {
             subject: "Please read",
             snippet: "First contact",
             heldSender: address,
+            heldRecipientAlias: alias,
             participants: [{ name, address }],
           }),
         ],
@@ -459,6 +465,101 @@ describe("the View dialog and Block's split menu (#102)", () => {
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
     const item = await screen.findByText(/Block domain — not offered for gmail\.com/);
+    expect(item.closest("[data-disabled]")).not.toBeNull();
+  });
+
+  it("Block's split menu offers Block Alias behind a confirmation naming the exact Alias (#103)", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender(
+      "held-alias",
+      "stranger@example.test",
+      "A Stranger",
+      "sales@mycompany.test",
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Block everything sent to sales@mycompany.test"));
+
+    // Selecting the menu item opens the confirmation rather than deciding
+    // immediately — nothing queued yet.
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Block everything sent to sales@mycompany.test?"),
+    ).toBeDefined();
+    expect(await listQueuedMutations("acct-1")).toEqual([]);
+
+    await user.click(within(dialog).getByRole("button", { name: "Block alias" }));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "blockSender", sender: { scope: "recipient", value: "sales@mycompany.test" } },
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("A Stranger")).toBeNull());
+  });
+
+  it("Block Alias's confirmation Cancel queues nothing", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender(
+      "held-alias-cancel",
+      "stranger@example.test",
+      "A Stranger",
+      "sales@mycompany.test",
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Block everything sent to sales@mycompany.test"));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await listQueuedMutations("acct-1")).toEqual([]);
+    // The row is still there — nothing was decided.
+    expect(screen.getByText("A Stranger")).toBeDefined();
+  });
+
+  it("disables Block Alias for the Mail Account's own primary address", async () => {
+    const user = userEvent.setup();
+    // `makeMailAccount("acct-1")`'s default `emailAddress` (`test-support/
+    // mail-fixtures.ts`) is exactly this — the address a Blocked Alias may
+    // never silence.
+    await seedOneHeldSender(
+      "held-alias-own",
+      "stranger@example.test",
+      "A Stranger",
+      "acct-1@example.test",
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    const item = await screen.findByText(
+      "Block everything sent to acct-1@example.test — not offered for your own address",
+    );
+    expect(item.closest("[data-disabled]")).not.toBeNull();
+  });
+
+  it("offers no Block Alias item when the held Thread never resolved one", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-no-alias", "stranger@example.test", "A Stranger");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    const item = await screen.findByText("Block everything sent to their Alias");
     expect(item.closest("[data-disabled]")).not.toBeNull();
   });
 });

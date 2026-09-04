@@ -6,7 +6,13 @@ import { folders, messages, threads } from "../db/schema.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
 import { restoreThreadsToInbox } from "../sync/restore-to-inbox.js";
-import { BarredVerdictDomainError, clearVerdict, setVerdict } from "./verdicts.js";
+import {
+  BarredVerdictDomainError,
+  clearVerdict,
+  PrimaryAddressVerdictError,
+  RecipientVerdictMustBeBlockedError,
+  setVerdict,
+} from "./verdicts.js";
 
 /**
  * The Screener's three decisions and the Blocked Senders list's undo (#55,
@@ -77,6 +83,15 @@ export async function denySender(
  * Inbox stays there. ADR-0008's "unblocking is always future-only" has a
  * mirror here — blocking is future-only too, apart from the held Threads
  * this decision is answering.
+ *
+ * `sender` at `scope: "recipient"` (#103) is the Screener's Block-Alias
+ * decision — *Block everything sent to `<alias>`* — reusing this same
+ * function rather than a parallel one: `setVerdict` already refuses it if
+ * the Alias is Approved-adjacent nonsense (not `blocked`) or the Mail
+ * Account's own address, and `trashHeldThreads` below already knows to match
+ * held Threads by their recipient Alias instead of their sender at this
+ * scope. The result is the same "beats even an Approved Sender" effect
+ * CONTEXT.md's Blocked Alias promises, for free.
  */
 export async function blockSender(
   db: Db,
@@ -134,14 +149,14 @@ export async function unblockSender(
 }
 
 /**
- * Undo's own real inverse of Deny *and* Block (#95, ADR-0019) — never a
- * queue cancellation, so this reverses the decision whether or not
- * `denySender`/`blockSender` has already flushed. Clears the Verdict (a
- * no-op for Deny, which never set one) and restores exactly the Threads the
- * Client named — captured at decision time
+ * Undo's own real inverse of Deny, Block, *and* #103's Block-Alias (#95,
+ * ADR-0019) — never a queue cancellation, so this reverses the decision
+ * whether or not `denySender`/`blockSender` has already flushed. Clears the
+ * Verdict (a no-op for Deny, which never set one) and restores exactly the
+ * Threads the Client named — captured at decision time
  * (`ScreenerSenderGroup.threadIds`), since by the time Undo fires this
- * sender may be holding a fresh, unrelated stranger's mail again and
- * re-deriving "what did this decision trash" from the sender alone would
+ * sender (or Alias) may be holding a fresh, unrelated stranger's mail again
+ * and re-deriving "what did this decision trash" from the sender alone would
  * risk sweeping that up too.
  *
  * Restores to the Inbox, never back into the Screener's hold — the same
@@ -164,11 +179,13 @@ export async function unblockAndRestore(
 }
 
 /**
- * Turns a barred domain into a `rejected` outcome rather than a 500. The
- * Client should never have offered a domain button for a public provider, so
- * this is a stale-Client/mistaken-caller path, not a User-facing flow — but
- * a rejection is still the honest answer, and ADR-0010's queue already knows
- * how to stop retrying one.
+ * Turns a barred domain, a non-Blocked recipient Verdict, or a Blocked-Alias
+ * decision naming the Mail Account's own address (#103) into a `rejected`
+ * outcome rather than a 500. The Client should never have offered a button
+ * for any of these — a domain button for a public provider, a Block-Alias
+ * item for the account's own address — so this is a stale-Client/mistaken-
+ * caller path, not a User-facing flow, but a rejection is still the honest
+ * answer, and ADR-0010's queue already knows how to stop retrying one.
  */
 async function withVerdictWrite(apply: () => Promise<void>): Promise<DecisionResult> {
   try {
@@ -178,23 +195,38 @@ async function withVerdictWrite(apply: () => Promise<void>): Promise<DecisionRes
     if (error instanceof BarredVerdictDomainError) {
       return { ok: false, reason: "barred_verdict_domain" };
     }
+    if (error instanceof PrimaryAddressVerdictError) {
+      return { ok: false, reason: "cannot_block_own_address" };
+    }
+    if (error instanceof RecipientVerdictMustBeBlockedError) {
+      return { ok: false, reason: "recipient_verdict_must_be_blocked" };
+    }
     throw error;
   }
 }
 
 /**
- * Every Thread this sender is currently holding. An `address` decision
- * matches the held address exactly; a `domain` decision matches every held
- * address in that domain, which is the whole point of the overflow
- * convenience — one click for the twelve strangers a conference mailing list
- * just sent through.
+ * Every Thread this decision's key is currently holding. An `address`
+ * decision matches the held sender exactly; a `domain` decision matches
+ * every held sender in that domain, which is the whole point of the
+ * overflow convenience — one click for the twelve strangers a conference
+ * mailing list just sent through. A `recipient` decision (#103's Block
+ * Alias) matches on an entirely different column — `heldRecipientAlias`, not
+ * `heldSender` — because it is answering "what arrived at this Alias",
+ * never "who sent it".
  *
  * `like` with an escaped `@domain` suffix rather than a computed column: the
  * held set is a handful of rows behind a partial index (`db/schema.ts`), so
  * there is nothing here worth denormalizing a domain column for.
  */
-function heldBySender(mailAccountId: string, sender: GatekeeperSender) {
+function heldByGatekeeperKey(mailAccountId: string, sender: GatekeeperSender) {
   const normalized = normalizeGatekeeperSender(sender);
+  if (normalized.scope === "recipient") {
+    return and(
+      eq(threads.mailAccountId, mailAccountId),
+      eq(threads.heldRecipientAlias, normalized.value),
+    );
+  }
   return and(
     eq(threads.mailAccountId, mailAccountId),
     normalized.scope === "address"
@@ -220,8 +252,8 @@ async function releaseHeldThreads(
 ): Promise<string[]> {
   const released = await db
     .update(threads)
-    .set({ heldSender: null, heldAt: null })
-    .where(heldBySender(mailAccountId, sender))
+    .set({ heldSender: null, heldAt: null, heldRecipientAlias: null })
+    .where(heldByGatekeeperKey(mailAccountId, sender))
     .returning({ id: threads.id });
   return released.map((row) => row.id);
 }
@@ -250,7 +282,7 @@ async function trashHeldThreads(
   const held = await db
     .select({ id: threads.id })
     .from(threads)
-    .where(heldBySender(mailAccountId, sender));
+    .where(heldByGatekeeperKey(mailAccountId, sender));
   if (held.length === 0) return;
   const heldThreadIds = held.map((row) => row.id);
 
@@ -271,6 +303,12 @@ async function trashHeldThreads(
 
   await db
     .update(threads)
-    .set({ heldSender: null, heldAt: null, inInbox: false, folderRole: target })
+    .set({
+      heldSender: null,
+      heldAt: null,
+      heldRecipientAlias: null,
+      inInbox: false,
+      folderRole: target,
+    })
     .where(inArray(threads.id, heldThreadIds));
 }

@@ -460,6 +460,15 @@ export const threads = pgTable(
     // only writer, the same way `inInbox`/`pinned` belong to
     // `sync/mutations.ts` alone.
     heldSender: text("held_sender"),
+    // The recipient Alias (#103, CONTEXT.md) this hold's opening message
+    // resolved to at ingest — `gatekeeper/alias.ts#resolveRecipientAlias`'s
+    // output, copied here the same instant `heldSender`/`heldAt` are set
+    // (`gatekeeper/screening.ts#screenArrivals`), null whenever they are.
+    // What `gatekeeper/decisions.ts`'s Block-Alias decision matches held
+    // Threads against, the recipient-scoped sibling of `heldBySender`'s
+    // `heldSender` match — never written by the rollup, only by Gatekeeper,
+    // same as `heldSender` itself.
+    heldRecipientAlias: text("held_recipient_alias"),
     heldAt: timestamp("held_at", { withTimezone: true }),
     // Snooze (#76, CONTEXT.md): the instant this Thread wakes, or null when
     // it isn't snoozed. An App Feature, `sync/mutations.ts`'s own field
@@ -487,6 +496,12 @@ export const threads = pgTable(
     index("threads_held_sender_idx")
       .on(table.mailAccountId, table.heldSender)
       .where(sql`${table.heldSender} is not null`),
+    // #103's Block-Alias decision's own query: "whatever is currently held
+    // for this Alias" — the same partial-index reasoning as
+    // `threads_held_sender_idx` above, keyed to the Alias instead.
+    index("threads_held_recipient_alias_idx")
+      .on(table.mailAccountId, table.heldRecipientAlias)
+      .where(sql`${table.heldRecipientAlias} is not null`),
     // The Snooze wake sweep's own query (#76, `sync/snooze.ts`): partial for
     // the same reason `threads_held_sender_idx` above is — a snoozed Thread
     // is a rounding error against an 80k-thread account, and the sweep only
@@ -718,6 +733,17 @@ export const messages = pgTable(
     toAddresses: jsonb("to_addresses").$type<MessageAddress[]>().notNull().default([]),
     ccAddresses: jsonb("cc_addresses").$type<MessageAddress[]>().notNull().default([]),
     replyToAddresses: jsonb("reply_to_addresses").$type<MessageAddress[]>().notNull().default([]),
+    /**
+     * The Alias (#103, CONTEXT.md) this message arrived at, resolved once at
+     * ingest by `gatekeeper/alias.ts#resolveRecipientAlias`: `Delivered-To`,
+     * then `X-Original-To`, then the first of `toAddresses`/`ccAddresses` at
+     * the Mail Account's own domain — null when nothing on the message named
+     * one. Stored per message, not derived on read, because the headers
+     * (`Delivered-To`/`X-Original-To`) that make it trustworthy for a
+     * Bcc'd-to-a-catch-all stranger only ever exist on the wire at ingest
+     * time. `sync/ingest.ts#storeMessage` is the only writer.
+     */
+    recipientAlias: text("recipient_alias"),
 
     /** The `Date` header, falling back to INTERNALDATE when the sender omitted or mangled it. */
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
@@ -1019,8 +1045,13 @@ export const gatekeeperVerdicts = pgTable(
     mailAccountId: text("mail_account_id")
       .notNull()
       .references(() => mailAccounts.id, { onDelete: "cascade" }),
-    scope: text("scope", { enum: ["address", "domain"] }).notNull(),
-    /** A normalized address (plus tag intact) or a bare domain — `@mail/shared`'s `normalizeSenderAddress`. */
+    // `recipient` (#103, CONTEXT.md's Blocked Alias, ADR-0008's amendment):
+    // the third scope, keyed not to a sender but to an Alias of the Mail
+    // Account's own that mail arrived at. `gatekeeper/verdicts.ts#setVerdict`
+    // is the one place that enforces it can only ever carry `verdict:
+    // 'blocked'` — there is no Approved Alias.
+    scope: text("scope", { enum: ["address", "domain", "recipient"] }).notNull(),
+    /** A normalized address (plus tag intact), a bare domain, or a normalized Alias address for `recipient` scope — `@mail/shared`'s `normalizeSenderAddress`. */
     value: text("value").notNull(),
     verdict: text("verdict", { enum: ["approved", "blocked"] }).notNull(),
     // Spam (#102, CONTEXT.md, ADR-0008 amendment): only ever meaningful

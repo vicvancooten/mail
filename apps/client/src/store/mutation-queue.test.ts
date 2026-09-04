@@ -201,6 +201,46 @@ describe("enqueueMutation", () => {
     expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
   });
 
+  it("cancels a still-queued Block-Alias decision the same way, keyed to the Alias rather than a sender (#103)", async () => {
+    await enqueueMutation(
+      { type: "blockSender", sender: { scope: "recipient", value: "sales@mycompany.test" } },
+      ACCOUNT,
+    );
+    const secondId = await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "recipient", value: "Sales@MyCompany.test" },
+        threadIds: ["t1"],
+      },
+      ACCOUNT,
+    );
+
+    expect(secondId).toBeNull();
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+  });
+
+  it("never lets a Block-Alias decision cancel an address-scoped Block of the same value (#103)", async () => {
+    await enqueueMutation(
+      { type: "blockSender", sender: { scope: "address", value: "sales@mycompany.test" } },
+      ACCOUNT,
+    );
+    const secondId = await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "recipient", value: "sales@mycompany.test" },
+        threadIds: ["t1"],
+      },
+      ACCOUNT,
+    );
+
+    // Different scopes are different buckets — the address Block is untouched.
+    expect(secondId).not.toBeNull();
+    expect((await listQueuedMutations(ACCOUNT)).map((m) => m.intent.type)).toEqual([
+      "blockSender",
+      "unblockAndRestore",
+    ]);
+  });
+
   it("exempts every Thread unblockAndRestore names, not just one, from eviction (#95)", async () => {
     const id = await enqueueMutation(
       {

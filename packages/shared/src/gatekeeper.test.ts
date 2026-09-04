@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  gatekeeperScopeSchema,
   gatekeeperVerdictId,
   isBarredVerdictDomain,
   normalizeGatekeeperSender,
@@ -41,6 +42,12 @@ describe("isBarredVerdictDomain", () => {
 
   it("allows an ordinary organisation domain", () => {
     expect(isBarredVerdictDomain("a-insights.eu")).toBe(false);
+  });
+});
+
+describe("gatekeeperScopeSchema", () => {
+  it("admits recipient alongside address and domain (#103's Blocked Alias)", () => {
+    expect(gatekeeperScopeSchema.safeParse("recipient").success).toBe(true);
   });
 });
 

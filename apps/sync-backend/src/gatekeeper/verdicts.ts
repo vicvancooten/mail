@@ -13,12 +13,13 @@ import {
 import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, gatekeeperVerdicts, messages } from "../db/schema.js";
+import { getMailAccountById } from "../mail-accounts/store.js";
 
 /**
  * The Verdict store (#55, CONTEXT.md §Gatekeeper): reading where a sender
  * stands on one Mail Account, and every path that writes it.
  *
- * Two rules are enforced here and nowhere else, so no caller can get them
+ * Three rules are enforced here and nowhere else, so no caller can get them
  * wrong:
  *
  * - **Address beats domain** (poc-spec.md). A `blocked` domain with an
@@ -29,6 +30,12 @@ import { folders, gatekeeperVerdicts, messages } from "../db/schema.js";
  *   ignored again at read time: a row that somehow exists — hand-inserted,
  *   or written before a domain joined the list — must not start approving a
  *   billion strangers.
+ * - **A `recipient` (Alias) Verdict is always Blocked, and never the Mail
+ *   Account's own primary address** (#103, CONTEXT.md's Blocked Alias). The
+ *   first refusal is what makes "no Approved Alias" true regardless of what
+ *   a caller passes; the second is the ticket's own "refuse when the Alias
+ *   equals the Mail Account's primary address" — a User cannot silence their
+ *   own inbox.
  *
  * Unscreened is the absence of a row (see `db/schema.ts`), so nothing here
  * ever *stores* `unscreened`; clearing a Verdict is a delete.
@@ -147,10 +154,67 @@ export function verdictFor(
   return resolved.get(normalizeSenderAddress(address)) ?? UNSCREENED;
 }
 
+/**
+ * A batch of recipient Aliases' Verdicts (#103), resolved in one round trip
+ * the same "batch, not per-message" shape `resolveVerdicts` gives senders —
+ * but a **sibling**, not a branch inside it: a recipient Verdict answers a
+ * different question ("did this arrive at an Alias the User has given up
+ * on?") that knows nothing about who sent the message, has no
+ * address-beats-domain precedence to apply, and is Blocked-only, so there is
+ * no `ResolvedVerdict` shape to build — just the set of Aliases, among the
+ * ones asked about, that are currently Blocked.
+ *
+ * `gatekeeper/screening.ts#screenArrivals` is the one caller: it checks this
+ * set *before* `resolveVerdicts`' sender resolution, because a Blocked Alias
+ * "beats everything, including an Approved Sender" (CONTEXT.md) — the two
+ * lookups never get to disagree, because the recipient one is asked first.
+ */
+export async function resolveBlockedAliases(
+  db: Db,
+  mailAccountId: string,
+  aliases: readonly (string | null)[],
+): Promise<Set<string>> {
+  const normalized = [
+    ...new Set(
+      aliases.filter((alias): alias is string => alias !== null).map(normalizeSenderAddress),
+    ),
+  ];
+  if (normalized.length === 0) return new Set();
+
+  const rows = await db
+    .select({ value: gatekeeperVerdicts.value })
+    .from(gatekeeperVerdicts)
+    .where(
+      and(
+        eq(gatekeeperVerdicts.mailAccountId, mailAccountId),
+        eq(gatekeeperVerdicts.scope, "recipient"),
+        eq(gatekeeperVerdicts.verdict, "blocked"),
+        inArray(gatekeeperVerdicts.value, normalized),
+      ),
+    );
+  return new Set(rows.map((row) => row.value));
+}
+
 export class BarredVerdictDomainError extends Error {
   constructor(readonly domain: string) {
     super(`${domain} is a public provider — a domain verdict there says nothing about a sender`);
     this.name = "BarredVerdictDomainError";
+  }
+}
+
+/** A `recipient`-scoped Verdict was asked to be anything but `blocked` (#103: "Blocked only — no Approved Alias"). */
+export class RecipientVerdictMustBeBlockedError extends Error {
+  constructor(readonly alias: string) {
+    super(`${alias} is a recipient Alias — Gatekeeper only ever blocks one, never approves it`);
+    this.name = "RecipientVerdictMustBeBlockedError";
+  }
+}
+
+/** A `recipient`-scoped Verdict named the Mail Account's own primary address (#103's own refusal). */
+export class PrimaryAddressVerdictError extends Error {
+  constructor(readonly address: string) {
+    super(`${address} is this Mail Account's own address — Gatekeeper cannot block it`);
+    this.name = "PrimaryAddressVerdictError";
   }
 }
 
@@ -162,14 +226,18 @@ export class BarredVerdictDomainError extends Error {
  * answer than an old seed, so it overwrites rather than being absorbed.
  *
  * Throws `BarredVerdictDomainError` for a domain Verdict on a public
- * provider. A throw rather than a silent skip: every caller has a User-facing
- * way to say no (a rejected mutation, a 400), and silently doing nothing
- * would leave a Screener row looking decided when it isn't.
+ * provider, `RecipientVerdictMustBeBlockedError` for a `recipient`-scoped
+ * Verdict that isn't `blocked`, and `PrimaryAddressVerdictError` for a
+ * `recipient`-scoped Verdict naming the Mail Account's own address (#103) —
+ * a throw rather than a silent skip in every case: every caller has a
+ * User-facing way to say no (a rejected mutation, a 400), and silently doing
+ * nothing would leave a Screener row looking decided when it isn't.
  *
  * `spam` (#102) is only ever meaningful alongside `verdict: "blocked"` —
  * `spamSender` (`gatekeeper/decisions.ts`) is the only caller that passes
  * `true`; every other caller's `false` default keeps a plain Block from
- * accidentally routing to Junk.
+ * accidentally routing to Junk. Nothing calls `spamSender` with `recipient`
+ * scope — Blocked Alias mirrors a plain Block, never Spam.
  */
 export async function setVerdict(
   db: Db,
@@ -182,6 +250,15 @@ export async function setVerdict(
   const value = normalizeSenderAddress(sender.value);
   if (sender.scope === "domain" && isBarredVerdictDomain(value)) {
     throw new BarredVerdictDomainError(value);
+  }
+  if (sender.scope === "recipient") {
+    if (verdict !== "blocked") {
+      throw new RecipientVerdictMustBeBlockedError(value);
+    }
+    const account = await getMailAccountById(db, mailAccountId);
+    if (account && normalizeSenderAddress(account.emailAddress) === value) {
+      throw new PrimaryAddressVerdictError(value);
+    }
   }
   const now = new Date();
   await db

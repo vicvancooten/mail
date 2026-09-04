@@ -116,6 +116,42 @@ describe("readScreenerSenders", () => {
     expect(groups[0]?.heldSince).toBe(minutesAfterEpoch(1));
   });
 
+  it("carries the peek Thread's Alias and the account's own primary address, for Block Alias (#103)", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount(ACCOUNT, { emailAddress: "me@mycompany.test" })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        created: [
+          makeThread("t1", ACCOUNT, {
+            heldSender: "stranger@example.test",
+            heldRecipientAlias: "sales@mycompany.test",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const groups = await screenerSenders(ACCOUNT);
+    expect(groups[0]?.alias).toBe("sales@mycompany.test");
+    expect(groups[0]?.accountEmail).toBe("me@mycompany.test");
+  });
+
+  it("carries a null Alias when the held Thread never resolved one", async () => {
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        created: [makeThread("t1", ACCOUNT, { heldSender: "stranger@example.test" })],
+      }),
+      { replace: false },
+    );
+
+    const groups = await screenerSenders(ACCOUNT);
+    expect(groups[0]?.alias).toBeNull();
+  });
+
   it("drops a sender's row the instant a decision is queued for them", async () => {
     await applyThreadDelta(
       ACCOUNT,

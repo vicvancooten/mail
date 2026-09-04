@@ -1,4 +1,4 @@
-import { isBarredVerdictDomain, senderDomain } from "@mail/shared";
+import { isBarredVerdictDomain, normalizeSenderAddress, senderDomain } from "@mail/shared";
 import { Ban, Check, ChevronDown, X } from "lucide-react";
 import {
   DropdownMenu,
@@ -15,12 +15,20 @@ import type { ScreenerSenderGroup } from "../../store/index.js";
  * drift apart on what a decision does or how it reads.
  *
  * Block is a `DropdownMenu` (full shadcn, no hand-rolled popover) rather than
- * three flat buttons: *Block sender* stays the one-click default — the split
- * button's own face — while *Block domain* and *Mark as spam* sit behind the
- * chevron as the deliberate extra click #102's grill decision asks for
- * (CONTEXT.md's Spam: "the two claims ... are different, and only the User
- * can tell them apart"). Deny stays its own plain button beside them — it is
- * not a Verdict (the ticket's own words), so it never joins Block's menu.
+ * four flat buttons: *Block sender* stays the one-click default — the split
+ * button's own face — while *Block domain*, *Mark as spam*, and #103's
+ * *Block everything sent to `<alias>`* sit behind the chevron as the
+ * deliberate extra click #102's grill decision asks for (CONTEXT.md's Spam:
+ * "the two claims ... are different, and only the User can tell them
+ * apart"; the same reasoning is why Block Alias — "beats even an Approved
+ * Sender" — is never the default either). Deny stays its own plain button
+ * beside them — it is not a Verdict (the ticket's own words), so it never
+ * joins Block's menu.
+ *
+ * `onBlockAlias` fires only from a confirmation (`BlockAliasDialog.tsx`,
+ * #103's own "behind a confirmation that names the exact Alias") — this
+ * component never asks the Alias question directly, it only offers the menu
+ * item that opens that confirmation.
  */
 export function ScreenerActions({
   group,
@@ -29,6 +37,7 @@ export function ScreenerActions({
   onBlock,
   onBlockDomain,
   onSpam,
+  onBlockAlias,
 }: {
   group: ScreenerSenderGroup;
   onApprove: () => void;
@@ -36,6 +45,7 @@ export function ScreenerActions({
   onBlock: () => void;
   onBlockDomain: () => void;
   onSpam: () => void;
+  onBlockAlias: () => void;
 }) {
   const domain = senderDomain(group.address);
   // The barred-public-provider refusal (ADR-0008, `gatekeeper.ts`'s
@@ -44,6 +54,13 @@ export function ScreenerActions({
   // the Sync Backend still refuses it either way if a stale Client somehow
   // sends it anyway (`RollbackToast.tsx`'s `spamSender`/`blockSender` cases).
   const domainBlockable = domain !== null && !isBarredVerdictDomain(domain);
+  // #103's own refusal, mirrored client-side for the same reason: an Alias
+  // this Thread never resolved, or one that turns out to be the Mail
+  // Account's own address, gets a disabled item rather than a button whose
+  // only possible answer is a rejection.
+  const aliasBlockable =
+    group.alias !== null &&
+    normalizeSenderAddress(group.alias) !== normalizeSenderAddress(group.accountEmail);
 
   return (
     <div className="screener-row-actions">
@@ -81,6 +98,17 @@ export function ScreenerActions({
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onSelect={onSpam}>
               Mark as spam
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={!aliasBlockable}
+              onSelect={onBlockAlias}
+            >
+              {aliasBlockable
+                ? `Block everything sent to ${group.alias}`
+                : group.alias
+                  ? `Block everything sent to ${group.alias} — not offered for your own address`
+                  : "Block everything sent to their Alias"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

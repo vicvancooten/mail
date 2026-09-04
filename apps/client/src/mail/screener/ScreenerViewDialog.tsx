@@ -38,6 +38,7 @@ export function ScreenerViewDialog({
   onBlock,
   onBlockDomain,
   onSpam,
+  onBlockAlias,
 }: {
   /** `null` closes the dialog — also what a decision made from inside it resolves to, see the doc comment above. */
   group: ScreenerSenderGroup | null;
@@ -47,6 +48,7 @@ export function ScreenerViewDialog({
   onBlock: () => void;
   onBlockDomain: () => void;
   onSpam: () => void;
+  onBlockAlias: () => void;
 }) {
   const displayName = group ? (group.name ?? group.address) : "";
 
@@ -72,6 +74,7 @@ export function ScreenerViewDialog({
                 onBlock={onBlock}
                 onBlockDomain={onBlockDomain}
                 onSpam={onSpam}
+                onBlockAlias={onBlockAlias}
               />
             </DialogHeader>
             <div className="screener-view-threads">

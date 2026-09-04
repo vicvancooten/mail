@@ -23,6 +23,7 @@ function makeThread(id: string, lastMessageAt: string): CachedThread {
     pinned: false,
     labelIds: [],
     heldSender: null,
+    heldRecipientAlias: null,
     snoozeUntil: null,
     updatedAt: lastMessageAt,
     sortKey: `${lastMessageAt}|${id}`,

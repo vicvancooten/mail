@@ -127,6 +127,20 @@ export const threadSchema = z.object({
    */
   heldSender: z.string().nullable(),
   /**
+   * The Alias (CONTEXT.md) this held Thread's opening message resolved to at
+   * ingest — `Delivered-To`/`X-Original-To`/`To`+`Cc`, whichever first named
+   * an address at the Mail Account's own domain (#103,
+   * `gatekeeper/alias.ts#resolveRecipientAlias` in the Sync Backend) — or
+   * `null` when nothing on the message did. `null` whenever `heldSender` is,
+   * for the same reason: a hold only ever exists for a message that started
+   * a Thread, so there is exactly one recipient Alias to name.
+   *
+   * What the Screener's Block split menu reads to offer *Block everything
+   * sent to `<alias>`* (#103) — a fourth, recipient-scoped Verdict alongside
+   * `heldSender`'s address/domain ones, beating even an Approved Sender.
+   */
+  heldRecipientAlias: z.string().nullable(),
+  /**
    * Snooze (#76, CONTEXT.md: "hiding a thread until a chosen time, after
    * which it returns as new"): the instant this Thread wakes, or `null` when
    * it isn't snoozed. An App Feature (ADR-0006) with zero IMAP-side trace —
@@ -402,7 +416,12 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  *   **Unscreened** — the next message from them is held again.
  * - `blockSender` trashes them and records a Blocked Verdict, after which
  *   every future arrival is moved to the real `\\Trash` folder on arrival
- *   (ADR-0008). It is the sole off-switch for an Approved sender.
+ *   (ADR-0008). It is the sole off-switch for an Approved sender. `sender`
+ *   is usually `address`/`domain`-scoped, but #103's Blocked Alias rides the
+ *   same intent at `scope: "recipient"` — the Screener's *Block everything
+ *   sent to `<alias>`* — with one difference: it names a Thread's recipient
+ *   Alias, not its sender, and it is refused (`rejected`, same shape as a
+ *   barred domain) if that Alias is the Mail Account's own primary address.
  * - `spamSender` (#102, CONTEXT.md's Spam, ADR-0008's amendment) does exactly
  *   what `blockSender` does, plus one thing: held and future mail move to the
  *   Mail Account's Junk folder instead of Trash, so the provider's own filter
@@ -428,12 +447,16 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * Pin's own toggle works: no protocol write, just the Thread row. Both name
  * one Thread, exactly like the actions they reverse, which is what lets
  * `store/mutation-queue.ts`'s coalescer cancel a still-queued original for
- * free. `unblockAndRestore` undoes Deny *or* Block: `sender` is who the
+ * free. `unblockAndRestore` undoes Deny, Block, **or** #103's Block-Alias:
+ * `sender` is who (or, at `scope: "recipient"`, which Alias) the
  * Verdict-clear targets (a no-op for Deny, which left none), and
  * `threadIds` — captured by the Client at decision time, the same way
  * `ScreenerSenderGroup.threadIds` already is — names exactly the Threads
- * that decision trashed, since by the time Undo fires the sender may be
- * holding a fresh, unrelated stranger's mail again.
+ * that decision trashed, since by the time Undo fires the sender (or Alias)
+ * may be holding a fresh, unrelated stranger's mail again. The payload grows
+ * no new field for Block-Alias: `sender` at `scope: "recipient"` is already
+ * what `blockSender` used to create the Verdict, so undoing it is the exact
+ * same `clearVerdict` call `address`/`domain` scopes already get.
  *
  * `discardComposition`/`undiscardComposition` (#101, ADR-0012's "deletion is
  * asymmetric") are Delete's own pair, the same shape `sendComposition`/

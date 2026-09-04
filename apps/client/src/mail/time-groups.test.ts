@@ -36,6 +36,7 @@ function thread(
     pinned: false,
     labelIds: [],
     heldSender: null,
+    heldRecipientAlias: null,
     snoozeUntil: null,
     updatedAt: lastMessageAt ?? "2026-01-01T00:00:00.000Z",
     sortKey: `${lastMessageAt ?? "0000-01-01T00:00:00.000Z"}|${id}`,

@@ -5,7 +5,7 @@ import { folders, messages } from "../db/schema.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
 import { handleNewArrivals } from "./arrivals.js";
 import type { FolderRow } from "./folders.js";
-import { applyUidValidity, ingestFolder, storeMessage } from "./ingest.js";
+import { applyUidValidity, INGEST_HEADERS, ingestFolder, storeMessage } from "./ingest.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { deleteEmptyThreads } from "./threading.js";
 
@@ -139,6 +139,11 @@ export async function applyFolderDelta(
     .filter((uid) => uid >= previousUidNext && !storedByUid.has(uid))
     .sort((left, right) => right - left);
   if (newUids.length > 0) {
+    // Read once for the whole batch, ahead of the FETCH: #103's Alias
+    // resolution needs it per message (`storeMessage`), and the existing
+    // Gatekeeper + Notifier hook below needs it too — one lookup serves both
+    // rather than two.
+    const account = await getMailAccountById(db, folder.mailAccountId);
     const fetched = await client.fetchAll(
       newUids,
       {
@@ -148,7 +153,7 @@ export async function applyFolderDelta(
         internalDate: true,
         size: true,
         bodyStructure: true,
-        headers: ["references"],
+        headers: [...INGEST_HEADERS],
       },
       { uid: true },
     );
@@ -159,7 +164,13 @@ export async function applyFolderDelta(
     for (const uid of newUids) {
       const message = byUid.get(uid);
       if (!message) continue; // vanished between the UID listing and this fetch
-      const newlyStored = await storeMessage(db, folder, uidValidity, message);
+      const newlyStored = await storeMessage(
+        db,
+        folder,
+        uidValidity,
+        message,
+        account?.emailAddress ?? "",
+      );
       affectedThreadIds.add(newlyStored.threadId);
       createdMessageIds.push(newlyStored.id);
       created += 1;
@@ -167,12 +178,9 @@ export async function applyFolderDelta(
     // The Gatekeeper + Notifier hook (#55, #53, ADR-0015): this loop is
     // exactly "arrived via IDLE/delta on an already-live folder" — the
     // backfill/UIDVALIDITY-rebuild branch above returns before reaching here,
-    // so nothing from that path is ever screened or notified. Skipped
-    // entirely when nothing was created, so the ordinary no-op delta pass
-    // never pays for the account lookup below.
-    if (createdMessageIds.length > 0) {
-      const account = await getMailAccountById(db, folder.mailAccountId);
-      if (account) await handleNewArrivals(db, folder, account, createdMessageIds);
+    // so nothing from that path is ever screened or notified.
+    if (createdMessageIds.length > 0 && account) {
+      await handleNewArrivals(db, folder, account, createdMessageIds);
     }
   }
 

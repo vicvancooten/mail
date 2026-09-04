@@ -45,6 +45,7 @@ export function makeThread(
     pinned: false,
     labelIds: [],
     heldSender: null,
+    heldRecipientAlias: null,
     snoozeUntil: null,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,

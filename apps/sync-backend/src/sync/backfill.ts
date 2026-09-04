@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders } from "../db/schema.js";
+import { getMailAccountById } from "../mail-accounts/store.js";
 import { type FolderRow, listSelectableFolders } from "./folders.js";
 import { applyUidValidity, fetchAndStoreSequenceBatch } from "./ingest.js";
 
@@ -99,12 +100,16 @@ export interface BackfillBatchResult {
  * its persisted cursor — safe to call again after a crash or restart with
  * no argument telling it where it left off, because that's exactly what
  * `folder.backfillCursorSeq` is for.
+ *
+ * `mailAccountEmailAddress` (#103) rides straight through to
+ * `fetchAndStoreSequenceBatch` — see that function's own doc comment.
  */
 export async function runBackfillBatch(
   db: Db,
   client: ImapFlow,
   folder: FolderRow,
   batchSize = DEFAULT_BATCH_SIZE,
+  mailAccountEmailAddress = "",
 ): Promise<BackfillBatchResult> {
   if (
     folder.backfillComplete ||
@@ -171,7 +176,14 @@ export async function runBackfillBatch(
     // redesign of this walk for the PoC.
     const high = Math.min(folder.backfillCursorSeq, mailbox.exists);
     const low = Math.max(1, high - batchSize + 1);
-    const batch = await fetchAndStoreSequenceBatch(db, client, folder, uidValidity, { low, high });
+    const batch = await fetchAndStoreSequenceBatch(
+      db,
+      client,
+      folder,
+      uidValidity,
+      { low, high },
+      mailAccountEmailAddress,
+    );
 
     const done = low <= 1;
     await db
@@ -217,6 +229,11 @@ export interface AccountBackfillOptions {
  * resumes each folder exactly where its own cursor left off, and a folder
  * created after this call started (a poll discovering a new mailbox) is
  * picked up without a separate signal.
+ *
+ * Reads the account's own `emailAddress` once, up front (#103) — not on
+ * every batch — and hands it to every `runBackfillBatch` call for the Alias
+ * resolution `fetchAndStoreSequenceBatch` does per message; the address
+ * never changes mid-run, so one lookup for the whole walk is enough.
  */
 export async function runAccountBackfill(
   db: Db,
@@ -226,13 +243,14 @@ export async function runAccountBackfill(
 ): Promise<void> {
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const pauseMs = options.pauseMs ?? DEFAULT_PAUSE_MS;
+  const account = await getMailAccountById(db, mailAccountId);
 
   while (!options.isStopped()) {
     const live = await listSelectableFolders(db, mailAccountId);
     const target = live.find((folder) => !folder.backfillComplete);
     if (!target) return; // every folder's history is in — this account's backfill is done
 
-    await runBackfillBatch(db, client, target, batchSize);
+    await runBackfillBatch(db, client, target, batchSize, account?.emailAddress ?? "");
     if (options.isStopped()) return;
     await sleep(pauseMs, options.stopSignal);
   }

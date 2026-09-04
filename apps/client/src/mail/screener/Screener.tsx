@@ -12,6 +12,7 @@ import { ActionMenu } from "../actions/ActionMenu.js";
 import { useActions } from "../actions/ActionsProvider.js";
 import { withScreenerSender } from "../actions/types.js";
 import { announceUndoableAction } from "../undo-toast.js";
+import { BlockAliasDialog } from "./BlockAliasDialog.js";
 import { ScreenerActions } from "./ScreenerActions.js";
 import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
 
@@ -42,6 +43,12 @@ import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
  * through the ordinary sandboxed reader with images blocked and links inert
  * — see that module's own doc comment for how deciding from inside it closes
  * the dialog for free.
+ *
+ * #103's Block Alias rides the same split menu, `{scope: "recipient"}`
+ * instead of `{scope: "domain"}` — but it is the one entry that doesn't
+ * decide on select: it opens `BlockAliasDialog`'s confirmation first (the
+ * ticket's own "behind a confirmation that names the exact Alias"), and only
+ * `confirmBlockAlias` below actually calls `decide`.
  *
  * No `useTriage` here — the Inbox's actions (archive, star, ...) mean
  * nothing to a sender the User has never let through the gate yet, so this
@@ -110,6 +117,17 @@ export function Screener({
    */
   const [viewingKey, setViewingKey] = useState<string | null>(null);
   const viewingGroup = groups.find((group) => rowKey(group) === viewingKey) ?? null;
+
+  /**
+   * Block Alias's own confirmation target (#103) — the same live-lookup row
+   * key `viewingKey` uses just above, for the same reason: if a decision
+   * lands on this sender from elsewhere while the confirmation is open (the
+   * View dialog's own actions, a keyboard shortcut), the row disappears out
+   * from under it and `BlockAliasDialog` closes for free rather than
+   * confirming against a group that no longer exists.
+   */
+  const [confirmingAliasKey, setConfirmingAliasKey] = useState<string | null>(null);
+  const confirmingAliasGroup = groups.find((group) => rowKey(group) === confirmingAliasKey) ?? null;
 
   /**
    * `sender` overrides the default address-scoped target (#102's Block
@@ -221,6 +239,22 @@ export function Screener({
     if (domain) decide("blockSender", group, { scope: "domain", value: domain });
   }
 
+  /** Block Alias (#103): opens the confirmation rather than deciding directly — see `confirmingAliasKey`'s own doc comment. */
+  function blockAlias(group: ScreenerSenderGroup): void {
+    if (group.alias) setConfirmingAliasKey(rowKey(group));
+  }
+
+  /** The confirmation's own Confirm button: only now does Block Alias actually decide, `{scope: "recipient"}` naming the Alias itself. */
+  function confirmBlockAlias(): void {
+    if (confirmingAliasGroup?.alias) {
+      decide("blockSender", confirmingAliasGroup, {
+        scope: "recipient",
+        value: confirmingAliasGroup.alias,
+      });
+    }
+    setConfirmingAliasKey(null);
+  }
+
   return (
     <section className="screener" aria-label="Screener">
       <div className="screener-header">
@@ -253,6 +287,7 @@ export function Screener({
                     onBlock={() => decide("blockSender", group)}
                     onBlockDomain={() => blockDomain(group)}
                     onSpam={() => decide("spamSender", group)}
+                    onBlockAlias={() => blockAlias(group)}
                   />
                 ))}
               </ul>
@@ -271,6 +306,7 @@ export function Screener({
               onBlock={() => {}}
               onBlockDomain={() => {}}
               onSpam={() => {}}
+              onBlockAlias={() => {}}
             />
           ))}
         </ul>
@@ -290,6 +326,12 @@ export function Screener({
         onBlock={() => viewingGroup && decide("blockSender", viewingGroup)}
         onBlockDomain={() => viewingGroup && blockDomain(viewingGroup)}
         onSpam={() => viewingGroup && decide("spamSender", viewingGroup)}
+        onBlockAlias={() => viewingGroup && blockAlias(viewingGroup)}
+      />
+      <BlockAliasDialog
+        group={confirmingAliasGroup}
+        onConfirm={confirmBlockAlias}
+        onClose={() => setConfirmingAliasKey(null)}
       />
     </section>
   );
@@ -314,6 +356,7 @@ function ScreenerRow({
   onBlock,
   onBlockDomain,
   onSpam,
+  onBlockAlias,
 }: {
   group: ScreenerSenderGroup;
   selected: boolean;
@@ -326,6 +369,7 @@ function ScreenerRow({
   onBlock: () => void;
   onBlockDomain: () => void;
   onSpam: () => void;
+  onBlockAlias: () => void;
 }) {
   const displayName = group.name ?? group.address;
   const actions = useActions();
@@ -372,6 +416,7 @@ function ScreenerRow({
               onBlock={onBlock}
               onBlockDomain={onBlockDomain}
               onSpam={onSpam}
+              onBlockAlias={onBlockAlias}
             />
           </>
         )}

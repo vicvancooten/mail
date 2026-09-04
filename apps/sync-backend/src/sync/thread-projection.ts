@@ -23,6 +23,7 @@ export function toWireThread(row: ThreadRow): Thread {
     pinned: row.pinned,
     labelIds: row.labelIds,
     heldSender: row.heldSender,
+    heldRecipientAlias: row.heldRecipientAlias,
     snoozeUntil: row.snoozeUntil?.toISOString() ?? null,
     updatedAt: row.updatedAt.toISOString(),
   };

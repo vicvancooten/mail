@@ -23,6 +23,7 @@ function makeThread(overrides: Partial<CachedThread> = {}): CachedThread {
     pinned: false,
     labelIds: [],
     heldSender: null,
+    heldRecipientAlias: null,
     snoozeUntil: null,
     updatedAt: "2026-06-25T09:00:00.000Z",
     sortKey: "2026-06-25T09:00:00.000Z|t1",

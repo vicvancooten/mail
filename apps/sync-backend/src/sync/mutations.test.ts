@@ -655,6 +655,42 @@ describe("flushMutations — the Gatekeeper decisions (#55)", () => {
     expect((await resolveVerdict(db, account.id, "spammer@example.test")).verdict).toBe("blocked");
   });
 
+  it("blocks an Alias (#103) — trashes what it's holding and refuses the Mail Account's own address", async () => {
+    const threadId = await seedThread();
+    await db
+      .update(threads)
+      .set({
+        heldSender: "stranger@example.test",
+        heldRecipientAlias: "sales@mycompany.test",
+        heldAt: new Date(),
+      })
+      .where(eq(threads.id, threadId));
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01ALIAS",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "recipient", value: "sales@mycompany.test" },
+        },
+      },
+      {
+        id: "01ALIASOWN",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "recipient", value: account.emailAddress },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01ALIAS", status: "applied" },
+      { id: "01ALIASOWN", status: "rejected", reason: "cannot_block_own_address" },
+    ]);
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+    expect((await threadRow(threadId))?.heldRecipientAlias).toBeNull();
+  });
+
   it("unblocks back to Unscreened, never to Approved", async () => {
     await flushMutations(db, account.id, [
       {

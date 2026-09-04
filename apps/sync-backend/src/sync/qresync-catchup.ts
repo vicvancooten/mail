@@ -6,7 +6,7 @@ import { getMailAccountById } from "../mail-accounts/store.js";
 import { handleNewArrivals } from "./arrivals.js";
 import { type FolderDeltaResult, flagsDiffer } from "./delta.js";
 import type { FolderRow } from "./folders.js";
-import { storeMessage } from "./ingest.js";
+import { INGEST_HEADERS, storeMessage } from "./ingest.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { deleteEmptyThreads } from "./threading.js";
 
@@ -93,6 +93,11 @@ export async function attemptQresyncCatchup(
   // range rather than trusting `mailbox.exists`'s delta: the count also
   // moves on an expunge, which VANISHED already accounted for above.
   const previousUidNext = folder.uidNext ?? 1;
+  // Read once, ahead of the FETCH: #103's Alias resolution needs it per
+  // message (`storeMessage`), and the existing Gatekeeper + Notifier hook
+  // below needs it too — one lookup serves both.
+  const account =
+    mailbox.uidNext > previousUidNext ? await getMailAccountById(db, folder.mailAccountId) : null;
   const newUidFetch =
     mailbox.uidNext > previousUidNext
       ? await client.fetchAll(
@@ -104,7 +109,7 @@ export async function attemptQresyncCatchup(
             internalDate: true,
             size: true,
             bodyStructure: true,
-            headers: ["references"],
+            headers: [...INGEST_HEADERS],
           },
           { uid: true },
         )
@@ -161,7 +166,13 @@ export async function attemptQresyncCatchup(
   // most the handful of messages that arrived while disconnected, not a
   // newest-first backfill concern.
   for (const message of newUidFetch) {
-    const stored = await storeMessage(db, folder, uidValidity, message);
+    const stored = await storeMessage(
+      db,
+      folder,
+      uidValidity,
+      message,
+      account?.emailAddress ?? "",
+    );
     affectedThreadIds.add(stored.threadId);
     createdMessageIds.push(stored.id);
     created += 1;
@@ -169,9 +180,8 @@ export async function attemptQresyncCatchup(
   // The Gatekeeper + Notifier hook (#55, #53, ADR-0015) — same reasoning as
   // `delta.ts`'s own new-UID loop: this whole function only ever runs for a
   // live reconnect/poll catch-up, never backfill.
-  if (createdMessageIds.length > 0) {
-    const account = await getMailAccountById(db, folder.mailAccountId);
-    if (account) await handleNewArrivals(db, folder, account, createdMessageIds);
+  if (createdMessageIds.length > 0 && account) {
+    await handleNewArrivals(db, folder, account, createdMessageIds);
   }
 
   await refreshThreadRollups(db, [...affectedThreadIds]);
