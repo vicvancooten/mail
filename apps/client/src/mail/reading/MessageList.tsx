@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { AttachmentList } from "./AttachmentList.js";
 import { MessageBody } from "./MessageBody.js";
+import type { MailtoLink } from "./mailto.js";
 
 /**
  * Every Message in an opened Thread, oldest first — the reading pane's
@@ -22,11 +23,14 @@ import { MessageBody } from "./MessageBody.js";
 export function MessageList({
   messages,
   onReply,
+  onMailtoLink,
   focusMessageId,
   onOpenMessageChange,
 }: {
   messages: readonly Message[];
   onReply: OnReply;
+  /** A `mailto:` link clicked inside a Message body (ADR-0018's click bridge, `MessageBody.tsx`). */
+  onMailtoLink: (link: MailtoLink) => void;
   focusMessageId?: string | null;
   /** Reports the id of whichever Message is currently scrolled into view — see the doc comment above. */
   onOpenMessageChange?: (messageId: string) => void;
@@ -90,7 +94,7 @@ export function MessageList({
               {new Date(message.sentAt).toLocaleString()}
             </time>
           </header>
-          <MessageBody key={message.id} message={message} />
+          <MessageBody key={message.id} message={message} onMailtoLink={onMailtoLink} />
           <AttachmentList message={message} />
           <div className="message-item-reply-actions">
             <button type="button" onClick={() => onReply(message, "reply")} title="Reply (r)">

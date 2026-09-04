@@ -45,6 +45,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     attachments: [],
     bodyText: "See you at noon.",
     bodyHtml: "<p>See you at noon.</p>",
+    bodyIsPlainText: false,
     remoteImagesAllowed: false,
     ...overrides,
   };

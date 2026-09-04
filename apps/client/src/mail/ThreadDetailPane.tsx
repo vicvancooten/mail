@@ -21,6 +21,7 @@ import { useLabels } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { LabelPicker } from "./LabelPicker.js";
 import { MessageList } from "./reading/MessageList.js";
+import type { MailtoLink } from "./reading/mailto.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
 import type { Triage } from "./useTriage.js";
@@ -60,6 +61,7 @@ export function ThreadDetailPane({
   onNext,
   triage,
   onReply,
+  onMailtoLink,
   focusMessageId,
 }: {
   thread: CachedThread;
@@ -69,6 +71,8 @@ export function ThreadDetailPane({
   onNext?: () => void;
   triage: Triage;
   onReply: OnReply;
+  /** A `mailto:` link clicked inside a Message body (ADR-0018's click bridge) — forwarded to `MessageList`. */
+  onMailtoLink: (link: MailtoLink) => void;
   /** A search result's matched message (#51) — forwarded to `MessageList`, see its own doc comment. */
   focusMessageId?: string | null;
 }) {
@@ -316,6 +320,7 @@ export function ThreadDetailPane({
           <MessageList
             messages={messages}
             onReply={onReply}
+            onMailtoLink={onMailtoLink}
             focusMessageId={focusMessageId}
             onOpenMessageChange={setOpenMessageId}
           />

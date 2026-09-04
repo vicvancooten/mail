@@ -284,6 +284,51 @@ new ResizeObserver(post).observe(document.body);
 post();
 })();`;
 
+/**
+ * The click bridge (ADR-0018): the sandbox grants no `allow-popups`/
+ * `allow-top-navigation`, so a plain click on a sanitizer-forced
+ * `target="_blank"` anchor (`sync/sanitize.ts`) is silently swallowed —
+ * nothing opens, nothing errors. This intercepts the click before the
+ * browser ever gets to act on it and hands the `href` to the parent
+ * instead, which decides what "open a link" means (`MessageBody.tsx`:
+ * `http(s)` → a new tab, `mailto:` → the Composer, anything else ignored).
+ * `closest("a[href]")` so a click on an inline element (a `<strong>` inside
+ * the link text, an `<img>` used as the link) still resolves to its
+ * enclosing anchor. Same nonce as the resize script, same reasoning: CSP is
+ * still the only thing that can ever let *this* script run.
+ */
+const LINK_BRIDGE_SCRIPT = `(function(){
+document.addEventListener("click",function(event){
+var a=event.target&&event.target.closest?event.target.closest("a[href]"):null;
+if(!a)return;
+event.preventDefault();
+parent.postMessage({type:"mail-link-click",href:a.getAttribute("href")},"*");
+});
+})();`;
+
+/**
+ * A visible error state for a remote image that fails to load once "Load
+ * remote images" is on (ADR-0018's acceptance box: "a failing image shows a
+ * message") — today a broken `<img>` just leaves a hole, `alt` text only if
+ * the sender happened to write one. `error` never bubbles, so this listens
+ * on the *capturing* phase at `document` instead, the standard way to catch
+ * it anywhere in the tree without an individual listener per `<img>`. Never
+ * fires for a blocked image (its `src` is a same-document placeholder, not
+ * a network request) or an unresolved `cid:` one (its `src` attribute is
+ * removed entirely) — both already render as nothing, deliberately.
+ */
+const IMAGE_ERROR_SCRIPT = `(function(){
+document.addEventListener("error",function(event){
+var img=event.target;
+if(!img||img.tagName!=="IMG"||img.dataset.mailImageFailed)return;
+img.dataset.mailImageFailed="1";
+var note=document.createElement("span");
+note.className="mail-image-error";
+note.textContent=img.alt?"Image failed to load: "+img.alt:"Image failed to load";
+img.replaceWith(note);
+},true);
+})();`;
+
 export interface MessageDocumentOptions {
   /** Server-sanitized body HTML, already proxy-rewritten for remote images (`sync/image-proxy.ts`), `cid:` untouched. */
   html: string;
@@ -321,10 +366,12 @@ html,body{margin:0;padding:8px 12px;font-family:-apple-system,BlinkMacSystemFont
   font-size:14px;color:#111;background:#fff;word-wrap:break-word;overflow-wrap:anywhere;}
 img{max-width:100%;height:auto;}
 table{max-width:100%;}
+.mail-image-error{display:inline-block;padding:2px 6px;border:1px solid #d0d0d0;border-radius:4px;
+  background:#f5f5f5;color:#666;font-size:12px;font-style:italic;}
 ${invertCss}
 </style>
 </head><body>
 <div${invert ? ' class="mail-invert"' : ""}>${body}</div>
-<script nonce="${opts.nonce}">${RESIZE_SCRIPT}</script>
+<script nonce="${opts.nonce}">${RESIZE_SCRIPT}${LINK_BRIDGE_SCRIPT}${IMAGE_ERROR_SCRIPT}</script>
 </body></html>`;
 }

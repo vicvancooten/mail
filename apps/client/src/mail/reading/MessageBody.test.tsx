@@ -23,6 +23,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     attachments: [],
     bodyText: "hi",
     bodyHtml: "<p>hi</p>",
+    bodyIsPlainText: false,
     remoteImagesAllowed: false,
     ...overrides,
   };
@@ -32,6 +33,8 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
 const PROXIED_IMAGE_HTML =
   '<img src="/messages/msg-1/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">';
 
+const noop = () => {};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -39,7 +42,7 @@ afterEach(() => {
 
 describe("MessageBody", () => {
   it("renders a sandboxed iframe with no allow-same-origin/allow-forms/allow-popups", () => {
-    render(<MessageBody message={makeMessage()} />);
+    render(<MessageBody message={makeMessage()} onMailtoLink={noop} />);
     const iframe = document.querySelector("iframe");
     expect(iframe).not.toBeNull();
     expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
@@ -47,7 +50,12 @@ describe("MessageBody", () => {
   });
 
   it("shows no 'Load remote images' button for a body with nothing to proxy", () => {
-    render(<MessageBody message={makeMessage({ bodyHtml: "<p>plain text only</p>" })} />);
+    render(
+      <MessageBody
+        message={makeMessage({ bodyHtml: "<p>plain text only</p>" })}
+        onMailtoLink={noop}
+      />,
+    );
     expect(screen.queryByRole("button", { name: /load remote images/i })).toBeNull();
   });
 
@@ -55,6 +63,7 @@ describe("MessageBody", () => {
     render(
       <MessageBody
         message={makeMessage({ bodyHtml: PROXIED_IMAGE_HTML, remoteImagesAllowed: true })}
+        onMailtoLink={noop}
       />,
     );
     expect(screen.queryByRole("button", { name: /load remote images/i })).toBeNull();
@@ -63,7 +72,7 @@ describe("MessageBody", () => {
   it("blocks a proxied remote image until the User clicks 'Load remote images'", async () => {
     const user = userEvent.setup();
     const message = makeMessage({ bodyHtml: PROXIED_IMAGE_HTML });
-    render(<MessageBody message={message} />);
+    render(<MessageBody message={message} onMailtoLink={noop} />);
 
     const iframe = document.querySelector("iframe") as HTMLIFrameElement;
     expect(iframe.getAttribute("srcdoc")).not.toContain("image-proxy");
@@ -78,7 +87,7 @@ describe("MessageBody", () => {
   });
 
   it("clamps and applies a height posted from the frame, ignoring one from an unrelated window", async () => {
-    render(<MessageBody message={makeMessage()} />);
+    render(<MessageBody message={makeMessage()} onMailtoLink={noop} />);
     const iframe = document.querySelector("iframe") as HTMLIFrameElement;
 
     window.dispatchEvent(
@@ -108,7 +117,9 @@ describe("MessageBody", () => {
   });
 
   it("resets to a fresh mount's defaults when given a new key — the caller's key={message.id} contract", () => {
-    const { rerender } = render(<MessageBody key="msg-1" message={makeMessage({ id: "msg-1" })} />);
+    const { rerender } = render(
+      <MessageBody key="msg-1" message={makeMessage({ id: "msg-1" })} onMailtoLink={noop} />,
+    );
     let iframe = document.querySelector("iframe") as HTMLIFrameElement;
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -118,9 +129,104 @@ describe("MessageBody", () => {
     );
 
     rerender(
-      <MessageBody key="msg-2" message={makeMessage({ id: "msg-2", bodyHtml: "<p>next</p>" })} />,
+      <MessageBody
+        key="msg-2"
+        message={makeMessage({ id: "msg-2", bodyHtml: "<p>next</p>" })}
+        onMailtoLink={noop}
+      />,
     );
     iframe = document.querySelector("iframe") as HTMLIFrameElement;
     expect(iframe.getAttribute("srcdoc")).toContain("<p>next</p>");
+  });
+
+  it("applies the plain-text width class only when the message carries no native HTML", () => {
+    render(<MessageBody message={makeMessage({ bodyIsPlainText: true })} onMailtoLink={noop} />);
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+    expect(iframe.className).toContain("message-body-frame-plain");
+  });
+
+  it("never adds the plain-text width class for real sender HTML", () => {
+    render(<MessageBody message={makeMessage()} onMailtoLink={noop} />);
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+    expect(iframe.className).not.toContain("message-body-frame-plain");
+  });
+
+  describe("the click bridge (ADR-0018)", () => {
+    it("opens an http(s) link in a new tab with noopener, never noreferrer's opener", async () => {
+      const openSpy = vi.fn();
+      vi.stubGlobal("open", openSpy);
+      render(<MessageBody message={makeMessage()} onMailtoLink={noop} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "mail-link-click", href: "https://sender.example/page" },
+          source: iframe.contentWindow,
+        }),
+      );
+
+      await waitFor(() => {
+        expect(openSpy).toHaveBeenCalledWith("https://sender.example/page", "_blank", "noopener");
+      });
+    });
+
+    it("routes a mailto: link to onMailtoLink instead of window.open", async () => {
+      const openSpy = vi.fn();
+      vi.stubGlobal("open", openSpy);
+      const onMailtoLink = vi.fn();
+      render(<MessageBody message={makeMessage()} onMailtoLink={onMailtoLink} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "mail-link-click", href: "mailto:jane@example.com?subject=Hi" },
+          source: iframe.contentWindow,
+        }),
+      );
+
+      await waitFor(() => {
+        expect(onMailtoLink).toHaveBeenCalledWith({
+          to: [{ address: "jane@example.com", name: null }],
+          subject: "Hi",
+          body: null,
+        });
+      });
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("ignores a link click from an unrelated window", async () => {
+      const openSpy = vi.fn();
+      vi.stubGlobal("open", openSpy);
+      render(<MessageBody message={makeMessage()} onMailtoLink={noop} />);
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "mail-link-click", href: "https://sender.example/page" },
+          source: window,
+        }),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("ignores a non-http(s), non-mailto scheme", async () => {
+      const openSpy = vi.fn();
+      vi.stubGlobal("open", openSpy);
+      const onMailtoLink = vi.fn();
+      render(<MessageBody message={makeMessage()} onMailtoLink={onMailtoLink} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "mail-link-click", href: "tel:+15551234567" },
+          source: iframe.contentWindow,
+        }),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(onMailtoLink).not.toHaveBeenCalled();
+    });
   });
 });

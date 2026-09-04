@@ -2,6 +2,7 @@ import type { MailAccount } from "@mail/shared";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { ReauthMailAccountForm } from "../../mail-accounts/ReauthMailAccountForm.js";
+import type { MailtoLink } from "../reading/mailto.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
 import type { Triage } from "../useTriage.js";
@@ -225,6 +226,7 @@ export function SearchResultsView({
   state,
   triage,
   onReply,
+  onMailtoLink,
   accounts,
   mailAccountId,
   accountScope,
@@ -233,6 +235,7 @@ export function SearchResultsView({
   state: SearchState;
   triage: Triage;
   onReply: OnReply;
+  onMailtoLink: (link: MailtoLink) => void;
   accounts: readonly MailAccount[];
   mailAccountId: string | null;
   /** Search's own account badge (#80's "each row shows which account it came from where several are in Scope") — the row itself already carries its `mailAccountId` (`sync.ts#threadSchema`); this is only what decides whether the badge is worth showing at all. */
@@ -324,6 +327,7 @@ export function SearchResultsView({
         onBack={() => state.select(null)}
         triage={triage}
         onReply={onReply}
+        onMailtoLink={onMailtoLink}
         focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
       />
     );
@@ -352,6 +356,7 @@ export function SearchResultsView({
             onBack={() => state.select(null)}
             triage={triage}
             onReply={onReply}
+            onMailtoLink={onMailtoLink}
             focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
           />
         ) : (

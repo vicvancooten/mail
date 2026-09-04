@@ -1,5 +1,6 @@
 import { Pin } from "lucide-react";
 import type { CachedThread } from "../store/index.js";
+import type { MailtoLink } from "./reading/mailto.js";
 import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
@@ -24,6 +25,7 @@ export function StreamView({
   onBack,
   triage,
   onReply,
+  onMailtoLink,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -33,6 +35,7 @@ export function StreamView({
   onBack?: () => void;
   triage: Triage;
   onReply: OnReply;
+  onMailtoLink: (link: MailtoLink) => void;
 }) {
   const currentId = selectedThreadId ?? ids[0] ?? null;
   const currentThread = threads.find((thread) => thread.id === currentId) ?? null;
@@ -86,6 +89,7 @@ export function StreamView({
         onNext={nextId ? () => onSelect(nextId) : undefined}
         triage={triage}
         onReply={onReply}
+        onMailtoLink={onMailtoLink}
       />
     </div>
   );

@@ -23,6 +23,7 @@ import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
+  EMPTY_COMPOSE_CONTENT,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
@@ -59,6 +60,7 @@ import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
+import type { MailtoLink } from "./reading/mailto.js";
 import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
 import { StreamView } from "./StreamView.js";
@@ -307,6 +309,32 @@ export function MailSection({
       }).then(() => setComposeId(id));
     },
     [composeId, mailAccounts],
+  );
+
+  // A `mailto:` link clicked inside a Message body (ADR-0018's click
+  // bridge, `MessageBody.tsx`): the same "one composer at a time" guard as
+  // `openReply`, but there is no arriving Message to settle the From
+  // account against, so it follows `openCompose`'s own choice instead
+  // (Account Scope's primary account, or a picker when Scope holds
+  // several) — a `mailto:` link says nothing about which of the User's
+  // Mail Accounts should send the reply.
+  const openMailto = useCallback(
+    (link: MailtoLink) => {
+      if (composeId !== null || !mailAccounts || !accountId) return;
+      setComposeFromChoices(
+        accountScope.length > 1
+          ? mailAccounts.filter((account) => accountScope.includes(account.id))
+          : null,
+      );
+      const id = newCompositionId();
+      void saveComposition(
+        id,
+        accountId,
+        { ...EMPTY_COMPOSE_CONTENT, to: link.to, subject: link.subject ?? "" },
+        { force: true },
+      ).then(() => openComposer(id));
+    },
+    [composeId, mailAccounts, accountId, accountScope, openComposer],
   );
 
   // Account Scope resolution — which accounts exist, and the default-to-all
@@ -867,6 +895,7 @@ export function MailSection({
               state={search}
               triage={searchTriage}
               onReply={openReply}
+              onMailtoLink={openMailto}
               accounts={mailAccounts}
               mailAccountId={accountId}
               accountScope={accountScope}
@@ -903,6 +932,7 @@ export function MailSection({
               onSelect={setSelectedThreadId}
               triage={triage}
               onReply={openReply}
+              onMailtoLink={openMailto}
             />
           ) : viewMode === "split" ? (
             <SplitView
@@ -915,6 +945,7 @@ export function MailSection({
               onLoadMore={loadMore}
               triage={triage}
               onReply={openReply}
+              onMailtoLink={openMailto}
               initialScrollThreadId={selectedThreadId}
               density={density}
               groupBulk={groupBulk}
@@ -930,6 +961,7 @@ export function MailSection({
               onLoadMore={loadMore}
               triage={triage}
               onReply={openReply}
+              onMailtoLink={openMailto}
               initialScrollThreadId={selectedThreadId}
               density={density}
               groupBulk={groupBulk}

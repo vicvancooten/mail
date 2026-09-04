@@ -735,6 +735,17 @@ export const messages = pgTable(
     snippet: text("snippet"),
     bodyText: text("body_text"),
     bodyHtml: text("body_html"),
+    /**
+     * `true` when `bodyHtml` is `plainTextToHtml`'s synthesized markup (no
+     * native HTML alternative on the wire) rather than the sender's own
+     * document — the Width decision (#98, `apps/client/DESIGN.md`): the
+     * reading pane fills the pane with an HTML body but centers a
+     * plain-text one at a readable column width. `null` for a body fetched
+     * before this column existed; `routes/messages.ts` reads that as
+     * `false` (the pre-existing "fills the pane" behavior) rather than
+     * guessing.
+     */
+    bodyIsPlainText: boolean("body_is_plain_text"),
     bodyFetchedAt: timestamp("body_fetched_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
