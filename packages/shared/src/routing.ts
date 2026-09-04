@@ -12,6 +12,9 @@
  */
 export function isApiPath(pathname: string): boolean {
   return (
-    pathname.startsWith("/sync") || pathname.startsWith("/auth") || pathname.startsWith("/healthz")
+    pathname.startsWith("/sync") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/healthz") ||
+    pathname.startsWith("/instance")
   );
 }

@@ -76,6 +76,7 @@ async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions) {
     }
     if (request.user.role !== "owner") {
       await reply.code(403).send({ error: "forbidden" });
+      return;
     }
   });
 }

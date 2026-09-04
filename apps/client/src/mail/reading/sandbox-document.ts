@@ -279,7 +279,7 @@ export function buildMessageCsp({ nonce, origin }: { nonce: string; origin: stri
  * layout was already stable before the first callback fires.
  */
 const RESIZE_SCRIPT = `(function(){
-function post(){parent.postMessage({type:"mail-body-resize",height:document.documentElement.scrollHeight},"*");}
+function post(){parent.postMessage({type:"mail-body-resize",height:document.documentElement.scrollHeight},__MAIL_TARGET_ORIGIN__);}
 new ResizeObserver(post).observe(document.body);
 post();
 })();`;
@@ -302,7 +302,7 @@ document.addEventListener("click",function(event){
 var a=event.target&&event.target.closest?event.target.closest("a[href]"):null;
 if(!a)return;
 event.preventDefault();
-parent.postMessage({type:"mail-link-click",href:a.getAttribute("href")},"*");
+parent.postMessage({type:"mail-link-click",href:a.getAttribute("href")},__MAIL_TARGET_ORIGIN__);
 });
 })();`;
 
@@ -360,6 +360,9 @@ export function buildMessageDocument(opts: MessageDocumentOptions): string {
   const body = sanitizeAndSubstitute(opts.html, state);
   const invert = opts.darkMode && !senderDeclaresColorScheme(opts.html);
   const csp = buildMessageCsp({ nonce: opts.nonce, origin: opts.origin });
+  const targetOrigin = JSON.stringify(opts.origin);
+  const resizeScript = RESIZE_SCRIPT.replaceAll("__MAIL_TARGET_ORIGIN__", targetOrigin);
+  const linkBridgeScript = LINK_BRIDGE_SCRIPT.replaceAll("__MAIL_TARGET_ORIGIN__", targetOrigin);
 
   const invertCss = invert
     ? `.mail-invert{filter:invert(1) hue-rotate(180deg);background:#fff;}
@@ -380,6 +383,6 @@ ${invertCss}
 </style>
 </head><body>
 <div${invert ? ' class="mail-invert"' : ""}>${body}</div>
-<script nonce="${opts.nonce}">${RESIZE_SCRIPT}${opts.linkBridge ? LINK_BRIDGE_SCRIPT : ""}${IMAGE_ERROR_SCRIPT}</script>
+<script nonce="${opts.nonce}">${resizeScript}${opts.linkBridge ? linkBridgeScript : ""}${IMAGE_ERROR_SCRIPT}</script>
 </body></html>`;
 }

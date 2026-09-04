@@ -176,6 +176,8 @@ describe("buildMessageDocument", () => {
     const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
     expect(doc).toContain("mail-link-click");
     expect(doc).toContain('closest("a[href]")');
+    expect(doc).toContain('"https://mail.example.com"');
+    expect(doc).not.toContain(',"*"');
   });
 
   it("omits the click bridge when linkBridge is false (#102: links inert, no bridge in this context)", () => {

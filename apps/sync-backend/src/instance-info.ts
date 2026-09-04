@@ -25,6 +25,10 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
  * passkeys will not work from other devices".
  */
 export function isSecureContext(publicUrl: string): boolean {
-  const url = new URL(publicUrl);
-  return url.protocol === "https:" || LOOPBACK_HOSTS.has(url.hostname);
+  try {
+    const url = new URL(publicUrl);
+    return url.protocol === "https:" || LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
 }

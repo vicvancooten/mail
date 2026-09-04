@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import { isApiPath, manifestFingerprint } from "./shell-routing.js";
 
 describe("isApiPath", () => {
-  it.each(["/sync", "/sync/threads", "/auth", "/auth/login", "/healthz"])(
-    "flags %s as an API path the service worker must never touch",
-    (pathname) => {
-      expect(isApiPath(pathname)).toBe(true);
-    },
-  );
+  it.each([
+    "/sync",
+    "/sync/threads",
+    "/auth",
+    "/auth/login",
+    "/healthz",
+    "/instance",
+    "/instance/health",
+  ])("flags %s as an API path the service worker must never touch", (pathname) => {
+    expect(isApiPath(pathname)).toBe(true);
+  });
 
   it.each(["/", "/index.html", "/assets/index-abc123.js", "/search", "/manifest.webmanifest"])(
     "treats %s as a shell path",

@@ -118,4 +118,17 @@ describe("GET /instance/health", () => {
       publicUrl: { isSecureContext: true },
     });
   });
+
+  it("treats an invalid PUBLIC_URL value as not a secure context", async () => {
+    const app = buildTestApp({ publicUrl: "not-a-url" });
+    const cookie = await createUserWithCookie("owner");
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    expect(response.json()).toMatchObject({
+      publicUrl: { value: "not-a-url", isSecureContext: false },
+    });
+  });
 });

@@ -171,11 +171,9 @@ export async function messageRoutes(
       const image = await fetchProxiedImage(query.url);
       reply
         .header("Content-Type", image.contentType)
-        // Far-future and private: the URL already carries the sender's
-        // original address plus a signature over it, so it is effectively
-        // content-addressed — nothing about this response ever changes for
-        // the same query string (`docs/research/0005` §3).
-        .header("Cache-Control", "private, max-age=604800, immutable");
+        // Private and short-lived: URLs are re-signed per serve with an
+        // expiry timestamp, so keep cache entries brief.
+        .header("Cache-Control", "private, max-age=60");
       return reply.send(image.body);
     } catch (err) {
       if (err instanceof ImageProxyError) {
