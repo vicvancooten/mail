@@ -108,11 +108,26 @@
 
 .switcher-cell {
   display: grid;
+  /* The two cells' *default* tracks must already differ — the first (the
+     compact toggle) starts at `1fr` so the mark is visible before any
+     click, the second (the tab row) starts at `0fr` so it's collapsed
+     until expanded. `.open` below is what makes them trade: without this
+     split, both cells shared one `0fr` default and only diverged once
+     `.open` applied identically to both, leaving the toggle itself
+     invisible any time the Palette was closed. */
   grid-template-columns: 0fr;
   transition: grid-template-columns 280ms var(--ease);
 }
 
-.switcher-cell.open {
+.switcher-cell:first-child {
+  grid-template-columns: 1fr;
+}
+
+.switcher-cell:first-child.open {
+  grid-template-columns: 0fr;
+}
+
+.switcher-cell:last-child.open {
   grid-template-columns: 1fr;
 }
 

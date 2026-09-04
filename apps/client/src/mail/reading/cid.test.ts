@@ -58,13 +58,16 @@ describe("resolveCidBlobs", () => {
     vi.unstubAllGlobals();
   });
 
-  it("fetches only the attachments a contentId actually matches, and builds blob: URLs", async () => {
-    const blob = new Blob(["logo-bytes"]);
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => blob });
+  it("fetches only the attachments a contentId actually matches, and builds data: URIs", async () => {
+    const bytes = new TextEncoder().encode("logo-bytes");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, arrayBuffer: async () => bytes.buffer });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:http://localhost/abc") });
 
-    const attachments = [attachment({ part: "3", contentId: "logo@example" })];
+    const attachments = [
+      attachment({ part: "3", contentId: "logo@example", mimeType: "image/png" }),
+    ];
     const result = await resolveCidBlobs("msg-1", ["logo@example"], attachments);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -72,7 +75,11 @@ describe("resolveCidBlobs", () => {
       "/messages/msg-1/attachments/3",
       expect.objectContaining({ credentials: "include" }),
     );
-    expect(result).toEqual([{ contentId: "logo@example", blobUrl: "blob:http://localhost/abc" }]);
+    // Never a `blob:` URL (§ resolveCidBlobs's own doc comment — one is
+    // unloadable inside the reader's opaque-origin sandboxed iframe).
+    expect(result).toEqual([
+      { contentId: "logo@example", blobUrl: `data:image/png;base64,${btoa("logo-bytes")}` },
+    ]);
   });
 
   it("skips a contentId with no matching attachment", async () => {
@@ -103,18 +110,13 @@ describe("resolveCidBlobs", () => {
 });
 
 describe("revokeCidBlobs", () => {
-  it("revokes every blob URL passed in", () => {
-    const revoke = vi.fn();
-    vi.stubGlobal("URL", { ...URL, revokeObjectURL: revoke });
-
-    revokeCidBlobs([
-      { contentId: "a", blobUrl: "blob:1" },
-      { contentId: "b", blobUrl: "blob:2" },
-    ]);
-
-    expect(revoke).toHaveBeenCalledWith("blob:1");
-    expect(revoke).toHaveBeenCalledWith("blob:2");
-    vi.unstubAllGlobals();
+  it("is a no-op — data: URIs need no release", () => {
+    expect(() =>
+      revokeCidBlobs([
+        { contentId: "a", blobUrl: "data:image/png;base64,AA==" },
+        { contentId: "b", blobUrl: "data:image/png;base64,BB==" },
+      ]),
+    ).not.toThrow();
   });
 });
 

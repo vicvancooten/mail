@@ -1,6 +1,7 @@
 import { Link, Outlet } from "@tanstack/react-router";
 import { AtSign, Bell, Lock, Monitor, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { rootRoute } from "../router/routes.js";
+import "./settings.css";
 
 /**
  * Settings' own side navigation (#99): sub-routes under `/settings`
