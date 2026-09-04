@@ -94,6 +94,19 @@ export function announceUndoableAction(kind: UndoableActionKind, undo: () => voi
     existing.undos.push(undo);
     clearTimeout(existing.timer);
     existing.timer = setTimeout(() => clearBucket(kind), WINDOW_MS);
+    // `existing` can be a bucket that's still counting but was evicted from
+    // `stackedKinds` (no visible toast) by a third kind arriving earlier —
+    // re-arming it here has to re-enter it into `stackedKinds`, evicting the
+    // oldest in turn if the stack is already full, or `render` below puts a
+    // toast on screen for a kind `stackedKinds` doesn't know about, letting
+    // the visible stack exceed `MAX_STACKED_TOASTS`.
+    if (!stackedKinds.includes(kind)) {
+      if (stackedKinds.length >= MAX_STACKED_TOASTS) {
+        const oldest = stackedKinds.shift();
+        if (oldest) dismissActionToast(toastId(oldest));
+      }
+      stackedKinds.push(kind);
+    }
     render(kind);
     return;
   }
