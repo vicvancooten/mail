@@ -47,7 +47,7 @@ function tileDeclarations(theme: AvatarTileTheme, indent: string): string {
 }
 
 function shadowDeclarations(theme: ShadowTheme, indent: string): string {
-  return `${indent}--shadow-overlay: ${theme.overlay};`;
+  return `${indent}--shadow-overlay: ${theme.overlay};\n${indent}--shadow-header: ${theme.header};`;
 }
 
 /**

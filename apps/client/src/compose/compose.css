@@ -839,7 +839,7 @@
 .send-failure-banner,
 .composer-conflict-banner {
   border: none;
-  border-radius: 14px;
+  border-radius: var(--radius-panel);
 }
 
 .send-failure-banner {

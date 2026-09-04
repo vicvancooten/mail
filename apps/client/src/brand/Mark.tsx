@@ -113,16 +113,3 @@ export function Mark({
     </svg>
   );
 }
-
-/**
- * The wordmark: the postmark beside the name, set on the widest label stock
- * the type program has. Used on the login plate and the app's own header.
- */
-export function Wordmark({ size = 26 }: { size?: number }) {
-  return (
-    <span className="wordmark">
-      <Mark size={size} />
-      <span className="wordmark-name">Wicket</span>
-    </span>
-  );
-}

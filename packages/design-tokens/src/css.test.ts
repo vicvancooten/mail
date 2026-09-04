@@ -22,6 +22,7 @@ describe("buildTokensCss", () => {
     expect(root).toContain("--radius-pill: 999px;");
     expect(root).toContain("--hairline: 1px;");
     expect(root).toContain("--shadow-overlay:");
+    expect(root).toContain("--shadow-header:");
   });
 
   it("overrides colours for an OS dark preference, guarded against an explicit .light", () => {

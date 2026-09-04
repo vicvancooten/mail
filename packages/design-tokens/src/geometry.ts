@@ -1,9 +1,10 @@
 /**
  * Geometry: the comp's own radius ladder
  * (`docs/design/prototypes/the-instrument.html`, `--r-control`/`--r-panel`/
- * `--r-pill` plus the 10-11px it draws list rows at), and the one shadow in
- * the system, reserved for things that genuinely float above the ground
- * (popovers, dialogs, the composer) — nothing else casts one. Regions are
+ * `--r-pill` plus the 10-11px it draws list rows at), and the system's two
+ * shadows: `overlay`, for things that genuinely float above the ground
+ * (popovers, dialogs, the composer), and `header`, the app header's fixed
+ * relief-from-the-ground recipe — nothing else casts either. Regions are
  * separated by ground and gap, not by joinery, so `hairline` survives only
  * for the few places a rule genuinely reads as structure.
  */
@@ -25,12 +26,20 @@ export const radii = {
 export interface ShadowTheme {
   /** The one shadow: popovers, dialogs, the overlay layer. */
   overlay: string;
+  /** The app header's relief-from-the-ground treatment (inset highlight,
+   * inset shade, and a hairline drop) — its own token because it is a fixed
+   * three-layer recipe, not a floating-element shadow. */
+  header: string;
 }
 
 export const lightShadow: ShadowTheme = {
   overlay: "0 16px 40px -12px rgb(20 21 26 / 0.20), 0 4px 14px -4px rgb(20 21 26 / 0.12)",
+  header:
+    "inset 0 1px 0 rgb(255 255 255 / 0.5), inset 0 -1px 2px rgb(20 21 26 / 0.045), 0 1px 2px rgb(20 21 26 / 0.03)",
 };
 
 export const darkShadow: ShadowTheme = {
   overlay: "0 22px 50px -14px rgb(0 0 0 / 0.6), 0 6px 16px -4px rgb(0 0 0 / 0.45)",
+  header:
+    "inset 0 1px 0 rgb(255 255 255 / 0.03), inset 0 -1px 2px rgb(0 0 0 / 0.35), 0 1px 2px rgb(0 0 0 / 0.2)",
 };

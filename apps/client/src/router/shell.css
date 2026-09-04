@@ -43,26 +43,7 @@
   padding-right: calc(20px + env(safe-area-inset-right));
   box-sizing: content-box;
   background: var(--color-surface-strong);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.5),
-    inset 0 -1px 2px rgb(20 21 26 / 0.045),
-    0 1px 2px rgb(20 21 26 / 0.03);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) .app-header {
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.03),
-      inset 0 -1px 2px rgb(0 0 0 / 0.35),
-      0 1px 2px rgb(0 0 0 / 0.2);
-  }
-}
-
-:root.dark .app-header {
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.03),
-    inset 0 -1px 2px rgb(0 0 0 / 0.35),
-    0 1px 2px rgb(0 0 0 / 0.2);
+  box-shadow: var(--shadow-header);
 }
 
 .header-left {
@@ -138,7 +119,7 @@
   position: relative;
   width: 38px;
   height: 38px;
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   background: var(--color-field);
   color: var(--color-ink-muted);
   display: flex;
@@ -238,6 +219,10 @@
   border-radius: 999px;
   background: var(--color-field-strong);
   color: var(--color-ink-muted);
+  /* Deliberate one-off, not a duplicate of --shadow-overlay/--shadow-header:
+     a two-frame rest → hover elevation cue on the search pill itself, too
+     small and too tightly paired with its own hover transition to share a
+     token with either. */
   box-shadow: 0 1px 2px rgb(20 21 26 / 0.05);
   cursor: pointer;
   transition:
@@ -342,7 +327,7 @@
   .hub-mark {
     width: 32px;
     height: 32px;
-    border-radius: 10px;
+    border-radius: var(--radius-panel);
   }
 
   .tab-pill {
