@@ -21,7 +21,9 @@ A connection to an external mail server (credentials + settings) owned by exactl
 _Avoid_: mailbox, inbox, account (unqualified)
 
 **Needs Reauth**:
-The state of a Mail Account whose stored credentials the mail server has rejected: syncing stops until the User supplies new credentials, and pending Optimistic Actions wait rather than fail.
+The state of a Mail Account whose stored credentials the mail server has rejected, or whose Grant the
+Provider has withdrawn: syncing stops until the User supplies new credentials or signs in again, and
+pending Optimistic Actions wait rather than fail.
 
 **Owner**:
 The User who set up the instance: the only role that can invite other Users and change instance settings.
@@ -82,6 +84,32 @@ _Avoid_: push event, change event, notification (when the User is not being told
 Optional sending credentials the operator configures so the instance can send mail *as itself* (account recovery). Belongs to no User and is never synced or shown as a mailbox.
 _Avoid_: system account, admin mailbox
 
+### Providers
+
+**Provider**:
+Who runs a Mail Account's mail server as far as signing in is concerned: Google, Microsoft, or Other
+IMAP. Google and Microsoft accounts are added by signing in with the Provider rather than by
+entering a host and a password.
+_Avoid_: service, vendor, integration
+
+**Provider Registration**:
+The app the Owner has registered with a Provider so this instance may ask Users to sign in with it.
+Instance-wide, belongs to no User, and the one thing a Member cannot fix: without it the Provider is
+shown as unavailable on this instance.
+_Avoid_: OAuth app, client credentials, API keys
+
+**Grant**:
+One User's consent for one Mail Account to be read and sent from, obtained by signing in with the
+Provider and held by the Sync Backend. When a Provider withdraws a Grant, the Mail Account is Needs
+Reauth, exactly as for a rejected password.
+_Avoid_: token, refresh token, connection
+
+**Provider Health**:
+The Owner's view of each Provider Registration: whether it exists, whether a Grant has ever been
+obtained through it, and whether Grants are currently being honoured. Part of the instance settings,
+never of any Mail Account.
+_Avoid_: token status, admin health
+
 ### Mail concepts
 
 **Folder**:
@@ -90,6 +118,19 @@ the *server's* answer (its special-use flags), recorded once at sync rather than
 because it differs per provider. Distinct from a Label, which is a User's own tag and has no
 IMAP-side existence.
 _Avoid_: mailbox, directory, IMAP folder
+
+**Gmail Label**:
+Gmail's own tag on a message, which IMAP shows as a folder. On a Mail Account whose server is Gmail,
+the Inbox, Sent and the User's own Gmail labels are Gmail Labels seen through the one synced Folder
+that holds everything, All Mail — not Folders synced in their own right. Browsable, never edited from
+Wicket, and never a Wicket Label.
+_Avoid_: Gmail folder, label (unqualified, when Gmail's is meant)
+
+**Inbox**:
+The Threads on a Mail Account awaiting Triage. On most servers the INBOX Folder; on Gmail, the
+Inbox Gmail Label seen through All Mail. Gatekeeper, the Notifier and Done all act on arriving in or
+leaving the Inbox, never on which folder the server keeps the message in.
+_Avoid_: INBOX (when the concept rather than the IMAP folder is meant), unread, new mail
 
 **Message**:
 One message as it exists in one Folder — IMAP's own unit, identified by its folder and UID. The same
@@ -113,7 +154,8 @@ swapped.
 _Avoid_: archive (as a verb), clear, dismiss
 
 **Archive**:
-Where a Thread lands once it is Done. A destination, never an action.
+Where a Thread lands once it is Done. A destination, never an action. On Gmail, where nothing is
+ever moved, it is All Mail without the Inbox Gmail Label.
 _Avoid_: archive (as a verb), done (as a place)
 
 **Time Group**:
