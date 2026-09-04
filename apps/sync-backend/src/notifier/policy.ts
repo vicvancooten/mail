@@ -1,4 +1,5 @@
-import type { FolderRow } from "../sync/folders.js";
+import type { FolderRole } from "../sync/folders.js";
+import { isInInbox } from "../sync/inbox.js";
 
 /**
  * The Notifier's pure policy (#53, ADR-0015): what makes an event
@@ -27,9 +28,19 @@ import type { FolderRow } from "../sync/folders.js";
  * Inbox, so both push. That is the right reading of ADR-0015 — mail the
  * Screener let through is mail the User is expected to see, and mail landing
  * silently in the Inbox is the failure mode worth avoiding.
+ *
+ * Read through `sync/inbox.ts#isInInbox`, not `folder.role === "inbox"`
+ * (#125, ADR-0020): on Gmail every live arrival syncs off All Mail
+ * (`folder.role` is `"all"`, never `"inbox"`), so this is a per-message
+ * question — `\Inbox` in that message's own `gmailLabels` — the same reason
+ * `gatekeeper/screening.ts` reads its own Inbox check per arrival rather than
+ * off the shared folder.
  */
-export function isInboxArrival(folder: Pick<FolderRow, "role">): boolean {
-  return folder.role === "inbox";
+export function isInboxArrival(
+  folderRole: FolderRole | null,
+  gmailLabels: readonly string[] | null | undefined,
+): boolean {
+  return isInInbox(folderRole, gmailLabels);
 }
 
 /**
