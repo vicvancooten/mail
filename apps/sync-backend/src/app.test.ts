@@ -65,17 +65,17 @@ describe("SPA fallback", () => {
       url: "/sync/nope",
       headers: { accept: "text/html" },
     });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: "Not Found" });
+    await sql.end();
+  });
 
-    it("still 404s an unmatched /instance API path as JSON", async () => {
-      const { app, sql } = await buildAppWithShell()();
-      const response = await app.inject({
-        method: "GET",
-        url: "/instance/nope",
-        headers: { accept: "text/html" },
-      });
-      expect(response.statusCode).toBe(404);
-      expect(response.json()).toMatchObject({ error: "Not Found" });
-      await sql.end();
+  it("still 404s an unmatched /instance API path as JSON", async () => {
+    const { app, sql } = await buildAppWithShell()();
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/nope",
+      headers: { accept: "text/html" },
     });
     expect(response.statusCode).toBe(404);
     expect(response.json()).toMatchObject({ error: "Not Found" });
