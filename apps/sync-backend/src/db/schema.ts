@@ -294,6 +294,16 @@ export const mailAccounts = pgTable(
     // Only `sync/body-sweep.ts` writes either column.
     bodyWatermark: timestamp("body_watermark", { withTimezone: true }),
     bodySweepComplete: boolean("body_sweep_complete").notNull().default(false),
+    // Gmail's roughly 2.5 GB/day IMAP download cap (#127, ADR-0020's final
+    // consequence): once the body sweep trips it on a `gmail`-kind account,
+    // `sync/body-sweep.ts` stamps this instead of failing the sweep, and
+    // skips fetching until it passes. Null the rest of the time — a sweep
+    // that isn't paused has nothing here, and this is never set on a
+    // `generic` account (that Provider's errors still tear the session down
+    // as before). Doesn't touch `syncState`/`lastSyncError`: a paused sweep
+    // is expected behaviour, not a sync error, and the Index Watermark
+    // already states partial coverage on its own.
+    bodySweepPausedUntil: timestamp("body_sweep_paused_until", { withTimezone: true }),
     // Bumped whenever a Folder under this account is rebuilt from a
     // UIDVALIDITY change (`sync/ingest.ts#applyUidValidity`) — the "underlying
     // state was rebuilt" trigger ADR-0011 names for a Thread `reset: true`.

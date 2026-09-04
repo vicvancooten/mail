@@ -4,6 +4,7 @@ import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages } from "../db/schema.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { readBodyParts } from "./body-structure.js";
+import { GMAIL_DOWNLOAD_CAP_RESUME_MS, isGmailDownloadCapError } from "./gmail-download-cap.js";
 
 /**
  * The run-once background body sweep (#36) and the Index Watermark it
@@ -34,12 +35,27 @@ export interface BodySweepBatchResult {
   processed: number;
   /** True once nothing account-wide was left pending — the sweep just went idle. */
   complete: boolean;
+  /**
+   * Set only while a Gmail download-cap pause (#127, ADR-0020) is in
+   * effect — the batch touched no IMAP command, either because it was
+   * already paused or because this call is the one that just tripped the
+   * cap.
+   */
+  pausedUntil?: Date;
 }
 
 /**
  * One batch of the sweep: the newest `batchSize` messages account-wide still
  * missing a body, fetched and stored, then the Index Watermark advanced to
  * the oldest one this batch actually covered.
+ *
+ * On a `gmail`-kind account, a download-cap/throttle response
+ * (`gmail-download-cap.ts`) pauses rather than throws: it stamps
+ * `bodySweepPausedUntil` and returns instead of failing the sweep, which is
+ * what keeps `live-session.ts`'s shared failure signal from tearing the
+ * whole resident session down over an expected, resolves-itself condition
+ * (ADR-0020). The same response on any other server kind still throws, same
+ * as before this ticket.
  */
 export async function runBodySweepBatch(
   db: Db,
@@ -47,6 +63,19 @@ export async function runBodySweepBatch(
   mailAccountId: string,
   batchSize = DEFAULT_BATCH_SIZE,
 ): Promise<BodySweepBatchResult> {
+  const [account] = await db
+    .select({
+      serverKind: mailAccounts.serverKind,
+      bodySweepPausedUntil: mailAccounts.bodySweepPausedUntil,
+    })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.id, mailAccountId))
+    .limit(1);
+
+  if (account?.bodySweepPausedUntil && account.bodySweepPausedUntil.getTime() > Date.now()) {
+    return { processed: 0, complete: false, pausedUntil: account.bodySweepPausedUntil };
+  }
+
   const pending = await db
     .select({
       id: messages.id,
@@ -62,7 +91,7 @@ export async function runBodySweepBatch(
   if (pending.length === 0) {
     await db
       .update(mailAccounts)
-      .set({ bodySweepComplete: true, updatedAt: new Date() })
+      .set({ bodySweepComplete: true, bodySweepPausedUntil: null, updatedAt: new Date() })
       .where(eq(mailAccounts.id, mailAccountId));
     return { processed: 0, complete: true };
   }
@@ -74,37 +103,53 @@ export async function runBodySweepBatch(
     else byFolder.set(row.folderId, [row]);
   }
 
-  for (const [folderId, rows] of byFolder) {
-    const [folder] = await db.select().from(folders).where(eq(folders.id, folderId)).limit(1);
-    if (!folder) continue; // the folder was deleted (server-side removal) since this batch was selected
+  try {
+    for (const [folderId, rows] of byFolder) {
+      const [folder] = await db.select().from(folders).where(eq(folders.id, folderId)).limit(1);
+      if (!folder) continue; // the folder was deleted (server-side removal) since this batch was selected
 
-    const lock = await client.getMailboxLock(folder.path, { readOnly: true });
-    try {
-      // BODYSTRUCTURE isn't persisted at header-ingest time (`ingest.ts`
-      // keeps only the derived attachment summary), so the sweep re-asks for
-      // it here — one extra small FETCH per swept message, traded for not
-      // widening every message row with a structure it may never need again.
-      const fetched = await client.fetchAll(
-        rows.map((row) => row.uid),
-        { uid: true, bodyStructure: true },
-        { uid: true },
-      );
-      const byUid = new Map(fetched.map((message) => [message.uid, message]));
+      const lock = await client.getMailboxLock(folder.path, { readOnly: true });
+      try {
+        // BODYSTRUCTURE isn't persisted at header-ingest time (`ingest.ts`
+        // keeps only the derived attachment summary), so the sweep re-asks for
+        // it here — one extra small FETCH per swept message, traded for not
+        // widening every message row with a structure it may never need again.
+        const fetched = await client.fetchAll(
+          rows.map((row) => row.uid),
+          { uid: true, bodyStructure: true },
+          { uid: true },
+        );
+        const byUid = new Map(fetched.map((message) => [message.uid, message]));
 
-      for (const row of rows) {
-        const message = byUid.get(row.uid);
-        if (!message) continue; // vanished between the pending SELECT and this FETCH — the next delta/poll pass reconciles it
-        const parts = readBodyParts(message.bodyStructure);
-        const body = await fetchMessageBody(client, row.uid, parts);
-        // Stored even when both parts are absent (a pure-attachment
-        // message): `bodyFetchedAt` still gets stamped, or a body-less
-        // message would show up in every future batch forever and this
-        // account would never reach `complete`.
-        await storeMessageBody(db, row.id, body);
+        for (const row of rows) {
+          const message = byUid.get(row.uid);
+          if (!message) continue; // vanished between the pending SELECT and this FETCH — the next delta/poll pass reconciles it
+          const parts = readBodyParts(message.bodyStructure);
+          const body = await fetchMessageBody(client, row.uid, parts);
+          // Stored even when both parts are absent (a pure-attachment
+          // message): `bodyFetchedAt` still gets stamped, or a body-less
+          // message would show up in every future batch forever and this
+          // account would never reach `complete`.
+          await storeMessageBody(db, row.id, body);
+        }
+      } finally {
+        lock.release();
       }
-    } finally {
-      lock.release();
     }
+  } catch (err) {
+    if (account?.serverKind === "gmail" && isGmailDownloadCapError(err)) {
+      const pausedUntil = new Date(Date.now() + GMAIL_DOWNLOAD_CAP_RESUME_MS);
+      await db
+        .update(mailAccounts)
+        .set({ bodySweepPausedUntil: pausedUntil, updatedAt: new Date() })
+        .where(eq(mailAccounts.id, mailAccountId));
+      // Whatever bodies this batch already stored before the cap hit stay
+      // stored — the next batch after resume picks up wherever
+      // `bodyFetchedAt IS NULL` still leaves off, same as any other
+      // partially-completed batch.
+      return { processed: 0, complete: false, pausedUntil };
+    }
+    throw err;
   }
 
   const oldest = pending[pending.length - 1];
@@ -113,7 +158,12 @@ export async function runBodySweepBatch(
   }
   await db
     .update(mailAccounts)
-    .set({ bodyWatermark: oldest.receivedAt, bodySweepComplete: false, updatedAt: new Date() })
+    .set({
+      bodyWatermark: oldest.receivedAt,
+      bodySweepComplete: false,
+      bodySweepPausedUntil: null,
+      updatedAt: new Date(),
+    })
     .where(eq(mailAccounts.id, mailAccountId));
 
   return { processed: pending.length, complete: false };
@@ -162,6 +212,10 @@ export async function runBodySweep(
   while (!options.isStopped()) {
     const result = await runBodySweepBatch(db, client, mailAccountId, batchSize);
     if (options.isStopped()) return;
-    await sleep(result.complete ? idlePollMs : pauseMs, options.stopSignal);
+    // A pause (Gmail's download cap) gets the same slow cadence as "caught
+    // up" — there is nothing to retry sooner than the resume time, and this
+    // loop re-checks `bodySweepPausedUntil` itself on the next call rather
+    // than sleeping for the whole remaining pause in one go.
+    await sleep(result.complete || result.pausedUntil ? idlePollMs : pauseMs, options.stopSignal);
   }
 }
