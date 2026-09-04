@@ -8,10 +8,12 @@ import type { MailAccountConnection, Provider } from "@mail/shared";
  * Injected into `buildApp` exactly the way `mailAccountVerify` and
  * `mailAccountDiscover` already are.
  *
- * Deliberately three methods and no more. `authorizationUrl` is where the
- * browser is sent, `exchangeCode` is the whole of "what came back",
- * `refresh` is #118's only entry point. The real Google implementation
- * (`google-adapter.ts`) is a thin HTTP wrapper over these three.
+ * Deliberately three required methods and no more. `authorizationUrl` is
+ * where the browser is sent, `exchangeCode` is the whole of "what came
+ * back", `refresh` is #118's only entry point. The real Google
+ * implementation (`google-adapter.ts`) is a thin HTTP wrapper over these
+ * three. `isTenantRefusal` (#117) is the one optional fourth: a Provider
+ * with nothing tenant-shaped about its errors need not implement it.
  */
 
 export interface AuthorizationUrlInput {
@@ -74,6 +76,20 @@ export type ProviderRefreshResult =
     }
   | { ok: false; reason: "withdrawn" | "transient"; detail: string };
 
+/**
+ * An authorization-stage failure to classify: either the `error` query
+ * parameter a Provider's `/authorize` redirect can carry back (RFC 6749
+ * §4.1.2.1's `error`, plus OIDC's `interaction_required`/`consent_required`
+ * extensions), or the `.error` code an adapter's own token-error type
+ * exposes when `exchangeCode` throws (Google's `GoogleTokenError`,
+ * Microsoft's `MicrosoftTokenError` — both converge on this same shape
+ * without either naming the other).
+ */
+export interface AuthorizationCallbackError {
+  error: string;
+  detail?: string;
+}
+
 export interface ProviderAdapter {
   /**
    * The Provider's IMAP and SMTP endpoints. Fixed per Provider — a Mail
@@ -86,13 +102,23 @@ export interface ProviderAdapter {
   authorizationUrl(input: AuthorizationUrlInput): string;
   exchangeCode(input: ExchangeCodeInput): Promise<ProviderGrant>;
   refresh(input: RefreshInput): Promise<ProviderRefreshResult>;
+  /**
+   * Distinguishes ADR-0021's "an M365 tenant that blocks IMAP or requires
+   * admin consent" from an ordinary Provider error, so `routes/oauth-signin.ts`
+   * can answer with `tenant_refused` instead of `provider_error` — a failure
+   * the User cannot fix by retrying. Optional: nothing about Google's own
+   * errors is tenant-shaped, so it declines to implement this and every
+   * failure of its stays `provider_error` (#117).
+   */
+  isTenantRefusal?(failure: AuthorizationCallbackError): boolean;
 }
 
 /**
  * Partial on purpose: a Provider with no entry renders as a choice that is
  * unavailable for a reason no Owner can fix by registering anything
- * (`not_supported`, `@mail/shared`'s `ProviderUnavailableReason`). Microsoft
- * is exactly that until #117 lands its adapter — ADR-0021's "shown as
+ * (`not_supported`, `@mail/shared`'s `ProviderUnavailableReason`) — a build
+ * that ships neither adapter, or a future Provider added to `PROVIDERS`
+ * before its adapter lands, is exactly that. ADR-0021's "shown as
  * unavailable ... never hidden" applies to a missing adapter as much as to a
  * missing Registration.
  */

@@ -60,8 +60,8 @@ export interface BuildAppOptions {
    * The Provider adapters Provider sign-in runs through (#116, ADR-0021) —
    * the third injected seam beside verify and discover, and for the same
    * reason: the real one talks to Google over HTTPS, which no test wants.
-   * Defaults to `{ google: googleProviderAdapter }`; Microsoft joins it with
-   * #117, and until then renders as an unavailable choice.
+   * Defaults to `{ google: googleProviderAdapter, microsoft: microsoftProviderAdapter }`
+   * (#117); a Provider with neither renders as an unavailable choice.
    */
   providerAdapters?: ProviderAdapters;
   /**

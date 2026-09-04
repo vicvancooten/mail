@@ -144,5 +144,12 @@ export const oauthSignInOutcomeSchema = z.enum([
   "provider_error",
   /** The Registration was removed between starting the sign-in and coming back. */
   "provider_not_registered",
+  /**
+   * ADR-0021: an M365 tenant blocked IMAP or withheld admin consent for this
+   * Registration. Distinct from `provider_error` because the fix is asking
+   * the tenant's own admin, never retrying — nothing the Owner's Registration
+   * or a second attempt can do about it.
+   */
+  "tenant_refused",
 ]);
 export type OAuthSignInOutcome = z.infer<typeof oauthSignInOutcomeSchema>;

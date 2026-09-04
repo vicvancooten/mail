@@ -24,6 +24,9 @@ const MESSAGES: Record<OAuthSignInOutcome, string> = {
   provider_error: "The provider couldn't complete the sign-in. Nothing was added; try again.",
   provider_not_registered:
     "That provider is no longer set up on this instance. Ask the Owner, then try again.",
+  // ADR-0021: an M365 tenant blocked this — never worth a retry, so unlike
+  // every failure above, this message doesn't invite one.
+  tenant_refused: "Refused by your organisation. Ask your IT admin about IMAP access or consent.",
 };
 
 export interface SignInOutcome {
