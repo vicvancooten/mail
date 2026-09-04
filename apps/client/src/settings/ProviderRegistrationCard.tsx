@@ -1,4 +1,4 @@
-import type { Provider, ProviderHealth } from "@mail/shared";
+import type { Provider, ProviderHealth, ProviderStatus } from "@mail/shared";
 import { type FormEvent, useState } from "react";
 import {
   deleteProviderRegistration,
@@ -9,6 +9,14 @@ import {
 const PROVIDER_LABEL: Record<Provider, string> = {
   google: "Google",
   microsoft: "Microsoft",
+};
+
+/** Provider Health's four states (#118, ADR-0021) — `working`/`failing` carry their own time (and, for Failing, error) alongside this label. */
+const STATUS_LABEL: Record<ProviderStatus, string> = {
+  not_registered: "Not registered",
+  registered_untested: "Registered, untested",
+  working: "Working",
+  failing: "Failing",
 };
 
 /** The in-app setup steps (ADR-0021's own summary of each Provider's console) — no live UI to link deeper into, since neither console is ours to drive. */
@@ -69,7 +77,7 @@ export function ProviderRegistrationCard({
   const provider = health.provider;
   const label = PROVIDER_LABEL[provider];
   const steps = PROVIDER_STEPS[provider];
-  const registered = health.status === "registered_untested";
+  const registered = health.status !== "not_registered";
   const editing = !registered || replacing;
 
   async function handleSave(event: FormEvent) {
@@ -127,7 +135,16 @@ export function ProviderRegistrationCard({
     <section className="provider-card">
       <h4>{label}</h4>
       <p className="provider-status">
-        {registered ? "Registered, untested" : "Not registered"}
+        {STATUS_LABEL[health.status]}
+        {health.status === "working" && health.lastRefreshAt ? (
+          <> — last refreshed {new Date(health.lastRefreshAt).toLocaleString()}</>
+        ) : null}
+        {health.status === "failing" && health.lastRefreshAt ? (
+          <>
+            {" "}
+            — {health.lastRefreshError} ({new Date(health.lastRefreshAt).toLocaleString()})
+          </>
+        ) : null}
         {registered && !replacing && health.clientIdPreview ? (
           <>
             {" — "}
@@ -135,6 +152,13 @@ export function ProviderRegistrationCard({
           </>
         ) : null}
       </p>
+
+      {registered && (
+        <p className="provider-counts">
+          {health.mailAccountCount} Mail Account{health.mailAccountCount === 1 ? "" : "s"}
+          {health.needsReauthCount > 0 && `, ${health.needsReauthCount} Needs Reauth`}
+        </p>
+      )}
 
       <div className="provider-redirect-uri">
         <label htmlFor={`${provider}-redirect-uri`}>Redirect URI</label>

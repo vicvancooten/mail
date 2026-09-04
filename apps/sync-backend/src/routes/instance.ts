@@ -25,6 +25,7 @@ import {
   deleteProviderRegistration,
   getProviderRegistration,
   listMailAccountsForProvider,
+  type ProviderRegistrationRow,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
 
@@ -37,6 +38,24 @@ export interface InstanceRoutesOptions {
   vapidPublicKey: string | null;
   /** `env.MAIL_VERSION` (`compose.yaml`'s `${MAIL_VERSION:-edge}`), or `"dev"` outside Docker. */
   imageTag: string;
+}
+
+/**
+ * Provider Health's status (#118, ADR-0021): honest about the gap ADR-0021
+ * names — `registered_untested` until the first Grant refresh attempt of
+ * either kind reports in, then `working`/`failing` from whether that latest
+ * attempt (`lastRefreshAt`) carried an error, never from a probe. A
+ * `withdrawn` refresh writes neither column (`grant-refresh.ts`), so a
+ * Provider with every account parked in Needs Reauth still reads as
+ * `working` off its last successful refresh rather than flipping to
+ * `failing` for a fact this doesn't track.
+ */
+function providerStatus(
+  registration: Pick<ProviderRegistrationRow, "lastRefreshAt" | "lastRefreshError"> | null,
+): ProviderHealth["status"] {
+  if (!registration) return "not_registered";
+  if (!registration.lastRefreshAt) return "registered_untested";
+  return registration.lastRefreshError ? "failing" : "working";
 }
 
 /** Parses `:provider`, replying 400 for anything but `google`/`microsoft` — the two Providers a Registration exists for (CONTEXT.md). */
@@ -74,15 +93,13 @@ export async function instanceRoutes(
     ]);
     return {
       provider,
-      status: registration ? "registered_untested" : "not_registered",
+      status: providerStatus(registration),
       redirectUri: buildProviderRedirectUri(publicUrl, provider),
       clientIdPreview: registration?.clientId ?? null,
       mailAccountCount,
       needsReauthCount,
-      // Working/Failing arrive with #118's refresh loop — until then there is
-      // no refresh attempt to report on (ADR-0021).
-      lastRefreshAt: null,
-      lastRefreshError: null,
+      lastRefreshAt: registration?.lastRefreshAt?.toISOString() ?? null,
+      lastRefreshError: registration?.lastRefreshError ?? null,
     };
   }
 

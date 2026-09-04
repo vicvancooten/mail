@@ -1380,6 +1380,14 @@ export const providerRegistrations = pgTable("provider_registrations", {
   clientSecret: jsonb("client_secret").$type<SealedSecret>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // Provider Health's Working/Failing (#118): stamped by every Grant refresh
+  // attempt this Provider's adapter makes, across every Mail Account on it —
+  // `lastRefreshAt` on every attempt, `lastRefreshError` cleared on success
+  // and set on a transient failure, the same convention `mailAccounts.
+  // lastSyncError` already uses. A `withdrawn` refresh does *not* write here:
+  // that's a single Mail Account's Needs Reauth, not a Provider-wide fact.
+  lastRefreshAt: timestamp("last_refresh_at", { withTimezone: true }),
+  lastRefreshError: text("last_refresh_error"),
 });
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
 

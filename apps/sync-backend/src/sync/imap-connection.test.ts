@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "../db/client.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
+import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
+import type { ProviderAdapter } from "../mail-accounts/provider-adapter.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
+import { upsertProviderRegistration } from "../provider-registrations/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 
@@ -88,5 +90,154 @@ describe("connectMailAccount", () => {
     );
     const stored = await getMailAccountById(db, account.id);
     expect(stored?.status).toBe("needs_reauth");
+  });
+});
+
+/**
+ * #118's `grantRefresh` option — an oauth account's rejected token gets a
+ * Provider round trip before Needs Reauth, and a near-expiry token gets one
+ * before the connection attempt even starts. Everything above this describe
+ * block passes no `grantRefresh` at all, so it keeps proving the pre-#118
+ * fallback (a rejected oauth login lands straight in Needs Reauth) stays
+ * intact for every caller that doesn't opt in.
+ */
+describe("connectMailAccount with grantRefresh", () => {
+  function fakeAdapter(refresh: ProviderAdapter["refresh"]): ProviderAdapter {
+    return {
+      connection: {
+        imap: { host: "imap.fake.test", port: 993, security: "tls" },
+        smtp: { host: "smtp.fake.test", port: 587, security: "starttls" },
+      },
+      scopes: ["https://mail.google.com/"],
+      authorizationUrl: () => "https://provider.test/authorize",
+      exchangeCode: () => {
+        throw new Error("not exercised here");
+      },
+      refresh,
+    };
+  }
+
+  async function registerGoogle(): Promise<void> {
+    await upsertProviderRegistration(
+      db,
+      "google",
+      "client-id",
+      sealSecret("secret", "google", credentialKey),
+    );
+  }
+
+  it("refreshes a near-expiry Grant before connecting, and authenticates with the fresh token", async () => {
+    await registerGoogle();
+    const account = await createTestMailAccount(db, {
+      oauth: { accessToken: "soon-to-expire" },
+    });
+    // `createTestMailAccount` seeds an hour-out expiry; a day-long safety
+    // margin makes it "near expiry" without depending on that exact value.
+    const adapters = {
+      google: fakeAdapter(() =>
+        Promise.resolve({
+          ok: true,
+          accessToken: "fresh-access-token",
+          refreshToken: "fresh-refresh-token",
+          expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+          scope: ["https://mail.google.com/"],
+        }),
+      ),
+    };
+
+    await connectMailAccount(db, account, {
+      credentialKey,
+      grantRefresh: { adapters, safetyMarginMs: 24 * 60 * 60_000 },
+    });
+
+    expect(capturedAuth).toEqual({ user: account.username, accessToken: "fresh-access-token" });
+  });
+
+  it("refreshes once and retries on a rejected token, succeeding with the new one", async () => {
+    await registerGoogle();
+    const account = await createTestMailAccount(db, {
+      oauth: { accessToken: "a-token-the-server-will-reject-once" },
+    });
+
+    let connectAttempts = 0;
+    connectImpl = async () => {
+      connectAttempts += 1;
+      if (connectAttempts === 1) throw authFailure();
+    };
+
+    await connectMailAccount(db, account, {
+      credentialKey,
+      grantRefresh: {
+        adapters: {
+          google: fakeAdapter(() =>
+            Promise.resolve({
+              ok: true,
+              accessToken: "fresh-access-token",
+              refreshToken: "fresh-refresh-token",
+              expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+              scope: ["https://mail.google.com/"],
+            }),
+          ),
+        },
+      },
+    });
+
+    expect(connectAttempts).toBe(2);
+    expect(capturedAuth).toEqual({ user: account.username, accessToken: "fresh-access-token" });
+  });
+
+  it("goes to Needs Reauth on a withdrawn refresh after a rejected token, not a plain retry error", async () => {
+    await registerGoogle();
+    const account = await createTestMailAccount(db, {
+      oauth: { accessToken: "a-withdrawn-grant" },
+    });
+    connectImpl = async () => {
+      throw authFailure();
+    };
+
+    await expect(
+      connectMailAccount(db, account, {
+        credentialKey,
+        grantRefresh: {
+          adapters: {
+            google: fakeAdapter(() =>
+              Promise.resolve({ ok: false, reason: "withdrawn", detail: "invalid_grant" }),
+            ),
+          },
+        },
+      }),
+    ).rejects.toThrow(MailAccountNeedsReauthError);
+
+    const stored = await getMailAccountById(db, account.id);
+    expect(stored?.status).toBe("needs_reauth");
+  });
+
+  it("surfaces a transient refresh failure after a rejected token as a plain (non-Needs-Reauth) error", async () => {
+    await registerGoogle();
+    const account = await createTestMailAccount(db, { oauth: { accessToken: "at" } });
+    connectImpl = async () => {
+      throw authFailure();
+    };
+
+    let caught: unknown;
+    try {
+      await connectMailAccount(db, account, {
+        credentialKey,
+        grantRefresh: {
+          adapters: {
+            google: fakeAdapter(() =>
+              Promise.resolve({ ok: false, reason: "transient", detail: "network blip" }),
+            ),
+          },
+        },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(MailAccountNeedsReauthError);
+
+    const stored = await getMailAccountById(db, account.id);
+    expect(stored?.status).toBe("active");
   });
 });
