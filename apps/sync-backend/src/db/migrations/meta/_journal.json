@@ -246,6 +246,13 @@
       "when": 1788561426178,
       "tag": "0034_cultured_ghost_rider",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788563461861,
+      "tag": "0035_misty_weapon_omega",
+      "breakpoints": true
     }
   ]
 }
