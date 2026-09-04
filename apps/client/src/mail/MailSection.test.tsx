@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
+import { enqueueUserMutation } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
@@ -22,6 +23,7 @@ import {
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
+import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
 
 /** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
@@ -220,7 +222,12 @@ describe("MailSection", () => {
     // Split view: list and reading pane both present at once.
     expect(document.querySelector(".split-view")).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    // View mode is a reactive Device Preference now (#99,
+    // `device-preferences.ts#useViewMode`), set from Settings' "This
+    // device" page (`ThisDeviceSection.test.tsx` covers that control) — this
+    // test exercises the storage-level write MailSection subscribes to,
+    // same as a write from that other surface would.
+    act(() => writeViewMode("list"));
     expect(document.querySelector(".split-view")).toBeNull();
 
     // List view: opening a Thread swaps the list for a full-screen detail,
@@ -528,14 +535,20 @@ describe("MailSection", () => {
     await waitFor(() => expect(screen.getByText("Nothing open")).toBeDefined());
   });
 
-  it("the auto-advance direction toggle in the top bar flips trash's neighbor choice", async () => {
+  it("the auto-advance direction preference flips trash's neighbor choice", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
     renderMail();
     await screen.findByText("Newer thread");
-    fireEvent.click(screen.getByRole("button", { name: /Next: Older/ }));
-    expect(await screen.findByRole("button", { name: /Next: Newer/ })).toBeDefined();
+    // The direction toggle moved into Settings' General page (#99,
+    // `GeneralSection.test.tsx` covers that control) — it writes the same
+    // synced `Preference` mutation this exercises directly, the way
+    // `usePreference`'s `base ⊕ pending` overlay picks it up instantly
+    // regardless of which surface enqueued it.
+    await act(() =>
+      enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "newer" }),
+    );
 
     // Open the *older* Thread and trash it — with direction flipped to
     // "newer", the newer Thread (the only remaining neighbor either way

@@ -9,7 +9,13 @@ import {
 import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
-import { SettingsSection } from "../settings/SettingsSection.js";
+import { GatekeeperPage } from "../settings/GatekeeperPage.js";
+import { GeneralSection } from "../settings/GeneralSection.js";
+import { MailAccountsPage } from "../settings/MailAccountsPage.js";
+import { NotificationsPage } from "../settings/NotificationsPage.js";
+import { SecurityPage } from "../settings/SecurityPage.js";
+import { SettingsLayout } from "../settings/SettingsLayout.js";
+import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
 import { MailRoute } from "./MailRoute.js";
 import { RootLayout } from "./RootLayout.js";
 
@@ -22,9 +28,15 @@ import { RootLayout } from "./RootLayout.js";
  * `mail/search/useSearchOverlay.ts`.
  *
  * Code-based routes rather than file-based + codegen: this Client has no
- * build-time route generation set up, and six routes is small enough that
- * hand-written `createRoute` calls stay more legible than adding a plugin
- * for it.
+ * build-time route generation set up, and this many routes is still small
+ * enough that hand-written `createRoute` calls stay more legible than
+ * adding a plugin for it.
+ *
+ * Settings is a layout route with its own sub-routes now (#99), the same
+ * shape `mailRoute` already gives Mail's own folder/label state — General,
+ * This device, Mail Accounts, Gatekeeper, Notifications and Security each
+ * get a real URL under `/settings`, with a side nav (`SettingsLayout`)
+ * rather than one long-scrolling page.
  */
 
 /** Carried by every route via `rootRoute.useRouteContext()` — the signed-in User `RootLayout`'s header rail renders, and the sign-out handler it wires to a button. Built once, in `auth/AppShell.tsx`, from `AuthContext`. */
@@ -73,10 +85,61 @@ export const mailRoute = createRoute({
   component: MailRoute,
 });
 
+/**
+ * Settings' own sub-routes (#99): `settingsRoute` is now a layout route
+ * (`SettingsLayout`'s side nav + `<Outlet/>`) rather than a single screen —
+ * `/settings` itself carries no content of its own, redirecting to General
+ * the same way `indexRoute` above forwards `/` to Mail. Each child is its
+ * own bounded pane (`SettingsLayout`'s own doc comment).
+ */
 export const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  component: SettingsSection,
+  component: SettingsLayout,
+});
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/general" });
+  },
+});
+
+export const settingsGeneralRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/general",
+  component: GeneralSection,
+});
+
+export const settingsThisDeviceRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/this-device",
+  component: ThisDeviceSection,
+});
+
+export const settingsMailAccountsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/mail-accounts",
+  component: MailAccountsPage,
+});
+
+export const settingsGatekeeperRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/gatekeeper",
+  component: GatekeeperPage,
+});
+
+export const settingsNotificationsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/notifications",
+  component: NotificationsPage,
+});
+
+export const settingsSecurityRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/security",
+  component: SecurityPage,
 });
 
 export const contactsRoute = createRoute({
@@ -100,7 +163,15 @@ export const tasksRoute = createRoute({
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
-  settingsRoute,
+  settingsRoute.addChildren([
+    settingsIndexRoute,
+    settingsGeneralRoute,
+    settingsThisDeviceRoute,
+    settingsMailAccountsRoute,
+    settingsGatekeeperRoute,
+    settingsNotificationsRoute,
+    settingsSecurityRoute,
+  ]),
   contactsRoute,
   calendarRoute,
   tasksRoute,

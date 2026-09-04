@@ -139,6 +139,7 @@ describe("passkey registration (#32)", () => {
     await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("link", { name: "Security" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await user.click(await screen.findByRole("button", { name: "Add a passkey" }));

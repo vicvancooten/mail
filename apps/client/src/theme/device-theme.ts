@@ -8,9 +8,10 @@
  * every other Device Preference.
  *
  * The header's Appearance control and Settings' own copy (poc-spec.md: "the
- * same control in Settings") both read and write through this module, so
- * neither can drift from the other — `useAppearance` is the one place either
- * mounts a subscription, and `writeTheme` is the one place either writes.
+ * same control in Settings"; `settings/ThisDeviceSection.tsx`, #99) both
+ * read and write through this module, so neither can drift from the other —
+ * `useAppearance` is the one place either mounts a subscription, and
+ * `writeTheme` is the one place either writes.
  */
 
 import { useCallback, useSyncExternalStore } from "react";
@@ -74,8 +75,9 @@ export function useAppearance(): [Theme, (theme: Theme) => void] {
 /**
  * The header's own appearance toggle (#86, the comp's `#theme-toggle`): one
  * button that flips between light and dark, rather than the three-way
- * radio group `SettingsSection` and the avatar menu both render. `system`
- * has no icon of its own to show, so the toggle reports the *resolved*
+ * choice `ThisDeviceSection` (a `<select>`) and the avatar menu (a radio
+ * group) both render. `system` has no icon of its own to show, so the
+ * toggle reports the *resolved*
  * appearance — what the User is actually looking at — and a press writes
  * the opposite as an explicit choice, the same move the comp makes.
  *
