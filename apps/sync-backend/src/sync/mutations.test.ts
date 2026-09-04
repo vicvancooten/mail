@@ -301,6 +301,109 @@ describe("flushMutations — archive/trash (#42)", () => {
   });
 });
 
+describe("flushMutations — archive/trash on Gmail (#124, ADR-0020)", () => {
+  /** One Thread with one Message on the All Mail Folder, the way #122's ingest would have stored it. */
+  async function seedGmailThread(
+    gmailAccountId: string,
+    gmailLabels: string[] | null,
+  ): Promise<string> {
+    const threadId = await resolveThread(db, {
+      mailAccountId: gmailAccountId,
+      threadingIds: [randomUUID()],
+      subject: "Test",
+      receivedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const allMailId = randomUUID();
+    await db.insert(folders).values({
+      id: allMailId,
+      mailAccountId: gmailAccountId,
+      path: "[Gmail]/All Mail",
+      name: "All Mail",
+      role: "all",
+    });
+    await db.insert(messages).values({
+      id: randomUUID(),
+      mailAccountId: gmailAccountId,
+      threadId,
+      folderId: allMailId,
+      uid: 1,
+      subject: "Test",
+      sentAt: new Date("2026-01-01T00:00:00Z"),
+      receivedAt: new Date("2026-01-01T00:00:00Z"),
+      gmailLabels,
+    });
+    return threadId;
+  }
+
+  it("archive enqueues a label-remove of \\Inbox on the All Mail UID, never a move, with no Archive Folder required", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+    // Deliberately no "archive" role Folder seeded — Gmail never has one (#124).
+
+    const outcomes = await flushMutations(db, gmailAccount.id, [
+      { id: "01ARCHIVE", intent: { type: "archive", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01ARCHIVE", status: "applied" }]);
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+    const rows = await outboxRows(gmailAccount.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "archive" });
+  });
+
+  it("restoreToInbox enqueues a label-add of \\Inbox for a Gmail account", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, null); // archived: no \Inbox label
+    await db
+      .update(threads)
+      .set({ inInbox: false, folderRole: "archive" })
+      .where(eq(threads.id, threadId));
+
+    const outcomes = await flushMutations(db, gmailAccount.id, [
+      { id: "01RESTORE", intent: { type: "restoreToInbox", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(true);
+    const rows = await outboxRows(gmailAccount.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "inbox" });
+  });
+
+  it("trash still requires and enqueues a real move to the Trash Folder on Gmail", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+    await db.insert(folders).values({
+      id: randomUUID(),
+      mailAccountId: gmailAccount.id,
+      path: "[Gmail]/Trash",
+      name: "Trash",
+      role: "trash",
+    });
+
+    const outcomes = await flushMutations(db, gmailAccount.id, [
+      { id: "01TRASH", intent: { type: "trash", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01TRASH", status: "applied" }]);
+    const rows = await outboxRows(gmailAccount.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "trash" });
+  });
+
+  it("rejects trash on a Gmail account with no Trash Folder — Trash stays a real move even there", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]); // no "trash" role Folder seeded
+
+    const outcomes = await flushMutations(db, gmailAccount.id, [
+      { id: "01NOTRASH", intent: { type: "trash", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01NOTRASH", status: "rejected", reason: "no_trash_folder" }]);
+  });
+});
+
 describe("flushMutations — restoreToInbox (#95, ADR-0019)", () => {
   it("moves an archived Thread back to Inbox and queues its Message for a real IMAP move", async () => {
     const threadId = await seedThread();
