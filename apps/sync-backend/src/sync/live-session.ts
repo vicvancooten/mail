@@ -1,6 +1,7 @@
 import type { ExistsEvent, ExpungeEvent, FlagsEvent, ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
+import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
 import { getMailAccountById, type MailAccountRow, setSyncStatus } from "../mail-accounts/store.js";
 import { establishFolderBaseline, runAccountBackfill } from "./backfill.js";
 import { runBodySweep } from "./body-sweep.js";
@@ -58,6 +59,14 @@ export interface LiveSyncSessionOptions {
   bodySweepPauseMs?: number;
   /** #36: paused between sweep checks once the account has nothing pending. Default 5s. */
   bodySweepIdlePollMs?: number;
+  /**
+   * Enables #118's Grant refresh for an oauth Mail Account's connection —
+   * threaded straight through to `connectMailAccount`'s own `grantRefresh`
+   * option. Omitted, an oauth account's rejected token still lands in Needs
+   * Reauth the pre-#118 way (#114); `sync/manager.ts#createSyncManager` is
+   * the only real caller that sets this.
+   */
+  providerAdapters?: ProviderAdapters;
   /**
    * Test-only observability hook: called with each connection this session
    * opens, right after it authenticates. Production code has no use for
@@ -132,6 +141,7 @@ export function startLiveSyncSession(
           bodySweepBatchSize,
           bodySweepPauseMs,
           bodySweepIdlePollMs,
+          providerAdapters: options.providerAdapters,
         });
         // Only returns without throwing when `stop()` was requested.
         return;
@@ -182,6 +192,7 @@ interface RunSessionContext {
   bodySweepBatchSize?: number;
   bodySweepPauseMs?: number;
   bodySweepIdlePollMs?: number;
+  providerAdapters?: ProviderAdapters;
 }
 
 /**
@@ -203,6 +214,7 @@ async function runSession(db: Db, accountId: string, ctx: RunSessionContext): Pr
     credentialKey,
     qresync: true,
     autoIdleDelay: ctx.autoIdleDelayMs,
+    grantRefresh: ctx.providerAdapters ? { adapters: ctx.providerAdapters } : undefined,
   });
   ctx.onClientReady?.(client);
 

@@ -9,7 +9,9 @@ import type { SendPushFn } from "./notifier/deliver.js";
 import { startNotifierDeliverLoop } from "./notifier/deliver-loop.js";
 import { createWebPushSender } from "./notifier/web-push-sender.js";
 import { createSyncHintBroker } from "./realtime/sync-hints.js";
+import { defaultProviderAdapters } from "./routes/oauth-signin.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
+import { startGrantRefreshLoop } from "./sync/grant-refresh-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
@@ -36,8 +38,16 @@ if (!host || Number.isNaN(port)) {
 
 // One resident sync loop per Mail Account (#35) — the real implementation
 // `app.ts` otherwise defaults to a no-op for, so no test opens an
-// unrequested IMAP connection just by calling `buildApp`.
-const syncManager = createSyncManager(db, { mailCredentialKey: env.MAIL_CREDENTIAL_KEY });
+// unrequested IMAP connection just by calling `buildApp`. `providerAdapters`
+// is what makes an oauth account's connection refresh its Grant rather than
+// landing straight in Needs Reauth on a rejected token (#118) — the same
+// instance `buildApp` and the refresh loop below share, so a Registration
+// change never has to be wired into more than one place.
+const providerAdapters = defaultProviderAdapters;
+const syncManager = createSyncManager(db, {
+  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+  providerAdapters,
+});
 
 // Web Push (#53, ADR-0015): optional as a pair (`env.ts` refuses to boot on
 // a mismatched pair) — an instance that never ran `generate-vapid-keys`
@@ -61,6 +71,7 @@ const app = buildApp({
   db,
   publicUrl: env.PUBLIC_URL,
   mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+  providerAdapters,
   syncManager,
   attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
   syncHints,
@@ -132,6 +143,17 @@ const snoozeWakeLoop = startSnoozeWakeLoop(db, { logger: app.log });
 // held when the process died is exactly what this boot-time tick resumes.
 const notifierDeliverLoop = startNotifierDeliverLoop(db, { sendPush, logger: app.log });
 
+// The Grant refresh sweep (#118, ADR-0021): "keeps Grants warm even while
+// the resident connection is down" — same independent-of-`sync/manager.ts`
+// shape as the rebuild and snooze loops above, refreshing any oauth Mail
+// Account nearing its access token's expiry regardless of whether that
+// account's own resident session is currently connected.
+const grantRefreshLoop = startGrantRefreshLoop(db, {
+  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+  providerAdapters,
+  logger: app.log,
+});
+
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
 // describes: stop every resident session (a polite IMAP LOGOUT, then close)
@@ -145,6 +167,7 @@ process.on("SIGTERM", () => {
     searchIndexRebuildLoop.stop(),
     snoozeWakeLoop.stop(),
     notifierDeliverLoop.stop(),
+    grantRefreshLoop.stop(),
     syncHints.stop(),
   ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))

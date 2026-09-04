@@ -466,6 +466,15 @@
   margin: 0;
 }
 
+/* Provider Health's counts (#118, ADR-0021: "how many Mail Accounts use each
+   Provider and how many of them are Needs Reauth") — a quieter line under
+   the status, not another alert. */
+.provider-counts {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+
 .provider-redirect-uri {
   display: flex;
   flex-direction: column;

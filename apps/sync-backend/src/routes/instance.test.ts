@@ -8,6 +8,10 @@ import type { Db } from "../db/client.js";
 import { mailAccounts, notifierOutbox, users } from "../db/schema.js";
 import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
+import {
+  recordProviderRefreshOutcome,
+  upsertProviderRegistration,
+} from "../provider-registrations/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 
 /**
@@ -207,6 +211,80 @@ describe("GET /instance/health", () => {
         },
       ],
     });
+  });
+
+  it("reports working with lastRefreshAt after a successful Grant refresh", async () => {
+    const app = buildTestApp();
+    const cookie = await createUserWithCookie("owner");
+    const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
+    await upsertProviderRegistration(
+      db,
+      "google",
+      "client-id",
+      sealSecret("secret", "google", key),
+    );
+    await recordProviderRefreshOutcome(db, "google", null);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    const google = response
+      .json()
+      .providers.find((p: { provider: string }) => p.provider === "google");
+    expect(google.status).toBe("working");
+    expect(google.lastRefreshAt).not.toBeNull();
+    expect(google.lastRefreshError).toBeNull();
+  });
+
+  it("reports failing with lastRefreshError after a transient Grant refresh failure", async () => {
+    const app = buildTestApp();
+    const cookie = await createUserWithCookie("owner");
+    const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
+    await upsertProviderRegistration(
+      db,
+      "google",
+      "client-id",
+      sealSecret("secret", "google", key),
+    );
+    await recordProviderRefreshOutcome(db, "google", "network blip");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    const google = response
+      .json()
+      .providers.find((p: { provider: string }) => p.provider === "google");
+    expect(google.status).toBe("failing");
+    expect(google.lastRefreshError).toBe("network blip");
+  });
+
+  it("a later successful refresh clears failing back to working", async () => {
+    const app = buildTestApp();
+    const cookie = await createUserWithCookie("owner");
+    const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
+    await upsertProviderRegistration(
+      db,
+      "google",
+      "client-id",
+      sealSecret("secret", "google", key),
+    );
+    await recordProviderRefreshOutcome(db, "google", "network blip");
+    await recordProviderRefreshOutcome(db, "google", null);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    const google = response
+      .json()
+      .providers.find((p: { provider: string }) => p.provider === "google");
+    expect(google.status).toBe("working");
+    expect(google.lastRefreshError).toBeNull();
   });
 });
 

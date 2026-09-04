@@ -1,7 +1,13 @@
 import { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { toImapAuth, unsealMailAccountSecret } from "../mail-accounts/credential-auth.js";
-import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
+import { needsGrantRefresh, refreshMailAccountGrant } from "../mail-accounts/grant-refresh.js";
+import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
+import {
+  getMailAccountById,
+  type MailAccountRow,
+  markNeedsReauth,
+} from "../mail-accounts/store.js";
 import { recordNeedsReauthNotification } from "../notifier/record.js";
 
 /**
@@ -55,22 +61,75 @@ export interface ImapConnectionOptions {
    * moments after it finishes the baseline sync, not 15 seconds later.
    */
   autoIdleDelay?: number;
+  /**
+   * Enables #118's Grant refresh for an `oauth` Mail Account: a proactive
+   * refresh before connecting when the access token is within
+   * `safetyMarginMs` of expiry, and one reactive refresh-then-retry if the
+   * server rejects it anyway. Omitted by `verify.ts`, `compose/submit.ts`
+   * and every test that doesn't ask for it — those keep the pre-#118
+   * behavior of an oauth rejection landing in Needs Reauth exactly like a
+   * password's (#114). Only `sync/live-session.ts`'s resident loop wires
+   * this in for real.
+   */
+  grantRefresh?: {
+    adapters: ProviderAdapters;
+    safetyMarginMs?: number;
+    now?: () => Date;
+  };
 }
 
 /**
  * Opens and authenticates a connection for one Mail Account.
  *
- * A rejected credential is not an error the caller has to recognize: this
+ * A rejected *password* is not an error the caller has to recognize: this
  * calls #33's `markNeedsReauth` seam first, so the state machine CONTEXT.md
  * describes ("syncing stops until the User supplies new credentials, and
  * pending Optimistic Actions wait rather than fail") is entered exactly
  * once, at the only place that can actually observe the rejection.
+ *
+ * A rejected *oauth* access token, with `grantRefresh` configured, gets one
+ * chance to refresh first (#118, ADR-0021: "nothing but the Provider itself
+ * can tell a withdrawn Grant from a bad day on the network apart") — only a
+ * `withdrawn` refresh result reaches the same Needs Reauth transition;
+ * `transient` surfaces as a plain retryable error instead.
  */
 export async function connectMailAccount(
   db: Db,
   account: MailAccountRow,
-  { credentialKey, logger = false, qresync = false, autoIdleDelay }: ImapConnectionOptions,
+  options: ImapConnectionOptions,
 ): Promise<ImapFlow> {
+  let current = account;
+
+  if (current.credential.kind === "oauth" && options.grantRefresh) {
+    const { adapters, safetyMarginMs, now } = options.grantRefresh;
+    if (needsGrantRefresh(current.credential, (now ?? (() => new Date()))(), safetyMarginMs)) {
+      const outcome = await refreshMailAccountGrant(db, current, {
+        credentialKey: options.credentialKey,
+        adapters,
+      });
+      if (outcome.result === "withdrawn") {
+        throw new MailAccountNeedsReauthError(current.id, outcome.detail);
+      }
+      if (outcome.result === "refreshed") {
+        const refreshed = await getMailAccountById(db, current.id);
+        if (refreshed) current = refreshed;
+      }
+      // `transient` and `skipped` fall through: whatever credential is on
+      // hand (possibly still the soon-to-expire one) gets a connection
+      // attempt anyway, since it may well still be valid for a bit longer.
+    }
+  }
+
+  return attemptConnect(db, current, options, /* allowGrantRetry */ true);
+}
+
+async function attemptConnect(
+  db: Db,
+  account: MailAccountRow,
+  options: ImapConnectionOptions,
+  allowGrantRetry: boolean,
+): Promise<ImapFlow> {
+  const { credentialKey, logger = false, qresync = false, autoIdleDelay } = options;
   const secret = unsealMailAccountSecret(account.credential, account.id, credentialKey);
   const client = new ImapFlow({
     host: account.imapHost,
@@ -91,12 +150,32 @@ export async function connectMailAccount(
     await client.connect();
   } catch (err) {
     client.close();
-    if (isAuthFailure(err)) {
-      const transitioned = await markNeedsReauth(db, account.id);
-      if (transitioned) await recordNeedsReauthNotification(db, transitioned);
-      throw new MailAccountNeedsReauthError(account.id, err.message);
+    if (!isAuthFailure(err)) throw err;
+
+    if (account.credential.kind === "oauth" && options.grantRefresh && allowGrantRetry) {
+      const outcome = await refreshMailAccountGrant(db, account, {
+        credentialKey,
+        adapters: options.grantRefresh.adapters,
+      });
+      if (outcome.result === "withdrawn") {
+        throw new MailAccountNeedsReauthError(account.id, outcome.detail);
+      }
+      if (outcome.result === "refreshed") {
+        const refreshed = await getMailAccountById(db, account.id);
+        if (refreshed) return attemptConnect(db, refreshed, options, /* allowGrantRetry */ false);
+        throw new Error(`Mail Account ${account.id} vanished mid Grant refresh.`);
+      }
+      // `transient` (or `skipped`, if the Registration/adapter vanished
+      // mid-flight): a plain error, so the caller's ordinary backoff-and-
+      // retry handles it rather than parking the account (#118: "retried as
+      // a transient sync error").
+      const detail = outcome.result === "transient" ? outcome.detail : outcome.reason;
+      throw new Error(`Mail Account ${account.id} Grant refresh did not succeed: ${detail}`);
     }
-    throw err;
+
+    const transitioned = await markNeedsReauth(db, account.id);
+    if (transitioned) await recordNeedsReauthNotification(db, transitioned);
+    throw new MailAccountNeedsReauthError(account.id, err.message);
   }
 
   return client;
