@@ -50,6 +50,30 @@ export async function deleteProviderRegistration(db: Db, provider: Provider): Pr
 }
 
 /**
+ * Stamps the result of one Grant refresh attempt through this Provider
+ * (#118) — `routes/instance.ts#buildProviderHealth` derives `working`/
+ * `failing` from the two columns this writes. `lastRefreshAt` is set on
+ * every attempt regardless of outcome; `error` is `null` on success (clearing
+ * any prior failure, same convention as `mail-accounts/store.ts#setSyncStatus`'s
+ * `lastSyncError`) and the Provider's own failure detail otherwise.
+ *
+ * Never called for a `withdrawn` result: that's one Mail Account's Needs
+ * Reauth, not a fact about the Provider as a whole, and a single revoked
+ * Grant shouldn't flip a whole Provider to Failing while every other account
+ * on it keeps refreshing fine.
+ */
+export async function recordProviderRefreshOutcome(
+  db: Db,
+  provider: Provider,
+  error: string | null,
+): Promise<void> {
+  await db
+    .update(providerRegistrations)
+    .set({ lastRefreshAt: new Date(), lastRefreshError: error, updatedAt: new Date() })
+    .where(eq(providerRegistrations.provider, provider));
+}
+
+/**
  * Every Mail Account whose `oauth` credential names this Provider
  * (`mail-accounts/credential-crypto.ts`'s tagged union) — there is no
  * `mail_accounts.provider` column, so this reads the value straight out of

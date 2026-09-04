@@ -1,6 +1,6 @@
 {
-  "id": "a0264513-6276-4788-a9a4-05a5aa20f85b",
-  "prevId": "42fd1bff-a096-41ae-91d5-278d7194aa9c",
+  "id": "15cd431c-e7db-4d5b-bb58-501fc022cb2e",
+  "prevId": "a0264513-6276-4788-a9a4-05a5aa20f85b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2233,6 +2233,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "mail_account_id": {
+          "name": "mail_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2271,6 +2277,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "oauth_sign_in_attempts_mail_account_id_mail_accounts_id_fk": {
+          "name": "oauth_sign_in_attempts_mail_account_id_mail_accounts_id_fk",
+          "tableFrom": "oauth_sign_in_attempts",
+          "tableTo": "mail_accounts",
+          "columnsFrom": [
+            "mail_account_id"
           ],
           "columnsTo": [
             "id"

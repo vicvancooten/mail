@@ -22,20 +22,31 @@ export const saveProviderRegistrationRequestSchema = z.object({
 export type SaveProviderRegistrationRequest = z.infer<typeof saveProviderRegistrationRequestSchema>;
 
 /**
- * Whether a Registration exists and, once #118 lands the refresh loop,
- * whether Grants through it are currently honoured. `registered_untested`
- * is honest about the gap ADR-0021 names: neither Provider can be validated
- * without a User consenting, so this stays true until the first Grant lands.
+ * Whether a Registration exists and, since #118's refresh loop, whether
+ * Grants through it are currently honoured. `registered_untested` is honest
+ * about the gap ADR-0021 names: neither Provider can be validated without a
+ * User consenting, so this stays true until the first Grant refresh — success
+ * or failure — reports in. `working`/`failing` are derived from that last
+ * refresh, never from a probe (ADR-0021): `working` once one has ever
+ * succeeded, `failing` from the moment one comes back with an error, until
+ * the next refresh clears it.
  */
-export const providerStatusSchema = z.enum(["not_registered", "registered_untested"]);
+export const providerStatusSchema = z.enum([
+  "not_registered",
+  "registered_untested",
+  "working",
+  "failing",
+]);
 export type ProviderStatus = z.infer<typeof providerStatusSchema>;
 
 /**
  * One Provider's entry in `GET /instance/health`'s `providers` section
- * (#115, CONTEXT.md's Provider Health) — the same shape `PUT
+ * (#115, #118, CONTEXT.md's Provider Health) — the same shape `PUT
  * /instance/providers/:provider` hands back for the one Provider it just
- * saved. `lastRefreshAt`/`lastRefreshError` are always null until #118 wires
- * up the refresh loop that reports on them.
+ * saved. `lastRefreshAt` is the last refresh attempt's time regardless of
+ * outcome (`routes/instance.ts` derives `working`/`failing` from whether
+ * `lastRefreshError` is set alongside it); both stay null until the first
+ * attempt.
  */
 export const providerHealthSchema = z.object({
   provider: providerSchema,
@@ -159,5 +170,12 @@ export const oauthSignInOutcomeSchema = z.enum([
    * opposite problem on an `add_mail_account` attempt.
    */
   "reauth_address_mismatch",
+  /**
+   * ADR-0021: an M365 tenant blocked IMAP or withheld admin consent for this
+   * Registration (#117). Distinct from `provider_error` because the fix is
+   * asking the tenant's own admin, never retrying — nothing the Owner's
+   * Registration or a second attempt can do about it.
+   */
+  "tenant_refused",
 ]);
 export type OAuthSignInOutcome = z.infer<typeof oauthSignInOutcomeSchema>;

@@ -256,3 +256,36 @@ export async function replaceMailAccountCredential(
     .set({ username, credential, status: "active", updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
 }
+
+/**
+ * A Grant refresh's write path (#118, ADR-0021): reseals the fresh
+ * access/refresh tokens onto an already-`active` Mail Account. Unlike
+ * `replaceMailAccountCredential`, this never touches `status` or `username`
+ * — a routine token refresh is not a reauth, and never changes who's signed
+ * in.
+ */
+export async function updateMailAccountGrant(
+  db: Db,
+  id: string,
+  credential: MailAccountCredential,
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ credential, updatedAt: new Date() })
+    .where(eq(mailAccounts.id, id));
+}
+
+/**
+ * Every `active` Mail Account whose credential is an `oauth` Grant (#118) —
+ * what the refresh loop sweeps each tick. Scoped to `active`: a Mail Account
+ * already parked in Needs Reauth has nothing a token refresh can fix, so
+ * refreshing it would just be a wasted Provider round trip.
+ */
+export async function listActiveOAuthMailAccounts(db: Db): Promise<MailAccountRow[]> {
+  return db
+    .select()
+    .from(mailAccounts)
+    .where(
+      and(eq(mailAccounts.status, "active"), sql`${mailAccounts.credential}->>'kind' = 'oauth'`),
+    );
+}

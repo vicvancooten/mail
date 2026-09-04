@@ -89,6 +89,56 @@ describe("ProviderRegistrationCard", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDefined();
   });
 
+  it("shows Working with the last refresh time", () => {
+    render(
+      <ProviderRegistrationCard
+        health={health({
+          status: "working",
+          clientIdPreview: "abc-client-id",
+          lastRefreshAt: "2026-01-01T12:00:00.000Z",
+        })}
+        isSecureContext
+        onChanged={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Working/)).toBeDefined();
+    expect(screen.getByText(/last refreshed/)).toBeDefined();
+  });
+
+  it("shows Failing with the last error and time", () => {
+    render(
+      <ProviderRegistrationCard
+        health={health({
+          status: "failing",
+          clientIdPreview: "abc-client-id",
+          lastRefreshAt: "2026-01-01T12:00:00.000Z",
+          lastRefreshError: "network blip",
+        })}
+        isSecureContext
+        onChanged={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Failing/)).toBeDefined();
+    expect(screen.getByText(/network blip/)).toBeDefined();
+  });
+
+  it("shows the Mail Account and Needs Reauth counts once registered", () => {
+    render(
+      <ProviderRegistrationCard
+        health={health({
+          status: "registered_untested",
+          clientIdPreview: "abc-client-id",
+          mailAccountCount: 3,
+          needsReauthCount: 1,
+        })}
+        isSecureContext
+        onChanged={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/3 Mail Accounts/)).toBeDefined();
+    expect(screen.getByText(/1 Needs Reauth/)).toBeDefined();
+  });
+
   it("shows the plain-http warning only when the Public URL isn't a secure context", () => {
     const { rerender } = render(
       <ProviderRegistrationCard health={health()} isSecureContext={false} onChanged={vi.fn()} />,

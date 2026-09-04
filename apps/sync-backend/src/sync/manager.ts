@@ -26,7 +26,7 @@ export function createSyncManager(
   db: Db,
   options: Pick<
     LiveSyncSessionOptions,
-    "mailCredentialKey" | "pollIntervalMs" | "idleWakeDebounceMs"
+    "mailCredentialKey" | "pollIntervalMs" | "idleWakeDebounceMs" | "providerAdapters"
   >,
 ): SyncManager {
   const sessions = new Map<string, LiveSyncSessionHandle>();

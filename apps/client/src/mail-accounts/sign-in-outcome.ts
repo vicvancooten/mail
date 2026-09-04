@@ -27,6 +27,9 @@ const MESSAGES: Record<OAuthSignInOutcome, string> = {
   reauth_succeeded: "Signed in again. This Mail Account is syncing normally now.",
   reauth_address_mismatch:
     "That account doesn't match this Mail Account's address. Sign in with the matching account instead.",
+  // ADR-0021: an M365 tenant blocked this — never worth a retry, so unlike
+  // every failure above, this message doesn't invite one.
+  tenant_refused: "Refused by your organisation. Ask your IT admin about IMAP access or consent.",
 };
 
 /** The outcomes that leave the account list stale — a new row, or a replaced credential. */
