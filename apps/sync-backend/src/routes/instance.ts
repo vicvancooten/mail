@@ -5,10 +5,9 @@ import {
   type ProviderHealth,
   providerMailAccountCountResponseSchema,
   providerRegistrationResponseSchema,
-  providerSchema,
   saveProviderRegistrationRequestSchema,
 } from "@mail/shared";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import {
   buildProviderRedirectUri,
@@ -28,6 +27,7 @@ import {
   type ProviderRegistrationRow,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
+import { parseProviderParam } from "./route-params.js";
 
 export interface InstanceRoutesOptions {
   db: Db;
@@ -56,19 +56,6 @@ function providerStatus(
   if (!registration) return "not_registered";
   if (!registration.lastRefreshAt) return "registered_untested";
   return registration.lastRefreshError ? "failing" : "working";
-}
-
-/** Parses `:provider`, replying 400 for anything but `google`/`microsoft` — the two Providers a Registration exists for (CONTEXT.md). */
-function parseProviderParam(
-  request: { params: unknown },
-  reply: FastifyReply,
-): Provider | undefined {
-  const result = providerSchema.safeParse((request.params as { provider?: string }).provider);
-  if (!result.success) {
-    reply.code(400).send({ error: "invalid_provider" });
-    return undefined;
-  }
-  return result.data;
 }
 
 /**

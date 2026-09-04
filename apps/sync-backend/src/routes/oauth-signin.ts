@@ -35,6 +35,7 @@ import {
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import { getProviderRegistration } from "../provider-registrations/store.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
+import { parseProviderParam } from "./route-params.js";
 
 /**
  * Sign in with a Provider to add a Mail Account (#116, ADR-0021). Two halves
@@ -108,6 +109,36 @@ export async function oauthSignInRoutes(
     const target = new URL(MAIL_ACCOUNTS_SETTINGS_PATH, publicUrl);
     target.searchParams.set(OAUTH_SIGN_IN_OUTCOME_PARAM, outcome);
     return reply.redirect(target.toString(), 302);
+  }
+
+  /** Seals a `ProviderGrant` the same way for a new Mail Account and a reauth'd one — one shape, one call site each. */
+  function sealGrant(grant: ProviderGrant, provider: Provider, id: string) {
+    return sealOAuthCredential(
+      {
+        provider,
+        accessToken: grant.accessToken,
+        refreshToken: grant.refreshToken,
+        expiresAt: grant.expiresAt,
+        scope: grant.scope,
+      },
+      id,
+      key,
+    );
+  }
+
+  /** Verify-before-save (poc-spec.md §Mail Accounts), over XOAUTH2, for both the add-account and reauth paths. */
+  function verifyGrant(input: {
+    imap: Parameters<typeof verify>[0]["imap"];
+    smtp: Parameters<typeof verify>[0]["smtp"];
+    username: string;
+    grant: ProviderGrant;
+  }) {
+    return verify({
+      imap: input.imap,
+      smtp: input.smtp,
+      username: input.username,
+      credential: { kind: "oauth", accessToken: input.grant.accessToken },
+    });
   }
 
   /**
@@ -297,12 +328,7 @@ export async function oauthSignInRoutes(
     // (poc-spec.md §Mail Accounts) — over XOAUTH2 here, through the very
     // `credential-auth.ts` seam #114 built for it.
     const { imap, smtp } = adapter.connection;
-    const result = await verify({
-      imap,
-      smtp,
-      username: emailAddress,
-      credential: { kind: "oauth", accessToken: grant.accessToken },
-    });
+    const result = await verifyGrant({ imap, smtp, username: emailAddress, grant });
     if (!result.ok) {
       request.log.warn(
         { provider, reason: result.reason, detail: result.detail },
@@ -321,17 +347,7 @@ export async function oauthSignInRoutes(
       // Gmail's IMAP/SMTP login *is* the address, and there is no second
       // login to ask for — signing in is the only way this row is created.
       username: emailAddress,
-      credential: sealOAuthCredential(
-        {
-          provider,
-          accessToken: grant.accessToken,
-          refreshToken: grant.refreshToken,
-          expiresAt: grant.expiresAt,
-          scope: grant.scope,
-        },
-        id,
-        key,
-      ),
+      credential: sealGrant(grant, provider, id),
     });
     // "back to the Mail Accounts settings page with the new Gmail account
     // already syncing" (#116): the same call `POST /mail-accounts` makes.
@@ -381,11 +397,11 @@ export async function oauthSignInRoutes(
     // IMAP/SMTP replaces nothing (poc-spec.md §Mail Accounts).
     const imap = { host: account.imapHost, port: account.imapPort, security: account.imapSecurity };
     const smtp = { host: account.smtpHost, port: account.smtpPort, security: account.smtpSecurity };
-    const result = await verify({
+    const result = await verifyGrant({
       imap,
       smtp,
       username: input.emailAddress,
-      credential: { kind: "oauth", accessToken: input.grant.accessToken },
+      grant: input.grant,
     });
     if (!result.ok) {
       request.log.warn(
@@ -399,17 +415,7 @@ export async function oauthSignInRoutes(
       db,
       account.id,
       input.emailAddress,
-      sealOAuthCredential(
-        {
-          provider: input.provider,
-          accessToken: input.grant.accessToken,
-          refreshToken: input.grant.refreshToken,
-          expiresAt: input.grant.expiresAt,
-          scope: input.grant.scope,
-        },
-        account.id,
-        key,
-      ),
+      sealGrant(input.grant, input.provider, account.id),
     );
     // Resumes syncing (#35), the same hook the password reauth route uses —
     // a Needs-Reauth account's session has already stopped itself for good,
@@ -434,19 +440,6 @@ function errorCodeOf(err: unknown): string | undefined {
     return typeof value === "string" ? value : undefined;
   }
   return undefined;
-}
-
-/** Parses `:provider`, replying 400 for anything but `google`/`microsoft` — mirrors `routes/instance.ts`'s own. */
-function parseProviderParam(
-  request: { params: unknown },
-  reply: FastifyReply,
-): Provider | undefined {
-  const result = providerSchema.safeParse((request.params as { provider?: string }).provider);
-  if (!result.success) {
-    reply.code(400).send({ error: "invalid_provider" });
-    return undefined;
-  }
-  return result.data;
 }
 
 function requireUser(request: FastifyRequest): { id: string } {
