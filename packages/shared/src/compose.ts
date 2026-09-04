@@ -226,8 +226,25 @@ export type SendSettings = z.infer<typeof sendSettingsSchema>;
  *   keep one code path instead of each learning a second draft-like state.
  *   `failed` therefore stays reserved in the enum ADR-0012 names, for a
  *   future terminal failure that is *not* returned to the User to edit.
+ *
+ * `discarded` (#101, ADR-0012's "deletion is asymmetric: a Mail-side delete
+ * expunges the IMAP copy") is a sixth status, one-directional the same way
+ * `archive`/`trash` are for a Thread: a Draft with no further use, dropped
+ * out of the Drafts view (`draft` is the one status that view lists) and
+ * out of the debounced push's own candidates (`sync/draft-push.ts` only ever
+ * looks at `draft` rows) the instant it lands. `undiscardComposition` (#95,
+ * ADR-0019) is its real inverse, restoring `draft` — never a queue
+ * cancellation — so Undo works the same whether or not the discard already
+ * flushed.
  */
-export const compositionStatusSchema = z.enum(["draft", "pending", "submitting", "sent", "failed"]);
+export const compositionStatusSchema = z.enum([
+  "draft",
+  "pending",
+  "submitting",
+  "sent",
+  "failed",
+  "discarded",
+]);
 export type CompositionStatus = z.infer<typeof compositionStatusSchema>;
 
 /** Statuses a Pending Send occupies — the countdown is live, and autosave has nothing left to write into. */

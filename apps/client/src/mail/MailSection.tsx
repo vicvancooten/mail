@@ -183,7 +183,11 @@ export function MailSection({
     (sum, group) => sum + group.senders.length,
     0,
   );
-  const draftCompositions = useDraftCompositions(accountId) ?? [];
+  // Account Scope (#73, #101): Drafts span every in-scope account, the same
+  // "merged into one newest-first list across Scope" treatment
+  // `useThreadWindow`/`useScreenerSenders` already give the Thread list and
+  // the Screener.
+  const draftCompositions = useDraftCompositions(accountScope) ?? [];
   // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
   // User-scoped and synced — `usePreference()` already carries `base ⊕
   // pending`, so a change made offline (or on another device) is reflected
@@ -998,7 +1002,13 @@ export function MailSection({
                 groupBulk={groupBulk}
               />
             ) : folder === "drafts" ? (
-              <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
+              <DraftsView
+                drafts={draftCompositions}
+                onOpen={reopenCompose}
+                accounts={
+                  mailAccounts?.filter((account) => accountScope.includes(account.id)) ?? []
+                }
+              />
             ) : viewMode === "split" ? (
               <SplitView
                 threads={visibleThreads}

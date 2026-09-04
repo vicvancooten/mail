@@ -434,6 +434,22 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `ScreenerSenderGroup.threadIds` already is — names exactly the Threads
  * that decision trashed, since by the time Undo fires the sender may be
  * holding a fresh, unrelated stranger's mail again.
+ *
+ * `discardComposition`/`undiscardComposition` (#101, ADR-0012's "deletion is
+ * asymmetric") are Delete's own pair, the same shape `sendComposition`/
+ * `cancelSend` already have: name a Composition, not a Thread, ride this
+ * queue for its offline-survivable idempotent delivery, and dispatch through
+ * `sync/mutations.ts#applyCompositionIntent`. `discardComposition` marks a
+ * `draft`-status Composition `discarded` (rejecting anything else as
+ * `not_a_draft`), drops its attachment blobs synchronously, and lets the
+ * debounced push loop (`sync/draft-push.ts`) expunge the IMAP Drafts copy
+ * asynchronously, on its own interval — the same "never a user-visible
+ * error, always eventually consistent" posture the push itself already has.
+ * `undiscardComposition` is Undo's real inverse (#95, ADR-0019): restores
+ * `draft`, and — because the expunge may not have run yet — leaves the
+ * pushed-content bookkeeping alone, so a fast Undo costs the IMAP side
+ * nothing at all, and only a slow one (past the expunge) triggers the next
+ * push loop tick to re-export it.
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
@@ -448,6 +464,8 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("sendComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("cancelSend"), compositionId: z.string() }),
+  z.object({ type: z.literal("discardComposition"), compositionId: z.string() }),
+  z.object({ type: z.literal("undiscardComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
   z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),

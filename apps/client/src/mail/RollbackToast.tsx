@@ -59,13 +59,20 @@ function describeIntent(intent: MutationIntent): string | null {
       return `Couldn't apply "${intent.name}" — undone.`;
     case "removeLabel":
       return `Couldn't remove "${intent.name}" — undone.`;
-    // The Composition intents (#46) have their own, better-placed surfaces —
-    // the Undo Send bar says "too late to undo", the send-failure banner
-    // carries the SMTP rejection verbatim — and both outlive a 5s toast on
-    // purpose. Nothing to say here.
+    // The Send/Cancel Composition intents (#46) have their own, better-placed
+    // surfaces — the Undo Send bar says "too late to undo", the send-failure
+    // banner carries the SMTP rejection verbatim — and both outlive a 5s
+    // toast on purpose. Nothing to say here.
     case "sendComposition":
     case "cancelSend":
       return null;
+    // Delete and its Undo (#101) have no other surface — the Composer has
+    // already closed by the time a rejection could arrive — so, like the
+    // Gatekeeper decisions below, this toast is where the User finds out.
+    case "discardComposition":
+      return "Couldn't delete — the draft is back in Drafts.";
+    case "undiscardComposition":
+      return "Couldn't undo — the draft is still deleted.";
     // The Mail-Account-scoped Preference intents (#54) have their own
     // surface too — the settings screen shows its own save state — so, same
     // as the Composition intents above, nothing for this toast to say.

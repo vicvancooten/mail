@@ -2077,11 +2077,12 @@ button.search-chip-toggle.on {
   white-space: nowrap;
 }
 
-/* Which Mail Account a cross-account search result came from (#80) — the
-   same pill shape as `.folder-pill` (the two answer sibling questions,
-   "which account" and "which folder"), one step quieter so it never reads
-   as the folder pill at a glance. */
-.thread-row .account-badge {
+/* Which Mail Account a cross-account search result (#80) or Drafts row
+   (#101) came from — the same pill shape as `.folder-pill` (the two answer
+   sibling questions, "which account" and "which folder"), one step quieter
+   so it never reads as the folder pill at a glance. */
+.thread-row .account-badge,
+.draft-row .account-badge {
   flex: none;
   padding: 1px 8px;
   border-radius: var(--radius-pill);

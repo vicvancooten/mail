@@ -10,7 +10,11 @@ import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { buildTestMessage } from "../test-support/mime.js";
-import { pushDraftsForAccount } from "./draft-push.js";
+import {
+  expungeDiscardedDrafts,
+  pendingDraftDiscards,
+  pushDraftsForAccount,
+} from "./draft-push.js";
 import { connectMailAccount } from "./imap-connection.js";
 
 /**
@@ -344,5 +348,61 @@ describe("pushDraftsForAccount against GreenMail", () => {
     expect(await mailboxCount(o, "Drafts")).toBe(1);
     const row = await draftRow(id);
     expect(row.imapDraftUid).not.toBe(trackedUid);
+  });
+});
+
+describe("expungeDiscardedDrafts against GreenMail (#101)", () => {
+  it("expunges a discarded Composition's IMAP Drafts copy and clears the UID bookkeeping", async () => {
+    const o = await connectOther();
+    await seedDraftsFolder(o);
+    const id = await insertDraft({ subject: "to be discarded" });
+
+    const client = await connectAccount();
+    try {
+      await pushDraftsForAccount(db, client, account.id, account.emailAddress);
+    } finally {
+      await client.logout().catch(() => undefined);
+      client.close();
+    }
+    expect(await mailboxCount(o, "Drafts")).toBe(1);
+
+    // The synchronous half of Delete (`compose/discard.ts`) already ran —
+    // this only sets up the state it leaves behind.
+    await db.update(compositions).set({ status: "discarded" }).where(eq(compositions.id, id));
+    expect(await pendingDraftDiscards(db, account.id)).toHaveLength(1);
+
+    const client2 = await connectAccount();
+    try {
+      const expunged = await expungeDiscardedDrafts(db, client2, account.id);
+      expect(expunged).toBe(1);
+    } finally {
+      await client2.logout().catch(() => undefined);
+      client2.close();
+    }
+
+    expect(await mailboxCount(o, "Drafts")).toBe(0);
+    const row = await draftRow(id);
+    expect(row.imapDraftUid).toBeNull();
+    expect(row.pushedContentHash).toBeNull();
+    // Dropped out of the candidate set for good — no separate "handled" flag needed.
+    expect(await pendingDraftDiscards(db, account.id)).toHaveLength(0);
+  });
+
+  it("is a no-op for a discarded Composition that was never pushed (no live UID to expunge)", async () => {
+    const o = await connectOther();
+    await seedDraftsFolder(o);
+    await insertDraft({ status: "discarded" });
+
+    expect(await pendingDraftDiscards(db, account.id)).toHaveLength(0);
+
+    const client = await connectAccount();
+    try {
+      const expunged = await expungeDiscardedDrafts(db, client, account.id);
+      expect(expunged).toBe(0);
+    } finally {
+      await client.logout().catch(() => undefined);
+      client.close();
+    }
+    expect(await mailboxCount(o, "Drafts")).toBe(0);
   });
 });

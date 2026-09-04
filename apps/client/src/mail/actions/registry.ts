@@ -429,9 +429,11 @@ export const ACTIONS: readonly Action[] = [
     run: (ctx) => ctx.screenerSender?.onBlock(),
   },
 
-  // Drafts (#74). Delete is #101's — a Draft has no delete path in the
-  // Client yet, and inventing one here would be a second answer to a
-  // question that ticket is already asked.
+  // Drafts (#74, #101): Open and Delete, both menu-only like every other
+  // contextual entry — a Draft row has no reserved-whitespace or hover
+  // cluster control of its own, same restraint `ThreadRow`'s own doc comment
+  // gives Trash ("stays one keystroke away ... and one right-click away
+  // ... [but] no row-level hover or swipe control of its own").
   {
     id: "draft-open",
     label: "Open draft",
@@ -442,6 +444,18 @@ export const ACTIONS: readonly Action[] = [
     contextual: true,
     availability: (ctx) => (ctx.draft ? available : unavailable("No draft here.")),
     run: (ctx) => ctx.draft?.onOpen(),
+  },
+  {
+    id: "draft-delete",
+    label: "Delete draft",
+    icon: Trash2,
+    section: "Compose",
+    binding: null,
+    surfaces: ["menu"],
+    contextual: true,
+    destructive: true,
+    availability: (ctx) => (ctx.draft ? available : unavailable("No draft here.")),
+    run: (ctx) => ctx.draft?.onDelete(),
   },
 ];
 
