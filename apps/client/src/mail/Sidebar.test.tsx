@@ -100,8 +100,6 @@ describe("Sidebar", () => {
   it("still highlights the folder row when neither filter is selected", () => {
     render(<Sidebar {...props} />);
     const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
-    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(
-      true,
-    );
+    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(true);
   });
 });

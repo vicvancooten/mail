@@ -1253,8 +1253,6 @@ describe("Gmail labels (#126, ADR-0020)", () => {
     // The Sidebar's own folder highlight agrees: Inbox reads active again,
     // not still suppressed by a filter that's supposed to be gone.
     const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
-    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(
-      true,
-    );
+    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(true);
   });
 });
