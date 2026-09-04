@@ -487,9 +487,7 @@ function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
     case "trash":
       return threads.filter((thread) => thread.folderRole === "trash");
     case "sent":
-      return threads.filter(
-        (thread) => thread.hasSentMessage && !hasLeftFolderScopedViews(thread),
-      );
+      return threads.filter((thread) => thread.hasSentMessage && !hasLeftFolderScopedViews(thread));
     case "pinned":
       return threads.filter((thread) => thread.pinned && !hasLeftFolderScopedViews(thread));
     case "snoozed":
