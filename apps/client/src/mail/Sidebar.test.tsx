@@ -82,4 +82,26 @@ describe("Sidebar", () => {
     entries[0]?.click();
     expect(onSelectGmailLabel).toHaveBeenCalledWith("acct-1:Family/Kids");
   });
+
+  /**
+   * Post-merge #126 fix: a Wicket Label filter already clears the folder
+   * row's own "active" highlight (`labelFilter !== null`) — a Gmail Label
+   * filter has to do the same, or the ordinary Inbox row keeps reading as
+   * current while a Gmail Label actually narrows what's on screen.
+   */
+  it("clears the folder row's active highlight while a Gmail Label filter is selected", () => {
+    render(<Sidebar {...props} gmailLabelFilter="acct-1:Family/Kids" />);
+    const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
+    for (const button of inboxButtons) {
+      expect(button.getAttribute("data-active")).toBe("false");
+    }
+  });
+
+  it("still highlights the folder row when neither filter is selected", () => {
+    render(<Sidebar {...props} />);
+    const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
+    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(
+      true,
+    );
+  });
 });

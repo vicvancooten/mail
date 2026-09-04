@@ -1192,4 +1192,69 @@ describe("Gmail labels (#126, ADR-0020)", () => {
 
     expect(screen.queryByRole("menuitemcheckbox", { name: /Kids/ })).toBeNull();
   });
+
+  /**
+   * Post-merge #126 fix: `gmailLabelFilter` used to be a state field of its
+   * own, never reset by the "primary account changed" effect that already
+   * clears `labelFilter` — a Gmail Label filter selected for one account
+   * could keep narrowing the view (to a label id that means nothing for the
+   * newly primary account) after Account Scope switched away from it.
+   */
+  it("clears an active Gmail Label filter when Account Scope's primary account switches (#126 post-merge fix)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { serverKind: "gmail", createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    const kidsId = gmailLabelId("acct-1", "Family/Kids");
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { subject: "Account one thread", gmailLabelIds: [kidsId] }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Account two thread" })] }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [makeGmailLabel(kidsId, "acct-1", { name: "Kids", path: "Family/Kids" })],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Account one thread");
+    fireEvent.click(await screen.findByRole("button", { name: "Kids" }));
+    await waitFor(() => expect(screen.queryByText("Account two thread")).toBeNull());
+    expect(screen.getByText("Account one thread")).toBeDefined();
+
+    // Narrows Scope's primary account away from acct-1 (Kids' own account) to
+    // acct-2 — the same "uncheck the currently-primary account" trigger
+    // `MailSection.test.tsx`'s Account Scope suite already uses.
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope: All accounts/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-1@example.test" }));
+
+    // The stale Gmail Label filter is gone — back to the ordinary Inbox view,
+    // not stuck on a label id that means nothing for acct-2.
+    await screen.findByText("Account two thread");
+    expect(screen.queryByText("Account one thread")).toBeNull();
+    // The Sidebar's own folder highlight agrees: Inbox reads active again,
+    // not still suppressed by a filter that's supposed to be gone.
+    const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
+    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(
+      true,
+    );
+  });
 });
