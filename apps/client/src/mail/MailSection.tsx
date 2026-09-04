@@ -696,6 +696,13 @@ export function MailSection({
         : threads.filter((thread) => !hiddenThreadIds.has(thread.id)),
     [threads, hiddenThreadIds],
   );
+  // Split/List's own neighbor set (#97's bug 4): `visibleThreads` is what
+  // they actually render, so their `ids` prop — the source `neighborId`
+  // walks for "the reading pane's own back/forward" — has to name exactly
+  // those rows too. Feeding it the unfiltered `ids` below let a Group Done
+  // clear leave `j`/`k`/back landing on a Thread whose row had already
+  // disappeared: "nothing open."
+  const visibleIds = useMemo(() => visibleThreads.map((thread) => thread.id), [visibleThreads]);
 
   // Search (#51, `docs/search-ux-spec.md`): one hook owns the route, the
   // parse, the prefilter + server round trip and the merged result set;
@@ -924,7 +931,7 @@ export function MailSection({
             // nothing in it highlighted; only the reading pane shows the hit.
             <SplitView
               threads={visibleThreads}
-              ids={ids}
+              ids={visibleIds}
               complete={page.complete}
               selectedThreadId={null}
               selectedThreadOverride={openedSearchThread}
@@ -955,7 +962,7 @@ export function MailSection({
           ) : viewMode === "split" ? (
             <SplitView
               threads={visibleThreads}
-              ids={ids}
+              ids={visibleIds}
               complete={page.complete}
               selectedThreadId={selectedThreadId}
               onSelect={setSelectedThreadId}
@@ -971,7 +978,7 @@ export function MailSection({
           ) : (
             <ListView
               threads={visibleThreads}
-              ids={ids}
+              ids={visibleIds}
               complete={page.complete}
               selectedThreadId={selectedThreadId}
               onSelect={setSelectedThreadId}

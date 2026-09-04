@@ -271,7 +271,7 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     expect(controller.onMarkAllRead).toHaveBeenCalledWith("Today");
   });
 
-  it("arms the cluster on hover, on focus, and on tap alike — real component state, not bare :hover", () => {
+  it("arms the cluster on hover and on focus alike — real component state, not bare :hover", () => {
     const controller = makeController();
     renderWithGroupBulk(controller);
 
@@ -287,11 +287,44 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     expect(cluster.getAttribute("data-armed")).toBe("true");
     fireEvent.blur(cluster);
     expect(cluster.getAttribute("data-armed")).toBe("false");
+  });
 
-    // Touch has no hover — tapping the header arms it the same way (#66's
-    // own acceptance bar).
+  it("clicking the header's own background toggles Collapse rather than the armed state (#97 bug 1)", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    const cluster = document.querySelector(".group-header-cluster") as HTMLElement;
+
+    // Hovering (arming) the cluster, then clicking its background — the
+    // exact "checkbox jumps around" repro — must not disarm it: the click
+    // is a collapse toggle, not a second `armed` trigger.
+    fireEvent.mouseEnter(cluster);
+    expect(cluster.getAttribute("data-armed")).toBe("true");
     fireEvent.click(cluster);
     expect(cluster.getAttribute("data-armed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Expand Today" })).toBeDefined();
+
+    fireEvent.click(cluster);
+    expect(screen.getByRole("button", { name: "Collapse Today" })).toBeDefined();
+  });
+
+  it("lights the header's own spine segment only on the Done-all node's hover/focus, matching every row's segment (#97 bug 2)", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    const cluster = document.querySelector(".group-header-cluster") as HTMLElement;
+    const doneAll = screen.getByRole("button", { name: "Done with Today" });
+
+    // Hovering the header at large (its label, say) must not light the
+    // spine — only the node itself previews the group.
+    fireEvent.mouseEnter(cluster);
+    expect(cluster.getAttribute("data-group-preview")).toBe("false");
+    fireEvent.mouseLeave(cluster);
+
+    fireEvent.mouseEnter(doneAll);
+    expect(cluster.getAttribute("data-group-preview")).toBe("true");
+    fireEvent.mouseLeave(doneAll);
+    expect(cluster.getAttribute("data-group-preview")).toBe("false");
   });
 
   it("shows the group's true total once resolved, not the loaded count", () => {
@@ -411,6 +444,21 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     // Past the 8-row stagger cap, every remaining row shares the last index —
     // still leaving with the group's own collapse, just not its own delay.
     expect(indices.slice(8)).toEqual(["7", "7"]);
+  });
+
+  it("phone's overflow button opens a Sheet offering Done all / Mark all read / Collapse, previewing the group while open (#97)", () => {
+    const controller = makeController();
+    renderWithGroupBulk(controller);
+
+    const cluster = document.querySelector(".group-header-cluster") as HTMLElement;
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Today" }));
+
+    expect(cluster.getAttribute("data-group-preview")).toBe("true");
+
+    const sheetDoneAll = screen.getByRole("button", { name: /Done all/ });
+    fireEvent.click(sheetDoneAll);
+    expect(controller.onDoneAll).toHaveBeenCalledWith("Today");
+    expect(cluster.getAttribute("data-group-preview")).toBe("false");
   });
 });
 
