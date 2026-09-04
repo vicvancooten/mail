@@ -5,11 +5,7 @@ import {
   fetchProviderDeletePreview,
   saveProviderRegistration,
 } from "../api/providers.js";
-
-const PROVIDER_LABEL: Record<Provider, string> = {
-  google: "Google",
-  microsoft: "Microsoft",
-};
+import { PROVIDER_LABEL } from "../mail-accounts/provider-labels.js";
 
 /** Provider Health's four states (#118, ADR-0021) — `working`/`failing` carry their own time (and, for Failing, error) alongside this label. */
 const STATUS_LABEL: Record<ProviderStatus, string> = {
