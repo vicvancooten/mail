@@ -1,5 +1,4 @@
 import type {
-  AutoAdvanceDirection,
   BulkTriageAccountOutcome,
   BulkTriageAction,
   Label,
@@ -24,7 +23,6 @@ import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
-  enqueueUserMutation,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
@@ -47,14 +45,12 @@ import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
   type AccountScope as AccountScopeIds,
-  readListDensity,
   readOpenComposerId,
   readStreamMode,
-  readViewMode,
-  writeListDensity,
+  useListDensity,
+  useViewMode,
   writeScreenerViewed,
   writeStreamMode,
-  writeViewMode,
 } from "./device-preferences.js";
 import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
 import { GroupBulkToast, type GroupBulkToastState } from "./GroupBulkToast.js";
@@ -151,13 +147,17 @@ export function MailSection({
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
 
-  const [viewMode, setViewMode] = useState(readViewMode);
+  // View mode and list density (#99): reactive Device Preferences now
+  // (`device-preferences.ts#useViewMode`/`useListDensity`), so a change made
+  // from Settings' "This device" page (`settings/ThisDeviceSection.tsx`)
+  // reaches this component instantly — the ticket's own acceptance
+  // criterion ("changing density in Settings updates the list immediately").
+  // Stream mode stays a plain seeded `useState`: its own toggle lives here
+  // in the toolbar still, and its Device Preference is retired by a
+  // separate ticket (#105), not this one.
+  const [viewMode] = useViewMode();
   const [streamMode, setStreamMode] = useState(readStreamMode);
-  // List density (#54, CONTEXT.md's Device Preference): local `useState`
-  // seeded from `localStorage`, same mechanics as `viewMode`/`streamMode`
-  // above — deliberately never synced, because density means something
-  // different on each device the User signs in from.
-  const [density, setDensity] = useState(readListDensity);
+  const [density] = useListDensity();
   // Account Scope (#73): the Thread list's own accounts; `accountId` below
   // is derived from it, not tracked separately — see the doc comment above.
   const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
@@ -415,31 +415,10 @@ export function MailSection({
     if (labelId !== null) setFolder(DEFAULT_FOLDER);
   }, []);
 
-  const changeViewMode = useCallback((mode: typeof viewMode) => {
-    setViewMode(mode);
-    writeViewMode(mode);
-  }, []);
-
   const changeStreamMode = useCallback((enabled: boolean) => {
     setStreamMode(enabled);
     writeStreamMode(enabled);
   }, []);
-
-  const changeDensity = useCallback((next: typeof density) => {
-    setDensity(next);
-    writeListDensity(next);
-  }, []);
-
-  const changeDirection = useCallback(
-    (next: AutoAdvanceDirection) => {
-      void enqueueUserMutation({
-        type: "setAutoAdvance",
-        enabled: autoAdvanceEnabled,
-        direction: next,
-      });
-    },
-    [autoAdvanceEnabled],
-  );
 
   const view = useMemo(
     () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : folderToView(folder)),
@@ -826,14 +805,8 @@ export function MailSection({
   return (
     <section className="mail-section">
       <TopBar
-        viewMode={viewMode}
-        onViewMode={changeViewMode}
         streamMode={streamMode}
         onStreamMode={changeStreamMode}
-        density={density}
-        onDensity={changeDensity}
-        direction={direction}
-        onDirection={changeDirection}
         accounts={mailAccounts}
         accountScope={accountScope}
         onAccountScopeChange={changeAccountScope}

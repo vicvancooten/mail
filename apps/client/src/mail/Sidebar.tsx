@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
+import { useSidebarCollapsed } from "./device-preferences.js";
 import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
 
 /**
@@ -41,6 +42,13 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * breakpoint `mail.css` already uses for Split/List). The header's hub mark
  * stays the App Switcher at every width, as the comp has it — this sheet is
  * Mail's own folder navigation, a different question.
+ *
+ * Collapsed to icons-only when Settings' "This device" page
+ * (`settings/ThisDeviceSection.tsx`) says so (#99): a Device Preference,
+ * read reactively (`device-preferences.ts#useSidebarCollapsed`) so a change
+ * there is reflected here the instant it's made. Every entry keeps its
+ * `title` regardless — a plain tooltip, and the accessible name a
+ * screen reader still gets once the visible label is gone.
  */
 
 const FOLDER_ICONS: Record<FolderKey, LucideIcon> = {
@@ -74,6 +82,7 @@ export function Sidebar({
   draftsCount: number;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [collapsed] = useSidebarCollapsed();
 
   function selectFolder(next: FolderKey) {
     onSelectFolder(next);
@@ -99,10 +108,13 @@ export function Sidebar({
       {sheetOpen ? (
         <div className="side-nav-scrim" onClick={() => setSheetOpen(false)} aria-hidden="true" />
       ) : null}
-      <nav className={`side-nav${sheetOpen ? " open" : ""}`} aria-label="Folders">
-        <button type="button" className="compose-btn" onClick={onCompose}>
+      <nav
+        className={`side-nav${sheetOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}
+        aria-label="Folders"
+      >
+        <button type="button" className="compose-btn" onClick={onCompose} title="Compose">
           <Plus size={14} />
-          Compose
+          <span className="nav-label">Compose</span>
         </button>
         <div className="nav-list">
           {FOLDER_ORDER.map((key) => {
@@ -115,6 +127,7 @@ export function Sidebar({
                 type="button"
                 className={`nav-item${active ? " active" : ""}`}
                 onClick={() => selectFolder(key)}
+                title={FOLDER_LABELS[key]}
               >
                 <Icon size={15} />
                 <span className="nav-label">{FOLDER_LABELS[key]}</span>
@@ -133,6 +146,7 @@ export function Sidebar({
                   type="button"
                   className={`nav-item${labelFilter === label.id ? " active" : ""}`}
                   onClick={() => selectLabel(label.id)}
+                  title={label.name}
                 >
                   <Tag size={15} />
                   <span className="nav-label">{label.name}</span>

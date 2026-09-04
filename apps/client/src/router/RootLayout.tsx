@@ -50,11 +50,13 @@ export function RootLayout() {
   // a route now (#71), unlike `thread`/`failed-send`, which stay inside
   // Mail and are handled in `mail/MailSection.tsx` instead. Lives here,
   // not there, because this is what's mounted regardless of which route is
-  // current when the click arrives.
+  // current when the click arrives. Lands on `/settings/mail-accounts`
+  // directly (#99) — that's the one sub-route `MailAccountsSection`, and so
+  // the row `scrollToMailAccountSettings` targets, actually renders on.
   useEffect(() => {
     return subscribeNotificationTarget((target) => {
       if (target.kind !== "needs-reauth") return;
-      void navigate({ to: "/settings" }).then(() =>
+      void navigate({ to: "/settings/mail-accounts" }).then(() =>
         scrollToMailAccountSettings(target.mailAccountId),
       );
     });

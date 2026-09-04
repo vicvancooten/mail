@@ -11,7 +11,7 @@ import { getJson, postJson } from "./auth.js";
  * gatekeeper.ts`'s own doc comment): plain authenticated routes, not
  * `POST /sync` — the same "a configuration change with a server-side job
  * behind it is a request the User waits on and sees the result of" split
- * `SettingsSection` already draws for `api/send-settings.ts`.
+ * `settings/GatekeeperPage.tsx` already draws for `api/send-settings.ts`.
  */
 
 export function fetchGatekeeperStatus(mailAccountId: string): Promise<GatekeeperStatusResponse> {

@@ -1,22 +1,8 @@
-import type { AutoAdvanceDirection, Label, MailAccount } from "@mail/shared";
-import {
-  ArrowDown,
-  ArrowUp,
-  Clock,
-  Columns2,
-  Layers,
-  Rows3,
-  Search,
-  ShieldAlert,
-  X,
-} from "lucide-react";
+import type { Label, MailAccount } from "@mail/shared";
+import { Clock, Layers, Search, ShieldAlert, X } from "lucide-react";
 import { type RefObject, useState } from "react";
 import { AccountScope } from "./AccountScope.js";
-import type {
-  AccountScope as AccountScopeIds,
-  ListDensity,
-  ViewMode,
-} from "./device-preferences.js";
+import type { AccountScope as AccountScopeIds } from "./device-preferences.js";
 
 /**
  * The search field's own props (#51, `docs/search-ux-spec.md` §The
@@ -130,10 +116,10 @@ function SearchField({ search }: { search: TopBarSearch }) {
 
 /**
  * Mail's own toolbar — the view controls that belong to this App rather than
- * to the Client's chrome: Split/List, the Stream mode opt-in, row density,
- * the auto-advance direction (#42), the filter-by-label picker (#43, hidden
- * until the account has at least one Label), Mail's search field (#51), the
- * Screener entry (#56) and Account Scope (#73, `AccountScope.tsx`).
+ * to the Client's chrome: the Stream mode opt-in, the filter-by-label picker
+ * (#43, hidden until the account has at least one Label), Mail's search
+ * field (#51), the Screener entry (#56) and Account Scope (#73,
+ * `AccountScope.tsx`).
  *
  * Rebuilt in #86. The comp
  * (`docs/design/prototypes/the-instrument.html`) puts only four things in
@@ -148,31 +134,26 @@ function SearchField({ search }: { search: TopBarSearch }) {
  * hairline dividers between them — the bar reads as chrome, not as a run of
  * joinery.
  *
+ * Split/List, row density and the auto-advance direction moved into
+ * Settings (#99, "every former toolbar toggle has exactly one home"): Split/
+ * List and density are now `settings/ThisDeviceSection.tsx`'s Device
+ * Preferences, direction is `settings/GeneralSection.tsx`'s synced
+ * `Preference` — this toolbar no longer renders any of the three. Stream
+ * mode stays here: its own Device Preference is retired by a separate
+ * ticket (#105), not this one, so it keeps its toggle for now.
+ *
  * Compose is not here: the comp's Compose is the accent pill at the top of
  * the folder rail, and that is where `Sidebar.tsx` renders it. Nor is a
  * folder legend — the rail's current entry already names the folder, and
  * Account Scope's own avatars name the account.
  *
  * Every icon-only control keeps a text accessible name matching what it used
- * to say in words ("List", "Stream mode", "Next: Older"), so it is still
- * nameable by voice, by screen reader and by test.
- *
- * Stream mode is deliberately not a third view-mode option: it replaces
- * whichever of Split/List is showing, and that underlying choice stays
- * selectable (dimmed) so turning Stream off returns to it. Search suppresses
- * it the same way (search-ux-spec.md §The surface) — `MailSection` is what
- * enforces that, this component just keeps rendering the pair as normal
- * underneath.
+ * to say in words ("Stream mode"), so it is still nameable by voice, by
+ * screen reader and by test.
  */
 export function TopBar({
-  viewMode,
-  onViewMode,
   streamMode,
   onStreamMode,
-  density,
-  onDensity,
-  direction,
-  onDirection,
   accounts,
   accountScope,
   onAccountScopeChange,
@@ -182,15 +163,8 @@ export function TopBar({
   screener,
   search,
 }: {
-  viewMode: ViewMode;
-  onViewMode: (mode: ViewMode) => void;
   streamMode: boolean;
   onStreamMode: (enabled: boolean) => void;
-  /** The thread list's row density (#54, Device Preference — never synced). */
-  density: ListDensity;
-  onDensity: (density: ListDensity) => void;
-  direction: AutoAdvanceDirection;
-  onDirection: (direction: AutoAdvanceDirection) => void;
   accounts: MailAccount[];
   /** Account Scope (#73): which Mail Accounts the Thread list draws from. */
   accountScope: AccountScopeIds;
@@ -206,27 +180,6 @@ export function TopBar({
 }) {
   return (
     <div className="mail-toolbar">
-      <div className={`toolbar-group${streamMode || search.active ? " muted" : ""}`}>
-        <button
-          type="button"
-          className={`toolbar-btn${viewMode === "split" ? " current" : ""}`}
-          onClick={() => onViewMode("split")}
-          aria-label="Split"
-          title="Split view"
-        >
-          <Columns2 size={15} />
-        </button>
-        <button
-          type="button"
-          className={`toolbar-btn${viewMode === "list" ? " current" : ""}`}
-          onClick={() => onViewMode("list")}
-          aria-label="List"
-          title="List view"
-        >
-          <Rows3 size={15} />
-        </button>
-      </div>
-
       <button
         type="button"
         className={`toolbar-btn${streamMode ? " current" : ""}`}
@@ -235,26 +188,6 @@ export function TopBar({
         title="Stream mode — replaces Split/List with one-thread-at-a-time browsing"
       >
         <Layers size={15} />
-      </button>
-
-      <button
-        type="button"
-        className={`toolbar-btn${density === "compact" ? " current" : ""}`}
-        onClick={() => onDensity(density === "compact" ? "comfortable" : "compact")}
-        aria-label={density === "compact" ? "Compact" : "Comfortable"}
-        title="Thread list row density — this device only"
-      >
-        <Rows3 size={15} />
-      </button>
-
-      <button
-        type="button"
-        className="toolbar-btn"
-        onClick={() => onDirection(direction === "older" ? "newer" : "older")}
-        aria-label={`Next: ${direction === "older" ? "Older" : "Newer"}`}
-        title="After archive/trash, which neighbor gets selected?"
-      >
-        {direction === "older" ? <ArrowDown size={15} /> : <ArrowUp size={15} />}
       </button>
 
       {labels.length > 0 ? (

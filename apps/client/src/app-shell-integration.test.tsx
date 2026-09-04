@@ -102,14 +102,15 @@ describe("the app shell over a routed tree (#71)", () => {
     await screen.findByText("Routed thread");
     // Settings' own controls aren't in the tree at all yet — not merely
     // scrolled past — until the route is entered.
-    expect(screen.queryByText("Preferences")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "General" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
 
-    expect(await screen.findByText("Preferences")).toBeDefined();
+    // `/settings` redirects to General (#99) — its own sub-route.
+    expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
     expect(screen.queryByText("Routed thread")).toBeNull();
-    expect(location.pathname).toBe("/settings");
+    expect(location.pathname).toBe("/settings/general");
   });
 
   it("the App Switcher names all four Apps as reachable links, the reserved three marked SOON (#72, #86)", async () => {
@@ -151,6 +152,8 @@ describe("the app shell over a routed tree (#71)", () => {
 
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    // Appearance is "This device" page's own control now (#99), not General.
+    await user.click(await screen.findByRole("link", { name: "This device" }));
 
     const appearanceSelect = (await screen.findByLabelText("Appearance")) as HTMLSelectElement;
     expect(appearanceSelect.value).toBe("dark");
@@ -161,12 +164,13 @@ describe("the app shell over a routed tree (#71)", () => {
     await seedOneThread();
     stubFetch();
 
-    // Simulates the User having navigated to Settings, then reloading: a
-    // brand-new mount that only has the URL to go on, no prior React state.
-    history.replaceState(null, "", "/settings");
+    // Simulates the User having navigated to Settings' "This device" page,
+    // then reloading: a brand-new mount that only has the URL to go on, no
+    // prior React state.
+    history.replaceState(null, "", "/settings/this-device");
     render(<App />);
 
-    expect(await screen.findByText("Preferences")).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "This device" })).toBeDefined();
   });
 
   it("reload also restores Mail's own selected Label and Thread", async () => {
@@ -218,18 +222,17 @@ describe("the app shell over a routed tree (#71)", () => {
 
     render(<App />);
     await screen.findByLabelText("Switch app");
-    expect(screen.queryByText("Preferences")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Mail Accounts", level: 2 })).toBeNull();
 
     act(() => {
       publishNotificationTarget({ kind: "needs-reauth", mailAccountId: "acct-1" });
     });
 
-    expect(await screen.findByText("Preferences")).toBeDefined();
-    expect(location.pathname).toBe("/settings");
-    // `SettingsSection`'s own "Mail Account preferences" block (from the
-    // Local Cache) also names this account, so scope to
-    // `MailAccountsSection`'s row specifically — the one
-    // `scrollToMailAccountSettings` actually targets.
+    // Lands on `/settings/mail-accounts` directly (#99) — the one sub-route
+    // `MailAccountsSection`'s row, and so `scrollToMailAccountSettings`'s
+    // target, actually renders on.
+    expect(await screen.findByRole("heading", { name: "Mail Accounts", level: 2 })).toBeDefined();
+    expect(location.pathname).toBe("/settings/mail-accounts");
     await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
   });
 

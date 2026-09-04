@@ -348,7 +348,7 @@
 /* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`
    rather than a hand-computed "header is 60px" calc, so it holds at any
    header height. Every route's own top-level element is a `height: 100%;
-   min-height: 0` pane (`.mail-section`, `.settings-section`,
+   min-height: 0` pane (`.mail-section`, `.settings-shell`,
    `.app-placeholder`), so this only needs to bound the space they render
    into. */
 .app-viewport {
