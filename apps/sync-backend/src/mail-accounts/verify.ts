@@ -1,6 +1,7 @@
 import type { MailAccountConnection } from "@mail/shared";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
+import { type MailAccountSecret, toImapAuth, toSmtpAuth } from "./credential-auth.js";
 
 /** A few seconds per docs/research/0004 §4's "short, fixed timeout, move on" guidance. */
 const VERIFY_TIMEOUT_MS = 8000;
@@ -9,7 +10,14 @@ export interface VerifyMailAccountInput {
   imap: MailAccountConnection;
   smtp: MailAccountConnection;
   username: string;
-  password: string;
+  /**
+   * A `{ kind: "password", password }` shape covers both the add-account
+   * route's plaintext body and a reauth's re-entered password; `{ kind:
+   * "oauth", accessToken }` verifies a Grant — unseal it with
+   * `credential-auth.ts#unsealMailAccountSecret` first, since a Grant only
+   * ever exists sealed (nothing here reads `MailAccountCredential` directly).
+   */
+  credential: MailAccountSecret;
 }
 
 export type VerifyMailAccountResult =
@@ -41,7 +49,7 @@ export async function verifyMailAccountCredentials(
 async function verifyImap({
   imap,
   username,
-  password,
+  credential,
 }: VerifyMailAccountInput): Promise<VerifyMailAccountResult> {
   const client = new ImapFlow({
     host: imap.host,
@@ -51,7 +59,7 @@ async function verifyImap({
     // server offers STARTTLS (imapflow's own default), which is exactly
     // what GreenMail's plaintext dev listener needs (docs/dev-setup.md).
     secure: imap.security === "tls",
-    auth: { user: username, pass: password },
+    auth: toImapAuth(username, credential),
     logger: false,
     socketTimeout: VERIFY_TIMEOUT_MS,
   });
@@ -81,14 +89,14 @@ function isImapAuthFailure(err: unknown): err is Error & { authenticationFailed:
 async function verifySmtp({
   smtp,
   username,
-  password,
+  credential,
 }: VerifyMailAccountInput): Promise<VerifyMailAccountResult> {
   const transport = nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
     secure: smtp.security === "tls",
     requireTLS: smtp.security === "starttls",
-    auth: { user: username, pass: password },
+    auth: toSmtpAuth(username, credential),
     connectionTimeout: VERIFY_TIMEOUT_MS,
     greetingTimeout: VERIFY_TIMEOUT_MS,
     socketTimeout: VERIFY_TIMEOUT_MS,
