@@ -14,7 +14,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { MailAccountCredential } from "../mail-accounts/credential-crypto.js";
+import type { MailAccountCredential, SealedSecret } from "../mail-accounts/credential-crypto.js";
 
 /**
  * Postgres `bytea` (ADR-0012's Blob Store): drizzle-orm has no first-class
@@ -1357,3 +1357,28 @@ export type NotifierOutboxPayload =
   | { kind: "failed_send"; compositionId: string; subject: string; detail: string }
   | { kind: "needs_reauth"; emailAddress: string }
   | { kind: "gatekeeper_digest"; senders: string[]; count: number };
+
+/**
+ * A Provider Registration (#115, ADR-0021, CONTEXT.md): the OAuth app the
+ * Owner has registered with Google or Microsoft so this instance can ask
+ * Users to sign in with it. Instance-wide, belongs to no User — `provider`
+ * is the primary key itself, so there is exactly one row per Provider and a
+ * fresh `PUT /instance/providers/:provider` upserts in place rather than
+ * growing a history of past registrations.
+ *
+ * `clientSecret` is sealed the same way a Mail Account's `password`
+ * credential is (ADR-0003's AEAD envelope, `credential-crypto.ts`), with the
+ * Provider name as associated data instead of a Mail Account id — ADR-0021's
+ * explicit choice, "the same key version as Mail Account credentials". The
+ * client id sits beside it in the clear: it is not a secret, and the
+ * Instance page shows it back to the Owner as confirmation of what is
+ * registered.
+ */
+export const providerRegistrations = pgTable("provider_registrations", {
+  provider: text("provider", { enum: ["google", "microsoft"] }).primaryKey(),
+  clientId: text("client_id").notNull(),
+  clientSecret: jsonb("client_secret").$type<SealedSecret>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
