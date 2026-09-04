@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check, ChevronDown, ChevronUp, MailOpen } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, MailOpen, MoreHorizontal } from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -9,14 +9,26 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet.js";
 import type { CachedThread } from "../store/index.js";
+import { ActionMenu } from "./actions/ActionMenu.js";
+import { useActions } from "./actions/ActionsProvider.js";
+import { actionById, surfaceActions } from "./actions/registry.js";
+import { publishListHandle } from "./actions/surface-handles.js";
+import { type ActionContext, actionLabel, withGroup, withThread } from "./actions/types.js";
 import {
   DEFAULT_LIST_DENSITY,
   type ListDensity,
   readGroupCollapsed,
   writeGroupCollapsed,
 } from "./device-preferences.js";
-import { ThreadRow } from "./ThreadRow.js";
+import { type RowHoverAction, ThreadRow } from "./ThreadRow.js";
 import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
 import { groupThreadsByTime, PINNED_GROUP_LABEL, type TimeGroupTier } from "./time-groups.js";
 import type { Triage } from "./useTriage.js";
@@ -129,7 +141,7 @@ export function VirtualizedThreadList({
   footer?: ReactNode;
   /** Per-row decorations (headline, folder pill, action badge) — search-only; every other caller leaves this unset. */
   getRowExtra?: (thread: CachedThread) => RowExtra | undefined;
-  /** Skips this list's own `j`/`k` keydown listener — for a copy of the list left mounted-but-hidden behind another surface (#51's search route swap) so it doesn't fight that surface's own keyboard handling. */
+  /** Keeps this list from publishing its selection mover (#94) — for a copy of the list left mounted-but-hidden behind another surface (#51's search route swap), which must not be what `j`/`k` moves through. */
   keyboardDisabled?: boolean;
   /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. */
   initialScrollThreadId?: string | null;
@@ -200,6 +212,39 @@ export function VirtualizedThreadList({
   // leak across a boundary the User can plainly read.
   const [previewGroupLabel, setPreviewGroupLabel] = useState<string | null>(null);
 
+  // Every control this list draws that isn't structure comes from the
+  // Action registry (#94): the row's Done check, its hover cluster, its
+  // right-click menu, and the Time Group header's own menu. Without a
+  // provider above it (a unit test rendering this list on its own) the
+  // rows fall back to the `triage` prop, unchanged.
+  const actions = useActions();
+
+  /** This row's hover cluster: every `"row-hover"` action the registry has available for it, minus Done — which has reserved whitespace of its own on the left rather than a place in the cluster. */
+  const rowHoverActions = useCallback(
+    (rowCtx: ActionContext, thread: CachedThread): RowHoverAction[] =>
+      surfaceActions(rowCtx, "row-hover")
+        .filter((action) => action.id !== "done")
+        .map((action) => {
+          const subject = thread.subject || "(no subject)";
+          const label = `${actionLabel(action, rowCtx)} "${subject}"`;
+          const keycap = action.binding ? ` (${action.binding.display.toLowerCase()})` : "";
+          return {
+            id: action.id,
+            label,
+            title: `${actionLabel(action, rowCtx)}${keycap}`,
+            icon: action.icon,
+            on: action.id === "pin" ? thread.pinned : undefined,
+            picker: action.id === "snooze" ? ("snooze" as const) : undefined,
+            run: () => action.run(rowCtx),
+            onPick:
+              action.id === "snooze"
+                ? (until: string) => rowCtx.triage.snooze(thread.id, until)
+                : undefined,
+          };
+        }),
+    [],
+  );
+
   const itemHeight = useCallback(
     (item: ListItem | undefined): number => {
       if (!item) return ungroupedRowHeight(density);
@@ -260,24 +305,16 @@ export function VirtualizedThreadList({
     [threadIds, selectedThreadId, onSelect, items, virtualizer],
   );
 
+  // This list's own mover, published for the Action registry's single
+  // `keydown` listener to call (#94). It used to be reached by a second
+  // `keydown` listener right here, which fought `useTriage`'s for `j`/`k`
+  // — both fired, and only this one knew to skip a collapsed group's rows
+  // (#78) and to scroll the arrived-at row into view. Now the registry's
+  // `next-thread`/`prev-thread` entries call it, and nothing else binds
+  // those keys.
   useEffect(() => {
     if (keyboardDisabled) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (typing) return;
-      if (event.key === "j" || event.key === "ArrowDown") {
-        event.preventDefault();
-        moveSelection(1);
-      } else if (event.key === "k" || event.key === "ArrowUp") {
-        event.preventDefault();
-        moveSelection(-1);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return publishListHandle({ move: moveSelection });
   }, [moveSelection, keyboardDisabled]);
 
   // Each clearing Thread's position within its own group's clearing set,
@@ -303,6 +340,8 @@ export function VirtualizedThreadList({
     return map;
   }, [items, groupBulk?.clearingThreadIds]);
 
+  const doneAction = actionById("done");
+
   if (threads.length === 0) {
     return <p className="mail-empty">No mail cached for this account yet.</p>;
   }
@@ -319,6 +358,11 @@ export function VirtualizedThreadList({
           const item = items[virtualItem.index];
           if (!item) return null;
           const extra = item.kind === "thread" ? getRowExtra?.(item.thread) : undefined;
+          // The registry, narrowed to this row's own Thread — what its Done
+          // check, its hover cluster and its right-click menu all read, so
+          // right-clicking a row nobody has opened acts on *that* row.
+          const rowCtx =
+            actions && item.kind === "thread" ? withThread(actions, item.thread) : null;
           const clearIndex =
             item.kind === "thread" ? clearIndexById.get(item.thread.id) : undefined;
           return (
@@ -326,7 +370,16 @@ export function VirtualizedThreadList({
               key={item.key}
               data-index={virtualItem.index}
               data-clearing={clearIndex !== undefined || undefined}
-              ref={virtualizer.measureElement}
+              // Mid-leave, this element's own box never changes size — only
+              // its opacity/transform animate — but it's still handed to
+              // `measureElement` in every other frame, which means a fresh
+              // `ResizeObserver` subscription churns for a row about to
+              // vanish anyway (#97's bug 3: "still fed to measureElement
+              // while transforming"). Skipping the ref while clearing costs
+              // nothing: `hiddenThreadIds` removes the row from `items`
+              // outright once the animation ends, and the virtualizer
+              // recomputes from scratch on that pass regardless.
+              ref={clearIndex === undefined ? virtualizer.measureElement : undefined}
               style={
                 {
                   position: "absolute",
@@ -342,37 +395,79 @@ export function VirtualizedThreadList({
                 // The header's own height is the taper's — `itemHeight` above
                 // and this inline style are the same number, never a second
                 // one guessed in `mail.css` (#75).
-                <div
-                  className="group-header"
-                  data-tier={item.tier}
-                  style={{ height: itemHeight(item) }}
+                <ActionMenu
+                  ctx={
+                    actions
+                      ? withGroup(actions, {
+                          label: item.label,
+                          collapsed: item.collapsed,
+                          onToggleCollapsed: () => toggleCollapsed(item.label),
+                          onDoneAll: () => groupBulk?.onDoneAll(item.label),
+                          onMarkAllRead: () => groupBulk?.onMarkAllRead(item.label),
+                          bulkAvailable: Boolean(
+                            groupBulk &&
+                              item.label !== PINNED_GROUP_LABEL &&
+                              item.label !== "Undated",
+                          ),
+                        })
+                      : null
+                  }
+                  asChild
+                  label={`Actions for ${item.label}`}
                 >
-                  <GroupHeaderCluster
-                    label={item.label}
-                    loadedCount={item.loadedCount}
-                    trueCount={groupBulk?.countFor(item.label) ?? null}
-                    collapsed={item.collapsed}
-                    onToggleCollapsed={() => toggleCollapsed(item.label)}
-                    bulk={
-                      groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
-                        ? {
-                            onArm: () => groupBulk.requestCount(item.label),
-                            onDoneAll: () => groupBulk.onDoneAll(item.label),
-                            onMarkAllRead: () => groupBulk.onMarkAllRead(item.label),
-                            onPreview: (active) => setPreviewGroupLabel(active ? item.label : null),
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
+                  <div
+                    className="group-header"
+                    data-tier={item.tier}
+                    style={{ height: itemHeight(item) }}
+                  >
+                    <GroupHeaderCluster
+                      label={item.label}
+                      loadedCount={item.loadedCount}
+                      trueCount={groupBulk?.countFor(item.label) ?? null}
+                      collapsed={item.collapsed}
+                      onToggleCollapsed={() => toggleCollapsed(item.label)}
+                      bulk={
+                        groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
+                          ? {
+                              onArm: () => groupBulk.requestCount(item.label),
+                              onDoneAll: () => groupBulk.onDoneAll(item.label),
+                              onMarkAllRead: () => groupBulk.onMarkAllRead(item.label),
+                              onPreview: (active) =>
+                                setPreviewGroupLabel(active ? item.label : null),
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                </ActionMenu>
               ) : (
                 <ThreadRow
                   thread={item.thread}
                   selected={item.thread.id === selectedThreadId}
                   onSelect={() => onSelect(item.thread.id)}
-                  onArchive={triage ? () => triage.archive(item.thread.id) : undefined}
+                  onArchive={
+                    rowCtx && doneAction?.availability(rowCtx).available
+                      ? () => doneAction.run(rowCtx)
+                      : triage
+                        ? () => triage.archive(item.thread.id)
+                        : undefined
+                  }
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
+                  hoverActions={rowCtx ? rowHoverActions(rowCtx, item.thread) : undefined}
+                  contextMenu={
+                    rowCtx
+                      ? (row) => (
+                          <ActionMenu
+                            ctx={rowCtx}
+                            asChild
+                            label={`Actions for "${item.thread.subject || "(no subject)"}"`}
+                          >
+                            {row}
+                          </ActionMenu>
+                        )
+                      : undefined
+                  }
                   headline={extra?.headline}
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}
@@ -405,28 +500,42 @@ interface GroupHeaderClusterBulk {
 }
 
 /**
- * The group header's own cluster (#66, #77, #78), rebuilt in #87 against the
- * comp's `.group-header` (`docs/design/prototypes/the-instrument.html`): the
- * group's own **rail** on the left — the same 26px gutter the rows below
- * reserve, so the header's Done-all node sits exactly above every row's own
- * Done control — then the label, the count in the machine face, and, pushed
- * to the trailing edge, the actions that only appear once the header is
- * armed.
+ * The group header's own cluster (#66, #77, #78, rebuilt in #87 against the
+ * comp's `.group-header` and fixed in #97 against it): the group's own
+ * **rail** on the left — the same 26px gutter the rows below reserve, so
+ * the header's Done-all node sits exactly above every row's own Done
+ * control — then the label, the count in the machine face, and, pushed to
+ * the trailing edge, the actions that only appear once the header is armed.
  *
- * Resting the pointer on a header — or tapping it, on touch — arms
+ * Resting the pointer on the header, or focusing anything inside it, arms
  * **Collapse**, and where `bulk` is present, **Done all** and **Mark all
  * read** too. Every button stays in the DOM (and the tab order) regardless
  * of armed state: `mail.css`'s `[data-armed]` rule only ever changes their
  * opacity and scale, the same "real component state, not a CSS-only trick"
  * `ThreadRow`'s own doc comment insists on, and `:focus-visible` reveals any
- * one of them directly so Tab can always reach it.
+ * one of them directly so Tab can always reach it. Clicking the header's own
+ * background (never one of these buttons — each stops its own propagation)
+ * toggles **Collapse** directly (#97's bug 1: a click used to toggle the
+ * same `armed` flag hover already controlled, so a click while hovering
+ * immediately disarmed the cluster under the pointer and the just-revealed
+ * buttons vanished mid-click).
  *
  * The rail's node is *also* the Done all trigger — hovering or focusing it
- * additionally previews the group: `onPreview` bubbles to
+ * (never the header at large) previews the group: `onPreview` bubbles to
  * `VirtualizedThreadList`, which force-arms every row in this one group
- * (`ThreadRow`'s `previewArmed`), lighting the timeline spine straight down
- * the gutter and every row's Done control with it, so the User sees exactly
- * what committing would do before they click.
+ * (`ThreadRow`'s `previewArmed`), and this component mirrors the same
+ * signal onto its own `data-group-preview` so `mail.css` lights the
+ * header's rail segment and every row segment off the one identical
+ * condition (#97's bug 2 — the header side used to light on the broader
+ * `data-armed`, one hover target for the header's own spine and a
+ * different one for every row's).
+ *
+ * Touch has no hover to reveal any of this, so phone gets its own entry
+ * point instead of a tap-to-arm stand-in: `.gh-overflow`, always visible
+ * below `mail.css`'s narrow-viewport breakpoint, opens a `Sheet` listing
+ * Done all / Mark all read / Collapse as plain rows — previewing the group
+ * (and its spine) for as long as the sheet stays open, the touch equivalent
+ * of hovering the rail node.
  */
 function GroupHeaderCluster({
   label,
@@ -444,6 +553,8 @@ function GroupHeaderCluster({
   bulk?: GroupHeaderClusterBulk;
 }) {
   const [armed, setArmed] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const count = trueCount ?? loadedCount;
 
   const arm = useCallback(() => {
@@ -452,12 +563,35 @@ function GroupHeaderCluster({
   }, [bulk]);
   const disarm = useCallback(() => setArmed(false), []);
 
+  const setPreviewing = useCallback(
+    (active: boolean) => {
+      setPreview(active);
+      bulk?.onPreview(active);
+    },
+    [bulk],
+  );
+
+  const openSheet = useCallback(() => {
+    bulk?.onArm();
+    setPreviewing(true);
+    setSheetOpen(true);
+  }, [bulk, setPreviewing]);
+
+  const closeSheet = useCallback(
+    (open: boolean) => {
+      setSheetOpen(open);
+      if (!open) setPreviewing(false);
+    },
+    [setPreviewing],
+  );
+
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus arm the cluster (#66); every actual control below is a real, independently focusable <button>.
-    // biome-ignore lint/a11y/useKeyWithClickEvents: `onClick` here is touch's stand-in for hover, not an action — a keyboard User already arms the cluster by Tabbing to any button below (`onFocus`), and each is an ordinary, independently keyboard-operable `<button>`.
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover/focus arm the cluster (#66); clicking its own background toggles Collapse (#97), a mouse convenience layered on the real, independently focusable `<button>` below that does the same thing. Every other control here is its own real button too.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: this `onClick` duplicates the `.group-collapse` button below rather than adding a keyboard-inaccessible action — a keyboard User reaches the identical toggle by Tabbing to that real, independently operable `<button>`.
     <div
       className="group-header-cluster"
       data-armed={armed}
+      data-group-preview={preview}
       onMouseEnter={arm}
       onMouseLeave={disarm}
       onFocus={arm}
@@ -466,11 +600,7 @@ function GroupHeaderCluster({
         // all read, say) must not disarm it mid-Tab.
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) disarm();
       }}
-      onClick={() => {
-        // Touch has no hover: tapping the header arms it the same way
-        // resting the pointer does at desktop (#66's own acceptance bar).
-        setArmed((current) => !current);
-      }}
+      onClick={onToggleCollapsed}
     >
       <span className="gh-rail">
         {bulk ? (
@@ -479,10 +609,10 @@ function GroupHeaderCluster({
             className="gh-node"
             aria-label={`Done with ${label}`}
             title="Done all"
-            onMouseEnter={() => bulk.onPreview(true)}
-            onMouseLeave={() => bulk.onPreview(false)}
-            onFocus={() => bulk.onPreview(true)}
-            onBlur={() => bulk.onPreview(false)}
+            onMouseEnter={() => setPreviewing(true)}
+            onMouseLeave={() => setPreviewing(false)}
+            onFocus={() => setPreviewing(true)}
+            onBlur={() => setPreviewing(false)}
             onClick={(event) => {
               event.stopPropagation();
               bulk.onDoneAll();
@@ -524,6 +654,66 @@ function GroupHeaderCluster({
           {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
       </div>
+      <button
+        type="button"
+        className="gh-overflow"
+        aria-label={`More actions for ${label}`}
+        title="More"
+        onClick={(event) => {
+          event.stopPropagation();
+          openSheet();
+        }}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      <Sheet open={sheetOpen} onOpenChange={closeSheet}>
+        <SheetContent side="bottom" className="group-header-sheet">
+          <SheetHeader className="sr-only">
+            <SheetTitle>{label}</SheetTitle>
+            <SheetDescription>Actions for this group.</SheetDescription>
+          </SheetHeader>
+          <div className="group-sheet-actions">
+            {bulk ? (
+              <button
+                type="button"
+                className="group-sheet-action"
+                onClick={() => {
+                  bulk.onDoneAll();
+                  setSheetOpen(false);
+                  setPreviewing(false);
+                }}
+              >
+                <Check size={14} /> Done all
+              </button>
+            ) : null}
+            {bulk ? (
+              <button
+                type="button"
+                className="group-sheet-action"
+                onClick={() => {
+                  bulk.onMarkAllRead();
+                  setSheetOpen(false);
+                  setPreviewing(false);
+                }}
+              >
+                <MailOpen size={14} /> Mark all read
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="group-sheet-action"
+              onClick={() => {
+                onToggleCollapsed();
+                setSheetOpen(false);
+                setPreviewing(false);
+              }}
+            >
+              {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              {collapsed ? "Expand" : "Collapse"}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

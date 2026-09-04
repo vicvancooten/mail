@@ -8,6 +8,9 @@ import {
   useScreenerSenders,
 } from "../../store/index.js";
 import { Avatar } from "../Avatar.js";
+import { ActionMenu } from "../actions/ActionMenu.js";
+import { useActions } from "../actions/ActionsProvider.js";
+import { withScreenerSender } from "../actions/types.js";
 import { ScreenerActions } from "./ScreenerActions.js";
 import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
 
@@ -42,7 +45,13 @@ import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
  * No `useTriage` here — the Inbox's actions (archive, star, ...) mean
  * nothing to a sender the User has never let through the gate yet, so this
  * screen owns its own small keyboard scheme instead of stretching that
- * hook to cover a shape it was never about.
+ * hook to cover a shape it was never about. That is also why the Action
+ * registry's three Screener entries are marked contextual (#94): this is a
+ * modal surface holding the whole keyboard while it is up, so its `a`/`d`/
+ * `b` stay bound here rather than by the registry's global listener — the
+ * registry's part is that every row gets the same right-click / long-press
+ * menu every other row in the Client has, with the same keycaps printed on
+ * it.
  */
 /** How long a decided slip stays on screen carrying its verdict before it clears. */
 const VERDICT_HOLD_MS = 900;
@@ -300,46 +309,54 @@ function ScreenerRow({
   onSpam: () => void;
 }) {
   const displayName = group.name ?? group.address;
+  const actions = useActions();
+  // A decided slip is on its way out and carries no actions any more.
+  const rowCtx =
+    actions && !verdict
+      ? withScreenerSender(actions, { sender: group, onApprove, onDeny, onBlock })
+      : null;
   return (
-    <li
-      className={`screener-row${selected ? " selected" : ""}${verdict ? " decided" : ""}`}
-      aria-hidden={verdict ? true : undefined}
-      onMouseEnter={verdict ? undefined : onSelect}
-      aria-label={displayName}
-    >
-      <Avatar name={displayName} />
-      <div className="screener-row-sender">
-        <span className="screener-row-name">{displayName}</span>
-        {group.name ? <span className="screener-row-address">{group.address}</span> : null}
-        {group.threadCount > 1 ? (
-          <span className="screener-row-count">{group.threadCount} conversations</span>
-        ) : null}
-      </div>
-      {verdict ? null : (
-        <div className="screener-row-peek">
-          <span className="screener-row-subject">{group.subject || "(no subject)"}</span>
-          {group.snippet ? <span className="screener-row-snippet">{group.snippet}</span> : null}
+    <ActionMenu ctx={rowCtx} asChild label={`Actions for ${displayName}`}>
+      <li
+        className={`screener-row${selected ? " selected" : ""}${verdict ? " decided" : ""}`}
+        aria-hidden={verdict ? true : undefined}
+        onMouseEnter={verdict ? undefined : onSelect}
+        aria-label={displayName}
+      >
+        <Avatar name={displayName} />
+        <div className="screener-row-sender">
+          <span className="screener-row-name">{displayName}</span>
+          {group.name ? <span className="screener-row-address">{group.address}</span> : null}
+          {group.threadCount > 1 ? (
+            <span className="screener-row-count">{group.threadCount} conversations</span>
+          ) : null}
         </div>
-      )}
-      {verdict ? (
-        <span className="screener-verdict" data-verdict={verdict}>
-          {verdict}
-        </span>
-      ) : (
-        <>
-          <button type="button" className="screener-view" onClick={onView} title="View held mail">
-            <Eye size={14} /> View
-          </button>
-          <ScreenerActions
-            group={group}
-            onApprove={onApprove}
-            onDeny={onDeny}
-            onBlock={onBlock}
-            onBlockDomain={onBlockDomain}
-            onSpam={onSpam}
-          />
-        </>
-      )}
-    </li>
+        {verdict ? null : (
+          <div className="screener-row-peek">
+            <span className="screener-row-subject">{group.subject || "(no subject)"}</span>
+            {group.snippet ? <span className="screener-row-snippet">{group.snippet}</span> : null}
+          </div>
+        )}
+        {verdict ? (
+          <span className="screener-verdict" data-verdict={verdict}>
+            {verdict}
+          </span>
+        ) : (
+          <>
+            <button type="button" className="screener-view" onClick={onView} title="View held mail">
+              <Eye size={14} /> View
+            </button>
+            <ScreenerActions
+              group={group}
+              onApprove={onApprove}
+              onDeny={onDeny}
+              onBlock={onBlock}
+              onBlockDomain={onBlockDomain}
+              onSpam={onSpam}
+            />
+          </>
+        )}
+      </li>
+    </ActionMenu>
   );
 }

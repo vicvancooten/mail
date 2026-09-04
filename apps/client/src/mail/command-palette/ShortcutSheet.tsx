@@ -1,30 +1,16 @@
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import type { Triage } from "../useTriage.js";
-import { buildCommands, COMMAND_SECTIONS } from "./commands.js";
-
-/** Every `Triage` method as a no-op — the Shortcut Sheet only ever reads
- * `buildCommands`' `label`/`section`/`shortcut`, never calls `run`, so this
- * exists purely to satisfy `CommandContext`'s shape with no live Thread. */
-const NOOP_TRIAGE: Triage = {
-  archive: () => {},
-  trash: () => {},
-  snooze: () => {},
-  toggleStar: () => {},
-  toggleRead: () => {},
-  togglePin: () => {},
-  applyLabel: () => {},
-  removeLabel: () => {},
-};
+import { globalActions } from "../actions/registry.js";
+import { ACTION_SECTIONS, actionLabel, noopActionContext } from "../actions/types.js";
 
 /**
- * `?` (#79): the traditional keyboard cheat sheet, grouped by section — the
- * same registry the Command Palette lists (`buildCommands`), so this can
- * never drift from what `⌘K` actually shows or from what the individual
- * `useTriage.ts`/`ThreadDetailPane.tsx`/`useComposeShortcut.ts` listeners
- * actually bind. Read-only: no `run` is ever called from here, which is why
- * it's built against a Thread-less, all-no-op context — every row's
- * `shortcut` and `label` are the same regardless of what's currently open.
+ * `?` (#79): the traditional keyboard cheat sheet, grouped by section —
+ * straight off the Action registry (#94), the same list the Command Palette
+ * shows and the same list the single `keydown` listener binds, so this can
+ * never drift from what the keyboard actually does. Read-only: no action is
+ * ever run from here, which is why it reads the registry against a
+ * Thread-less, all-no-op context — every row's `label` and `binding` is the
+ * same regardless of what happens to be open.
  */
 export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
@@ -38,18 +24,8 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
 
   if (!open) return null;
 
-  const commands = buildCommands({
-    selectedThread: null,
-    triage: NOOP_TRIAGE,
-    latestMessage: null,
-    onReply: () => {},
-    onCompose: () => {},
-    onBackToList: () => {},
-    onOpenScreener: () => {},
-    screenerCount: 0,
-    onFocusSearch: () => {},
-    onOpenShortcutSheet: () => {},
-  });
+  const ctx = noopActionContext();
+  const actions = globalActions();
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: click-to-dismiss is a mouse convenience layered on an already-accessible dialog — Escape and the Close button (both real, focusable controls below) are the keyboard/screen-reader paths.
@@ -77,19 +53,19 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
           </button>
         </div>
         <div className="shortcut-sheet-body">
-          {COMMAND_SECTIONS.map((section) => {
-            const inSection = commands.filter((command) => command.section === section);
+          {ACTION_SECTIONS.map((section) => {
+            const inSection = actions.filter((action) => action.section === section);
             if (inSection.length === 0) return null;
             return (
               <div key={section} className="shortcut-sheet-section">
                 <p className="shortcut-sheet-section-label">{section}</p>
                 <dl>
-                  {inSection.map((command) => (
-                    <div key={command.id} className="shortcut-sheet-row">
-                      <dt>{command.label}</dt>
+                  {inSection.map((action) => (
+                    <div key={action.id} className="shortcut-sheet-row">
+                      <dt>{actionLabel(action, ctx)}</dt>
                       <dd>
-                        {command.shortcut ? (
-                          <kbd className="keycap">{command.shortcut}</kbd>
+                        {action.binding ? (
+                          <kbd className="keycap">{action.binding.display}</kbd>
                         ) : (
                           <span className="command-palette-unbound">Command Palette only</span>
                         )}

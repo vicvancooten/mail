@@ -631,6 +631,39 @@ describe("MailSection", () => {
     expect(await screen.findByText("Newer thread")).toBeDefined();
     expect(await screen.findByText("Couldn't snooze — restored to the list.")).toBeDefined();
   });
+
+  it("right-clicking a row opens the Action registry's menu, and Trash — which has no row control at all — works from it (#94)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+
+    fireEvent.contextMenu(row);
+
+    // The menu names the Thread it is about, and lists Trash with its own
+    // keycap — the action #66 deliberately gave no hover or swipe control,
+    // which on touch makes this menu the only way to reach it.
+    const trash = await screen.findByRole("menuitem", { name: /Move to Trash/ });
+    expect(trash.textContent).toContain("#");
+    fireEvent.click(trash);
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+  });
+
+  it("a row's menu acts on the row it was raised on, not on whatever is selected (#94)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    // Open the *newer* Thread, then raise the older row's own menu.
+    fireEvent.click(await screen.findByText("Newer thread"));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Older thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Mark Done/ }));
+
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    expect(screen.getByRole("option", { name: /Newer thread/ })).toBeDefined();
+  });
 });
 
 describe("Sidebar (#74)", () => {
@@ -962,6 +995,33 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
     // Marking read never removes a row from the list.
     expect(screen.getByText("Thread A")).toBeDefined();
     expect(screen.getByText("Thread B")).toBeDefined();
+  });
+
+  it("right-clicking the Time Group header offers the same three actions its cluster does (#94)", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+
+    const header = within(screen.getByRole("listbox")).getByText("Today");
+    fireEvent.contextMenu(header);
+
+    expect(await screen.findByRole("menuitem", { name: "Mark Today read" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Collapse group/ })).toBeDefined();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Done with Today" }));
+
+    await waitFor(() => {
+      const batchCall = calls.find((call) => call.url === "/bulk-triage/batch");
+      expect((batchCall?.body as { action: string })?.action).toBe("done");
+    });
   });
 
   it("names the failed account and reason on a partial failure", async () => {

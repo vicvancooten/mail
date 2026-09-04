@@ -3,11 +3,9 @@ import { Command as CommandPrimitive } from "cmdk";
 import { Search, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 import type { CachedThread } from "../../store/index.js";
-import { useThreadMessages } from "../reading/useThreadMessages.js";
+import type { ActionContext } from "../actions/types.js";
 import type { ViewOrigin } from "../search/scope.js";
 import { formatIndexWatermark, type SearchState } from "../search/useSearchState.js";
-import type { OnReply } from "../ThreadDetailPane.js";
-import type { Triage } from "../useTriage.js";
 import { buildCommands, type PaletteCommand } from "./commands.js";
 
 /** A palette row is either a Command or a mail hit — one flat, keyboard-navigable list (#79's "keyboard-complete"). */
@@ -65,15 +63,7 @@ function matchesQuery(command: PaletteCommand, query: string): boolean {
 export function CommandPalette({
   open,
   onClose,
-  selectedThread,
-  triage,
-  onReply,
-  onCompose,
-  onBackToList,
-  onOpenScreener,
-  screenerCount,
-  onFocusSearch,
-  onOpenShortcutSheet,
+  ctx,
   search,
   searchOrigin,
   accounts,
@@ -81,25 +71,14 @@ export function CommandPalette({
 }: {
   open: boolean;
   onClose: () => void;
-  selectedThread: CachedThread | null;
-  triage: Triage;
-  onReply: OnReply;
-  onCompose: () => void;
-  onBackToList: () => void;
-  onOpenScreener: () => void;
-  screenerCount: number;
-  onFocusSearch: () => void;
-  onOpenShortcutSheet: () => void;
+  /** The Action registry's context for right now (#94) — one object in place of the nine callbacks this component used to take, and the same one the keyboard and every menu read. */
+  ctx: ActionContext;
   search: SearchState;
   searchOrigin: ViewOrigin;
   accounts: readonly MailAccount[];
   /** Which Mail Account a hit came from is only worth naming once a search actually spans more than one (#80, same "several are in Scope" gate `SearchResultsView`'s own row badge uses). */
   accountScope: readonly string[];
 }) {
-  // Rules of Hooks: called unconditionally even with nothing selected —
-  // `useThreadMessages("")`'s own doc comment is what makes that a no-op.
-  const { messages } = useThreadMessages(selectedThread?.id ?? "");
-  const latestMessage = messages?.at(-1) ?? null;
   // `search.engage` (#100) seeds the scope from `searchOrigin` the same way
   // `open` does, so it must fire once per Palette session rather than on
   // every keystroke — otherwise a mid-session `popSeed` (backspace on an
@@ -117,33 +96,7 @@ export function CommandPalette({
 
   const query = search.queryText;
 
-  const commands = useMemo(
-    () =>
-      buildCommands({
-        selectedThread,
-        triage,
-        latestMessage,
-        onReply,
-        onCompose,
-        onBackToList,
-        onOpenScreener,
-        screenerCount,
-        onFocusSearch,
-        onOpenShortcutSheet,
-      }),
-    [
-      selectedThread,
-      triage,
-      latestMessage,
-      onReply,
-      onCompose,
-      onBackToList,
-      onOpenScreener,
-      screenerCount,
-      onFocusSearch,
-      onOpenShortcutSheet,
-    ],
-  );
+  const commands = useMemo(() => buildCommands(ctx), [ctx]);
 
   const matchedCommands = useMemo(
     () => commands.filter((command) => matchesQuery(command, query)),

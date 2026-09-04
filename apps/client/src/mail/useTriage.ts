@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { notifyTriageSucceeded } from "../pwa/notification-offer.js";
 import type { CachedThread } from "../store/index.js";
 import { enqueueMutation } from "../store/index.js";
-import { neighborId } from "./thread-navigation.js";
 
 /**
  * The one triage hook every view mode calls (#42, poc-spec.md §Triage &
@@ -25,36 +24,24 @@ import { neighborId } from "./thread-navigation.js";
  *   queues `setRead(true)` for it. Read via a ref so it fires once per
  *   *selection change* — depending on `threads` directly would refire (and
  *   redundantly re-enqueue) on every unrelated overlay recompute.
- * - The keyboard scheme itself: `j`/`l` and the arrow keys all move the
- *   selection (no distinct "browse vs. open" step — Split view never had
- *   one, and List/Stream give it up here for one consistent model across
- *   all three, a deliberate trim vs. the prototype branch's per-view
- *   nuance); `e` archives, `#`/`Backspace`/`Delete` trashes, `s` toggles
- *   star — the prototype's own scheme (`prototype/triage-loop-ui`), plus
- *   the star shortcut it never needed (`Thread` there had no `starred`
- *   field). `p` toggles Pin (#43) — the prototype had no Pin either, so
- *   this is a fresh binding on the same scheme, chosen because `p`in is
- *   mnemonic and every other short letter near it is already spoken for.
  *
- *   `h` and `u` are reassigned by #79 (the Command Palette's Gmail/
- *   Superhuman vocabulary): `h` used to double as "previous" alongside `k`
- *   — dropped from movement here and rebound to Snooze
- *   (`ThreadDetailPane.tsx`'s own keydown listener, matching how `L` opens
- *   the Label picker). `u` used to toggle read/unread here — dropped from
- *   this hook's listener entirely and rebound to "back to list"
- *   (`ThreadDetailPane.tsx` again, calling its `onBack`); `toggleRead`
- *   itself is unchanged and stays reachable from the mouse (the Mark
- *   read/unread button) and the Command Palette, just with no bare-key
- *   binding of its own any more.
+ * What it deliberately no longer owns is **the keyboard** (#94): every
+ * binding in the Client now lives in one place, `actions/registry.ts`, read
+ * by the single `keydown` listener in `actions/ActionsProvider.tsx`. This
+ * hook used to carry its own listener for `e`/`#`/`s`/`p` and `j`/`k`
+ * movement, one of four that between them re-stated the same scheme in four
+ * files; the actions below are what that one listener calls, and are equally
+ * what the row cluster, the reader toolbar, the Command Palette and the
+ * right-click menu call. Nothing about the mutations themselves changed.
  *
  * `applyLabel`/`removeLabel` (#43) are one call each — no coalescing
  * decision to make here, `store/mutation-queue.ts` already owns that (apply
  * then remove of the same name while both are still queued cancels out).
  * Neither has a single-key binding here: which Label to apply is a name, not
  * a boolean, so it is reached through `LabelPicker`'s own input/list —
- * `ThreadDetailPane` owns that widget's open/close (its own `L` binding,
- * the same "one component, one window keydown listener" shape
- * `VirtualizedThreadList` already uses for `j`/`k`) and calls these two.
+ * the registry's `label` action opens that widget (`ThreadDetailPane`'s own
+ * Popover) rather than committing anything itself, and the picker calls
+ * these two.
  */
 
 export interface Triage {
@@ -79,14 +66,6 @@ export interface UseTriageOptions {
   direction: AutoAdvanceDirection;
   /** Auto-advance on/off (#54, poc-spec.md §Preferences) — `false` leaves the selection where it was after archive/trash. */
   autoAdvanceEnabled?: boolean;
-  /**
-   * True while the composer is open (#45, compose-spec §Composer surface &
-   * keys: "the composer owns every key and the triage shortcuts are inert").
-   * The actions themselves stay callable — only this hook's own `keydown`
-   * listener goes quiet — so a mouse-driven triage action elsewhere is
-   * unaffected.
-   */
-  shortcutsDisabled?: boolean;
 }
 
 export function useTriage({
@@ -97,7 +76,6 @@ export function useTriage({
   onSelect,
   direction,
   autoAdvanceEnabled = true,
-  shortcutsDisabled = false,
 }: UseTriageOptions): Triage {
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
@@ -243,57 +221,6 @@ export function useTriage({
     },
     [resolveMailAccountId],
   );
-
-  useEffect(() => {
-    if (shortcutsDisabled) return;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (typing) return;
-
-      switch (event.key) {
-        case "j":
-        case "ArrowDown":
-        case "l":
-        case "ArrowRight": {
-          event.preventDefault();
-          const next = selectedThreadId ? neighborId(ids, selectedThreadId, 1) : (ids[0] ?? null);
-          if (next) onSelect(next);
-          return;
-        }
-        case "k":
-        case "ArrowUp":
-        case "ArrowLeft": {
-          event.preventDefault();
-          const prev = selectedThreadId ? neighborId(ids, selectedThreadId, -1) : (ids[0] ?? null);
-          if (prev) onSelect(prev);
-          return;
-        }
-        case "e":
-          if (selectedThreadId) archive(selectedThreadId);
-          return;
-        case "#":
-        case "Backspace":
-        case "Delete":
-          if (selectedThreadId) {
-            event.preventDefault();
-            trash(selectedThreadId);
-          }
-          return;
-        case "s":
-          if (selectedThreadId) toggleStar(selectedThreadId);
-          return;
-        case "p":
-          if (selectedThreadId) togglePin(selectedThreadId);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [ids, selectedThreadId, onSelect, archive, trash, toggleStar, togglePin, shortcutsDisabled]);
 
   return { archive, trash, snooze, toggleStar, toggleRead, togglePin, applyLabel, removeLabel };
 }
