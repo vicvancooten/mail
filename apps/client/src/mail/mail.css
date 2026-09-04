@@ -2675,6 +2675,36 @@ button.search-chip-toggle.on {
   text-overflow: ellipsis;
 }
 
+/* View (#102): a quiet affordance to read a stranger's held mail before
+   deciding — same button geometry as Approve/Deny/Block so it sits in the
+   same row without its own bespoke sizing, but never filled or dangerous;
+   it's not a decision. */
+.screener-view {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-view:hover,
+.screener-view:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .screener-row-actions {
   display: flex;
   align-items: center;
@@ -2720,12 +2750,50 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
-.screener-row-actions button.screener-block {
+/* Block's split menu (#102): the split button reads as one piece — the
+   default action's own pill shape squares off on the side it meets the
+   chevron, which keeps its own pill shape and the same danger hover, so the
+   two halves never look like separate controls that happen to be adjacent. */
+.screener-block-split {
+  display: inline-flex;
+  align-items: center;
   margin-left: 10px;
+}
+
+.screener-block-split .screener-block {
+  margin-left: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .screener-row-actions button.screener-block:hover,
 .screener-row-actions button.screener-block:focus-visible {
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.screener-block-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-block-menu-trigger:hover,
+.screener-block-menu-trigger:focus-visible,
+.screener-block-menu-trigger[data-state="open"] {
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
 }
@@ -2760,7 +2828,8 @@ button.search-chip-toggle.on {
   color: var(--color-accent);
 }
 
-.screener-verdict[data-verdict="Blocked"] {
+.screener-verdict[data-verdict="Blocked"],
+.screener-verdict[data-verdict="Spam"] {
   color: var(--color-danger);
 }
 
@@ -2786,6 +2855,87 @@ button.search-chip-toggle.on {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ---------- the View dialog (#102) --------------------------------------
+ * "the decision actions on top, then a stack ... of that sender's held
+ * Threads" (the ticket's own words) — the dialog is a taller, wider Dialog
+ * than shadcn's own default so a real message body has room, and the
+ * Threads scroll inside it rather than the page growing without bound. */
+.screener-view-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 85vh;
+}
+
+.screener-view-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.screener-view-sender {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.screener-view-address {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.screener-view-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.screener-view-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: var(--hairline) solid var(--color-border);
+}
+
+.screener-view-thread:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.screener-view-message-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.screener-view-message-subject {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screener-view-message-date {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.screener-view-thread-loading,
+.screener-view-thread-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink-muted);
 }
 
 /* ---------- Gatekeeper settings live in the ordinary frame, not the bay --- */
@@ -2831,6 +2981,11 @@ button.search-chip-toggle.on {
 .gatekeeper-reset-confirm {
   color: var(--color-danger);
   font-size: 13px;
+}
+
+.gatekeeper-blocked-spam {
+  color: var(--color-ink-muted);
+  font-size: 12px;
 }
 
 /* ============================================================================
@@ -2985,7 +3140,7 @@ button.search-chip-toggle.on {
     flex-basis: 100%;
   }
 
-  .screener-row-actions button.screener-block {
+  .screener-block-split {
     margin-left: auto;
   }
 

@@ -64,7 +64,7 @@ export async function denySender(
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
     await clearVerdict(db, mailAccountId, sender);
-    await trashHeldThreads(db, mailAccountId, sender);
+    await trashHeldThreads(db, mailAccountId, sender, "trash");
   });
 }
 
@@ -85,7 +85,32 @@ export async function blockSender(
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
     await setVerdict(db, mailAccountId, sender, "blocked", "screener");
-    await trashHeldThreads(db, mailAccountId, sender);
+    await trashHeldThreads(db, mailAccountId, sender, "trash");
+  });
+}
+
+/**
+ * Spam (#102, CONTEXT.md, ADR-0008's amendment): everything `blockSender`
+ * does, plus the one thing that makes it Spam rather than a plain Block —
+ * the held Threads (and every future arrival, `gatekeeper/screening.ts`)
+ * move to the Mail Account's Junk folder rather than Trash, so the
+ * provider's own filter learns from it. Recorded as a Blocked Verdict with
+ * `spam: true` (`verdicts.ts#setVerdict`) rather than a fourth Verdict value
+ * — a Spam sender is Blocked for every other purpose a Verdict answers.
+ *
+ * The Screener's Block split menu offers this as a deliberate extra click
+ * behind Block sender/Block domain, never the default — "I don't want this"
+ * and "this is spam" are different claims, and only the User can tell them
+ * apart.
+ */
+export async function spamSender(
+  db: Db,
+  mailAccountId: string,
+  sender: GatekeeperSender,
+): Promise<DecisionResult> {
+  return withVerdictWrite(async () => {
+    await setVerdict(db, mailAccountId, sender, "blocked", "screener", true);
+    await trashHeldThreads(db, mailAccountId, sender, "junk");
   });
 }
 
@@ -202,23 +227,25 @@ async function releaseHeldThreads(
 }
 
 /**
- * Deny/Block's shared effect: the held Threads go to Trash, the same way an
- * ordinary `trash` intent takes a Thread there (`sync/mutations.ts`) — the
- * Thread leaves the Inbox synchronously, and the real IMAP `MOVE` follows
- * through the write-through outbox. The hold is cleared in the same step, so
- * a decided sender never leaves a ghost row behind in the Screener.
+ * Deny/Block/Spam's shared effect: the held Threads go to Trash (or, for
+ * Spam, Junk — `target`), the same way an ordinary `trash` intent takes a
+ * Thread to Trash (`sync/mutations.ts`) — the Thread leaves the Inbox
+ * synchronously, and the real IMAP `MOVE` follows through the write-through
+ * outbox. The hold is cleared in the same step, so a decided sender never
+ * leaves a ghost row behind in the Screener.
  *
- * An account with no Trash folder still gets the hold cleared and the Thread
- * out of the Inbox: the decision the User made is recorded either way, and
- * `sync/protocol-writes.ts` has nothing to move it to. That is the one place
- * this differs from the `trash` intent, which rejects outright — a rejected
- * Screener decision would leave the stranger sitting there with no way for
- * the User to make it stick.
+ * An account with no matching folder still gets the hold cleared and the
+ * Thread out of the Inbox: the decision the User made is recorded either
+ * way, and `sync/protocol-writes.ts` has nothing to move it to. That is the
+ * one place this differs from the `trash` intent, which rejects outright — a
+ * rejected Screener decision would leave the stranger sitting there with no
+ * way for the User to make it stick.
  */
 async function trashHeldThreads(
   db: Db,
   mailAccountId: string,
   sender: GatekeeperSender,
+  target: "trash" | "junk",
 ): Promise<void> {
   const held = await db
     .select({ id: threads.id })
@@ -227,8 +254,8 @@ async function trashHeldThreads(
   if (held.length === 0) return;
   const heldThreadIds = held.map((row) => row.id);
 
-  const target = await findFolderByRole(db, mailAccountId, "trash");
-  if (target) {
+  const targetFolder = await findFolderByRole(db, mailAccountId, target);
+  if (targetFolder) {
     const inboxResident = await db
       .select({ id: messages.id })
       .from(messages)
@@ -238,12 +265,12 @@ async function trashHeldThreads(
       db,
       mailAccountId,
       inboxResident.map((row) => row.id),
-      "trash",
+      target,
     );
   }
 
   await db
     .update(threads)
-    .set({ heldSender: null, heldAt: null, inInbox: false, folderRole: "trash" })
+    .set({ heldSender: null, heldAt: null, inInbox: false, folderRole: target })
     .where(inArray(threads.id, heldThreadIds));
 }

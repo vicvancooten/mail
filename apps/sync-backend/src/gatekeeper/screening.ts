@@ -142,20 +142,27 @@ export async function screenArrivals(
   };
   const seenInBatch = new Map<string, number>();
   const heldSenderNames = new Map<string, string | null>();
+  // Split by destination (#102): a plain Block moves to Trash, Spam to
+  // Junk — the same distinction `gatekeeper/decisions.ts#trashHeldThreads`
+  // draws for the Screener's own decisions, mirrored here for what a
+  // *future* arrival from an already-decided sender does.
   const blockedByThread = new Map<string, string[]>();
+  const spammedByThread = new Map<string, string[]>();
 
   for (const arrival of arrivals) {
     const batchSoFar = seenInBatch.get(arrival.threadId) ?? 0;
     seenInBatch.set(arrival.threadId, batchSoFar + 1);
 
     const address = arrival.fromAddress;
-    const verdict = verdictFor(resolved, address).verdict;
+    const resolvedVerdict = verdictFor(resolved, address);
+    const verdict = resolvedVerdict.verdict;
 
     if (verdict === "blocked" && folder.role === "inbox") {
       result.blockedMessageIds.push(arrival.id);
-      const bucket = blockedByThread.get(arrival.threadId) ?? [];
+      const byThread = resolvedVerdict.spam ? spammedByThread : blockedByThread;
+      const bucket = byThread.get(arrival.threadId) ?? [];
       bucket.push(arrival.id);
-      blockedByThread.set(arrival.threadId, bucket);
+      byThread.set(arrival.threadId, bucket);
       continue;
     }
 
@@ -192,7 +199,10 @@ export async function screenArrivals(
   }
 
   for (const [threadId, messageIds] of blockedByThread) {
-    await trashOnArrival(db, account.id, threadId, messageIds);
+    await moveOnArrival(db, account.id, threadId, messageIds, "trash");
+  }
+  for (const [threadId, messageIds] of spammedByThread) {
+    await moveOnArrival(db, account.id, threadId, messageIds, "junk");
   }
 
   result.newlyHeldSenders = [...heldSenderNames].map(([address, name]) => ({ address, name }));
@@ -201,7 +211,8 @@ export async function screenArrivals(
 
 /**
  * ADR-0008's narrow exception, applied: a real IMAP move to the account's
- * `\Trash`, visible to every other client against the same mailbox.
+ * `\Trash` (a plain Block) or `\Junk` (Spam, #102's amendment), visible to
+ * every other client against the same mailbox.
  *
  * The move rides the existing write-through outbox (`sync/protocol-writes.ts`)
  * rather than reaching for the arriving connection directly. That is what
@@ -213,16 +224,17 @@ export async function screenArrivals(
  * surfaces in a Client while the move is still queued.
  *
  * `inInbox` is only flipped when nothing *else* of the Thread is left in the
- * Inbox: a Blocked sender replying into a conversation the User is having
- * with other people trashes their message, not the conversation.
+ * Inbox: a Blocked or Spam sender replying into a conversation the User is
+ * having with other people moves their message, not the conversation.
  */
-async function trashOnArrival(
+async function moveOnArrival(
   db: Db,
   mailAccountId: string,
   threadId: string,
-  blockedMessageIds: string[],
+  messageIds: string[],
+  target: "trash" | "junk",
 ): Promise<void> {
-  await enqueueProtocolWrites(db, mailAccountId, blockedMessageIds, "trash");
+  await enqueueProtocolWrites(db, mailAccountId, messageIds, target);
 
   const stillInInbox = await db
     .select({ id: messages.id })
@@ -232,7 +244,7 @@ async function trashOnArrival(
       and(
         eq(messages.threadId, threadId),
         eq(folders.role, "inbox"),
-        notInArray(messages.id, blockedMessageIds),
+        notInArray(messages.id, messageIds),
       ),
     )
     .limit(1);
@@ -240,6 +252,6 @@ async function trashOnArrival(
 
   await db
     .update(threads)
-    .set({ inInbox: false, folderRole: "trash" })
+    .set({ inInbox: false, folderRole: target })
     .where(eq(threads.id, threadId));
 }

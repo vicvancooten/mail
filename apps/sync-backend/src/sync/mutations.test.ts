@@ -639,6 +639,21 @@ describe("flushMutations — the Gatekeeper decisions (#55)", () => {
     ]);
   });
 
+  it("spams a sender and records the Verdict with the spam flag (#102)", async () => {
+    const threadId = await seedHeldThread("spammer@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01SPAM",
+        intent: { type: "spamSender", sender: { scope: "address", value: "spammer@example.test" } },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01SPAM", status: "applied" }]);
+    expect((await threadRow(threadId))?.heldSender).toBeNull();
+    expect((await resolveVerdict(db, account.id, "spammer@example.test")).verdict).toBe("blocked");
+  });
+
   it("unblocks back to Unscreened, never to Approved", async () => {
     await flushMutations(db, account.id, [
       {

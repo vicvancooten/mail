@@ -167,6 +167,16 @@ export const blockedSenderSchema = z.object({
   value: z.string(),
   source: gatekeeperVerdictSourceSchema,
   decidedAt: z.iso.datetime(),
+  /**
+   * Spam (CONTEXT.md, ADR-0008 amendment): a Block that additionally moves
+   * held and future mail to the Mail Account's Junk folder instead of Trash,
+   * so the provider's own filter learns. Recorded alongside `blocked` rather
+   * than as a fourth Verdict value — Spam *is* a Block for every purpose a
+   * `GatekeeperVerdict` answers (resolution, image-loading permission),
+   * this flag is only ever consulted to pick Trash vs. Junk as the
+   * destination.
+   */
+  spam: z.boolean(),
 });
 export type BlockedSender = z.infer<typeof blockedSenderSchema>;
 

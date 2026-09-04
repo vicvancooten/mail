@@ -1,4 +1,6 @@
+import type { Message } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
@@ -14,6 +16,31 @@ import {
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { MailSection } from "../MailSection.js";
+
+function makeMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: "msg-1",
+    threadId: "held-1",
+    mailAccountId: "acct-1",
+    messageIdHeader: "<msg-1@example.test>",
+    references: [],
+    subject: "Please read",
+    from: { name: "A Stranger", address: "stranger@example.test" },
+    to: [],
+    cc: [],
+    replyTo: [],
+    sentAt: "2026-06-01T12:00:00.000Z",
+    receivedAt: "2026-06-01T12:00:00.000Z",
+    seen: false,
+    flagged: false,
+    attachments: [],
+    bodyText: "First contact",
+    bodyHtml: "<p>First contact</p>",
+    bodyIsPlainText: false,
+    remoteImagesAllowed: false,
+    ...overrides,
+  };
+}
 
 /**
  * End-to-end coverage of #56's acceptance boxes: the banner appearing for a
@@ -36,12 +63,18 @@ const AUTH_RESPONSES: Record<string, () => Response> = {
 
 const never = () => new Promise<Response>(() => {});
 
-function stubFetch() {
+/** `threadId -> Message[]`, read by the View dialog's `/threads/:id/messages` (#102). */
+function stubFetch(threadMessages: Record<string, Message[]> = {}) {
   return async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     const auth = AUTH_RESPONSES[url];
     if (auth) return auth();
     if (url === "/sync") return never();
+    const threadMatch = /^\/threads\/([^/]+)\/messages$/.exec(url);
+    if (threadMatch) {
+      const messages = threadMessages[decodeURIComponent(threadMatch[1] ?? "")] ?? [];
+      return jsonResponse({ messages });
+    }
     throw new Error(`Unexpected fetch: ${url}`);
   };
 }
@@ -84,9 +117,9 @@ async function seedHeldSenders(): Promise<void> {
   );
 }
 
-function renderMail() {
+function renderMail(threadMessages: Record<string, Message[]> = {}) {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = stubFetch() as typeof fetch;
+  globalThis.fetch = stubFetch(threadMessages) as typeof fetch;
   const result = render(
     <AuthProvider>
       <MailSection />
@@ -290,5 +323,142 @@ describe("Gatekeeper banner and Screener (#56)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
     expect(document.querySelector(".screener-group-header")).toBeNull();
+  });
+});
+
+describe("the View dialog and Block's split menu (#102)", () => {
+  async function seedOneHeldSender(threadId: string, address: string, name: string) {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread(threadId, "acct-1", {
+            subject: "Please read",
+            snippet: "First contact",
+            heldSender: address,
+            participants: [{ name, address }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  it("View opens a dialog reading the held mail; deciding from inside it closes the dialog", async () => {
+    await seedOneHeldSender("held-view", "stranger@example.test", "A Stranger");
+    renderMail({
+      "held-view": [
+        makeMessage({
+          id: "m-view-1",
+          threadId: "held-view",
+          subject: "Please read",
+          bodyHtml: "<p>First contact, unabridged</p>",
+        }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    // The message's own subject and date are visible (#102's acceptance box).
+    expect(within(dialog).getByText("Please read")).toBeDefined();
+
+    // Acting from inside the dialog decides and closes it — see
+    // `ScreenerViewDialog.tsx`'s own doc comment for why that's free.
+    fireEvent.click(within(dialog).getByRole("button", { name: /Approve/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toEqual([
+      { type: "approveSender", sender: { scope: "address", value: "stranger@example.test" } },
+    ]);
+  });
+
+  it("blocks remote images and offers no click-through inside the dialog", async () => {
+    await seedOneHeldSender("held-view-images", "stranger@example.test", "A Stranger");
+    renderMail({
+      "held-view-images": [
+        makeMessage({
+          id: "m-view-2",
+          threadId: "held-view-images",
+          bodyHtml:
+            '<img src="/messages/m-view-2/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">',
+        }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+
+    // No "Load remote images" opt-in anywhere in the dialog — there is no
+    // Verdict yet to have loaded them for (`MessageBody.tsx`'s own doc
+    // comment on `interactive`).
+    expect(within(dialog).queryByRole("button", { name: "Load remote images" })).toBeNull();
+  });
+
+  it("Block's split menu offers Block domain, scoped to the sender's own domain", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-block", "stranger@lists.example.test", "A Stranger");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    // Radix's menu opens off pointer events `fireEvent.click` doesn't
+    // synthesize — `userEvent` drives the real sequence.
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Block domain (lists.example.test)"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "blockSender", sender: { scope: "domain", value: "lists.example.test" } },
+      ]);
+    });
+  });
+
+  it("Block's split menu offers Mark as spam, queuing a spamSender decision", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-spam", "villain@example.test", "A Villain");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Villain");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Mark as spam"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "spamSender", sender: { scope: "address", value: "villain@example.test" } },
+      ]);
+    });
+    // The row leaves the Screener the instant the decision is queued, same
+    // as every other Screener decision.
+    await waitFor(() => expect(screen.queryByText("A Villain")).toBeNull());
+  });
+
+  it("disables Block domain for a barred public provider", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-barred", "stranger@gmail.com", "A Stranger");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    const item = await screen.findByText(/Block domain — not offered for gmail\.com/);
+    expect(item.closest("[data-disabled]")).not.toBeNull();
   });
 });

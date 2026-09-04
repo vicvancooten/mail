@@ -229,4 +229,41 @@ describe("MessageBody", () => {
       expect(onMailtoLink).not.toHaveBeenCalled();
     });
   });
+
+  describe("interactive={false} (#102, the Screener's View dialog)", () => {
+    it("never seeds images loaded and never offers 'Load remote images', even for an Approved sender's message", () => {
+      render(
+        <MessageBody
+          message={makeMessage({ bodyHtml: PROXIED_IMAGE_HTML, remoteImagesAllowed: true })}
+          interactive={false}
+        />,
+      );
+      expect(screen.queryByRole("button", { name: "Load remote images" })).toBeNull();
+    });
+
+    it("never wires the click bridge — a link click reaches no handler at all", async () => {
+      const openSpy = vi.fn();
+      vi.stubGlobal("open", openSpy);
+      render(<MessageBody message={makeMessage()} interactive={false} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+      expect(iframe.srcdoc).not.toContain("mail-link-click");
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "mail-link-click", href: "https://sender.example/page" },
+          source: iframe.contentWindow,
+        }),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("still sizes itself and still shows a failed-image error — only the bridge and the images opt-in are dropped", () => {
+      render(<MessageBody message={makeMessage()} interactive={false} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+      expect(iframe.srcdoc).toContain("ResizeObserver");
+      expect(iframe.srcdoc).toContain("mail-image-error");
+    });
+  });
 });

@@ -68,8 +68,16 @@ export const threadSchema = z.object({
    * `MOVE` following asynchronously after. One-directional today, the same
    * as `inInbox`: nothing sets a Thread back to `"inbox"` from `"archive"`
    * (there is no unarchive yet) except Bulk Triage's own Undo.
+   *
+   * `"junk"` (#102) is Spam's own destination — the Screener's `spamSender`
+   * decision and a Spam sender's future arrivals set it instead of
+   * `"trash"`. There is no Junk sidebar entry (`search/scope.ts`'s `in:junk`
+   * is the only way there today), so this value simply drops a Thread out of
+   * every folder-scoped view (Archive, Trash) rather than gaining one of its
+   * own — exactly the "out of sight, provider's filter takes it from here"
+   * Spam means.
    */
-  folderRole: z.enum(["inbox", "archive", "trash"]),
+  folderRole: z.enum(["inbox", "archive", "trash", "junk"]),
   /**
    * Whether this Thread has at least one Message the Sync Backend ingested
    * from the account's real `\Sent` folder (#74) — unlike `folderRole`
@@ -376,8 +384,8 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
  * above for why they ride this queue rather than a new collection.
  *
- * The four Gatekeeper intents (#55) are the Screener's decisions and the
- * Blocked Senders list's undo. They ride this queue rather than their own
+ * The five Gatekeeper intents (#55, #102) are the Screener's decisions and
+ * the Blocked Senders list's undo. They ride this queue rather than their own
  * routes because CONTEXT.md files "approve/block senders" under **Triage**:
  * they are decisions the User makes while processing the list, and they want
  * the same durable, offline-survivable, ULID-idempotent delivery every other
@@ -395,9 +403,15 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * - `blockSender` trashes them and records a Blocked Verdict, after which
  *   every future arrival is moved to the real `\\Trash` folder on arrival
  *   (ADR-0008). It is the sole off-switch for an Approved sender.
- * - `unblockSender` clears a Blocked Verdict back to Unscreened. Future-only
- *   by construction: ADR-0008 is explicit that unblocking "stops the
- *   bleeding but recovers nothing".
+ * - `spamSender` (#102, CONTEXT.md's Spam, ADR-0008's amendment) does exactly
+ *   what `blockSender` does, plus one thing: held and future mail move to the
+ *   Mail Account's Junk folder instead of Trash, so the provider's own filter
+ *   learns from it. The Screener's Block split menu offers it as a deliberate
+ *   extra click, never the default — "I don't want this" and "this is spam"
+ *   are different claims.
+ * - `unblockSender` clears a Blocked (or Spam) Verdict back to Unscreened.
+ *   Future-only by construction: ADR-0008 is explicit that unblocking "stops
+ *   the bleeding but recovers nothing".
  *
  * A domain-scoped intent for a public provider (`gatekeeper.ts`'s
  * `BARRED_VERDICT_DOMAINS`) is `rejected` rather than silently downgraded to
@@ -439,6 +453,7 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),
+  z.object({ type: z.literal("spamSender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("unblockSender"), sender: gatekeeperSenderSchema }),
   z.object({
     type: z.literal("unblockAndRestore"),

@@ -49,6 +49,7 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "approveSender":
     case "denySender":
     case "blockSender":
+    case "spamSender":
     case "unblockSender":
       return [];
     // `unblockAndRestore` (#95, ADR-0019) is the one Gatekeeper intent that
@@ -129,14 +130,18 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "setNotificationsEnabled", targetId: "notifications", value: intent.enabled };
     case "setSignature":
       return { type: "setSignature", targetId: "signature", value: true };
-    // Each Gatekeeper decision (#55) is keyed to its sender, and Approve vs.
-    // Block/Deny are not inverses of one another — Deny trashes mail, Approve
-    // releases it — so nothing here coalesces away a decision the User
-    // actually made. `approveSender` and `unblockSender` each keep their own
-    // bucket (no `unapprove` or re-`blockSender` inverse targets either), so
-    // a second decision on the same sender while the first is still queued
-    // just queues behind it, FIFO landing on whichever they chose last.
+    // Each Gatekeeper decision (#55, #102) is keyed to its sender, and Approve
+    // vs. Block/Deny/Spam are not inverses of one another — Deny trashes mail,
+    // Spam moves it to Junk, Approve releases it — so nothing here coalesces
+    // away a decision the User actually made. `approveSender`, `spamSender` and
+    // `unblockSender` each keep their own per-sender bucket: `unblockAndRestore`
+    // (#95, ADR-0019) reverses Deny *or* Block only (see `packages/shared/src/
+    // sync.ts`), so Spam must not share the `"gatekeeper:hold"` bucket below or
+    // Undo would claim an inverse it does not have. A second decision on the
+    // same sender while the first is still queued just queues behind it, FIFO
+    // landing on whichever they chose last.
     case "approveSender":
+    case "spamSender":
     case "unblockSender":
       return {
         type: `gatekeeper:${intent.type}`,

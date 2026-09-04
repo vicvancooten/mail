@@ -38,9 +38,11 @@ import { folders, gatekeeperVerdicts, messages } from "../db/schema.js";
 export interface ResolvedVerdict {
   verdict: GatekeeperVerdict;
   scope: GatekeeperScope | null;
+  /** Spam (#102): only ever `true` alongside `verdict: "blocked"` — see `blockedSenderSchema`'s doc comment (`@mail/shared`). */
+  spam: boolean;
 }
 
-const UNSCREENED: ResolvedVerdict = { verdict: "unscreened", scope: null };
+const UNSCREENED: ResolvedVerdict = { verdict: "unscreened", scope: null, spam: false };
 
 /**
  * Resolves a batch of `From` addresses in one round trip — the shape every
@@ -74,6 +76,7 @@ export async function resolveVerdicts(
       scope: gatekeeperVerdicts.scope,
       value: gatekeeperVerdicts.value,
       verdict: gatekeeperVerdicts.verdict,
+      spam: gatekeeperVerdicts.spam,
     })
     .from(gatekeeperVerdicts)
     .where(
@@ -96,22 +99,30 @@ export async function resolveVerdicts(
       ),
     );
 
-  const byAddress = new Map<string, GatekeeperVerdict>();
-  const byDomain = new Map<string, GatekeeperVerdict>();
+  const byAddress = new Map<string, { verdict: GatekeeperVerdict; spam: boolean }>();
+  const byDomain = new Map<string, { verdict: GatekeeperVerdict; spam: boolean }>();
   for (const row of rows) {
-    (row.scope === "address" ? byAddress : byDomain).set(row.value, row.verdict);
+    (row.scope === "address" ? byAddress : byDomain).set(row.value, {
+      verdict: row.verdict,
+      spam: row.spam,
+    });
   }
 
   for (const address of normalized) {
     const exact = byAddress.get(address);
     if (exact) {
-      resolved.set(address, { verdict: exact, scope: "address" });
+      resolved.set(address, { verdict: exact.verdict, scope: "address", spam: exact.spam });
       continue;
     }
     const domain = senderDomain(address);
     const domainVerdict =
       domain && !isBarredVerdictDomain(domain) ? byDomain.get(domain) : undefined;
-    resolved.set(address, domainVerdict ? { verdict: domainVerdict, scope: "domain" } : UNSCREENED);
+    resolved.set(
+      address,
+      domainVerdict
+        ? { verdict: domainVerdict.verdict, scope: "domain", spam: domainVerdict.spam }
+        : UNSCREENED,
+    );
   }
   return resolved;
 }
@@ -154,6 +165,11 @@ export class BarredVerdictDomainError extends Error {
  * provider. A throw rather than a silent skip: every caller has a User-facing
  * way to say no (a rejected mutation, a 400), and silently doing nothing
  * would leave a Screener row looking decided when it isn't.
+ *
+ * `spam` (#102) is only ever meaningful alongside `verdict: "blocked"` —
+ * `spamSender` (`gatekeeper/decisions.ts`) is the only caller that passes
+ * `true`; every other caller's `false` default keeps a plain Block from
+ * accidentally routing to Junk.
  */
 export async function setVerdict(
   db: Db,
@@ -161,6 +177,7 @@ export async function setVerdict(
   sender: { scope: GatekeeperScope; value: string },
   verdict: "approved" | "blocked",
   source: GatekeeperVerdictSource,
+  spam = false,
 ): Promise<void> {
   const value = normalizeSenderAddress(sender.value);
   if (sender.scope === "domain" && isBarredVerdictDomain(value)) {
@@ -175,13 +192,14 @@ export async function setVerdict(
       scope: sender.scope,
       value,
       verdict,
+      spam,
       source,
       createdAt: now,
       updatedAt: now,
     })
     .onConflictDoUpdate({
       target: gatekeeperVerdicts.id,
-      set: { verdict, source, updatedAt: now },
+      set: { verdict, spam, source, updatedAt: now },
     });
 }
 
@@ -210,6 +228,7 @@ export async function listBlockedSenders(db: Db, mailAccountId: string): Promise
       scope: gatekeeperVerdicts.scope,
       value: gatekeeperVerdicts.value,
       source: gatekeeperVerdicts.source,
+      spam: gatekeeperVerdicts.spam,
       updatedAt: gatekeeperVerdicts.updatedAt,
     })
     .from(gatekeeperVerdicts)
@@ -224,6 +243,7 @@ export async function listBlockedSenders(db: Db, mailAccountId: string): Promise
     scope: row.scope,
     value: row.value,
     source: row.source,
+    spam: row.spam,
     decidedAt: row.updatedAt.toISOString(),
   }));
 }

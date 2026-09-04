@@ -337,6 +337,14 @@ export interface MessageDocumentOptions {
   darkMode: boolean;
   nonce: string;
   origin: string;
+  /**
+   * Whether the click bridge (ADR-0018) is wired for this render. `false`
+   * leaves the sandbox's own default in place — no `allow-popups`, so a
+   * click on a link does nothing at all (#102's Screener View dialog: "links
+   * inert, no bridge in this context" — a stranger's mail the User hasn't
+   * decided about yet gets no click-through of any kind, `mailto:` included).
+   */
+  linkBridge: boolean;
 }
 
 function escapeAttr(value: string): string {
@@ -372,6 +380,6 @@ ${invertCss}
 </style>
 </head><body>
 <div${invert ? ' class="mail-invert"' : ""}>${body}</div>
-<script nonce="${opts.nonce}">${RESIZE_SCRIPT}${LINK_BRIDGE_SCRIPT}${IMAGE_ERROR_SCRIPT}</script>
+<script nonce="${opts.nonce}">${RESIZE_SCRIPT}${opts.linkBridge ? LINK_BRIDGE_SCRIPT : ""}${IMAGE_ERROR_SCRIPT}</script>
 </body></html>`;
 }
