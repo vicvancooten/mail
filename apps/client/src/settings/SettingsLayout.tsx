@@ -14,11 +14,13 @@ import { rootRoute } from "../router/routes.js";
  *
  * A plain list of router `Link`s, not the shadcn `Sidebar` primitive: that
  * component brings a whole app-shell's worth of machinery (collapsible
- * rail, mobile sheet, cookie-persisted state) built for a *permanent*
- * navigation surface, and Mail's own folder rail — the Client's closest
- * precedent — is hand-rolled the same way. Six static links need none of
- * it; `Link`'s own active-match styling (`data-status="active"`) is what
- * highlights the current page.
+ * rail, mobile sheet, cookie-persisted state) built for exactly the
+ * collapse/Sheet behavior Mail's own folder rail (`mail/Sidebar.tsx`) does
+ * use `Sidebar` for. Settings' rail has no such need — six static links,
+ * never collapsed, no mobile sheet — so it stays the deliberate bordered
+ * exception `apps/client/DESIGN.md` (Layout, and the "Don't reach for
+ * shadcn `Sidebar` by default" rule) calls it. `Link`'s own active-match
+ * styling (`data-status="active"`) is what highlights the current page.
  *
  * Instance (#104) is the one Owner-only entry: filtered out of `NAV_ITEMS`
  * for a Member entirely, per grill's "a Member gets no such nav entry"
