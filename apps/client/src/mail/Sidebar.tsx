@@ -4,6 +4,7 @@ import {
   Archive,
   Clock,
   Inbox,
+  Layers,
   PanelLeft,
   Pencil,
   Pin,
@@ -51,6 +52,13 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * count ever render one, and only once there's something to act on — a
  * `0` renders no badge at all.
  *
+ * The Stream toggle (#96): an interim home for `mail/TopBar.tsx`'s old
+ * toggle now that the toolbar it lived in is gone entirely. Stream itself is
+ * being rebuilt as a full-screen processing stack over its own route (#105,
+ * blocked by this ticket) — that ticket replaces this button outright, so
+ * it deliberately isn't styled as a permanent rail entry (no icon in
+ * `FOLDER_ICONS`, no count), just a plain toggle beside Compose.
+ *
  * Collapses to an icon-only rail on desktop (#93's own acceptance box; #99's
  * "This device" page toggle is the other place that flips it) —
  * `SidebarMenuButton`'s own `tooltip` prop names each entry while
@@ -85,6 +93,8 @@ interface SidebarProps {
   onCompose: () => void;
   screenerCount: number;
   draftsCount: number;
+  streamMode: boolean;
+  onStreamMode: (enabled: boolean) => void;
 }
 
 function RailContents({
@@ -96,6 +106,8 @@ function RailContents({
   onCompose,
   screenerCount,
   draftsCount,
+  streamMode,
+  onStreamMode,
   collapsed,
 }: SidebarProps & { collapsed: boolean }) {
   return (
@@ -109,6 +121,16 @@ function RailContents({
       >
         <Plus size={14} />
         {collapsed ? null : "Compose"}
+      </button>
+      <button
+        type="button"
+        className={`nav-item stream-toggle${streamMode ? " active" : ""}`}
+        onClick={() => onStreamMode(!streamMode)}
+        aria-pressed={streamMode}
+        title="Stream mode — replaces Split/List with one-thread-at-a-time browsing"
+      >
+        <Layers size={15} />
+        {collapsed ? null : <span className="nav-label">Stream mode</span>}
       </button>
       <SidebarMenu className="nav-list">
         {FOLDER_ORDER.map((key) => {
