@@ -10,7 +10,7 @@ const ActionsReactContext = createContext<ActionContext | null>(null);
  * its menu, the Time Group header menu, the Screener's and the Drafts'
  * rows. Built once in `MailSection`, so there is exactly one notion of
  * "the Thread this is about", and passed by React context rather than
- * threaded through `SplitView`/`ListView`/`StreamView`/`SearchResultsView`
+ * threaded through `SplitView`/`ListView`/`SearchResultsView`/`stream/StreamStack`
  * as a fifth prop each.
  *
  * A surface rendered with no provider above it (a unit test rendering one

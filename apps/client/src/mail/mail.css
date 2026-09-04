@@ -52,8 +52,7 @@
  * standalone app clear of a notch/home-indicator, so these are
  * unconditionally safe additions rather than a `display-mode: standalone`
  * media query around every one of them. */
-.thread-list,
-.stream-view {
+.thread-list {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -256,11 +255,10 @@
   font-weight: 600;
 }
 
-/* The Stream toggle (#96): an interim home for `mail/TopBar.tsx`'s old
-   control now that toolbar is gone entirely — same `.nav-item` control
-   language, set slightly apart from the folder list below it since it's a
-   mode, not a destination. Removed outright once #105 rebuilds Stream as
-   its own route. */
+/* Stream's own entry point (#105, started as an interim Split/List toggle
+   in #96): same `.nav-item` control language, set slightly apart from the
+   folder list below it since it navigates to a different route rather than
+   selecting among these destinations. */
 .stream-toggle {
   margin: 0 0 10px;
 }
@@ -1773,57 +1771,8 @@
   font-size: 12px;
 }
 
-/* ============================================================================
-   STREAM MODE
-   ========================================================================= */
-
-.stream-view {
-  height: 100%;
-  overflow-y: auto;
-  position: relative;
-  background: var(--color-bg);
-}
-
-.queue-peek {
-  display: flex;
-  gap: 4px;
-  padding: 14px 34px 0;
-  overflow-x: auto;
-}
-
-.queue-peek .chip {
-  height: 28px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: var(--color-field);
-  color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-
-.queue-peek .chip:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.queue-peek .chip.current {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
-.queue-peek .chip.pinned {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
+/* Stream (#105, CONTEXT.md) is no longer a mode of this list — it's its own
+   full-screen route, styled in `mail/stream/stream.css`. */
 
 /* ============================================================================
    TOASTS — the only things that float, so the only things with a shadow

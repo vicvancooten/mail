@@ -48,11 +48,9 @@ import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
   readOpenComposerId,
-  readStreamMode,
   useListDensity,
   useViewMode,
   writeScreenerViewed,
-  writeStreamMode,
 } from "./device-preferences.js";
 import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
 import { showGroupBulkToast } from "./GroupBulkToast.js";
@@ -65,7 +63,6 @@ import type { MailtoLink } from "./reading/mailto.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
-import { StreamView } from "./StreamView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
 import { Screener } from "./screener/Screener.js";
 import { SearchField } from "./search/SearchField.js";
@@ -98,8 +95,11 @@ const Composer = lazy(() =>
 
 /**
  * The real thread list UI over the Local Cache (#40, #42, #43): the
- * windowed, time-grouped list, the Split (default) / List top-bar modes
- * plus Stream as an independent opt-in, Account Scope (#73), and triage.
+ * windowed, time-grouped list, the Split (default) / List top-bar modes,
+ * Account Scope (#73), and triage. Stream (#105, CONTEXT.md) is no longer a
+ * third mode here — it's its own full-screen route
+ * (`router/routes.tsx#streamRoute`, `stream/StreamStack.tsx`), reached
+ * through `onOpenStream` below rather than a Device Preference toggle.
  * `useTriage` is called exactly once, here, so archive, trash, star, read,
  * pin, and label mean the same thing no matter which view is showing; every
  * view below is handed the same actions and never enqueues a mutation on
@@ -138,6 +138,7 @@ export function MailSection({
   initialFolder,
   initialThreadId = null,
   onLocationChange,
+  onOpenStream = () => {},
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
@@ -147,6 +148,8 @@ export function MailSection({
     folder: FolderKey;
     threadId: string | null;
   }) => void;
+  /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
+  onOpenStream?: () => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
@@ -156,11 +159,7 @@ export function MailSection({
   // from Settings' "This device" page (`settings/ThisDeviceSection.tsx`)
   // reaches this component instantly — the ticket's own acceptance
   // criterion ("changing density in Settings updates the list immediately").
-  // Stream mode stays a plain seeded `useState`: its own toggle lives here
-  // in the toolbar still, and its Device Preference is retired by a
-  // separate ticket (#105), not this one.
   const [viewMode] = useViewMode();
-  const [streamMode, setStreamMode] = useState(readStreamMode);
   const [density] = useListDensity();
   // Account Scope (#73): the Thread list's own accounts; `accountId` below
   // is derived from it, not tracked separately — see the doc comment above.
@@ -458,11 +457,6 @@ export function MailSection({
     setSelectedThreadId(null);
     setLimit(THREAD_PAGE_SIZE);
     if (labelId !== null) setFolder(DEFAULT_FOLDER);
-  }, []);
-
-  const changeStreamMode = useCallback((enabled: boolean) => {
-    setStreamMode(enabled);
-    writeStreamMode(enabled);
   }, []);
 
   const view = useMemo(
@@ -869,12 +863,14 @@ export function MailSection({
       onFocusSearch: focusSearchField,
       onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
+      onOpenStream,
       onMove: moveSelection,
       threadCount: activeIds.length,
       openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
       group: null,
       screenerSender: null,
       draft: null,
+      streamSkip: null,
     }),
     [
       activeSelectedThread,
@@ -888,6 +884,7 @@ export function MailSection({
       screenerSenderCount,
       focusSearchField,
       openPalette,
+      onOpenStream,
       moveSelection,
       activeIds.length,
     ],
@@ -911,10 +908,10 @@ export function MailSection({
         {/* Mail's own search bar (#96): all that's left of `mail/TopBar.tsx`
             after Account Scope moved into the Hub, the label filter and
             Screener chip were dropped as redundant with the Sidebar's own
-            Labels/Screener entries, and Stream's toggle moved to the Sidebar
-            (`Sidebar.tsx`'s own doc comment) — a single field, not a row of
-            view-mode controls, so this isn't "the Mail toolbar" the ticket's
-            acceptance box says is gone. */}
+            Labels/Screener entries, and Stream's entry point moved to the
+            Sidebar (`Sidebar.tsx`'s own doc comment) — a single field, not a
+            row of view-mode controls, so this isn't "the Mail toolbar" the
+            ticket's acceptance box says is gone. */}
         <div className="mail-search-bar">
           <SearchField
             search={{
@@ -961,8 +958,7 @@ export function MailSection({
             onCompose={openCompose}
             screenerCount={screenerSenderCount}
             draftsCount={draftCompositions.length}
-            streamMode={streamMode}
-            onStreamMode={changeStreamMode}
+            onOpenStream={onOpenStream}
           />
           <div className="mail-body">
             {screenerOpen && accountScope.length > 0 ? (
@@ -980,7 +976,7 @@ export function MailSection({
               />
             ) : openedSearchThread ? (
               // "Enter opens the top hit... in Split" (#100): forced to Split
-              // regardless of `viewMode`/`streamMode`/the current folder — the
+              // regardless of `viewMode`/the current folder — the
               // list pane below is still `visibleThreads`, untouched, with
               // nothing in it highlighted; only the reading pane shows the hit.
               <SplitView
@@ -1003,16 +999,6 @@ export function MailSection({
               />
             ) : folder === "drafts" ? (
               <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
-            ) : streamMode ? (
-              <StreamView
-                threads={threads}
-                ids={ids}
-                selectedThreadId={selectedThreadId}
-                onSelect={setSelectedThreadId}
-                triage={triage}
-                onReply={openReply}
-                onMailtoLink={openMailto}
-              />
             ) : viewMode === "split" ? (
               <SplitView
                 threads={visibleThreads}

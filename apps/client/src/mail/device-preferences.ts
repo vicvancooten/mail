@@ -1,10 +1,15 @@
 /**
- * View mode, Stream mode, and last-active Mail Account are all **Device
- * Preferences** (CONTEXT.md): they deliberately never sync, because they
- * mean something different on each device. #54 builds the formal Device
- * Preferences seam; until then this is a plain `localStorage` stand-in —
- * still device-local, still never synced, just not routed through a
- * settings collection yet.
+ * View mode and last-active Mail Account are both **Device Preferences**
+ * (CONTEXT.md): they deliberately never sync, because they mean something
+ * different on each device. #54 builds the formal Device Preferences seam;
+ * until then this is a plain `localStorage` stand-in — still device-local,
+ * still never synced, just not routed through a settings collection yet.
+ *
+ * Stream mode (a Split/List toggle, `mail.devicePref.streamMode`) lived here
+ * too until #105 redefined Stream as its own full-screen route
+ * (`router/routes.tsx#streamRoute`) rather than a view mode — there is
+ * nothing left to prefer, so the key and its read/write pair are retired
+ * along with it.
  *
  * Every read/write is wrapped: `localStorage` can throw (private browsing,
  * a full quota, a disabled setting), and a lost preference costs nothing
@@ -30,7 +35,6 @@ export type ListDensity = "comfortable" | "compact";
 export const DEFAULT_LIST_DENSITY: ListDensity = "comfortable";
 
 const VIEW_MODE_KEY = "mail.devicePref.viewMode";
-const STREAM_MODE_KEY = "mail.devicePref.streamMode";
 const OPEN_COMPOSER_KEY = "mail.devicePref.openComposerId";
 const LIST_DENSITY_KEY = "mail.devicePref.listDensity";
 
@@ -137,14 +141,6 @@ export function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
   );
   const setCollapsed = useCallback((next: boolean) => writeSidebarCollapsed(next), []);
   return [collapsed, setCollapsed];
-}
-
-export function readStreamMode(): boolean {
-  return readStorage(STREAM_MODE_KEY) === "1";
-}
-
-export function writeStreamMode(enabled: boolean): void {
-  writeStorage(STREAM_MODE_KEY, enabled ? "1" : "0");
 }
 
 /**

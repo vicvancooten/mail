@@ -111,6 +111,8 @@ export interface ActionContext {
   onFocusSearch: () => void;
   onOpenPalette: () => void;
   onOpenShortcutSheet: () => void;
+  /** Enters Stream (#105) from wherever Mail is right now — always runnable, the same "screener" reasoning: no Thread needed to reach for it. */
+  onOpenStream: () => void;
   /** Moves the selection one Thread `delta` — the list's own collapse-aware mover where one is mounted (`surface-handles.ts`), else the flat neighbour. */
   onMove: (delta: 1 | -1) => void;
   /** How many Threads the current list holds — what makes next/prev available at all. */
@@ -120,6 +122,13 @@ export interface ActionContext {
   group: GroupActionTarget | null;
   screenerSender: ScreenerActionTarget | null;
   draft: DraftActionTarget | null;
+  /**
+   * Skip (CONTEXT.md's Stream): present only while Stream's own stack is
+   * mounted (`stream/StreamStack.tsx`), `null` everywhere else — the same
+   * "absence gates availability" shape `openPicker` uses. Leaves the current
+   * Thread in the Inbox and moves the stack on without any Triage call.
+   */
+  streamSkip: (() => void) | null;
 }
 
 export interface Action {
@@ -225,12 +234,14 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onFocusSearch: () => {},
     onOpenPalette: () => {},
     onOpenShortcutSheet: () => {},
+    onOpenStream: () => {},
     onMove: () => {},
     threadCount: 0,
     openPicker: null,
     group: null,
     screenerSender: null,
     draft: null,
+    streamSkip: null,
     ...overrides,
   };
 }

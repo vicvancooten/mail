@@ -1,0 +1,187 @@
+/* ============================================================================
+   STREAM (#105, CONTEXT.md) — the full-screen processing stack over the
+   Inbox. Its own route, so nothing here shares a selector with the retired
+   `.stream-view` Device Preference toggle (`mail/StreamView.tsx`, gone).
+   ========================================================================= */
+
+.stream-route {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+.stream-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.stream-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.stream-close:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.stream-progress {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+
+.stream-cards {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 0 24px 24px;
+}
+
+/* The card: the same reading surface as everywhere else
+   (`ThreadDetailPane`'s `.thread-detail`), lifted onto its own panel so it
+   reads as a card in a stack rather than a full-bleed pane. */
+.stream-card-top {
+  position: relative;
+  width: min(920px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+}
+
+/* Leave-Visibly (`DESIGN.md`'s Motion section): the outgoing card is the
+   only one that ever animates in Stream — the incoming one (next `.stream-
+   card-top`) simply appears, Arrive-Silent. Inert while leaving so a second
+   click during the `--dur-leave` window can't act on a Thread that's
+   already gone (`StreamStack.tsx`'s own doc comment). */
+.stream-card-top.leaving {
+  pointer-events: none;
+  animation: stream-card-leave var(--dur-leave) var(--ease) both;
+}
+
+@keyframes stream-card-leave {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.98);
+  }
+}
+
+/* The next card, peeking out from behind (#105's own wording: "the next one
+   peeking out behind it") — a quiet sliver, not a real preview: no
+   Triage actions, no click target, just enough to say something is next. */
+.stream-card-peek {
+  position: absolute;
+  top: 10px;
+  width: min(880px, calc(100% - 48px));
+  height: calc(100% - 20px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 28px;
+  background: var(--color-surface-strong);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-overlay);
+  color: var(--color-ink-faint);
+  font-size: 13px;
+  z-index: 0;
+}
+
+.stream-card-peek-subject {
+  max-width: 60ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-card-top {
+  z-index: 1;
+}
+
+.stream-skip {
+  flex: none;
+  align-self: center;
+  margin: 0 0 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.stream-skip:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.stream-empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-ink-muted);
+  text-align: center;
+}
+
+.stream-empty h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--color-ink);
+}
+
+.stream-empty p {
+  margin: 0;
+  max-width: 40ch;
+  font-size: 13px;
+}
+
+.stream-empty-back {
+  margin-top: 8px;
+  padding: 9px 20px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stream-empty-back:hover {
+  background: var(--color-hover);
+}

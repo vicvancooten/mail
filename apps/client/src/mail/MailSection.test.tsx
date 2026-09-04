@@ -81,9 +81,8 @@ beforeEach(async () => {
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
-  // View mode / Stream mode / last account are Device Preferences stored in
-  // `localStorage` (device-preferences.ts) — never leak one test's choice
-  // into the next.
+  // View mode / last account are Device Preferences stored in `localStorage`
+  // (device-preferences.ts) — never leak one test's choice into the next.
   localStorage.clear();
 });
 
@@ -148,11 +147,11 @@ function AccountScopeHarness() {
   return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
 }
 
-function renderMail() {
+function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
   return render(
     <AuthProvider>
       <AccountScopeHarness />
-      <MailSection />
+      <MailSection {...props} />
       <Toaster />
     </AuthProvider>,
   );
@@ -272,19 +271,21 @@ describe("MailSection", () => {
     expect(document.querySelector(".split-view")).toBeNull();
   });
 
-  it("Stream mode replaces whichever of Split/List is showing, independent of that choice", async () => {
+  it("Stream's own entry point (#105) is a plain navigation, not a view-mode toggle", async () => {
     await seedCachedMail();
     stubFetch(never);
+    const onOpenStream = vi.fn();
 
-    renderMail();
+    renderMail({ onOpenStream });
     await screen.findByText("Last state");
 
-    fireEvent.click(screen.getByRole("button", { name: /Stream mode/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
 
-    // No list at all in Stream mode — straight to the one-thread card.
-    expect(document.querySelector(".split-view")).toBeNull();
-    expect(document.querySelector(".stream-view")).not.toBeNull();
-    expect(await screen.findByText("Snippet t1")).toBeDefined();
+    // Unlike the retired Stream mode toggle, this never swaps what Mail is
+    // showing — it hands off to whoever owns navigation (`router/MailRoute.tsx`
+    // in production), landing on Stream's own route.
+    expect(onOpenStream).toHaveBeenCalledOnce();
+    expect(document.querySelector(".split-view")).not.toBeNull();
   });
 
   it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {
