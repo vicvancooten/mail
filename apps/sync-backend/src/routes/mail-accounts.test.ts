@@ -175,6 +175,8 @@ describe("POST /mail-accounts", () => {
     expect(body.mailAccount).toMatchObject({
       emailAddress: "vic@example.com",
       status: "active",
+      // Never the credential itself, only the wire-safe kind (#119).
+      authKind: { kind: "password" },
     });
     expect(JSON.stringify(body)).not.toContain("correct-horse-battery-staple");
     expect(body.mailAccount.credential).toBeUndefined();

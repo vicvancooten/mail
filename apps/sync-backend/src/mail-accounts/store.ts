@@ -6,6 +6,16 @@ import type { MailAccountCredential } from "./credential-crypto.js";
 
 export type MailAccountRow = typeof mailAccounts.$inferSelect;
 
+/**
+ * The wire-safe half of `MailAccountCredential.kind` (#119): which door
+ * re-authentication goes through, never the credential itself.
+ */
+function toWireAuthKind(credential: MailAccountCredential): MailAccount["authKind"] {
+  return credential.kind === "oauth"
+    ? { kind: "oauth", provider: credential.provider }
+    : { kind: "password" };
+}
+
 /** Never includes `credential` — write-only across the API (ADR-0003). */
 export function toWireMailAccount(row: MailAccountRow): MailAccount {
   return {
@@ -14,6 +24,7 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
     imap: { host: row.imapHost, port: row.imapPort, security: row.imapSecurity },
     smtp: { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity },
     status: row.status,
+    authKind: toWireAuthKind(row.credential),
     sync: {
       state: row.syncState,
       lastProgressAt: row.lastProgressAt?.toISOString() ?? null,

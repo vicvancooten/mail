@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { gatekeeperSettingsSchema } from "./gatekeeper.js";
+import { providerSchema } from "./providers.js";
 
 /**
  * How a connection's transport is secured. `tls` is implicit TLS on connect
@@ -68,6 +69,20 @@ export const indexWatermarkSchema = z.object({
 export type IndexWatermark = z.infer<typeof indexWatermarkSchema>;
 
 /**
+ * Which door re-authentication goes through (#119, ADR-0021): `password`
+ * shows the re-enter-credentials form, `oauth` shows "Sign in with
+ * … again" and never a password field. Carries the Provider so the Client
+ * can pick the right label and start route without seeing the credential
+ * itself — `authKind` is derived from `MailAccountCredential.kind`
+ * (`credential-crypto.ts`) but is the wire-safe half of it.
+ */
+export const mailAccountAuthKindSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("password") }),
+  z.object({ kind: z.literal("oauth"), provider: providerSchema }),
+]);
+export type MailAccountAuthKind = z.infer<typeof mailAccountAuthKindSchema>;
+
+/**
  * The wire projection of a Mail Account. Credentials are write-only across
  * the API (ADR-0003) — this shape has no field for them, ever, not even a
  * masked one; the Client shows "password set" from `status` alone.
@@ -78,6 +93,7 @@ export const mailAccountSchema = z.object({
   imap: mailAccountConnectionSchema,
   smtp: mailAccountConnectionSchema,
   status: mailAccountStatusSchema,
+  authKind: mailAccountAuthKindSchema,
   sync: mailAccountSyncSchema,
   indexWatermark: indexWatermarkSchema,
   /**

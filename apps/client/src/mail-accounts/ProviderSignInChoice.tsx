@@ -1,11 +1,8 @@
 import type { Provider, ProviderAvailability } from "@mail/shared";
 import { useEffect, useState } from "react";
 import { fetchProviderAvailability, startProviderSignIn } from "../api/oauth-signin.js";
-
-const PROVIDER_LABEL: Record<Provider, string> = {
-  google: "Google",
-  microsoft: "Microsoft",
-};
+import { PROVIDER_LABEL } from "./provider-labels.js";
+import { describeProviderUnavailable } from "./provider-unavailable.js";
 
 /**
  * The three-way choice a User meets when adding a Mail Account (#116,
@@ -81,20 +78,23 @@ export function ProviderSignInChoice({
           >
             Sign in with {PROVIDER_LABEL[entry.provider]}
           </button>
-          {!entry.available && (
-            <p>
-              {entry.unavailableReason === "not_supported" ? (
-                `Signing in with ${PROVIDER_LABEL[entry.provider]} isn't supported yet.`
-              ) : isOwner ? (
-                <>
-                  {PROVIDER_LABEL[entry.provider]} isn't set up on this instance yet —{" "}
-                  <a href="/settings/instance">set it up on the Instance page</a>.
-                </>
-              ) : (
-                `${PROVIDER_LABEL[entry.provider]} isn't set up on this instance yet, ask the Owner.`
-              )}
-            </p>
-          )}
+          {!entry.available &&
+            (() => {
+              // Schema guarantee: `unavailableReason` is non-null exactly when `available` is false.
+              const unavailable = describeProviderUnavailable(
+                entry.provider,
+                entry.unavailableReason ?? "not_registered",
+                isOwner,
+              );
+              return (
+                <p>
+                  {unavailable.message}{" "}
+                  {unavailable.ownerHref && (
+                    <a href={unavailable.ownerHref}>set it up on the Instance page</a>
+                  )}
+                </p>
+              );
+            })()}
         </div>
       ))}
 

@@ -21,6 +21,7 @@ import {
 } from "../provider-registrations/store.js";
 import type { SyncManager } from "../sync/manager.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
+import { createTestMailAccount } from "../test-support/mail-account.js";
 
 /**
  * Sign in with Google to add a Mail Account (#116, ADR-0021), driven end to
@@ -82,6 +83,9 @@ function fakeAdapter({ exchange, seen }: FakeAdapterOptions = {}): ProviderAdapt
       url.searchParams.set("state", input.state);
       url.searchParams.set("code_challenge", input.codeChallenge);
       url.searchParams.set("prompt", "select_account");
+      if (input.loginHint) {
+        url.searchParams.set("login_hint", input.loginHint);
+      }
       return url.toString();
     },
     async exchangeCode(input) {
@@ -292,6 +296,56 @@ describe("POST /auth/oauth/:provider/start", () => {
     expect(deriveCodeChallenge(attempt?.codeVerifier ?? "")).toBe(
       url.searchParams.get("code_challenge"),
     );
+  });
+
+  it("404s a mailAccountId this User doesn't own", async () => {
+    const app = buildTestApp();
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const otherAccount = await createTestMailAccount(db, { emailAddress: "other@gmail.com" });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { mailAccountId: otherAccount.id },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("naming a mailAccountId (#119) starts a reauth attempt with login_hint set to that account's own address", async () => {
+    const seen = {
+      authorization: [] as AuthorizationUrlInput[],
+      exchange: [] as ExchangeCodeInput[],
+    };
+    const app = buildTestApp({ adapter: fakeAdapter({ seen }) });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "existing@gmail.com",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { mailAccountId: account.id },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const url = new URL(response.json().authorizationUrl);
+    // The Client never supplies this — it comes from the stored row, so a
+    // tampered request can't point the hint at a different identity.
+    expect(url.searchParams.get("login_hint")).toBe("existing@gmail.com");
+    expect(seen.authorization[0]).toMatchObject({ loginHint: "existing@gmail.com" });
+
+    const [attempt] = await db
+      .select()
+      .from(oauthSignInAttempts)
+      .where(eq(oauthSignInAttempts.userId, userId));
+    expect(attempt).toMatchObject({ purpose: "reauth", mailAccountId: account.id });
   });
 });
 
@@ -549,5 +603,150 @@ describe("GET /auth/oauth/:provider/callback", () => {
 
     expect(outcomeOf(response.headers.location as string)).toBe("provider_not_registered");
     expect(await db.select().from(mailAccounts)).toHaveLength(0);
+  });
+});
+
+describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
+  function callbackUrl(params: Record<string, string>): string {
+    return `/auth/oauth/google/callback?${new URLSearchParams(params).toString()}`;
+  }
+
+  /** Starts a `reauth` attempt for the given Mail Account and hands back the state to build a callback with. */
+  async function startReauth(
+    app: ReturnType<typeof buildTestApp>,
+    cookie: string,
+    mailAccountId: string,
+  ) {
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { mailAccountId },
+    });
+    return stateFrom(response.json().authorizationUrl);
+  }
+
+  it("replaces the credential on the same Mail Account id when the address matches, sets active, restarts sync, and reports reauth_succeeded", async () => {
+    const restart = vi.fn(async () => {});
+    const syncManager: SyncManager = { start: vi.fn(), restart, stopAll: async () => {} };
+    const app = buildTestApp({
+      adapter: fakeAdapter({ exchange: async () => fakeGrant({ emailAddress: "vic@gmail.com" }) }),
+      syncManager,
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const account = await createTestMailAccount(db, { userId, emailAddress: "vic@gmail.com" });
+    const state = await startReauth(app, cookie, account.id);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("reauth_succeeded");
+
+    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    // Same id, same row — never a new Mail Account.
+    expect(row?.id).toBe(account.id);
+    expect(row?.status).toBe("active");
+    expect(row?.credential).toMatchObject({ kind: "oauth", provider: "google" });
+    expect(restart).toHaveBeenCalledWith(account.id);
+    expect(await db.select().from(mailAccounts)).toHaveLength(1);
+  });
+
+  it("switches a password Mail Account to a Grant on the same id, keeping it the only row", async () => {
+    const restart = vi.fn(async () => {});
+    const app = buildTestApp({
+      adapter: fakeAdapter({ exchange: async () => fakeGrant({ emailAddress: "vic@gmail.com" }) }),
+      syncManager: { start: vi.fn(), restart, stopAll: async () => {} },
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+    // A password account — #114's default, no `oauth` option.
+    const account = await createTestMailAccount(db, { userId, emailAddress: "vic@gmail.com" });
+    expect(account.credential).toMatchObject({ kind: "password" });
+    const state = await startReauth(app, cookie, account.id);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("reauth_succeeded");
+    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    expect(row?.credential).toMatchObject({ kind: "oauth" });
+  });
+
+  it("refuses a mismatched address, changing nothing, and reports reauth_address_mismatch", async () => {
+    const restart = vi.fn(async () => {});
+    const app = buildTestApp({
+      adapter: fakeAdapter({
+        exchange: async () => fakeGrant({ emailAddress: "someone-else@gmail.com" }),
+      }),
+      syncManager: { start: vi.fn(), restart, stopAll: async () => {} },
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const account = await createTestMailAccount(db, { userId, emailAddress: "vic@gmail.com" });
+    const state = await startReauth(app, cookie, account.id);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("reauth_address_mismatch");
+    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    expect(row?.credential).toMatchObject({ kind: "password" });
+    expect(row?.status).toBe("active");
+    expect(restart).not.toHaveBeenCalled();
+  });
+
+  it("verifies over XOAUTH2 before replacing the credential, and changes nothing when verification fails", async () => {
+    const verify = vi.fn(async () => ({
+      ok: false as const,
+      reason: "credentials_rejected" as const,
+      detail: "XOAUTH2 rejected",
+    }));
+    const app = buildTestApp({
+      adapter: fakeAdapter({ exchange: async () => fakeGrant({ emailAddress: "vic@gmail.com" }) }),
+      verify,
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const account = await createTestMailAccount(db, { userId, emailAddress: "vic@gmail.com" });
+    const state = await startReauth(app, cookie, account.id);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("verification_failed");
+    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    expect(row?.credential).toMatchObject({ kind: "password" });
+  });
+
+  it("reports invalid_state when the Mail Account was deleted between starting and the callback", async () => {
+    const app = buildTestApp({
+      adapter: fakeAdapter({ exchange: async () => fakeGrant({ emailAddress: "vic@gmail.com" }) }),
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+    const account = await createTestMailAccount(db, { userId, emailAddress: "vic@gmail.com" });
+    const state = await startReauth(app, cookie, account.id);
+    await db.delete(mailAccounts).where(eq(mailAccounts.id, account.id));
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("invalid_state");
   });
 });

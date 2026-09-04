@@ -101,6 +101,19 @@ export type ProviderAvailabilityListResponse = z.infer<
   typeof providerAvailabilityListResponseSchema
 >;
 
+/**
+ * `POST /auth/oauth/:provider/start` (#116, #119). Omitting `mailAccountId`
+ * starts an `add_mail_account` attempt with the account chooser shown;
+ * naming one starts a `reauth` attempt instead — the same door for "sign in
+ * again" on an OAuth account and "switch this password account to a Grant"
+ * — and the start route sets `login_hint` to that Mail Account's own address
+ * itself, never taking it from the Client.
+ */
+export const startProviderSignInRequestSchema = z.object({
+  mailAccountId: z.string().min(1).optional(),
+});
+export type StartProviderSignInRequest = z.infer<typeof startProviderSignInRequestSchema>;
+
 /** `POST /auth/oauth/:provider/start` (#116): the Provider's own authorization URL for the Client to send the browser to as a full-page redirect. */
 export const startProviderSignInResponseSchema = z.object({
   authorizationUrl: z.url(),
@@ -133,5 +146,18 @@ export const oauthSignInOutcomeSchema = z.enum([
   "provider_error",
   /** The Registration was removed between starting the sign-in and coming back. */
   "provider_not_registered",
+  /**
+   * A `reauth` attempt's Grant, replacing the Mail Account's credential —
+   * "sign in again" or a password account switching to a Grant (#119). Kept
+   * distinct from `signed_in` because nothing was *created*.
+   */
+  "reauth_succeeded",
+  /**
+   * A `reauth` attempt whose Provider identity didn't match the Mail
+   * Account's own address (#119, ADR-0021: "refused with a plain message ...
+   * changes nothing"). Distinct from `duplicate_address`, which is the
+   * opposite problem on an `add_mail_account` attempt.
+   */
+  "reauth_address_mismatch",
 ]);
 export type OAuthSignInOutcome = z.infer<typeof oauthSignInOutcomeSchema>;

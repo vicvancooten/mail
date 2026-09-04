@@ -7,6 +7,7 @@ import {
   type ProviderAvailability,
   providerAvailabilityListResponseSchema,
   providerSchema,
+  startProviderSignInRequestSchema,
   startProviderSignInResponseSchema,
 } from "@mail/shared";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -18,9 +19,18 @@ import {
   unsealSecret,
 } from "../mail-accounts/credential-crypto.js";
 import { googleProviderAdapter } from "../mail-accounts/google-adapter.js";
-import type { ProviderAdapter, ProviderAdapters } from "../mail-accounts/provider-adapter.js";
+import type {
+  ProviderAdapter,
+  ProviderAdapters,
+  ProviderGrant,
+} from "../mail-accounts/provider-adapter.js";
 import { consumeSignInAttempt, startSignInAttempt } from "../mail-accounts/sign-in-attempts.js";
-import { getMailAccountForUserByAddress, insertMailAccount } from "../mail-accounts/store.js";
+import {
+  getMailAccountForUser,
+  getMailAccountForUserByAddress,
+  insertMailAccount,
+  replaceMailAccountCredential,
+} from "../mail-accounts/store.js";
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import { getProviderRegistration } from "../provider-registrations/store.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
@@ -113,12 +123,23 @@ export async function oauthSignInRoutes(
     return providerAvailabilityListResponseSchema.parse({ providers });
   });
 
+  // Naming a `mailAccountId` (#119) turns this into a `reauth` attempt: "sign
+  // in again" on an OAuth account in Needs Reauth, or a password account's
+  // settings row offering to switch to a Grant — the same door either way.
+  // `login_hint` comes from the Mail Account's own stored address, never
+  // from the Client, so a User can't be tricked into approving the wrong
+  // identity by a tampered request.
   app.post(
     "/auth/oauth/:provider/start",
     { preHandler: app.requireAuth },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;
+
+      const body = startProviderSignInRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        return reply.code(400).send({ error: "invalid_request", issues: body.error.issues });
+      }
 
       const adapter = providerAdapters[provider];
       if (!adapter) {
@@ -129,10 +150,21 @@ export async function oauthSignInRoutes(
         return reply.code(409).send({ error: "provider_not_registered" });
       }
 
+      const userId = requireUser(request).id;
+      let loginHint: string | undefined;
+      if (body.data.mailAccountId) {
+        const account = await getMailAccountForUser(db, userId, body.data.mailAccountId);
+        if (!account) {
+          return reply.code(404).send({ error: "not_found" });
+        }
+        loginHint = account.emailAddress;
+      }
+
       const attempt = await startSignInAttempt(db, {
-        userId: requireUser(request).id,
+        userId,
         provider,
-        purpose: "add_mail_account",
+        purpose: body.data.mailAccountId ? "reauth" : "add_mail_account",
+        mailAccountId: body.data.mailAccountId,
       });
 
       return startProviderSignInResponseSchema.parse({
@@ -141,6 +173,7 @@ export async function oauthSignInRoutes(
           redirectUri: redirectUriFor(provider),
           state: attempt.state,
           codeChallenge: attempt.codeChallenge,
+          loginHint,
         }),
       });
     },
@@ -210,6 +243,17 @@ export async function oauthSignInRoutes(
 
     // The address is the Provider's answer, never the User's (ADR-0021).
     const emailAddress = grant.emailAddress;
+
+    if (attempt.purpose === "reauth") {
+      return finishReauth(request, reply, {
+        provider,
+        mailAccountId: attempt.mailAccountId,
+        userId: user.id,
+        emailAddress,
+        grant,
+      });
+    }
+
     if (await getMailAccountForUserByAddress(db, user.id, emailAddress)) {
       return finish(reply, "duplicate_address");
     }
@@ -260,6 +304,86 @@ export async function oauthSignInRoutes(
 
     return finish(reply, "signed_in");
   });
+
+  /**
+   * The `reauth` half of the callback (#119): "sign in with Google/Microsoft
+   * again" on a Mail Account already in Needs Reauth, or a password Gmail
+   * account switching to a Grant from its settings row. Both are "replace
+   * this Mail Account's credential", never "create a new one" — the Mail
+   * Account id, its Threads, Labels, pins and Gatekeeper state never move.
+   */
+  async function finishReauth(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    input: {
+      provider: Provider;
+      mailAccountId: string | null;
+      userId: string;
+      emailAddress: string;
+      grant: ProviderGrant;
+    },
+  ) {
+    // `startSignInAttempt` always sets `mailAccountId` for a `reauth`
+    // attempt; a null here means the row was corrupted or hand-crafted, not
+    // a real attempt this route ever started.
+    const account = input.mailAccountId
+      ? await getMailAccountForUser(db, input.userId, input.mailAccountId)
+      : null;
+    if (!account) {
+      // The Mail Account was deleted while the User was at the consent
+      // screen — nothing left to attach this Grant to.
+      return finish(reply, "invalid_state");
+    }
+
+    // ADR-0021: "refused with a plain message ... changes nothing". Matched
+    // case-sensitively on the stored address, the same identity the Provider
+    // itself is authoritative for (never the User's typing).
+    if (input.emailAddress !== account.emailAddress) {
+      return finish(reply, "reauth_address_mismatch");
+    }
+
+    // Verify-before-save holds here too: a Grant that doesn't survive
+    // IMAP/SMTP replaces nothing (poc-spec.md §Mail Accounts).
+    const imap = { host: account.imapHost, port: account.imapPort, security: account.imapSecurity };
+    const smtp = { host: account.smtpHost, port: account.smtpPort, security: account.smtpSecurity };
+    const result = await verify({
+      imap,
+      smtp,
+      username: input.emailAddress,
+      credential: { kind: "oauth", accessToken: input.grant.accessToken },
+    });
+    if (!result.ok) {
+      request.log.warn(
+        { provider: input.provider, reason: result.reason, detail: result.detail },
+        "A reauth Grant did not survive IMAP/SMTP verification; the Mail Account's credential was not replaced.",
+      );
+      return finish(reply, "verification_failed");
+    }
+
+    await replaceMailAccountCredential(
+      db,
+      account.id,
+      input.emailAddress,
+      sealOAuthCredential(
+        {
+          provider: input.provider,
+          accessToken: input.grant.accessToken,
+          refreshToken: input.grant.refreshToken,
+          expiresAt: input.grant.expiresAt,
+          scope: input.grant.scope,
+        },
+        account.id,
+        key,
+      ),
+    );
+    // Resumes syncing (#35), the same hook the password reauth route uses —
+    // a Needs-Reauth account's session has already stopped itself for good,
+    // and an active account's session is reconnecting with a now-stale
+    // credential either way.
+    await syncManager.restart(account.id);
+
+    return finish(reply, "reauth_succeeded");
+  }
 }
 
 /** Parses `:provider`, replying 400 for anything but `google`/`microsoft` — mirrors `routes/instance.ts`'s own. */

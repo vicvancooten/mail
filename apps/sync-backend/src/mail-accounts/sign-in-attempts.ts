@@ -15,7 +15,7 @@ import { type OAuthSignInAttemptRow, oauthSignInAttempts } from "../db/schema.js
 /** Long enough for a User to pick an account and read a consent screen, short enough that an abandoned attempt is not a lingering credential. */
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
 
-export type SignInPurpose = "add_mail_account";
+export type SignInPurpose = "add_mail_account" | "reauth";
 
 export interface StartedSignInAttempt {
   /** Goes in the authorization URL and comes back in the callback; never stored as-is. */
@@ -38,7 +38,13 @@ export function deriveCodeChallenge(codeVerifier: string): string {
 
 export async function startSignInAttempt(
   db: Db,
-  input: { userId: string; provider: Provider; purpose: SignInPurpose },
+  input: {
+    userId: string;
+    provider: Provider;
+    purpose: SignInPurpose;
+    /** Required (and only meaningful) for `purpose: "reauth"`. */
+    mailAccountId?: string;
+  },
   now: Date = new Date(),
 ): Promise<StartedSignInAttempt> {
   // Sweeps abandoned attempts on the way in: a User who closes the tab at
@@ -57,6 +63,7 @@ export async function startSignInAttempt(
     provider: input.provider,
     codeVerifier,
     purpose: input.purpose,
+    mailAccountId: input.mailAccountId ?? null,
     expiresAt: new Date(now.getTime() + ATTEMPT_TTL_MS),
   });
 

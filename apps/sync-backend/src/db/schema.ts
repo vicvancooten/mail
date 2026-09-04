@@ -1398,10 +1398,12 @@ export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
  * useless without the matching authorization code, lives for minutes, and is
  * the same tradeoff `totp_credentials.secret` already states plainly.
  *
- * `purpose` is `add_mail_account` for every row this ticket writes; reauth
- * ("sign in again", never a password form) is the second purpose and arrives
- * with its own ticket, which is why the column exists now rather than being
- * inferred from the absence of something later.
+ * `purpose` is `add_mail_account` or `reauth` (#119: "sign in again", never
+ * a password form — and the same door a password account uses to switch to
+ * a Grant). `mailAccountId` is set only for `reauth`: the account whose
+ * credential is replaced when the identity that comes back matches its own
+ * address, `ON DELETE CASCADE` so a deleted Mail Account can't leave a
+ * dangling attempt behind.
  */
 export const oauthSignInAttempts = pgTable(
   "oauth_sign_in_attempts",
@@ -1412,7 +1414,10 @@ export const oauthSignInAttempts = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider", { enum: ["google", "microsoft"] }).notNull(),
     codeVerifier: text("code_verifier").notNull(),
-    purpose: text("purpose", { enum: ["add_mail_account"] }).notNull(),
+    purpose: text("purpose", { enum: ["add_mail_account", "reauth"] }).notNull(),
+    mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
+      onDelete: "cascade",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
