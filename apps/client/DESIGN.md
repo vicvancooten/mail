@@ -174,9 +174,10 @@ Since the prior recording, a 14-ticket batch (#90–#105) shipped the Hub's rais
 layout, the Home mark, Account Scope's move into the header, the Group Done grow-and-push
 animation and its Timeline Spine preview, Drafts as list rows, Blocked Alias, and Stream —
 a full-screen processing stack that replaces the retired Stream-view Device Preference
-toggle. The Mail toolbar named in earlier planning was never built as a persistent surface;
-its actions live in the row's own reserved-whitespace controls, the Group Header cluster,
-and the Command Palette instead.
+toggle. `mail/TopBar.tsx` was a real, 293-line persistent Mail toolbar on `main` (search field,
+Account Scope, view-mode and density toggles, auto-advance, the Screener alert) before this
+batch's #96 removed it; its actions were redistributed to the row's own reserved-whitespace
+controls, the Group Header cluster, and the Command Palette instead.
 
 **Key Characteristics:**
 - One electric accent, everywhere rank or action needs marking; nothing else is decorative.
@@ -230,9 +231,13 @@ semantic signals. No per-feature colors: a new surface reaches for these same na
 - **Ink** / **Ink Muted** / **Ink Faint** (`{colors.ink}` / `{colors.ink-muted}` /
   `{colors.ink-faint}`): primary text, secondary text (labels, metadata, a read row's
   sender/subject), and the quietest reading (placeholders, snippets, timestamps).
-- **Border** (`{colors.border}`): a hairline that still exists in exactly two contexts:
-  Settings' stacked form compartments and its side nav's edge, and the Screener's
-  per-sender cards — never used to box in a Mail row or Thread List element.
+- **Border** (`{colors.border}`): a hairline whose permanent home is Settings' stacked form
+  compartments and its side nav's edge; `.draft-row` (`mail.css`) also keeps one, but as its
+  own doc comment says, only as an interim stand-in until Drafts gets the same
+  margin/radius/hover treatment as `.thread-row` — not a second permanent context. Never used
+  to box in an ordinary Mail row, a Thread List element, or the Screener's per-sender cards,
+  which take the tonal-step (`{colors.surface}`) treatment everything else on the Mail
+  surface does (`mail.css`'s `.screener-row`: `border: none`).
 
 ### The avatar tile palette
 Five tinted fill/ink pairs (`{colors.tile-a-bg}`…`{colors.tile-e-bg}`) a correspondent's
@@ -396,8 +401,8 @@ available and used elsewhere (Mail's own folder rail, `mail/Sidebar.tsx`). Each
 `data-status="active"`) inside a fixed 200px rail divided from the content by
 `{colors.border}`; each `.settings-page section` is a stacked compartment divided from the
 next by the same hairline. This is a deliberate, narrow exception to ground-and-gap, kept to
-Settings' form-like context and the Screener's per-sender cards — it does not spread onto
-Mail rows or panels.
+Settings' form-like context — it does not spread onto Mail rows or panels, and the Screener's
+per-sender cards use the same tonal-step treatment those do, not a hairline.
 
 ## Components
 
@@ -426,9 +431,10 @@ There are no bordered cards on the Mail surface. A "container" is a **tonal step
 compartment that changes background from `bg` to `surface`/`surface-strong` rather than
 gaining a border. The App itself is the one page-level exception to "no cards": `.app-card`
 is a genuinely raised card (see Elevation), but it carries no border, only `--shadow-card`.
-Settings and the Screener's per-sender cards are the one place a hairline border
-(`{colors.border}`) still appears, to separate stacked compartments in a form-like context —
-kept intentionally narrow to that context, not spread onto Mail rows.
+Settings is the one place a hairline border (`{colors.border}`) still appears, to separate
+stacked compartments in a form-like context — kept intentionally narrow to that context, not
+spread onto Mail rows or the Screener's per-sender cards, which take the tonal-step
+treatment instead.
 
 ### Inputs / Fields
 - **Style:** `{colors.field}` fill (a step below the surface it sits on), no border at
@@ -456,10 +462,11 @@ selection takes `{colors.accent-soft}` (a tint, never an inversion); unread bump
 to full ink + weight 600 and leaves the subject at ink-muted — a read row steps back in
 tone, an unread row never steps forward in size. Row height and its group header's height
 taper across four tiers (see Layout) so the ladder itself carries rank, not just position.
-No entrance animation, no stagger. Touch swipes reveal Archive (left) / Snooze or Trash
-(right) under the row rather than needing the hover-revealed Done control. Drafts render as
-ordinary thread rows in the same list rather than a separate compartment; deleting one issues
-a real IMAP expunge rather than a soft local hide.
+No entrance animation, no stagger. Touch swipes reveal Archive (right) / Snooze (left) under
+the row rather than needing the hover-revealed Done control (`useSwipeToTriage.ts`; there is
+no Trash swipe). Drafts render in their own `.draft-row` compartment (`DraftsView.tsx`), not
+as ordinary thread rows in the same list — its own hairline (`mail.css`'s `.draft-row`) sets
+it apart; deleting one issues a real IMAP expunge rather than a soft local hide.
 
 ### The Time Group header, its Group Done check, and the Timeline Spine (signature,
 previously undocumented)
@@ -495,8 +502,8 @@ scrim, opened by ⌘K from anywhere in the app — outside `/mail` the chord is 
 shell and replayed once Mail is mounted, since the Palette itself is Mail-scoped. One text
 field, then sectioned rows (Commands, Mail results) each carrying a keycap for its binding.
 The active row takes `{colors.accent-soft}`. Section captions are the Label tier — sentence
-case, 11.5px, weight 600, never uppercase. Entrance is a 150ms rise-and-scale
-(`--dur-fast`/`--ease-out`); the Shortcut Sheet shares the same shell. Built on `cmdk`
+case, 11.5px, weight 600, never uppercase. Entrance is a `--dur-fast` (190ms) rise-and-scale
+(`--ease-out`); the Shortcut Sheet shares the same shell. Built on `cmdk`
 directly, not the shadcn `Command` wrapper.
 
 ### shadcn primitive vocabulary
@@ -544,7 +551,7 @@ appears underneath, Arrive-Silent.
 
 ### Toasts
 `{colors.surface}` ground, `{rounded.panel}`, `--shadow-overlay`, entering with an 8px
-rise + fade over 150ms, via Sonner.
+rise + fade over `--dur-fast` (190ms), via Sonner.
 
 ### Motion
 The budget: `--dur-press` 120ms (presses, color/border changes, linear), `--dur-fast` 190ms
@@ -577,7 +584,7 @@ Instrument build rather than a durable principle.
 - **Do** reach for `{colors.accent}`/`{colors.accent-soft}` for anything primary or
   "current." It is the only color that carries that meaning.
 - **Do** separate Mail-surface regions by background-color step and whitespace, not by a
-  hairline box; keep the hairline exception to Settings and the Screener's cards.
+  hairline box; keep the hairline exception to Settings.
 - **Do** use the radius ladder (`sm` → `md` → `row` → `panel` → `pill`) — never an ad hoc
   value, never a Tailwind utility above `md` expecting anything but the same mapped corner.
 - **Do** keep every label, caption, and heading in sentence case.
@@ -638,8 +645,10 @@ this build. Two places still do, and neither has been through this rebuild:
   already short and quiet ("SOON").
 
 **Retired, not carried forward as system rules:** the in-list Stream toggle
-(`.stream-view` Device Preference) and any standalone "Mail toolbar" surface from earlier
-planning documents. Neither is present in the shipped tree; Stream is now its own
-full-screen route, and toolbar-shaped actions live in the Thread Row's reserved gutter, the
-Group Header cluster, and the Command Palette. A future ticket should treat any lingering
-reference to either as documentation drift, not as a target to rebuild toward.
+(`.stream-view` Device Preference) and the standalone Mail toolbar (`mail/TopBar.tsx`),
+which #96 deleted after it shipped and rode on `main`, redistributing its actions to the
+Thread Row's reserved gutter, the Group Header cluster, and the Command Palette — that
+redistribution is why those three surfaces carry the actions they do. Neither is present in
+the shipped tree; Stream is now its own full-screen route. Don't revive either: a future
+ticket should treat a lingering reference to one as documentation drift, not as a target to
+rebuild toward.
