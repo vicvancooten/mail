@@ -13,16 +13,14 @@ export interface ManifestEntry {
 }
 
 /**
- * The app-shell-only boundary from `poc-spec.md` §Wire API & client data
- * layer / ADR-0009-client, made a pure predicate: every path the service
- * worker must never intercept, cache, or answer from the cache — the
- * browser's ordinary networking owns these end to end.
+ * The app-shell-only boundary the service worker must never intercept,
+ * cache, or answer from the cache — the browser's ordinary networking owns
+ * these end to end. Lives in `@mail/shared` (#92) so the Sync Backend's SPA
+ * fallback (`apps/sync-backend/src/app.ts`) shares the exact same list
+ * rather than maintaining a parallel one that can drift; re-exported here so
+ * `sw.ts` and this module's existing callers/tests are undisturbed.
  */
-export function isApiPath(pathname: string): boolean {
-  return (
-    pathname.startsWith("/sync") || pathname.startsWith("/auth") || pathname.startsWith("/healthz")
-  );
-}
+export { isApiPath } from "@mail/shared";
 
 /**
  * A cache-name suffix derived from the precache list's own contents, order
