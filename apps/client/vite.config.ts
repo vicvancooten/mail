@@ -79,7 +79,11 @@ export default defineConfig({
     globals: false,
     // jsdom has no IndexedDB; the Local Cache's suites need one before any
     // module-level Dexie handle is constructed.
-    setupFiles: ["./src/test-support/indexeddb.ts", "./src/test-support/virtualization.ts"],
+    setupFiles: [
+      "./src/test-support/indexeddb.ts",
+      "./src/test-support/virtualization.ts",
+      "./src/test-support/dom-polyfills.ts",
+    ],
     // Node >=22.4 ships its own global `localStorage`/`sessionStorage`
     // (behind --experimental-webstorage, on by default on recent 22.x).
     // Vitest's jsdom environment only copies a window property onto

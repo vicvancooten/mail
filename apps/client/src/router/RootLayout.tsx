@@ -2,6 +2,8 @@ import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
+import { Toaster } from "../components/ui/sonner.js";
+import { TooltipProvider } from "../components/ui/tooltip.js";
 import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
 import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
@@ -95,39 +97,42 @@ export function RootLayout() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="header-left">
-          <AppSwitcher pathname={pathname} />
+    <TooltipProvider>
+      <div className="app-shell">
+        <header className="app-header">
+          <div className="header-left">
+            <AppSwitcher pathname={pathname} />
+          </div>
+          <div className="header-center">
+            <button type="button" className="global-search" onClick={openGlobalSearch}>
+              <Search size={16} />
+              <span>Search everything…</span>
+              <kbd>⌘K</kbd>
+            </button>
+          </div>
+          <div className="header-right">
+            <button
+              type="button"
+              className="header-icon-btn"
+              title="Toggle appearance"
+              aria-label="Toggle appearance"
+              onClick={toggleAppearance}
+            >
+              {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <AvatarMenu
+              username={user.username}
+              role={user.role}
+              onLogout={handleLogout}
+              signingOut={signingOut}
+            />
+          </div>
+        </header>
+        <div className="app-viewport">
+          <Outlet />
         </div>
-        <div className="header-center">
-          <button type="button" className="global-search" onClick={openGlobalSearch}>
-            <Search size={16} />
-            <span>Search everything…</span>
-            <kbd>⌘K</kbd>
-          </button>
-        </div>
-        <div className="header-right">
-          <button
-            type="button"
-            className="header-icon-btn"
-            title="Toggle appearance"
-            aria-label="Toggle appearance"
-            onClick={toggleAppearance}
-          >
-            {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-          <AvatarMenu
-            username={user.username}
-            role={user.role}
-            onLogout={handleLogout}
-            signingOut={signingOut}
-          />
-        </div>
-      </header>
-      <div className="app-viewport">
-        <Outlet />
+        <Toaster />
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

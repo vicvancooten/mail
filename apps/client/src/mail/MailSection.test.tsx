@@ -2,8 +2,10 @@ import type { SyncResponse } from "@mail/shared";
 import { labelId } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
+import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
@@ -83,6 +85,10 @@ beforeEach(async () => {
 
 afterEach(async () => {
   cleanup();
+  // Sonner's toast store is a module-level singleton, outside React — it
+  // outlives `cleanup()`'s unmount, so a toast left over from one test
+  // (its dismiss timer not yet due) would otherwise bleed into the next.
+  toast.dismiss();
   vi.unstubAllGlobals();
   localCache().close();
   for (const name of names.splice(0)) await Dexie.delete(name);
@@ -125,6 +131,7 @@ function renderMail() {
   return render(
     <AuthProvider>
       <MailSection />
+      <Toaster />
     </AuthProvider>,
   );
 }
@@ -483,7 +490,7 @@ describe("MailSection", () => {
     });
 
     expect(await screen.findByText("Newer thread")).toBeDefined();
-    expect(screen.getByRole("status").textContent).toBe("Couldn't archive — restored to the list.");
+    expect(await screen.findByText("Couldn't archive — restored to the list.")).toBeDefined();
   });
 
   it("selecting an unread Thread marks it read; the Mark unread button toggles it back (#42)", async () => {
@@ -609,7 +616,7 @@ describe("MailSection", () => {
     });
 
     expect(await screen.findByText("Newer thread")).toBeDefined();
-    expect(screen.getByRole("status").textContent).toBe("Couldn't snooze — restored to the list.");
+    expect(await screen.findByText("Couldn't snooze — restored to the list.")).toBeDefined();
   });
 });
 

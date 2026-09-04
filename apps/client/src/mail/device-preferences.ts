@@ -12,6 +12,8 @@
  * error on a triage surface that is silent when healthy.
  */
 
+import { useCallback, useSyncExternalStore } from "react";
+
 export type ViewMode = "split" | "list";
 export const DEFAULT_VIEW_MODE: ViewMode = "split";
 
@@ -257,4 +259,41 @@ export function writeGroupCollapsed(label: string, collapsed: boolean): void {
   } catch {
     // Best-effort; see module docstring.
   }
+}
+
+/**
+ * The folder rail's collapse state (#93) — shadcn's `Sidebar` with
+ * `collapsible="icon"`, opened to an icon rail rather than every other
+ * Device Preference's plain read/write, because `SidebarProvider` needs to
+ * *react* to a write the instant it happens: same posture
+ * `theme/device-theme.ts` already has for Appearance ("a write in the
+ * header must reach a read in Settings the same instant"), applied here to
+ * one `SidebarProvider` reading what another tab's just wrote.
+ */
+const SIDEBAR_COLLAPSED_KEY = "mail.devicePref.sidebarCollapsed";
+
+export function readSidebarCollapsed(): boolean {
+  return readStorage(SIDEBAR_COLLAPSED_KEY) === "1";
+}
+
+const sidebarCollapsedListeners = new Set<() => void>();
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  writeStorage(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  for (const listener of sidebarCollapsedListeners) listener();
+}
+
+export function subscribeSidebarCollapsed(listener: () => void): () => void {
+  sidebarCollapsedListeners.add(listener);
+  return () => sidebarCollapsedListeners.delete(listener);
+}
+
+export function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
+  const collapsed = useSyncExternalStore(
+    subscribeSidebarCollapsed,
+    readSidebarCollapsed,
+    () => false,
+  );
+  const setCollapsed = useCallback((next: boolean) => writeSidebarCollapsed(next), []);
+  return [collapsed, setCollapsed];
 }

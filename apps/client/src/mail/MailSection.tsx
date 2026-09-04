@@ -57,7 +57,7 @@ import {
   writeViewMode,
 } from "./device-preferences.js";
 import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
-import { GroupBulkToast, type GroupBulkToastState } from "./GroupBulkToast.js";
+import { showGroupBulkToast } from "./GroupBulkToast.js";
 import { bulkTriageFolderRoleForFolder, bulkTriageTarget, groupDateRange } from "./group-target.js";
 import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
@@ -508,7 +508,6 @@ export function MailSection({
   const [hiddenThreadIds, setHiddenThreadIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
-  const [groupBulkToast, setGroupBulkToast] = useState<GroupBulkToastState | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Switching what target set is even on screen — a different folder or a
@@ -607,7 +606,7 @@ export function MailSection({
               ? `${verb}: ${response.affectedCount} in ${label}.`
               : `${verb} for ${response.accounts.length - failed.length} of ${response.accounts.length} accounts — ${failed.map(describeRejectedAccount).join(", ")}.`;
           const undoable = action === "done" && response.affectedCount > 0;
-          setGroupBulkToast({
+          showGroupBulkToast({
             message,
             durationMs: undoable
               ? BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000
@@ -642,7 +641,7 @@ export function MailSection({
             for (const id of groupThreadIds) next.delete(id);
             return next;
           });
-          setGroupBulkToast({
+          showGroupBulkToast({
             message: `Couldn't clear ${label} — restored to the list.`,
             durationMs: GROUP_BULK_MESSAGE_TOAST_MS,
           });
@@ -927,7 +926,6 @@ export function MailSection({
       <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
       <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />
       <RollbackToast />
-      <GroupBulkToast state={groupBulkToast} onDismiss={() => setGroupBulkToast(null)} />
       <NewMailToast />
       <NotificationOfferBanner />
       <CommandPalette

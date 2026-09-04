@@ -2,6 +2,7 @@ import type { ThreadParticipant } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
 import { Check, Clock, Pin, Star } from "lucide-react";
 import { type CSSProperties, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
@@ -239,21 +240,38 @@ export function ThreadRow({
         {onSnooze || onTogglePin ? (
           <span className="row-actions">
             {onSnooze ? (
-              <button
-                type="button"
-                className="row-snooze"
-                aria-label={`Snooze "${subjectLabel}"`}
-                aria-haspopup="menu"
-                aria-expanded={snoozeMenuOpen}
-                title="Snooze"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setSnoozeMenuOpen((open) => !open);
-                }}
-              >
-                <Clock size={13} />
-              </button>
+              <Popover open={snoozeMenuOpen} onOpenChange={setSnoozeMenuOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="row-snooze"
+                    aria-label={`Snooze "${subjectLabel}"`}
+                    title="Snooze"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Clock size={13} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-auto min-w-[200px] p-1.5"
+                  // `PopoverContent` portals out of `.thread-row`'s DOM, but
+                  // React still bubbles its synthetic click through the
+                  // *React* tree it's declared in — straight up to this
+                  // row's own `onClick={onSelect}` — unless stopped here.
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <SnoozeMenu
+                    thread={thread}
+                    onSnooze={(until) => {
+                      onSnooze(until);
+                      setSnoozeMenuOpen(false);
+                    }}
+                    onClose={() => setSnoozeMenuOpen(false)}
+                  />
+                </PopoverContent>
+              </Popover>
             ) : null}
             {onTogglePin ? (
               <button
@@ -276,23 +294,6 @@ export function ThreadRow({
       </span>
     </div>
   );
-
-  // The popover renders outside `.thread-row-swipe` below, never inside it:
-  // that wrapper's `overflow: hidden` (needed to clip the swipe drag itself
-  // to the row's own bounds) would clip a floated popover too. `onSnooze`'s
-  // own presence — not `snoozeMenuOpen` — decides whether it's ever wired
-  // up here; the ternary just decides whether it's currently rendered.
-  const menu =
-    snoozeMenuOpen && onSnooze ? (
-      <SnoozeMenu
-        thread={thread}
-        onSnooze={(until) => {
-          onSnooze(until);
-          setSnoozeMenuOpen(false);
-        }}
-        onClose={() => setSnoozeMenuOpen(false)}
-      />
-    ) : null;
 
   if (!onArchive && !onSnooze) return row; // no swipe wiring: skip the reveal wrapper entirely
 
@@ -319,7 +320,6 @@ export function ThreadRow({
         </div>
         {row}
       </div>
-      {menu}
     </div>
   );
 }

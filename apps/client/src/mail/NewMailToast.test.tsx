@@ -1,7 +1,19 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Toaster } from "../components/ui/sonner.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { type MessageContainer, NewMailToast } from "./NewMailToast.js";
+
+/** `toast.custom()` only ever renders through a mounted `<Toaster />` (#93) — every case renders one alongside the component under test. */
+function renderWithToaster(container: MessageContainer, autoDismissMs?: number) {
+  return render(
+    <>
+      <NewMailToast container={container} autoDismissMs={autoDismissMs} />
+      <Toaster />
+    </>,
+  );
+}
 
 /**
  * `NewMailToast` never sees a real `push` event — only the service worker's
@@ -44,34 +56,40 @@ const newMailPayload = (overrides: Partial<Record<string, unknown>> = {}) => ({
 
 afterEach(() => {
   cleanup();
+  // Sonner's toast store is a module-level singleton, outside React — it
+  // outlives `cleanup()`'s unmount, so a toast left over from one test
+  // (its dismiss timer not yet due) would otherwise bleed into the next.
+  toast.dismiss();
 });
 
 describe("NewMailToast", () => {
   it("renders nothing until a relayed push arrives", () => {
-    render(<NewMailToast container={fakeContainer()} />);
-    expect(screen.queryByRole("status")).toBeNull();
+    renderWithToaster(fakeContainer());
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("shows sender + subject on a relayed new_mail message, then auto-dismisses", async () => {
     const container = fakeContainer();
-    render(<NewMailToast container={container} autoDismissMs={20} />);
+    renderWithToaster(container, 20);
 
     container.emit({ type: "new-mail-toast", payload: newMailPayload() });
 
-    expect(screen.getByRole("button", { name: /Alice/ }).textContent).toContain("Hi");
-    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Alice/ }).textContent).toContain("Hi"),
+    );
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Alice/ })).toBeNull());
   });
 
   it("ignores a message that isn't the new-mail-toast relay", () => {
     const container = fakeContainer();
-    render(<NewMailToast container={container} />);
+    renderWithToaster(container);
     container.emit({ type: "something-else" });
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("stacks up to 3 toasts, then collapses a fourth into one 'N new messages' toast", () => {
+  it("stacks up to 3 toasts, then collapses a fourth into one 'N new messages' toast", async () => {
     const container = fakeContainer();
-    render(<NewMailToast container={container} autoDismissMs={10_000} />);
+    renderWithToaster(container, 10_000);
 
     for (let i = 0; i < 3; i++) {
       container.emit({
@@ -79,52 +97,56 @@ describe("NewMailToast", () => {
         payload: newMailPayload({ threadId: `thread-${i}`, subject: `Message ${i}` }),
       });
     }
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    await waitFor(() => expect(screen.getAllByRole("button")).toHaveLength(3));
 
     container.emit({
       type: "new-mail-toast",
       payload: newMailPayload({ threadId: "thread-4", subject: "Message 4" }),
     });
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(screen.getByRole("status").textContent).toBe("4 new messages");
+    await waitFor(() => expect(screen.queryAllByRole("button")).toHaveLength(0));
+    await waitFor(() => expect(screen.getByText("4 new messages")).toBeTruthy());
   });
 
   it("publishes the clicked Thread to notification-router and dismisses", async () => {
     const container = fakeContainer();
     const received: unknown[] = [];
     const unsubscribe = subscribeNotificationTarget((target) => received.push(target));
-    render(<NewMailToast container={container} />);
+    renderWithToaster(container);
 
     container.emit({ type: "new-mail-toast", payload: newMailPayload() });
+    await waitFor(() => screen.getByRole("button", { name: /Alice/ }));
     fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 
     expect(received).toEqual([{ kind: "thread", mailAccountId: "acct-1", threadId: "thread-1" }]);
-    expect(screen.queryByRole("status")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Alice/ })).toBeNull());
     unsubscribe();
   });
 
-  it("has nothing to publish for a new_mail_burst payload's own click target — dismisses without routing", () => {
+  it("has nothing to publish for a new_mail_burst payload's own click target — dismisses without routing", async () => {
     const container = fakeContainer();
     const listener = vi.fn();
     const unsubscribe = subscribeNotificationTarget(listener);
-    render(<NewMailToast container={container} autoDismissMs={10_000} />);
+    renderWithToaster(container, 10_000);
 
     container.emit({
       type: "new-mail-toast",
       payload: { kind: "new_mail_burst", mailAccountId: "acct-1", count: 6, badgeCount: 6 },
     });
+    await waitFor(() => screen.getByRole("button", { name: /6 new messages/ }));
     fireEvent.click(screen.getByRole("button", { name: /6 new messages/ }));
 
     expect(listener).not.toHaveBeenCalled();
-    expect(screen.queryByRole("status")).toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /6 new messages/ })).toBeNull(),
+    );
     unsubscribe();
   });
 
-  it("routes a clicked failed_send toast the same as a real notification click (#53)", () => {
+  it("routes a clicked failed_send toast the same as a real notification click (#53)", async () => {
     const container = fakeContainer();
     const received: unknown[] = [];
     const unsubscribe = subscribeNotificationTarget((target) => received.push(target));
-    render(<NewMailToast container={container} />);
+    renderWithToaster(container);
 
     container.emit({
       type: "new-mail-toast",
@@ -137,6 +159,7 @@ describe("NewMailToast", () => {
         badgeCount: 0,
       },
     });
+    await waitFor(() => screen.getByRole("button", { name: /Send failed/ }));
     fireEvent.click(screen.getByRole("button", { name: /Send failed/ }));
 
     expect(received).toEqual([
@@ -145,11 +168,11 @@ describe("NewMailToast", () => {
     unsubscribe();
   });
 
-  it("routes a clicked needs_reauth toast the same as a real notification click (#53)", () => {
+  it("routes a clicked needs_reauth toast the same as a real notification click (#53)", async () => {
     const container = fakeContainer();
     const received: unknown[] = [];
     const unsubscribe = subscribeNotificationTarget((target) => received.push(target));
-    render(<NewMailToast container={container} />);
+    renderWithToaster(container);
 
     container.emit({
       type: "new-mail-toast",
@@ -160,6 +183,7 @@ describe("NewMailToast", () => {
         badgeCount: 0,
       },
     });
+    await waitFor(() => screen.getByRole("button", { name: /Reconnect your account/ }));
     fireEvent.click(screen.getByRole("button", { name: /Reconnect your account/ }));
 
     expect(received).toEqual([{ kind: "needs-reauth", mailAccountId: "acct-1" }]);
