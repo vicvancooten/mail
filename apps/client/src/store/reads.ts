@@ -448,14 +448,31 @@ export function useThreadWindow(
  * Archive/Trash read `folderRole` rather than `inInbox` — the one field that
  * tells the two apart (`@mail/shared`'s `threadSchema` doc comment); Sent
  * and Pinned are cross-folder by design (poc-spec.md: the sidebar's Pinned
- * view "shows pinned Threads from every folder") and each excludes Trash,
- * the same "Trash overrides everything else" convention ordinary mail
- * clients use, so a trashed Thread doesn't linger in either. Snoozed (#76)
- * reads `snoozeUntil` rather than `inInbox`, the same "one field says which"
- * shape `folderRole` gives Archive/Trash — `inInbox` alone can't tell a
- * snoozed Thread apart from an archived or trashed one, all three being
- * `false` — and excludes Trash the same way Sent/Pinned do.
+ * view "shows pinned Threads from every folder") and each excludes Trash
+ * *and* Junk (`hasLeftFolderScopedViews`, below) — `folderRole`'s own doc
+ * comment says `"junk"` "drops a Thread out of every folder-scoped view",
+ * the same "overrides everything else" convention Trash gets in ordinary
+ * mail clients — so neither a trashed nor a spammed Thread lingers in
+ * either. Snoozed (#76) reads `snoozeUntil` rather than `inInbox`, the same
+ * "one field says which" shape `folderRole` gives Archive/Trash —
+ * `inInbox` alone can't tell a snoozed Thread apart from an archived or
+ * trashed one, all three being `false` — and excludes Trash/Junk the same
+ * way Sent/Pinned do.
  */
+
+/**
+ * `true` once a Thread has left every folder-scoped view (Archive, Trash,
+ * Sent, Pinned, Snoozed) — Trash and Junk (#102) both mean this per
+ * `folderRole`'s own doc comment in `@mail/shared`'s `threadSchema`: Junk
+ * "drops a Thread out of every folder-scoped view" exactly the way Trash
+ * does. Named for the concept rather than inlined at each of
+ * `filterByView`'s three cross-folder cases below, so a third such
+ * `folderRole` value doesn't have to be remembered at three call sites.
+ */
+function hasLeftFolderScopedViews(thread: CachedThread): boolean {
+  return thread.folderRole === "trash" || thread.folderRole === "junk";
+}
+
 function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
   if (typeof view !== "string") {
     return threads.filter(
@@ -470,12 +487,14 @@ function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
     case "trash":
       return threads.filter((thread) => thread.folderRole === "trash");
     case "sent":
-      return threads.filter((thread) => thread.hasSentMessage && thread.folderRole !== "trash");
+      return threads.filter(
+        (thread) => thread.hasSentMessage && !hasLeftFolderScopedViews(thread),
+      );
     case "pinned":
-      return threads.filter((thread) => thread.pinned && thread.folderRole !== "trash");
+      return threads.filter((thread) => thread.pinned && !hasLeftFolderScopedViews(thread));
     case "snoozed":
       return threads.filter(
-        (thread) => thread.snoozeUntil !== null && thread.folderRole !== "trash",
+        (thread) => thread.snoozeUntil !== null && !hasLeftFolderScopedViews(thread),
       );
   }
 }
