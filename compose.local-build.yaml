@@ -1,0 +1,18 @@
+# Override for compose.yaml (ADR-0009's prod stack, which only ever pulls
+# published GHCR images) that swaps in a locally-built image instead — lets
+# you validate a real deploy (single image, Fastify serving the built
+# Client bundle + API together, migrations-on-boot, claim flow, the works)
+# without waiting on CI to publish `edge`.
+#
+#   docker build -t mail:local .
+#   cp .env.example .env   # once; see docs/installation.md for what to fill in
+#   docker compose -f compose.yaml -f compose.local-build.yaml up -d
+#   docker compose logs -f app   # watch for "listening" + the claim link
+#
+# Rebuild after local changes with the same `docker build`, then
+# `docker compose -f compose.yaml -f compose.local-build.yaml up -d` again
+# to pick it up (add `--build` isn't enough here since compose itself never
+# builds this image — see compose.yaml's own header comment).
+services:
+  app:
+    image: mail:local

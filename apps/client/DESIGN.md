@@ -389,11 +389,24 @@ Instrument treats screening as an ordinary triage surface, not a special occasio
 rise + fade over 150ms.
 
 ### Motion
-The whole budget: `--dur-press` 120ms (presses, color/border changes, linear), `--dur-fast`
-190ms (toast/palette entry, disclosure rotation). Nothing animates height. A list that
-reflows hundreds of times a session never animates its own arrival — no entrance animation,
-no stagger, anywhere in the thread list. `prefers-reduced-motion: reduce` clamps every
-animation/transition in the app to 1ms.
+The budget: `--dur-press` 120ms (presses, color/border changes, linear), `--dur-fast` 190ms
+(toast/palette entry, disclosure rotation, and the *reveal* of a reserved-whitespace control),
+`--dur-leave` 260ms (a row or card *departing* after an action, with up to 45ms of per-row
+stagger, capped at eight rows). A list that reflows hundreds of times a session never
+animates its own arrival — no entrance animation, no arrival stagger, anywhere in the thread
+list. `prefers-reduced-motion: reduce` clamps every animation/transition in the app to 1ms.
+
+**The Arrive-Silent, Leave-Visibly Rule (amended by #90).** Motion is encouraged wherever
+it explains what just happened or is about to happen, and forbidden where it only decorates.
+Rows never animate *in*: they are simply there. Rows *may* animate out when the User's action
+removed them, because a row that vanishes in one frame reads as a bug. Controls that live in
+reserved whitespace (a row's Done check) fade and scale into place over `--dur-fast` rather
+than appearing; a Time Group header's Group Done check may *grow* and push the title right,
+animated, because a header is one element and the reflow is felt as smooth rather than
+jittery — Thread rows keep their fixed gutter and never reflow under the pointer. The
+Timeline Spine appears and disappears over `--dur-fast`. Height still never animates on a
+Thread row; it may on a single header. This supersedes the earlier "no stagger, nothing
+animates height" wording, which described the first Instrument build rather than a principle.
 
 ## Do's and Don'ts
 
@@ -425,7 +438,8 @@ animation/transition in the app to 1ms.
   neighbor; change its background instead.
 - **Don't** give a control an ink color at rest. Ghost is the default voice: transparent →
   hover fill → soft-tint-when-current.
-- **Don't** animate a list's arrival, stagger rows, or transition height.
+- **Don't** animate a list's *arrival* or stagger rows *in*. Departures and reveals follow the
+  Arrive-Silent, Leave-Visibly Rule under Motion.
 - **Don't** fetch a correspondent's image or a font from a CDN.
 - **Don't** restyle a message body — it is third-party HTML in a sandboxed iframe and the
   design system stops at that boundary.
