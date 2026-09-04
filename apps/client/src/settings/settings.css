@@ -6,8 +6,8 @@
    carried the Settings sections onto The Instrument; only its file moved.
 
    `SettingsLayout`'s pages (`GeneralSection`, `ThisDeviceSection`,
-   `MailAccountsPage`, `GatekeeperPage`, `NotificationsPage`, `SecurityPage`
-   and the sections they compose — `GatekeeperSection`,
+   `MailAccountsPage`, `GatekeeperPage`, `NotificationsPage`, `SecurityPage`,
+   `InstancePage` (#104, Owner-only) and the sections they compose — `GatekeeperSection`,
    `PushNotificationsSection`, `AuthMethodsSection`, `PasskeysSection`,
    `TotpSection`, `MailAccountsSection`, …) emit bare semantic markup, so
    this file styles the elements rather than asking every section to carry
@@ -407,4 +407,34 @@
 .settings-page textarea {
   resize: none;
   max-width: 620px;
+}
+
+/* The Instance page's four facts (#104): a label:value row apiece rather
+   than the wrapping run of `label`-plus-control fields above — there is
+   nothing here to edit, so the layout says "read this" instead of
+   "fill this in". `flex: 1 1 100%` opts each row out of the parent
+   `<section>`'s row-flex wrap, same as `p`/`h3` already do above. */
+.instance-fact {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.instance-fact-label {
+  min-width: 120px;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--color-ink-faint);
+}
+
+.instance-fact code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: var(--color-bg);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 1px 5px;
 }

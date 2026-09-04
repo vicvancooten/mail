@@ -16,6 +16,7 @@ import { correspondentRoutes } from "./routes/correspondents.js";
 import { eventsRoutes } from "./routes/events.js";
 import { gatekeeperRoutes } from "./routes/gatekeeper.js";
 import { healthRoutes } from "./routes/health.js";
+import { instanceRoutes } from "./routes/instance.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
@@ -64,6 +65,8 @@ export interface BuildAppOptions {
   attachmentBudgetBytes?: number;
   /** `env.MAIL_VAPID_PUBLIC_KEY` (#53, ADR-0015) — `null` (the default) states Web Push is disabled instance-wide. */
   vapidPublicKey?: string | null;
+  /** `env.MAIL_VERSION` (#104) — the Instance page's image-tag fact. Defaults to `"dev"`, the same default `env.ts` gives outside Docker. */
+  imageTag?: string;
   /**
    * `GET /events`'s Sync Hint fanout (#52, ADR-0015). Defaults to a no-op:
    * opening a dedicated `LISTEN` connection is not something any test asks
@@ -92,6 +95,7 @@ export function buildApp({
   syncHints = noopSyncHintBroker,
   eventsHeartbeatMs,
   vapidPublicKey = null,
+  imageTag = "dev",
   publicDir = defaultPublicDir,
 }: BuildAppOptions) {
   const app = Fastify({
@@ -125,6 +129,7 @@ export function buildApp({
   app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
   app.register(pushRoutes, { db, vapidPublicKey });
+  app.register(instanceRoutes, { publicUrl, vapidPublicKey, imageTag });
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });

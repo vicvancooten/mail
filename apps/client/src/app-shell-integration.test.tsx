@@ -29,21 +29,35 @@ import { jsonResponse } from "./test-support/mock-fetch.js";
 let counter = 0;
 const names: string[] = [];
 
-const AUTH_RESPONSES: Record<string, () => Response> = {
-  "/auth/status": () => jsonResponse({ claimed: true }),
-  "/auth/session": () =>
-    jsonResponse({
-      user: { id: "u1", username: "vic", role: "owner", createdAt: "2026-01-01T00:00:00.000Z" },
-    }),
-  "/push/config": () => jsonResponse({ vapidPublicKey: null }),
-};
+function authResponses(role: "owner" | "member" = "owner"): Record<string, () => Response> {
+  return {
+    "/auth/status": () => jsonResponse({ claimed: true }),
+    "/auth/session": () =>
+      jsonResponse({
+        user: { id: "u1", username: "vic", role, createdAt: "2026-01-01T00:00:00.000Z" },
+      }),
+    "/push/config": () => jsonResponse({ vapidPublicKey: null }),
+    // Owner-only (#104) — a Member never reaches this route in practice
+    // (`SettingsLayout`'s nav hides it, `settingsInstanceRoute` redirects a
+    // direct URL away), so the fixture only needs a real answer for Owner.
+    "/instance/health": () =>
+      jsonResponse({
+        version: "0.0.0",
+        imageTag: "test-tag",
+        webPush: { configured: false, generateCommand: "mail generate-vapid-keys" },
+        systemMailer: { configured: false },
+        publicUrl: { value: "http://localhost:3000", isSecureContext: true },
+      }),
+  };
+}
 
-function stubFetch(mailAccounts: MailAccount[] = []) {
+function stubFetch(mailAccounts: MailAccount[] = [], role: "owner" | "member" = "owner") {
+  const authResponsesForRole = authResponses(role);
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      const auth = AUTH_RESPONSES[url];
+      const auth = authResponsesForRole[url];
       if (auth) return Promise.resolve(auth());
       // `/sync` never resolves — every assertion here reads the seeded
       // Local Cache, never a round trip (ADR-0010).
@@ -282,5 +296,47 @@ describe("the app shell over a routed tree (#71)", () => {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
       window.dispatchEvent(new Event("resize"));
     }
+  });
+
+  it("the Owner reaches the Instance page and sees its four facts (#104)", async () => {
+    await seedOneThread();
+    stubFetch([], "owner");
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("link", { name: "Instance" }));
+
+    expect(await screen.findByRole("heading", { name: "Instance" })).toBeDefined();
+    expect(await screen.findByText("test-tag")).toBeDefined();
+    expect(screen.getByText((_, node) => node?.textContent === "Not configured")).toBeDefined();
+    expect(location.pathname).toBe("/settings/instance");
+  });
+
+  it("a Member gets no Instance nav entry, and a direct URL redirects to General (#104)", async () => {
+    await seedOneThread();
+    stubFetch([], "member");
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "General" });
+    expect(screen.queryByRole("link", { name: "Instance" })).toBeNull();
+  });
+
+  it("a Member navigating straight to /settings/instance is redirected to General (#104)", async () => {
+    stubFetch([], "member");
+    history.replaceState(null, "", "/settings/instance");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
+    expect(location.pathname).toBe("/settings/general");
   });
 });
