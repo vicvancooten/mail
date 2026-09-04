@@ -211,6 +211,8 @@ export async function readCorrespondents(mailAccountId: string): Promise<Corresp
 export interface ScreenerSenderGroup {
   /** The Mail Account holding this sender — every decision (#82) targets this account, never the whole Scope. */
   mailAccountId: string;
+  /** The Mail Account's own primary address (#103) — what a Block-Alias decision is refused against. */
+  accountEmail: string;
   /** The normalized `From` address holding these Threads — what an Approve/Deny/Block decision targets. */
   address: string;
   /** The best display name across the held Threads, or `null` if none carried one. */
@@ -223,6 +225,16 @@ export interface ScreenerSenderGroup {
   /** The most recently arrived held Thread's Snippet — the message peek's body. */
   snippet: string | null;
   /**
+   * The Alias (#103, CONTEXT.md) the most recently arrived held Thread's
+   * opening message resolved to (`Thread.heldRecipientAlias`), or `null`
+   * when it named none — what the Screener's Block split menu offers
+   * *Block everything sent to `<alias>`* against. Read off the same `peek`
+   * Thread `subject`/`snippet` already are, rather than requiring every held
+   * Thread in the group to agree: a stranger who has written to more than
+   * one Alias still gets the option for whichever they most recently used.
+   */
+  alias: string | null;
+  /**
    * The earliest `lastMessageAt` among this sender's held Threads — the wire
    * `Thread` carries no Screening-Hold timestamp of its own (`heldAt` is
    * backend-only bookkeeping), so this is the Client's own proxy for "how
@@ -232,9 +244,25 @@ export interface ScreenerSenderGroup {
   heldSince: string;
 }
 
-/** Whether `sender` (an Optimistic Action in flight) targets `heldAddress` — an exact match for `address` scope, a domain suffix match for `domain` scope (the overflow convenience, poc-spec.md). */
-function matchesGatekeeperSender(heldAddress: string, sender: GatekeeperSender): boolean {
+/**
+ * Whether `sender` (an Optimistic Action in flight) targets this held
+ * Thread — an exact match for `address` scope, a domain suffix match for
+ * `domain` scope (the overflow convenience, poc-spec.md), or (#103) an exact
+ * match against `heldRecipientAlias` for `recipient` scope. That third
+ * branch answers a different question than the other two — "what did this
+ * arrive at", never "who sent it" — which is why it reads a different field
+ * off the Thread entirely rather than reusing `heldSender`.
+ */
+function matchesGatekeeperSender(
+  thread: Pick<CachedThread, "heldSender" | "heldRecipientAlias">,
+  sender: GatekeeperSender,
+): boolean {
   const value = normalizeSenderAddress(sender.value);
+  if (sender.scope === "recipient") {
+    return thread.heldRecipientAlias !== null && thread.heldRecipientAlias === value;
+  }
+  const heldAddress = thread.heldSender;
+  if (!heldAddress) return false;
   return sender.scope === "address" ? heldAddress === value : senderDomain(heldAddress) === value;
 }
 
@@ -260,6 +288,7 @@ async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<Ga
 
 async function readScreenerSendersForAccount(
   mailAccountId: string,
+  accountEmail: string,
 ): Promise<ScreenerSenderGroup[]> {
   const db = localCache();
   const held = await db.threads
@@ -273,7 +302,7 @@ async function readScreenerSendersForAccount(
   const bySender = new Map<string, CachedThread[]>();
   for (const thread of held) {
     const address = thread.heldSender;
-    if (!address || decided.some((sender) => matchesGatekeeperSender(address, sender))) continue;
+    if (!address || decided.some((sender) => matchesGatekeeperSender(thread, sender))) continue;
     const bucket = bySender.get(address);
     if (bucket) bucket.push(thread);
     else bySender.set(address, [thread]);
@@ -299,6 +328,7 @@ async function readScreenerSendersForAccount(
     );
     groups.push({
       mailAccountId,
+      accountEmail,
       address,
       name,
       threadIds: threads.map((thread) => thread.id),
@@ -306,6 +336,7 @@ async function readScreenerSendersForAccount(
       messageCount: threads.reduce((sum, thread) => sum + thread.messageCount, 0),
       subject: peek.subject,
       snippet: peek.snippet,
+      alias: peek.heldRecipientAlias,
       heldSince,
     });
   }
@@ -345,11 +376,14 @@ export async function readScreenerSenders(
   const emailById = new Map(accounts.map((account) => [account.id, account.emailAddress]));
 
   const groups = await Promise.all(
-    accountScope.map(async (mailAccountId) => ({
-      mailAccountId,
-      accountEmail: emailById.get(mailAccountId) ?? mailAccountId,
-      senders: await readScreenerSendersForAccount(mailAccountId),
-    })),
+    accountScope.map(async (mailAccountId) => {
+      const accountEmail = emailById.get(mailAccountId) ?? mailAccountId;
+      return {
+        mailAccountId,
+        accountEmail,
+        senders: await readScreenerSendersForAccount(mailAccountId, accountEmail),
+      };
+    }),
   );
   return groups.filter((group) => group.senders.length > 0);
 }
@@ -596,11 +630,18 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         // Undo's own real inverse (#95, ADR-0019): reappears in the Inbox
         // the instant it's queued, offline included, exactly mirroring
         // archive/trash/snooze's own immediate-hide above but in reverse.
-        // Also clears `heldSender` — `restoreToInbox` is what a Screener
-        // Approve already does to a held Thread, and `unblockAndRestore`
-        // (Undo's own inverse of Deny/Block) restores to the Inbox the same
-        // way, never back into the Screener's hold.
-        overlaid = { ...overlaid, inInbox: true, snoozeUntil: null, heldSender: null };
+        // Also clears `heldSender`/`heldRecipientAlias` — `restoreToInbox` is
+        // what a Screener Approve already does to a held Thread, and
+        // `unblockAndRestore` (Undo's own inverse of Deny, Block, and #103's
+        // Block-Alias) restores to the Inbox the same way, never back into
+        // the Screener's hold.
+        overlaid = {
+          ...overlaid,
+          inInbox: true,
+          snoozeUntil: null,
+          heldSender: null,
+          heldRecipientAlias: null,
+        };
         break;
       case "unsnooze":
         overlaid = { ...overlaid, inInbox: true, snoozeUntil: null };

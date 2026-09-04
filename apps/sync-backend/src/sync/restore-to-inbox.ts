@@ -13,9 +13,10 @@ import { enqueueProtocolWrites } from "./protocol-writes.js";
  * shape `sync/mutations.ts`'s own `archive`/`trash` branch gives the
  * opposite direction.
  *
- * Also clears `heldSender`/`heldAt`: `gatekeeper/decisions.ts#unblockAndRestore`
- * (Undo's own inverse of Deny/Block) calls this on Threads a Screener
- * decision trashed, and restoring them to the Inbox — never back into the
+ * Also clears `heldSender`/`heldRecipientAlias`/`heldAt`:
+ * `gatekeeper/decisions.ts#unblockAndRestore` (Undo's own inverse of Deny,
+ * Block, and #103's Block-Alias) calls this on Threads a Screener decision
+ * trashed, and restoring them to the Inbox — never back into the
  * Screener's hold — is exactly what a Screener Approve already does to a
  * held Thread (`releaseHeldThreads`), just reusing the *IMAP* half of that
  * effect too, since these were actually moved out. A no-op for the ordinary
@@ -53,6 +54,12 @@ export async function restoreThreadsToInbox(
 
   await db
     .update(threads)
-    .set({ inInbox: true, folderRole: "inbox", heldSender: null, heldAt: null })
+    .set({
+      inInbox: true,
+      folderRole: "inbox",
+      heldSender: null,
+      heldAt: null,
+      heldRecipientAlias: null,
+    })
     .where(inArray(threads.id, ownedIds));
 }

@@ -106,7 +106,13 @@ export function GatekeeperSection({ account }: { account: MailAccount }) {
     );
   }
 
-  const blocked = status.blocked.filter((sender) => !unblocked.has(senderKey(sender)));
+  const undecided = status.blocked.filter((sender) => !unblocked.has(senderKey(sender)));
+  // #103's Blocked Aliases list stands next to Blocked Senders, its own
+  // section — a recipient-scoped Verdict answers a different question ("what
+  // arrived at this Alias") than an address/domain one does, and CONTEXT.md
+  // is explicit that it is "the only Verdict" keyed to the recipient.
+  const blocked = undecided.filter((sender) => sender.scope !== "recipient");
+  const blockedAliases = undecided.filter((sender) => sender.scope === "recipient");
 
   return (
     <section className="gatekeeper-settings">
@@ -167,6 +173,27 @@ export function GatekeeperSection({ account }: { account: MailAccount }) {
                   {/* Spam (#102): the one Block that also speaks to the provider's filter (ADR-0008 amendment) — named here so "why is this in Junk?" is answerable from the same list. */}
                   {sender.spam ? <span className="gatekeeper-blocked-spam"> · Spam</span> : null}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => unblock({ scope: sender.scope, value: sender.value })}
+                >
+                  Unblock
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="gatekeeper-blocked gatekeeper-blocked-aliases">
+        <h5>Blocked Aliases</h5>
+        {blockedAliases.length === 0 ? (
+          <p>No blocked Aliases.</p>
+        ) : (
+          <ul>
+            {blockedAliases.map((sender) => (
+              <li key={senderKey(sender)}>
+                <span>{sender.value}</span>
                 <button
                   type="button"
                   onClick={() => unblock({ scope: sender.scope, value: sender.value })}

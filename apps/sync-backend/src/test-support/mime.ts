@@ -19,6 +19,12 @@ export interface TestAttachmentInput {
 export interface TestMessageInput {
   from: string;
   to: string;
+  /** A visible `Cc` — a co-recipient that #103's Alias resolution must not mistake for the mailbox's own Alias. */
+  cc?: string;
+  /** `Delivered-To` (#103): the MDA's own stamp of the envelope recipient, checked before `X-Original-To`/`To`/`Cc`. */
+  deliveredTo?: string;
+  /** `X-Original-To` (#103): the fallback envelope-recipient header, checked when `Delivered-To` is absent. */
+  xOriginalTo?: string;
   subject: string;
   date: Date;
   messageId: string;
@@ -33,13 +39,15 @@ export interface TestMessageInput {
 const CRLF = "\r\n";
 
 function headerBlock(input: TestMessageInput): string[] {
-  const headers = [
-    `From: ${input.from}`,
-    `To: ${input.to}`,
+  const headers = [`From: ${input.from}`, `To: ${input.to}`];
+  if (input.cc) headers.push(`Cc: ${input.cc}`);
+  if (input.deliveredTo) headers.push(`Delivered-To: ${input.deliveredTo}`);
+  if (input.xOriginalTo) headers.push(`X-Original-To: ${input.xOriginalTo}`);
+  headers.push(
     `Subject: ${input.subject}`,
     `Date: ${input.date.toUTCString()}`,
     `Message-ID: <${input.messageId}>`,
-  ];
+  );
   if (input.inReplyTo) headers.push(`In-Reply-To: <${input.inReplyTo}>`);
   if (input.references?.length) {
     headers.push(`References: ${input.references.map((id) => `<${id}>`).join(" ")}`);

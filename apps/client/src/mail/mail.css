@@ -2746,6 +2746,53 @@ button.search-chip-toggle.on {
   color: var(--color-ink-muted);
 }
 
+/* ---------- Block Alias's own confirmation (#103) -----------------------
+ * "behind a confirmation that names the exact Alias and says Approved
+ * Senders are included" — the one Screener decision that stops for a
+ * confirmation rather than deciding on the first click, because it is also
+ * the one that overrides an Approved Sender. */
+.block-alias-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.block-alias-dialog button {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    filter var(--dur-press) var(--ease);
+}
+
+.block-alias-cancel {
+  background: transparent;
+  color: var(--color-ink-muted);
+}
+
+.block-alias-cancel:hover,
+.block-alias-cancel:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.block-alias-confirm {
+  background: var(--color-danger);
+  color: var(--color-accent-foreground);
+}
+
+.block-alias-confirm:hover {
+  filter: brightness(1.08);
+}
+
 /* ---------- Gatekeeper settings live in the ordinary frame, not the bay --- */
 
 .gatekeeper-settings {

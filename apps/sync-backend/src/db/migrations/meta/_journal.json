@@ -183,6 +183,13 @@
       "when": 1788522774577,
       "tag": "0025_slow_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788528977089,
+      "tag": "0026_deep_the_order",
+      "breakpoints": true
     }
   ]
 }

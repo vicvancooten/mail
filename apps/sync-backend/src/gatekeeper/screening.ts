@@ -5,7 +5,7 @@ import { folders, messages, threads } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import type { FolderRow } from "../sync/folders.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
-import { resolveVerdicts, verdictFor } from "./verdicts.js";
+import { resolveBlockedAliases, resolveVerdicts, verdictFor } from "./verdicts.js";
 
 /**
  * The screening gate (#55, poc-spec.md §Gatekeeper v1, ADR-0008): what
@@ -27,6 +27,15 @@ import { resolveVerdicts, verdictFor } from "./verdicts.js";
  *   every stranger in mailbox history.
  * - *Unscreened* is the Verdict itself, resolved address-beats-domain by
  *   `gatekeeper/verdicts.ts`.
+ *
+ * A Blocked Alias (#103, CONTEXT.md, ADR-0008's amendment) sits *above* all
+ * four: every arrival's own resolved recipient Alias
+ * (`messages.recipientAlias`, `gatekeeper/alias.ts`) is checked against
+ * `resolveBlockedAliases` before any of the above, and a match is moved to
+ * Trash regardless of sender, reply-or-new-thread, or Cutoff — "beats
+ * everything, including an Approved Sender" (CONTEXT.md) is true here
+ * because this check runs first and `continue`s, so the ordinary
+ * sender-Verdict branch below never gets a say.
  *
  * This only ever runs from the two **live** arrival paths (`sync/delta.ts`,
  * `sync/qresync-catchup.ts`), never from backfill — the same "which
@@ -90,6 +99,7 @@ export async function screenArrivals(
       threadId: messages.threadId,
       fromName: messages.fromName,
       fromAddress: messages.fromAddress,
+      recipientAlias: messages.recipientAlias,
       receivedAt: messages.receivedAt,
     })
     .from(messages)
@@ -104,6 +114,14 @@ export async function screenArrivals(
     db,
     account.id,
     arrivals.map((arrival) => arrival.fromAddress ?? ""),
+  );
+  // #103's Blocked Alias, resolved as its own batch — it answers a different
+  // question than `resolved` above (what arrived at, not who sent it), so it
+  // is checked first in the loop below rather than folded into that map.
+  const blockedAliases = await resolveBlockedAliases(
+    db,
+    account.id,
+    arrivals.map((arrival) => arrival.recipientAlias),
   );
 
   const threadIds = [...new Set(arrivals.map((arrival) => arrival.threadId))];
@@ -153,6 +171,25 @@ export async function screenArrivals(
     const batchSoFar = seenInBatch.get(arrival.threadId) ?? 0;
     seenInBatch.set(arrival.threadId, batchSoFar + 1);
 
+    // #103's Blocked Alias, checked first and unconditionally on sender: an
+    // arrival at a Blocked Alias moves to Trash "regardless of sender ...
+    // beating even an Approved Sender" (CONTEXT.md), so this branch never
+    // consults `resolved` at all — the ordinary sender-Verdict branch below
+    // does not get a vote once this one has fired. Same folder gate as a
+    // Blocked Sender: a Sent self-copy or any other non-Inbox arrival is
+    // never something to trash over.
+    if (
+      arrival.recipientAlias &&
+      blockedAliases.has(arrival.recipientAlias) &&
+      folder.role === "inbox"
+    ) {
+      result.blockedMessageIds.push(arrival.id);
+      const bucket = blockedByThread.get(arrival.threadId) ?? [];
+      bucket.push(arrival.id);
+      blockedByThread.set(arrival.threadId, bucket);
+      continue;
+    }
+
     const address = arrival.fromAddress;
     const resolvedVerdict = verdictFor(resolved, address);
     const verdict = resolvedVerdict.verdict;
@@ -189,7 +226,11 @@ export async function screenArrivals(
     const normalized = normalizeSenderAddress(address);
     await db
       .update(threads)
-      .set({ heldSender: normalized, heldAt: new Date() })
+      .set({
+        heldSender: normalized,
+        heldRecipientAlias: arrival.recipientAlias,
+        heldAt: new Date(),
+      })
       .where(eq(threads.id, arrival.threadId));
     alreadyHeld.set(arrival.threadId, normalized);
     result.heldMessageIds.push(arrival.id);

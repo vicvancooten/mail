@@ -38,6 +38,7 @@ const VALID_THREAD = {
   pinned: false,
   labelIds: ["account-1:Work"],
   heldSender: null,
+  heldRecipientAlias: null,
   snoozeUntil: null,
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
@@ -76,6 +77,15 @@ describe("threadSchema", () => {
     expect(threadSchema.safeParse(withoutHeldSender).success).toBe(false);
     expect(
       threadSchema.safeParse({ ...VALID_THREAD, heldSender: "stranger@example.com" }).success,
+    ).toBe(true);
+  });
+
+  it("requires heldRecipientAlias, and takes an Alias for a Blocked-Alias-offering hold (#103)", () => {
+    const { heldRecipientAlias, ...withoutHeldRecipientAlias } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutHeldRecipientAlias).success).toBe(false);
+    expect(
+      threadSchema.safeParse({ ...VALID_THREAD, heldRecipientAlias: "sales@theirdomain.com" })
+        .success,
     ).toBe(true);
   });
 

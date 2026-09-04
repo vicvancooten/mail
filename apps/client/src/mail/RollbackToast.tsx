@@ -87,7 +87,12 @@ function describeIntent(intent: MutationIntent): string | null {
     case "denySender":
       return "Couldn't deny — the sender is still waiting in the Screener.";
     case "blockSender":
-      return "Couldn't block — the sender is still waiting in the Screener.";
+      // #103's Block Alias rides this same intent at `scope: "recipient"` —
+      // there is no Screener row to say "still waiting" about, so it gets
+      // its own message rather than the sender-shaped default.
+      return intent.sender.scope === "recipient"
+        ? "Couldn't block that Alias."
+        : "Couldn't block — the sender is still waiting in the Screener.";
     case "spamSender":
       return "Couldn't mark as spam — the sender is still waiting in the Screener.";
     case "unblockSender":

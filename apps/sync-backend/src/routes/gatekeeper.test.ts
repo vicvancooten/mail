@@ -217,6 +217,41 @@ describe("Gatekeeper routes (#55)", () => {
     ]);
   });
 
+  it("lists a Blocked Alias (#103) alongside Blocked Senders — the settings response is scope-agnostic", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const mailAccountId = await createOwnedMailAccount(app, cookie);
+    await app.inject({
+      method: "POST",
+      url: `/mail-accounts/${mailAccountId}/gatekeeper/enable`,
+      headers: { cookie },
+    });
+    await setVerdict(
+      db,
+      mailAccountId,
+      { scope: "recipient", value: "sales@mycompany.test" },
+      "blocked",
+      "screener",
+    );
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/mail-accounts/${mailAccountId}/gatekeeper`,
+      headers: { cookie },
+    });
+    expect(status.statusCode).toBe(200);
+    const body = status.json() as {
+      blocked: { scope: string; value: string; source: string }[];
+    };
+    expect(body.blocked).toEqual([
+      expect.objectContaining({
+        scope: "recipient",
+        value: "sales@mycompany.test",
+        source: "screener",
+      }),
+    ]);
+  });
+
   it("reset clears the Verdicts and re-seeds", async () => {
     const app = buildTestApp();
     const cookie = await claimOwner(app);

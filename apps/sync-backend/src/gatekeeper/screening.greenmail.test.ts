@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { threads } from "../db/schema.js";
+import { messages, threads } from "../db/schema.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById, type MailAccountRow } from "../mail-accounts/store.js";
 import { listUndelivered } from "../notifier/outbox.js";
@@ -87,12 +87,18 @@ async function reloadAccount(): Promise<MailAccountRow> {
   return row;
 }
 
-async function deliverToInbox(other: ImapFlow, from: string, subject: string): Promise<void> {
+async function deliverToInbox(
+  other: ImapFlow,
+  from: string,
+  subject: string,
+  options: { deliveredTo?: string } = {},
+): Promise<void> {
   await other.append(
     "INBOX",
     buildTestMessage({
       from,
       to: account.emailAddress,
+      deliveredTo: options.deliveredTo,
       subject,
       date: new Date(),
       messageId: `${Math.random().toString(36).slice(2)}@example.test`,
@@ -189,5 +195,51 @@ describe("Gatekeeper against GreenMail (#55, ADR-0008)", () => {
     expect(thread?.heldSender).toBe("stranger@example.test");
     expect(thread?.inInbox).toBe(true);
     expect((await listUndelivered(db)).map((row) => row.kind)).toEqual(["gatekeeper_digest"]);
+  });
+
+  it("resolves the Alias from Delivered-To at ingest, and Block Alias trashes a future arrival there — beating even an Approved Sender (#103)", async () => {
+    const other = await connectOtherClient();
+    await other.mailboxCreate("Trash");
+    await syncMailAccount(db, account, {
+      mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
+      roles: ["inbox", "trash"],
+    });
+    await enableGatekeeper(db, account.id);
+    await reloadAccount();
+
+    const alias = `sales@${account.emailAddress.split("@")[1]}`;
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "address", value: "colleague@partner.test" },
+      "approved",
+      "seed",
+    );
+
+    await deliverToInbox(other, "Colleague <colleague@partner.test>", "Not yet blocked", {
+      deliveredTo: alias,
+    });
+    await syncAndDrain();
+
+    // Resolved and stored per message at ingest (#103), before any Verdict
+    // exists for the Alias — an Approved Sender's mail still lands normally.
+    const [firstMessage] = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.mailAccountId, account.id));
+    expect(firstMessage?.recipientAlias).toBe(alias);
+    expect(await subjectsIn(other, "INBOX")).toEqual(["Not yet blocked"]);
+
+    await setVerdict(db, account.id, { scope: "recipient", value: alias }, "blocked", "screener");
+
+    await deliverToInbox(other, "Colleague <colleague@partner.test>", "Blocked by Alias", {
+      deliveredTo: alias,
+    });
+    await syncAndDrain();
+
+    // Beats the Approved Sender Verdict: the earlier mail stays put, the new
+    // arrival at the now-Blocked Alias moves to the real \Trash.
+    expect(await subjectsIn(other, "INBOX")).toEqual(["Not yet blocked"]);
+    expect(await subjectsIn(other, "Trash")).toEqual(["Blocked by Alias"]);
   });
 });
