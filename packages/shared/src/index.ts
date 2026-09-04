@@ -8,5 +8,6 @@ export * from "./labels.js";
 export * from "./mail-accounts.js";
 export * from "./messages.js";
 export * from "./push.js";
+export * from "./routing.js";
 export * from "./search.js";
 export * from "./sync.js";

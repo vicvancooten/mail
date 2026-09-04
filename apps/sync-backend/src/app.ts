@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
+import { isApiPath } from "@mail/shared";
 import Fastify from "fastify";
 import authPlugin from "./auth/plugin.js";
 import type { Db } from "./db/client.js";
@@ -31,7 +32,7 @@ const DEFAULT_ATTACHMENT_BUDGET_BYTES = 25 * 1024 * 1024;
 // Populated by the Docker build (ADR-0009: one image, Client bundle and API
 // ship together so a fresh load can never skew). Absent in local dev, where
 // the Client runs under its own Vite dev server instead.
-const publicDir = fileURLToPath(new URL("../public", import.meta.url));
+const defaultPublicDir = fileURLToPath(new URL("../public", import.meta.url));
 
 export interface BuildAppOptions {
   db: Db;
@@ -71,6 +72,13 @@ export interface BuildAppOptions {
   syncHints?: SyncHintBroker;
   /** Test seam for `GET /events`'s heartbeat cadence — see `routes/events.ts`. */
   eventsHeartbeatMs?: number;
+  /**
+   * Test seam for the SPA fallback (#92): the built image's `public/` sits
+   * next to this file (see `publicDir` below), which no test checkout has —
+   * tests that want to exercise the static/fallback routes point this at a
+   * fixture directory instead. Real callers never pass it.
+   */
+  publicDir?: string;
 }
 
 export function buildApp({
@@ -84,6 +92,7 @@ export function buildApp({
   syncHints = noopSyncHintBroker,
   eventsHeartbeatMs,
   vapidPublicKey = null,
+  publicDir = defaultPublicDir,
 }: BuildAppOptions) {
   const app = Fastify({
     // Vitest sets NODE_ENV=test; quiet request logging there so the growing
@@ -126,6 +135,31 @@ export function buildApp({
 
   if (existsSync(publicDir)) {
     app.register(fastifyStatic, { root: publicDir });
+
+    // SPA fallback (#92): fastify-static only answers exact file matches, so
+    // a cold load/reload of a client-side route (`/mail`, `/settings`,
+    // `/contacts`, …) has no matching file and no matching API route either
+    // — it would otherwise fall through to Fastify's bare JSON 404. Vite's
+    // dev server has this fallback built in, which is why the gap only ever
+    // showed up in the built image. Only html-accepting GET/HEAD navigations
+    // outside the API surface (`isApiPath`, shared with the service worker's
+    // own routing boundary) get the shell; a genuine miss under an API
+    // prefix — `/sync/nope` — still 404s as JSON, and the service worker is
+    // deliberately left alone (its network-first navigate branch already
+    // falls back to the cached shell when offline; masking a 404 there would
+    // hide this exact bug rather than fix it).
+    app.setNotFoundHandler((request, reply) => {
+      const pathname = request.url.split("?")[0] ?? request.url;
+      const isHtmlNavigation =
+        (request.method === "GET" || request.method === "HEAD") &&
+        (request.headers.accept ?? "").includes("text/html") &&
+        !isApiPath(pathname);
+      if (isHtmlNavigation) {
+        reply.type("text/html").sendFile("index.html");
+        return;
+      }
+      reply.code(404).send({ error: "Not Found" });
+    });
   }
 
   return app;
