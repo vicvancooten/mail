@@ -5,6 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
+  compositions,
   folders,
   labels,
   messages,
@@ -42,7 +43,7 @@ afterAll(async () => {
 
 /** Inserts a Folder with the given special-use role, the way `folders.ts` would have discovered it. */
 async function seedFolder(
-  role: "inbox" | "archive" | "trash" | "sent",
+  role: "inbox" | "archive" | "trash" | "sent" | "junk",
   path: string,
 ): Promise<string> {
   const id = randomUUID();
@@ -297,6 +298,107 @@ describe("flushMutations — archive/trash (#42)", () => {
     ]);
 
     expect((await threadRow(threadId))?.snoozeUntil).toBeNull();
+  });
+});
+
+describe("flushMutations — restoreToInbox (#95, ADR-0019)", () => {
+  it("moves an archived Thread back to Inbox and queues its Message for a real IMAP move", async () => {
+    const threadId = await seedThread();
+    await seedFolder("archive", "Archive");
+    await db
+      .update(threads)
+      .set({ inInbox: false, folderRole: "archive" })
+      .where(eq(threads.id, threadId));
+    // The Message itself has to actually sit in the Archive folder for the
+    // restore to find anything resident to move — `seedThread` puts it in
+    // the seeded "inbox" folder, so this moves it the way `archive`'s own
+    // handler would have.
+    const archiveFolderId = (
+      await db.select({ id: folders.id }).from(folders).where(eq(folders.role, "archive"))
+    )[0]?.id;
+    await db
+      .update(messages)
+      .set({ folderId: archiveFolderId })
+      .where(eq(messages.threadId, threadId));
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01RESTORE", intent: { type: "restoreToInbox", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(true);
+    expect(row?.folderRole).toBe("inbox");
+    const rows = await outboxRows(account.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "inbox" });
+  });
+
+  it("is a no-op success on a Thread with nothing resident in Archive/Trash to restore", async () => {
+    const threadId = await seedThread(); // already sitting in Inbox
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01RESTORE", intent: { type: "restoreToInbox", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+    expect(await outboxRows(account.id)).toHaveLength(0);
+  });
+
+  it("rejects a restoreToInbox naming a Thread this Mail Account does not have", async () => {
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01MISSING", intent: { type: "restoreToInbox", threadId: "does-not-exist" } },
+    ]);
+    expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+});
+
+describe("flushMutations — unsnooze (#95)", () => {
+  it("clears snoozeUntil and flips inInbox back to true, with no protocol write", async () => {
+    const threadId = await seedThread();
+    await db
+      .update(threads)
+      .set({ inInbox: false, snoozeUntil: new Date(Date.now() + 60_000) })
+      .where(eq(threads.id, threadId));
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01UNSNOOZE", intent: { type: "unsnooze", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNSNOOZE", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(true);
+    expect(row?.snoozeUntil).toBeNull();
+    expect(await outboxRows(account.id)).toHaveLength(0);
+  });
+
+  it("rejects an unsnooze naming a Thread this Mail Account does not have", async () => {
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01MISSING", intent: { type: "unsnooze", threadId: "does-not-exist" } },
+    ]);
+    expect(outcomes).toEqual([{ id: "01MISSING", status: "rejected", reason: "thread_not_found" }]);
+  });
+
+  it("is a true no-op on a Thread that was archived, not snoozed (#90's review)", async () => {
+    // A Thread with `snoozeUntil: null` that has since been archived — the
+    // exact shape a stale/racing `unsnooze` (Undo of a `snooze` that lost
+    // the race to a later, more deliberate archive) would see. Without the
+    // `snoozeUntil` guard this un-triaged it back into the Inbox.
+    await seedFolder("archive", "Archive");
+    const threadId = await seedThread();
+    await db
+      .update(threads)
+      .set({ inInbox: false, folderRole: "archive", snoozeUntil: null })
+      .where(eq(threads.id, threadId));
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01UNSNOOZE", intent: { type: "unsnooze", threadId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNSNOOZE", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("archive");
   });
 });
 
@@ -560,6 +662,57 @@ describe("flushMutations — the Gatekeeper decisions (#55)", () => {
     ]);
   });
 
+  it("spams a sender and records the Verdict with the spam flag (#102)", async () => {
+    const threadId = await seedHeldThread("spammer@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01SPAM",
+        intent: { type: "spamSender", sender: { scope: "address", value: "spammer@example.test" } },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01SPAM", status: "applied" }]);
+    expect((await threadRow(threadId))?.heldSender).toBeNull();
+    expect((await resolveVerdict(db, account.id, "spammer@example.test")).verdict).toBe("blocked");
+  });
+
+  it("blocks an Alias (#103) — trashes what it's holding and refuses the Mail Account's own address", async () => {
+    const threadId = await seedThread();
+    await db
+      .update(threads)
+      .set({
+        heldSender: "stranger@example.test",
+        heldRecipientAlias: "sales@mycompany.test",
+        heldAt: new Date(),
+      })
+      .where(eq(threads.id, threadId));
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01ALIAS",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "recipient", value: "sales@mycompany.test" },
+        },
+      },
+      {
+        id: "01ALIASOWN",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "recipient", value: account.emailAddress },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01ALIAS", status: "applied" },
+      { id: "01ALIASOWN", status: "rejected", reason: "cannot_block_own_address" },
+    ]);
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+    expect((await threadRow(threadId))?.heldRecipientAlias).toBeNull();
+  });
+
   it("unblocks back to Unscreened, never to Approved", async () => {
     await flushMutations(db, account.id, [
       {
@@ -572,5 +725,227 @@ describe("flushMutations — the Gatekeeper decisions (#55)", () => {
       },
     ]);
     expect((await resolveVerdict(db, account.id, "v@example.test")).verdict).toBe("unscreened");
+  });
+
+  it("unblockAndRestore (#95, ADR-0019) clears a Block and restores the Threads it trashed to Inbox", async () => {
+    await seedFolder("trash", "Trash");
+    const threadId = await seedHeldThread("stranger@example.test");
+
+    await flushMutations(db, account.id, [
+      {
+        id: "01BLOCK",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "address", value: "stranger@example.test" },
+        },
+      },
+    ]);
+    expect((await threadRow(threadId))?.folderRole).toBe("trash");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01UNDO",
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "stranger@example.test" },
+          threadIds: [threadId],
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNDO", status: "applied" }]);
+    expect((await resolveVerdict(db, account.id, "stranger@example.test")).verdict).toBe(
+      "unscreened",
+    );
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(true);
+    expect(row?.folderRole).toBe("inbox");
+    expect(row?.heldSender).toBeNull();
+  });
+
+  it("unblockAndRestore restores a Deny's trashed Threads too, with no Verdict to clear", async () => {
+    await seedFolder("trash", "Trash");
+    const threadId = await seedHeldThread("stranger@example.test");
+
+    await flushMutations(db, account.id, [
+      {
+        id: "01DENY",
+        intent: {
+          type: "denySender",
+          sender: { scope: "address", value: "stranger@example.test" },
+        },
+      },
+    ]);
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01UNDO",
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "stranger@example.test" },
+          threadIds: [threadId],
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNDO", status: "applied" }]);
+    expect((await resolveVerdict(db, account.id, "stranger@example.test")).verdict).toBe(
+      "unscreened",
+    );
+    expect((await threadRow(threadId))?.inInbox).toBe(true);
+  });
+
+  it("unblockAndRestore reverses a spamSender decision, restoring Threads out of Junk (#90's Spam-Undo close-out)", async () => {
+    await seedFolder("junk", "Junk");
+    const threadId = await seedHeldThread("spammer@example.test");
+
+    await flushMutations(db, account.id, [
+      {
+        id: "01SPAM",
+        intent: { type: "spamSender", sender: { scope: "address", value: "spammer@example.test" } },
+      },
+    ]);
+    expect((await threadRow(threadId))?.folderRole).toBe("junk");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01UNDO",
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "spammer@example.test" },
+          threadIds: [threadId],
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNDO", status: "applied" }]);
+    expect((await resolveVerdict(db, account.id, "spammer@example.test")).verdict).toBe(
+      "unscreened",
+    );
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(true);
+    expect(row?.folderRole).toBe("inbox");
+    expect(row?.heldSender).toBeNull();
+  });
+
+  it("unblockAndRestore cancels a still-queued trash write instead of letting it drain after the fact (#90)", async () => {
+    // No Trash folder seeded on purpose: `blockSender` still records the
+    // Verdict and clears the hold, but — per `trashHeldThreads`'s own
+    // tolerance for an account with no matching folder — enqueues nothing
+    // to move, so nothing IMAP-side is left racing this Undo. The regression
+    // this covers is at the outbox layer, so it is asserted directly there
+    // instead: a write queued by hand, the way a real `blockSender` flush
+    // would have left it mid-drain-window, must be gone afterwards rather
+    // than surviving to move the Message once Undo has already said
+    // "inbox".
+    const threadId = await seedThread();
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    if (!message) throw new Error("seedThread did not create a message");
+
+    await db.insert(protocolWrites).values({
+      id: "01QUEUED",
+      mailAccountId: account.id,
+      messageId: message.id,
+      kind: "trash",
+    });
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01UNDO",
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "irrelevant@example.test" },
+          threadIds: [threadId],
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNDO", status: "applied" }]);
+    const remaining = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(remaining).toEqual([]);
+    // The Message never actually moved (no drain ran), so there is nothing
+    // to enqueue an "inbox" write for either — the cancellation alone is
+    // the whole fix.
+  });
+
+  it("unblockAndRestore ignores a threadId belonging to a different Mail Account", async () => {
+    await seedFolder("trash", "Trash");
+    const threadId = await seedHeldThread("stranger@example.test");
+    await flushMutations(db, account.id, [
+      {
+        id: "01BLOCK",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "address", value: "stranger@example.test" },
+        },
+      },
+    ]);
+
+    const other = await createTestMailAccount(db);
+    const outcomes = await flushMutations(db, other.id, [
+      {
+        id: "01CROSS",
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "stranger@example.test" },
+          threadIds: [threadId],
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01CROSS", status: "applied" }]); // clears (nothing to clear on `other`) — silently drops the foreign Thread
+    expect((await threadRow(threadId))?.folderRole).toBe("trash"); // untouched
+  });
+});
+
+describe("flushMutations — discardComposition/undiscardComposition (#101)", () => {
+  async function insertComposition(status: "draft" | "discarded" | "pending" = "draft") {
+    const id = randomUUID();
+    await db.insert(compositions).values({
+      id,
+      mailAccountId: account.id,
+      subject: "Subject",
+      document: { type: "doc", content: [] },
+      version: 1,
+      status,
+    });
+    return id;
+  }
+
+  it("dispatches discardComposition to compose/discard.ts, ahead of the Thread lookup", async () => {
+    const id = await insertComposition("draft");
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01D", intent: { type: "discardComposition", compositionId: id } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01D", status: "applied" }]);
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id)).limit(1);
+    expect(row?.status).toBe("discarded");
+  });
+
+  it("rejects discardComposition for a Composition that isn't a Draft", async () => {
+    const id = await insertComposition("pending");
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01D", intent: { type: "discardComposition", compositionId: id } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01D", status: "rejected", reason: "not_a_draft" }]);
+  });
+
+  it("dispatches undiscardComposition, Undo's real inverse (#95)", async () => {
+    const id = await insertComposition("discarded");
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01U", intent: { type: "undiscardComposition", compositionId: id } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01U", status: "applied" }]);
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id)).limit(1);
+    expect(row?.status).toBe("draft");
   });
 });

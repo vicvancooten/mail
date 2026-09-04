@@ -15,6 +15,7 @@ import {
   senderDomain,
 } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useRef } from "react";
 import {
   type CachedThread,
   DEFAULT_VIEW,
@@ -210,6 +211,8 @@ export async function readCorrespondents(mailAccountId: string): Promise<Corresp
 export interface ScreenerSenderGroup {
   /** The Mail Account holding this sender — every decision (#82) targets this account, never the whole Scope. */
   mailAccountId: string;
+  /** The Mail Account's own primary address (#103) — what a Block-Alias decision is refused against. */
+  accountEmail: string;
   /** The normalized `From` address holding these Threads — what an Approve/Deny/Block decision targets. */
   address: string;
   /** The best display name across the held Threads, or `null` if none carried one. */
@@ -222,6 +225,16 @@ export interface ScreenerSenderGroup {
   /** The most recently arrived held Thread's Snippet — the message peek's body. */
   snippet: string | null;
   /**
+   * The Alias (#103, CONTEXT.md) the most recently arrived held Thread's
+   * opening message resolved to (`Thread.heldRecipientAlias`), or `null`
+   * when it named none — what the Screener's Block split menu offers
+   * *Block everything sent to `<alias>`* against. Read off the same `peek`
+   * Thread `subject`/`snippet` already are, rather than requiring every held
+   * Thread in the group to agree: a stranger who has written to more than
+   * one Alias still gets the option for whichever they most recently used.
+   */
+  alias: string | null;
+  /**
    * The earliest `lastMessageAt` among this sender's held Threads — the wire
    * `Thread` carries no Screening-Hold timestamp of its own (`heldAt` is
    * backend-only bookkeeping), so this is the Client's own proxy for "how
@@ -231,25 +244,43 @@ export interface ScreenerSenderGroup {
   heldSince: string;
 }
 
-/** Whether `sender` (an Optimistic Action in flight) targets `heldAddress` — an exact match for `address` scope, a domain suffix match for `domain` scope (the overflow convenience, poc-spec.md). */
-function matchesGatekeeperSender(heldAddress: string, sender: GatekeeperSender): boolean {
+/**
+ * Whether `sender` (an Optimistic Action in flight) targets this held
+ * Thread — an exact match for `address` scope, a domain suffix match for
+ * `domain` scope (the overflow convenience, poc-spec.md), or (#103) an exact
+ * match against `heldRecipientAlias` for `recipient` scope. That third
+ * branch answers a different question than the other two — "what did this
+ * arrive at", never "who sent it" — which is why it reads a different field
+ * off the Thread entirely rather than reusing `heldSender`.
+ */
+function matchesGatekeeperSender(
+  thread: Pick<CachedThread, "heldSender" | "heldRecipientAlias">,
+  sender: GatekeeperSender,
+): boolean {
   const value = normalizeSenderAddress(sender.value);
+  if (sender.scope === "recipient") {
+    return thread.heldRecipientAlias !== null && thread.heldRecipientAlias === value;
+  }
+  const heldAddress = thread.heldSender;
+  if (!heldAddress) return false;
   return sender.scope === "address" ? heldAddress === value : senderDomain(heldAddress) === value;
 }
 
 /**
- * Senders a Screener decision is already queued for (#56): `approveSender`/
- * `denySender`/`blockSender` name no Thread (`mutation-queue.ts`'s own doc
- * comment — "the Screener's own optimistic feel comes from the row leaving
- * the Screener list"), so this is the overlay that makes a decision hide its
- * row immediately, before the Sync Backend has answered.
+ * Senders a Screener decision is already queued for (#56, #102):
+ * `approveSender`/`denySender`/`blockSender`/`spamSender` name no Thread
+ * (`mutation-queue.ts`'s own doc comment — "the Screener's own optimistic
+ * feel comes from the row leaving the Screener list"), so this is the
+ * overlay that makes a decision hide its row immediately, before the Sync
+ * Backend has answered.
  */
 async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<GatekeeperSender[]> {
   const pending = await db.pendingMutations.where("mailAccountId").equals(mailAccountId).toArray();
   return pending.flatMap((mutation) =>
     mutation.intent.type === "approveSender" ||
     mutation.intent.type === "denySender" ||
-    mutation.intent.type === "blockSender"
+    mutation.intent.type === "blockSender" ||
+    mutation.intent.type === "spamSender"
       ? [mutation.intent.sender]
       : [],
   );
@@ -257,6 +288,7 @@ async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<Ga
 
 async function readScreenerSendersForAccount(
   mailAccountId: string,
+  accountEmail: string,
 ): Promise<ScreenerSenderGroup[]> {
   const db = localCache();
   const held = await db.threads
@@ -270,7 +302,7 @@ async function readScreenerSendersForAccount(
   const bySender = new Map<string, CachedThread[]>();
   for (const thread of held) {
     const address = thread.heldSender;
-    if (!address || decided.some((sender) => matchesGatekeeperSender(address, sender))) continue;
+    if (!address || decided.some((sender) => matchesGatekeeperSender(thread, sender))) continue;
     const bucket = bySender.get(address);
     if (bucket) bucket.push(thread);
     else bySender.set(address, [thread]);
@@ -296,6 +328,7 @@ async function readScreenerSendersForAccount(
     );
     groups.push({
       mailAccountId,
+      accountEmail,
       address,
       name,
       threadIds: threads.map((thread) => thread.id),
@@ -303,6 +336,7 @@ async function readScreenerSendersForAccount(
       messageCount: threads.reduce((sum, thread) => sum + thread.messageCount, 0),
       subject: peek.subject,
       snippet: peek.snippet,
+      alias: peek.heldRecipientAlias,
       heldSince,
     });
   }
@@ -342,11 +376,14 @@ export async function readScreenerSenders(
   const emailById = new Map(accounts.map((account) => [account.id, account.emailAddress]));
 
   const groups = await Promise.all(
-    accountScope.map(async (mailAccountId) => ({
-      mailAccountId,
-      accountEmail: emailById.get(mailAccountId) ?? mailAccountId,
-      senders: await readScreenerSendersForAccount(mailAccountId),
-    })),
+    accountScope.map(async (mailAccountId) => {
+      const accountEmail = emailById.get(mailAccountId) ?? mailAccountId;
+      return {
+        mailAccountId,
+        accountEmail,
+        senders: await readScreenerSendersForAccount(mailAccountId, accountEmail),
+      };
+    }),
   );
   return groups.filter((group) => group.senders.length > 0);
 }
@@ -411,14 +448,31 @@ export function useThreadWindow(
  * Archive/Trash read `folderRole` rather than `inInbox` — the one field that
  * tells the two apart (`@mail/shared`'s `threadSchema` doc comment); Sent
  * and Pinned are cross-folder by design (poc-spec.md: the sidebar's Pinned
- * view "shows pinned Threads from every folder") and each excludes Trash,
- * the same "Trash overrides everything else" convention ordinary mail
- * clients use, so a trashed Thread doesn't linger in either. Snoozed (#76)
- * reads `snoozeUntil` rather than `inInbox`, the same "one field says which"
- * shape `folderRole` gives Archive/Trash — `inInbox` alone can't tell a
- * snoozed Thread apart from an archived or trashed one, all three being
- * `false` — and excludes Trash the same way Sent/Pinned do.
+ * view "shows pinned Threads from every folder") and each excludes Trash
+ * *and* Junk (`hasLeftFolderScopedViews`, below) — `folderRole`'s own doc
+ * comment says `"junk"` "drops a Thread out of every folder-scoped view",
+ * the same "overrides everything else" convention Trash gets in ordinary
+ * mail clients — so neither a trashed nor a spammed Thread lingers in
+ * either. Snoozed (#76) reads `snoozeUntil` rather than `inInbox`, the same
+ * "one field says which" shape `folderRole` gives Archive/Trash —
+ * `inInbox` alone can't tell a snoozed Thread apart from an archived or
+ * trashed one, all three being `false` — and excludes Trash/Junk the same
+ * way Sent/Pinned do.
  */
+
+/**
+ * `true` once a Thread has left every folder-scoped view (Archive, Trash,
+ * Sent, Pinned, Snoozed) — Trash and Junk (#102) both mean this per
+ * `folderRole`'s own doc comment in `@mail/shared`'s `threadSchema`: Junk
+ * "drops a Thread out of every folder-scoped view" exactly the way Trash
+ * does. Named for the concept rather than inlined at each of
+ * `filterByView`'s three cross-folder cases below, so a third such
+ * `folderRole` value doesn't have to be remembered at three call sites.
+ */
+function hasLeftFolderScopedViews(thread: CachedThread): boolean {
+  return thread.folderRole === "trash" || thread.folderRole === "junk";
+}
+
 function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
   if (typeof view !== "string") {
     return threads.filter(
@@ -433,12 +487,12 @@ function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
     case "trash":
       return threads.filter((thread) => thread.folderRole === "trash");
     case "sent":
-      return threads.filter((thread) => thread.hasSentMessage && thread.folderRole !== "trash");
+      return threads.filter((thread) => thread.hasSentMessage && !hasLeftFolderScopedViews(thread));
     case "pinned":
-      return threads.filter((thread) => thread.pinned && thread.folderRole !== "trash");
+      return threads.filter((thread) => thread.pinned && !hasLeftFolderScopedViews(thread));
     case "snoozed":
       return threads.filter(
-        (thread) => thread.snoozeUntil !== null && thread.folderRole !== "trash",
+        (thread) => thread.snoozeUntil !== null && !hasLeftFolderScopedViews(thread),
       );
   }
 }
@@ -588,6 +642,27 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         // the instant it's queued, offline included.
         overlaid = { ...overlaid, inInbox: false, snoozeUntil: mutation.intent.until };
         break;
+      case "restoreToInbox":
+      case "unblockAndRestore":
+        // Undo's own real inverse (#95, ADR-0019): reappears in the Inbox
+        // the instant it's queued, offline included, exactly mirroring
+        // archive/trash/snooze's own immediate-hide above but in reverse.
+        // Also clears `heldSender`/`heldRecipientAlias` — `restoreToInbox` is
+        // what a Screener Approve already does to a held Thread, and
+        // `unblockAndRestore` (Undo's own inverse of Deny, Block, and #103's
+        // Block-Alias) restores to the Inbox the same way, never back into
+        // the Screener's hold.
+        overlaid = {
+          ...overlaid,
+          inInbox: true,
+          snoozeUntil: null,
+          heldSender: null,
+          heldRecipientAlias: null,
+        };
+        break;
+      case "unsnooze":
+        overlaid = { ...overlaid, inInbox: true, snoozeUntil: null };
+        break;
       case "setPinned":
         overlaid = { ...overlaid, pinned: mutation.intent.pinned };
         break;
@@ -708,15 +783,30 @@ export async function readSearchPrefilter(
   );
 }
 
+/**
+ * A live query re-subscribes on every keystroke (`mailAccountId`/`filters`
+ * both change), and `useLiveQuery` returns `undefined` for every render in
+ * between the old subscription tearing down and the new one's first emit —
+ * by design, not a bug in it. Falling through to `?? []` at each call site
+ * used to render "No matches" for that one frame (#100, bug 5); holding the
+ * last non-`undefined` result across that gap instead means the prefilter
+ * only ever *replaces* what's on screen, never blanks it first.
+ */
 export function useSearchPrefilter(
   mailAccountId: string | null,
   filters: SearchPrefilterFilters,
 ): CachedThread[] | undefined {
-  return useLiveQuery(
+  const lastRef = useRef<CachedThread[] | undefined>(undefined);
+  const live = useLiveQuery(
     () =>
       mailAccountId === null ? Promise.resolve([]) : readSearchPrefilter(mailAccountId, filters),
     [mailAccountId, JSON.stringify(filters)],
   );
+  if (live !== undefined) lastRef.current = live;
+  // `mailAccountId === null` means search itself isn't engaged (or is below
+  // the floor) rather than "still loading" — that's a real empty, not a gap
+  // to paper over, so it isn't held onto the way an in-flight resubscribe is.
+  return mailAccountId === null ? live : (live ?? lastRef.current);
 }
 
 /**

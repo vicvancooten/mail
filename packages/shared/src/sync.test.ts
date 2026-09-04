@@ -38,6 +38,7 @@ const VALID_THREAD = {
   pinned: false,
   labelIds: ["account-1:Work"],
   heldSender: null,
+  heldRecipientAlias: null,
   snoozeUntil: null,
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
@@ -76,6 +77,15 @@ describe("threadSchema", () => {
     expect(threadSchema.safeParse(withoutHeldSender).success).toBe(false);
     expect(
       threadSchema.safeParse({ ...VALID_THREAD, heldSender: "stranger@example.com" }).success,
+    ).toBe(true);
+  });
+
+  it("requires heldRecipientAlias, and takes an Alias for a Blocked-Alias-offering hold (#103)", () => {
+    const { heldRecipientAlias, ...withoutHeldRecipientAlias } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutHeldRecipientAlias).success).toBe(false);
+    expect(
+      threadSchema.safeParse({ ...VALID_THREAD, heldRecipientAlias: "sales@theirdomain.com" })
+        .success,
     ).toBe(true);
   });
 
@@ -313,6 +323,31 @@ describe("mutationIntentSchema", () => {
 
   it("rejects snooze with a non-ISO `until`", () => {
     const result = mutationIntentSchema.safeParse({ ...VALID_SNOOZE_INTENT, until: "tomorrow" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts restoreToInbox and unsnooze — Undo's own real inverses (#95, ADR-0019)", () => {
+    expect(mutationIntentSchema.safeParse({ type: "restoreToInbox", threadId: "t1" }).success).toBe(
+      true,
+    );
+    expect(mutationIntentSchema.safeParse({ type: "unsnooze", threadId: "t1" }).success).toBe(true);
+  });
+
+  it("accepts unblockAndRestore, keyed to a sender plus the exact Threads it restores (#95)", () => {
+    expect(
+      mutationIntentSchema.safeParse({
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "stranger@example.test" },
+        threadIds: ["t1", "t2"],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unblockAndRestore with no threadIds array", () => {
+    const result = mutationIntentSchema.safeParse({
+      type: "unblockAndRestore",
+      sender: { scope: "address", value: "stranger@example.test" },
+    });
     expect(result.success).toBe(false);
   });
 });

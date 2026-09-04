@@ -5,7 +5,14 @@ import type { Db } from "../db/client.js";
 import { folders, messages, threads } from "../db/schema.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
-import { BarredVerdictDomainError, clearVerdict, setVerdict } from "./verdicts.js";
+import { restoreThreadsToInbox } from "../sync/restore-to-inbox.js";
+import {
+  BarredVerdictDomainError,
+  clearVerdict,
+  PrimaryAddressVerdictError,
+  RecipientVerdictMustBeBlockedError,
+  setVerdict,
+} from "./verdicts.js";
 
 /**
  * The Screener's three decisions and the Blocked Senders list's undo (#55,
@@ -63,7 +70,7 @@ export async function denySender(
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
     await clearVerdict(db, mailAccountId, sender);
-    await trashHeldThreads(db, mailAccountId, sender);
+    await trashHeldThreads(db, mailAccountId, sender, "trash");
   });
 }
 
@@ -76,6 +83,15 @@ export async function denySender(
  * Inbox stays there. ADR-0008's "unblocking is always future-only" has a
  * mirror here — blocking is future-only too, apart from the held Threads
  * this decision is answering.
+ *
+ * `sender` at `scope: "recipient"` (#103) is the Screener's Block-Alias
+ * decision — *Block everything sent to `<alias>`* — reusing this same
+ * function rather than a parallel one: `setVerdict` already refuses it if
+ * the Alias is Approved-adjacent nonsense (not `blocked`) or the Mail
+ * Account's own address, and `trashHeldThreads` below already knows to match
+ * held Threads by their recipient Alias instead of their sender at this
+ * scope. The result is the same "beats even an Approved Sender" effect
+ * CONTEXT.md's Blocked Alias promises, for free.
  */
 export async function blockSender(
   db: Db,
@@ -84,7 +100,32 @@ export async function blockSender(
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
     await setVerdict(db, mailAccountId, sender, "blocked", "screener");
-    await trashHeldThreads(db, mailAccountId, sender);
+    await trashHeldThreads(db, mailAccountId, sender, "trash");
+  });
+}
+
+/**
+ * Spam (#102, CONTEXT.md, ADR-0008's amendment): everything `blockSender`
+ * does, plus the one thing that makes it Spam rather than a plain Block —
+ * the held Threads (and every future arrival, `gatekeeper/screening.ts`)
+ * move to the Mail Account's Junk folder rather than Trash, so the
+ * provider's own filter learns from it. Recorded as a Blocked Verdict with
+ * `spam: true` (`verdicts.ts#setVerdict`) rather than a fourth Verdict value
+ * — a Spam sender is Blocked for every other purpose a Verdict answers.
+ *
+ * The Screener's Block split menu offers this as a deliberate extra click
+ * behind Block sender/Block domain, never the default — "I don't want this"
+ * and "this is spam" are different claims, and only the User can tell them
+ * apart.
+ */
+export async function spamSender(
+  db: Db,
+  mailAccountId: string,
+  sender: GatekeeperSender,
+): Promise<DecisionResult> {
+  return withVerdictWrite(async () => {
+    await setVerdict(db, mailAccountId, sender, "blocked", "screener", true);
+    await trashHeldThreads(db, mailAccountId, sender, "junk");
   });
 }
 
@@ -108,11 +149,46 @@ export async function unblockSender(
 }
 
 /**
- * Turns a barred domain into a `rejected` outcome rather than a 500. The
- * Client should never have offered a domain button for a public provider, so
- * this is a stale-Client/mistaken-caller path, not a User-facing flow — but
- * a rejection is still the honest answer, and ADR-0010's queue already knows
- * how to stop retrying one.
+ * Undo's own real inverse of Deny, Block, Spam, *and* #103's Block-Alias
+ * (#95, ADR-0019, #90's Spam-Undo close-out) — never a queue cancellation,
+ * so this reverses the decision whether or not `denySender`/`blockSender`/
+ * `spamSender` has already flushed. Clears the Verdict (a no-op for Deny,
+ * which never set one — and, for Spam, the one `clearVerdict` call that also
+ * drops the `spam` flag, since it deletes the whole row) and restores
+ * exactly the Threads the Client named — captured at decision time
+ * (`ScreenerSenderGroup.threadIds`), since by the time Undo fires this
+ * sender (or Alias) may be holding a fresh, unrelated stranger's mail again
+ * and re-deriving "what did this decision trash" from the sender alone would
+ * risk sweeping that up too.
+ *
+ * Restores to the Inbox, never back into the Screener's hold — the same
+ * "release, don't re-ask" effect an Approve has, reusing its own
+ * `restoreThreadsToInbox` step, which now knows Junk (Spam's destination)
+ * as well as Archive/Trash. A Thread already purged from Trash/Junk by the
+ * mail server (ADR-0008: "most servers auto-purge Trash after ~30 days") is
+ * a harmless no-op there — the Verdict still clears, which is all Undo can
+ * promise past that point.
+ */
+export async function unblockAndRestore(
+  db: Db,
+  mailAccountId: string,
+  sender: GatekeeperSender,
+  threadIds: string[],
+): Promise<DecisionResult> {
+  return withVerdictWrite(async () => {
+    await clearVerdict(db, mailAccountId, sender);
+    await restoreThreadsToInbox(db, mailAccountId, threadIds);
+  });
+}
+
+/**
+ * Turns a barred domain, a non-Blocked recipient Verdict, or a Blocked-Alias
+ * decision naming the Mail Account's own address (#103) into a `rejected`
+ * outcome rather than a 500. The Client should never have offered a button
+ * for any of these — a domain button for a public provider, a Block-Alias
+ * item for the account's own address — so this is a stale-Client/mistaken-
+ * caller path, not a User-facing flow, but a rejection is still the honest
+ * answer, and ADR-0010's queue already knows how to stop retrying one.
  */
 async function withVerdictWrite(apply: () => Promise<void>): Promise<DecisionResult> {
   try {
@@ -122,23 +198,38 @@ async function withVerdictWrite(apply: () => Promise<void>): Promise<DecisionRes
     if (error instanceof BarredVerdictDomainError) {
       return { ok: false, reason: "barred_verdict_domain" };
     }
+    if (error instanceof PrimaryAddressVerdictError) {
+      return { ok: false, reason: "cannot_block_own_address" };
+    }
+    if (error instanceof RecipientVerdictMustBeBlockedError) {
+      return { ok: false, reason: "recipient_verdict_must_be_blocked" };
+    }
     throw error;
   }
 }
 
 /**
- * Every Thread this sender is currently holding. An `address` decision
- * matches the held address exactly; a `domain` decision matches every held
- * address in that domain, which is the whole point of the overflow
- * convenience — one click for the twelve strangers a conference mailing list
- * just sent through.
+ * Every Thread this decision's key is currently holding. An `address`
+ * decision matches the held sender exactly; a `domain` decision matches
+ * every held sender in that domain, which is the whole point of the
+ * overflow convenience — one click for the twelve strangers a conference
+ * mailing list just sent through. A `recipient` decision (#103's Block
+ * Alias) matches on an entirely different column — `heldRecipientAlias`, not
+ * `heldSender` — because it is answering "what arrived at this Alias",
+ * never "who sent it".
  *
  * `like` with an escaped `@domain` suffix rather than a computed column: the
  * held set is a handful of rows behind a partial index (`db/schema.ts`), so
  * there is nothing here worth denormalizing a domain column for.
  */
-function heldBySender(mailAccountId: string, sender: GatekeeperSender) {
+function heldByGatekeeperKey(mailAccountId: string, sender: GatekeeperSender) {
   const normalized = normalizeGatekeeperSender(sender);
+  if (normalized.scope === "recipient") {
+    return and(
+      eq(threads.mailAccountId, mailAccountId),
+      eq(threads.heldRecipientAlias, normalized.value),
+    );
+  }
   return and(
     eq(threads.mailAccountId, mailAccountId),
     normalized.scope === "address"
@@ -164,40 +255,42 @@ async function releaseHeldThreads(
 ): Promise<string[]> {
   const released = await db
     .update(threads)
-    .set({ heldSender: null, heldAt: null })
-    .where(heldBySender(mailAccountId, sender))
+    .set({ heldSender: null, heldAt: null, heldRecipientAlias: null })
+    .where(heldByGatekeeperKey(mailAccountId, sender))
     .returning({ id: threads.id });
   return released.map((row) => row.id);
 }
 
 /**
- * Deny/Block's shared effect: the held Threads go to Trash, the same way an
- * ordinary `trash` intent takes a Thread there (`sync/mutations.ts`) — the
- * Thread leaves the Inbox synchronously, and the real IMAP `MOVE` follows
- * through the write-through outbox. The hold is cleared in the same step, so
- * a decided sender never leaves a ghost row behind in the Screener.
+ * Deny/Block/Spam's shared effect: the held Threads go to Trash (or, for
+ * Spam, Junk — `target`), the same way an ordinary `trash` intent takes a
+ * Thread to Trash (`sync/mutations.ts`) — the Thread leaves the Inbox
+ * synchronously, and the real IMAP `MOVE` follows through the write-through
+ * outbox. The hold is cleared in the same step, so a decided sender never
+ * leaves a ghost row behind in the Screener.
  *
- * An account with no Trash folder still gets the hold cleared and the Thread
- * out of the Inbox: the decision the User made is recorded either way, and
- * `sync/protocol-writes.ts` has nothing to move it to. That is the one place
- * this differs from the `trash` intent, which rejects outright — a rejected
- * Screener decision would leave the stranger sitting there with no way for
- * the User to make it stick.
+ * An account with no matching folder still gets the hold cleared and the
+ * Thread out of the Inbox: the decision the User made is recorded either
+ * way, and `sync/protocol-writes.ts` has nothing to move it to. That is the
+ * one place this differs from the `trash` intent, which rejects outright — a
+ * rejected Screener decision would leave the stranger sitting there with no
+ * way for the User to make it stick.
  */
 async function trashHeldThreads(
   db: Db,
   mailAccountId: string,
   sender: GatekeeperSender,
+  target: "trash" | "junk",
 ): Promise<void> {
   const held = await db
     .select({ id: threads.id })
     .from(threads)
-    .where(heldBySender(mailAccountId, sender));
+    .where(heldByGatekeeperKey(mailAccountId, sender));
   if (held.length === 0) return;
   const heldThreadIds = held.map((row) => row.id);
 
-  const target = await findFolderByRole(db, mailAccountId, "trash");
-  if (target) {
+  const targetFolder = await findFolderByRole(db, mailAccountId, target);
+  if (targetFolder) {
     const inboxResident = await db
       .select({ id: messages.id })
       .from(messages)
@@ -207,12 +300,18 @@ async function trashHeldThreads(
       db,
       mailAccountId,
       inboxResident.map((row) => row.id),
-      "trash",
+      target,
     );
   }
 
   await db
     .update(threads)
-    .set({ heldSender: null, heldAt: null, inInbox: false, folderRole: "trash" })
+    .set({
+      heldSender: null,
+      heldAt: null,
+      heldRecipientAlias: null,
+      inInbox: false,
+      folderRole: target,
+    })
     .where(inArray(threads.id, heldThreadIds));
 }

@@ -2,10 +2,13 @@ import type { SyncResponse } from "@mail/shared";
 import { labelId } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
+import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
+import { enqueueUserMutation, useMailAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
@@ -22,7 +25,10 @@ import {
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
+import { AccountScope } from "./AccountScope.js";
+import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { useAccountScope } from "./useAccountScope.js";
 
 /** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
 vi.mock("../api/attachments.js", () => ({
@@ -75,14 +81,17 @@ beforeEach(async () => {
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
-  // View mode / Stream mode / last account are Device Preferences stored in
-  // `localStorage` (device-preferences.ts) — never leak one test's choice
-  // into the next.
+  // View mode / last account are Device Preferences stored in `localStorage`
+  // (device-preferences.ts) — never leak one test's choice into the next.
   localStorage.clear();
 });
 
 afterEach(async () => {
   cleanup();
+  // Sonner's toast store is a module-level singleton, outside React — it
+  // outlives `cleanup()`'s unmount, so a toast left over from one test
+  // (its dismiss timer not yet due) would otherwise bleed into the next.
+  toast.dismiss();
   vi.unstubAllGlobals();
   localCache().close();
   for (const name of names.splice(0)) await Dexie.delete(name);
@@ -121,10 +130,29 @@ async function seedTwoThreads(): Promise<void> {
   );
 }
 
-function renderMail() {
+/**
+ * Account Scope's own control lives in the Hub now (#96,
+ * `router/RootLayout.tsx`), a separate component from `MailSection` — this
+ * stands in for it here, wired to the same reactive store
+ * (`useAccountScope.ts`) `MailSection` itself reads, so these tests still
+ * exercise the real production components (`AccountScope.tsx`,
+ * `useAccountScope`) end to end rather than asserting on `MailSection`'s
+ * internals directly. Renders nothing with 0-1 Mail Accounts
+ * (`AccountScope.tsx`'s own guard), so every single-account test above is
+ * unaffected.
+ */
+function AccountScopeHarness() {
+  const mailAccounts = useMailAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(mailAccounts);
+  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+}
+
+function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
   return render(
     <AuthProvider>
-      <MailSection />
+      <AccountScopeHarness />
+      <MailSection {...props} />
+      <Toaster />
     </AuthProvider>,
   );
 }
@@ -220,7 +248,12 @@ describe("MailSection", () => {
     // Split view: list and reading pane both present at once.
     expect(document.querySelector(".split-view")).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    // View mode is a reactive Device Preference now (#99,
+    // `device-preferences.ts#useViewMode`), set from Settings' "This
+    // device" page (`ThisDeviceSection.test.tsx` covers that control) — this
+    // test exercises the storage-level write MailSection subscribes to,
+    // same as a write from that other surface would.
+    act(() => writeViewMode("list"));
     expect(document.querySelector(".split-view")).toBeNull();
 
     // List view: opening a Thread swaps the list for a full-screen detail,
@@ -238,19 +271,21 @@ describe("MailSection", () => {
     expect(document.querySelector(".split-view")).toBeNull();
   });
 
-  it("Stream mode replaces whichever of Split/List is showing, independent of that choice", async () => {
+  it("Stream's own entry point (#105) is a plain navigation, not a view-mode toggle", async () => {
     await seedCachedMail();
     stubFetch(never);
+    const onOpenStream = vi.fn();
 
-    renderMail();
+    renderMail({ onOpenStream });
     await screen.findByText("Last state");
 
-    fireEvent.click(screen.getByRole("button", { name: /Stream mode/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
 
-    // No list at all in Stream mode — straight to the one-thread card.
-    expect(document.querySelector(".split-view")).toBeNull();
-    expect(document.querySelector(".stream-view")).not.toBeNull();
-    expect(await screen.findByText("Snippet t1")).toBeDefined();
+    // Unlike the retired Stream mode toggle, this never swaps what Mail is
+    // showing — it hands off to whoever owns navigation (`router/MailRoute.tsx`
+    // in production), landing on Stream's own route.
+    expect(onOpenStream).toHaveBeenCalledOnce();
+    expect(document.querySelector(".split-view")).not.toBeNull();
   });
 
   it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {
@@ -483,7 +518,7 @@ describe("MailSection", () => {
     });
 
     expect(await screen.findByText("Newer thread")).toBeDefined();
-    expect(screen.getByRole("status").textContent).toBe("Couldn't archive — restored to the list.");
+    expect(await screen.findByText("Couldn't archive — restored to the list.")).toBeDefined();
   });
 
   it("selecting an unread Thread marks it read; the Mark unread button toggles it back (#42)", async () => {
@@ -528,14 +563,20 @@ describe("MailSection", () => {
     await waitFor(() => expect(screen.getByText("Nothing open")).toBeDefined());
   });
 
-  it("the auto-advance direction toggle in the top bar flips trash's neighbor choice", async () => {
+  it("the auto-advance direction preference flips trash's neighbor choice", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
     renderMail();
     await screen.findByText("Newer thread");
-    fireEvent.click(screen.getByRole("button", { name: /Next: Older/ }));
-    expect(await screen.findByRole("button", { name: /Next: Newer/ })).toBeDefined();
+    // The direction toggle moved into Settings' General page (#99,
+    // `GeneralSection.test.tsx` covers that control) — it writes the same
+    // synced `Preference` mutation this exercises directly, the way
+    // `usePreference`'s `base ⊕ pending` overlay picks it up instantly
+    // regardless of which surface enqueued it.
+    await act(() =>
+      enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "newer" }),
+    );
 
     // Open the *older* Thread and trash it — with direction flipped to
     // "newer", the newer Thread (the only remaining neighbor either way
@@ -609,7 +650,40 @@ describe("MailSection", () => {
     });
 
     expect(await screen.findByText("Newer thread")).toBeDefined();
-    expect(screen.getByRole("status").textContent).toBe("Couldn't snooze — restored to the list.");
+    expect(await screen.findByText("Couldn't snooze — restored to the list.")).toBeDefined();
+  });
+
+  it("right-clicking a row opens the Action registry's menu, and Trash — which has no row control at all — works from it (#94)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+
+    fireEvent.contextMenu(row);
+
+    // The menu names the Thread it is about, and lists Trash with its own
+    // keycap — the action #66 deliberately gave no hover or swipe control,
+    // which on touch makes this menu the only way to reach it.
+    const trash = await screen.findByRole("menuitem", { name: /Move to Trash/ });
+    expect(trash.textContent).toContain("#");
+    fireEvent.click(trash);
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+  });
+
+  it("a row's menu acts on the row it was raised on, not on whatever is selected (#94)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    // Open the *newer* Thread, then raise the older row's own menu.
+    fireEvent.click(await screen.findByText("Newer thread"));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Older thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Mark Done/ }));
+
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    expect(screen.getByRole("option", { name: /Newer thread/ })).toBeDefined();
   });
 });
 
@@ -689,14 +763,14 @@ describe("Sidebar (#74)", () => {
 });
 
 describe("MailSection", () => {
-  it("lists a synced Label in the filter-by-label picker, hidden entirely when there are none", async () => {
+  it("lists a synced Label in the Sidebar, hidden entirely when there are none (#96: the top bar's own picker is gone, redundant with this)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
     const { unmount } = renderMail();
     await screen.findByText("Newer thread");
-    // No Labels synced yet — the picker doesn't show at all.
-    expect(screen.queryByLabelText("Filter by label")).toBeNull();
+    // No Labels synced yet — the Sidebar's "Labels" section doesn't show at all.
+    expect(screen.queryByText("Labels")).toBeNull();
     unmount();
     cleanup();
 
@@ -707,12 +781,10 @@ describe("MailSection", () => {
     );
     renderMail();
     await screen.findByText("Newer thread");
-    const filter = await screen.findByLabelText<HTMLSelectElement>("Filter by label");
-    expect(screen.getByRole("option", { name: "Work" })).toBeDefined();
-    expect(filter.value).toBe(""); // "All mail" by default
+    expect(await screen.findByRole("button", { name: "Work" })).toBeDefined();
   });
 
-  it("applies and removes a Label from the keyboard, and the filter-by-label view narrows the corpus (#43)", async () => {
+  it("applies and removes a Label from the keyboard, and selecting it in the Sidebar narrows the corpus (#43, #96)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -729,19 +801,19 @@ describe("MailSection", () => {
     const detail = document.querySelector(".thread-detail") as HTMLElement;
     expect(await within(detail).findByText("Work", { selector: ".label-chip" })).toBeDefined();
 
-    // The filter-by-label picker in the top bar already lists it (derived
-    // from the Thread's own overlay, not a round trip through the `Label`
-    // collection) and filtering to it narrows the corpus.
-    const filter = await screen.findByLabelText<HTMLSelectElement>("Filter by label");
-    expect(screen.getByRole("option", { name: "Work" })).toBeDefined();
-    fireEvent.change(filter, { target: { value: labelId("acct-1", "Work") } });
+    // The Sidebar's own Labels list already shows it (derived from the
+    // Thread's own overlay, not a round trip through the `Label`
+    // collection) — selecting it narrows the corpus (#96: the top bar's own
+    // filter-by-label picker is gone, redundant with this).
+    fireEvent.click(await screen.findByRole("button", { name: "Work" }));
     await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
     expect(screen.getByText("Newer thread")).toBeDefined();
 
-    // Back to "All mail" (switching the filter clears the selection) and
-    // reopen the Thread so its detail pane stays reachable once the Label
-    // currently filtering it to view is removed.
-    fireEvent.change(filter, { target: { value: "" } });
+    // Back to Inbox (selecting a folder clears the Label filter, same as the
+    // old "All mail" option did) and reopen the Thread so its detail pane
+    // stays reachable once the Label currently filtering it to view is
+    // removed.
+    fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
     fireEvent.click(await screen.findByText("Newer thread"));
     const reopenedDetail = document.querySelector(".thread-detail") as HTMLElement;
 
@@ -942,6 +1014,33 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
     // Marking read never removes a row from the list.
     expect(screen.getByText("Thread A")).toBeDefined();
     expect(screen.getByText("Thread B")).toBeDefined();
+  });
+
+  it("right-clicking the Time Group header offers the same three actions its cluster does (#94)", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+
+    const header = within(screen.getByRole("listbox")).getByText("Today");
+    fireEvent.contextMenu(header);
+
+    expect(await screen.findByRole("menuitem", { name: "Mark Today read" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Collapse group/ })).toBeDefined();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Done with Today" }));
+
+    await waitFor(() => {
+      const batchCall = calls.find((call) => call.url === "/bulk-triage/batch");
+      expect((batchCall?.body as { action: string })?.action).toBe("done");
+    });
   });
 
   it("names the failed account and reason on a partial failure", async () => {

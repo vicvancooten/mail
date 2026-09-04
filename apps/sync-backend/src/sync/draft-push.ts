@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, isNotNull, lte } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import { buildDraftMime } from "../compose/draft-mime.js";
 import type { Db } from "../db/client.js";
@@ -135,4 +135,75 @@ async function pushOne(
 async function uidStillExists(client: ImapFlow, uid: number): Promise<boolean> {
   const result = await client.fetchOne(String(uid), { uid: true }, { uid: true });
   return result !== false;
+}
+
+/**
+ * Discarded Compositions (#101) whose IMAP Drafts copy is still live — the
+ * async half of Delete, picked up by whichever loop next connects to this
+ * Mail Account (`sync/draft-push-loop.ts`, "within the push interval").
+ * `imap_draft_uid` is the whole of the candidate test: `expungeDraftCopy`
+ * below clears it the moment the copy is actually gone, so a row drops out
+ * of this query for good the same tick it's handled — no separate flag
+ * needed.
+ */
+export async function pendingDraftDiscards(
+  db: Db,
+  mailAccountId: string,
+): Promise<CompositionRow[]> {
+  return db
+    .select()
+    .from(compositions)
+    .where(
+      and(
+        eq(compositions.mailAccountId, mailAccountId),
+        eq(compositions.status, "discarded"),
+        isNotNull(compositions.imapDraftUid),
+      ),
+    );
+}
+
+/**
+ * Expunges every discarded Composition's Drafts copy for one Mail Account,
+ * over an already-connected client — `draft-push-loop.ts`'s own connection,
+ * shared with the ordinary push so Delete costs no extra IMAP round trip on
+ * an account with both kinds of work pending.
+ */
+export async function expungeDiscardedDrafts(
+  db: Db,
+  client: ImapFlow,
+  mailAccountId: string,
+): Promise<number> {
+  const candidates = await pendingDraftDiscards(db, mailAccountId);
+  for (const row of candidates) {
+    await expungeDraftCopy(db, client, row);
+  }
+  return candidates.length;
+}
+
+/**
+ * Drops one Composition's own copy from `Drafts`. Guarded by the same "one
+ * UID per Composition" rule the push uses (ADR-0012): only the UID this
+ * Composition owns is ever deleted, and a UID that no longer resolves is
+ * left alone rather than guessed at. Shared by `compose/send-sweeper.ts`'s
+ * own `Sent`-APPEND step and `expungeDiscardedDrafts` above (#101) — one
+ * expunge implementation, two callers.
+ */
+export async function expungeDraftCopy(
+  db: Db,
+  client: ImapFlow,
+  row: CompositionRow,
+): Promise<void> {
+  if (row.imapDraftUid === null) return;
+  const drafts = await findFolderByRole(db, row.mailAccountId, "drafts");
+  if (!drafts) return;
+  const lock = await client.getMailboxLock(drafts.path);
+  try {
+    await client.messageDelete(String(row.imapDraftUid), { uid: true }).catch(() => undefined);
+  } finally {
+    lock.release();
+  }
+  await db
+    .update(compositions)
+    .set({ imapDraftUid: null, pushedContentHash: null })
+    .where(eq(compositions.id, row.id));
 }

@@ -23,6 +23,7 @@ describe("buildTokensCss", () => {
     expect(root).toContain("--hairline: 1px;");
     expect(root).toContain("--shadow-overlay:");
     expect(root).toContain("--shadow-header:");
+    expect(root).toContain("--shadow-card:");
   });
 
   it("overrides colours for an OS dark preference, guarded against an explicit .light", () => {

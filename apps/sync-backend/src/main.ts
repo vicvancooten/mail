@@ -4,6 +4,7 @@ import { startSendLoop } from "./compose/send-loop.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
+import { GENERATE_VAPID_KEYS_COMMAND, isSecureContext } from "./instance-info.js";
 import type { SendPushFn } from "./notifier/deliver.js";
 import { startNotifierDeliverLoop } from "./notifier/deliver-loop.js";
 import { createWebPushSender } from "./notifier/web-push-sender.js";
@@ -64,7 +65,22 @@ const app = buildApp({
   attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
   syncHints,
   vapidPublicKey,
+  imageTag: env.MAIL_VERSION,
 });
+
+// Boot-time warnings for the two ways Web Push (and, for the second, also
+// passkeys) can end up silently absent (#104, grill Q21/Q32) — the Owner's
+// other way to learn these facts, alongside the Instance page's own
+// `GET /instance/health` (`routes/instance.js`), which states the same two
+// facts in the same words rather than requiring a log dig.
+if (!vapidPublicKey) {
+  app.log.warn(`Web Push disabled: generate keys with \`${GENERATE_VAPID_KEYS_COMMAND}\``);
+}
+if (!isSecureContext(env.PUBLIC_URL)) {
+  app.log.warn(
+    "PUBLIC_URL is not a secure context (http:// on a non-localhost host): push and passkeys will not work from other devices.",
+  );
+}
 
 // One-time first-run claim token, printed to the logs (ADR-0009 deployment).
 // A no-op once an Owner already exists.

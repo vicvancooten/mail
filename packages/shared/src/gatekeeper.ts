@@ -95,8 +95,18 @@ export function isBarredVerdictDomain(domain: string): boolean {
 export const gatekeeperVerdictSchema = z.enum(["unscreened", "approved", "blocked"]);
 export type GatekeeperVerdict = z.infer<typeof gatekeeperVerdictSchema>;
 
-/** A stored Verdict's granularity. `address` always wins over `domain` — see `resolveVerdict` in the Sync Backend. */
-export const gatekeeperScopeSchema = z.enum(["address", "domain"]);
+/**
+ * A stored Verdict's granularity. `address` always wins over `domain` — see
+ * `resolveVerdict` in the Sync Backend. `recipient` (#103, CONTEXT.md's
+ * Blocked Alias, ADR-0008's amendment) is the third and last: keyed not to
+ * who sent a message but to the Alias of the User's own it *arrived at*, and
+ * it beats both of the others — an Alias the User has given up on silences
+ * every sender, including one an `address`/`domain` Verdict has Approved.
+ * Blocked only; the Sync Backend refuses any other Verdict at this scope
+ * (`gatekeeper/verdicts.ts#setVerdict`) the same way it refuses a barred
+ * domain.
+ */
+export const gatekeeperScopeSchema = z.enum(["address", "domain", "recipient"]);
 export type GatekeeperScope = z.infer<typeof gatekeeperScopeSchema>;
 
 /**
@@ -110,10 +120,17 @@ export type GatekeeperScope = z.infer<typeof gatekeeperScopeSchema>;
 export const gatekeeperVerdictSourceSchema = z.enum(["seed", "sent", "screener", "settings"]);
 export type GatekeeperVerdictSource = z.infer<typeof gatekeeperVerdictSourceSchema>;
 
-/** What a Verdict is keyed to: one address, or a whole domain. */
+/**
+ * What a Verdict is keyed to: one address, a whole domain, or (Blocked only)
+ * a recipient Alias. Still named `GatekeeperSender` rather than something
+ * more neutral — every caller of `blockSender`/`unblockSender`/
+ * `unblockAndRestore` already reads `sender`, and `recipient` scope rides
+ * exactly the same shape (`value` is the Alias) rather than a parallel field,
+ * per #103's own decision to make this a third scope and not a fourth type.
+ */
 export const gatekeeperSenderSchema = z.object({
   scope: gatekeeperScopeSchema,
-  /** An address for `address` scope, a bare domain for `domain` scope — normalized by `normalizeGatekeeperSender`. */
+  /** An address for `address` scope, a bare domain for `domain` scope, a normalized Alias address for `recipient` scope — normalized by `normalizeGatekeeperSender`. */
   value: z.string().trim().min(1),
 });
 export type GatekeeperSender = z.infer<typeof gatekeeperSenderSchema>;
@@ -158,15 +175,27 @@ export type GatekeeperSettings = z.infer<typeof gatekeeperSettingsSchema>;
 
 /**
  * One row of the Blocked Senders list (poc-spec.md: "a Blocked Senders list
- * handles unblocking"). Read through `GET /mail-accounts/:id/gatekeeper`
- * rather than synced: the list is small, only Settings renders it, and it
- * has no optimistic-overlay story worth a collection.
+ * handles unblocking") — or, at `scope: "recipient"`, one row of the
+ * Blocked Aliases list beside it (#103, CONTEXT.md's Blocked Alias). Read
+ * through `GET /mail-accounts/:id/gatekeeper` rather than synced: the list
+ * is small, only Settings renders it, and it has no optimistic-overlay story
+ * worth a collection.
  */
 export const blockedSenderSchema = z.object({
   scope: gatekeeperScopeSchema,
   value: z.string(),
   source: gatekeeperVerdictSourceSchema,
   decidedAt: z.iso.datetime(),
+  /**
+   * Spam (CONTEXT.md, ADR-0008 amendment): a Block that additionally moves
+   * held and future mail to the Mail Account's Junk folder instead of Trash,
+   * so the provider's own filter learns. Recorded alongside `blocked` rather
+   * than as a fourth Verdict value — Spam *is* a Block for every purpose a
+   * `GatekeeperVerdict` answers (resolution, image-loading permission),
+   * this flag is only ever consulted to pick Trash vs. Junk as the
+   * destination.
+   */
+  spam: z.boolean(),
 });
 export type BlockedSender = z.infer<typeof blockedSenderSchema>;
 

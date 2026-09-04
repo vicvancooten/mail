@@ -58,22 +58,38 @@ async function readComposition(id: string | null): Promise<CachedComposition | u
 }
 
 /**
- * The Drafts sidebar view (#74): every Composition of this Mail Account
- * still in `status: "draft"` — ADR-0012's "one status that means editable"
- * is exactly what this view lists, newest-first. Deliberately excludes the
- * in-flight statuses (`pending`/`submitting`): a Pending Send is no longer a
- * Draft, it's on its way out (`PendingSendBar` is where that renders), and
- * `sent`/`failed` (reserved) are settled either way.
+ * The Drafts sidebar view (#74, #101): every Composition still in
+ * `status: "draft"` — ADR-0012's "one status that means editable" is exactly
+ * what this view lists, newest-first. Deliberately excludes the in-flight
+ * statuses (`pending`/`submitting`): a Pending Send is no longer a Draft,
+ * it's on its way out (`PendingSendBar` is where that renders), and
+ * `sent`/`failed`/`discarded` are settled either way.
+ *
+ * `mailAccountId` is Account Scope (#73, #101) the same way
+ * `reads.ts#useThreadWindow`'s own doc comment describes: an array merges
+ * every named account's Drafts into one newest-first list, so the Drafts
+ * view spans the current Scope rather than only the primary account. The
+ * dependency list keys off the joined ids, matching `useThreadWindow`'s own
+ * reasoning for why.
  */
 export function useDraftCompositions(
-  mailAccountId: string | null,
+  mailAccountId: string | readonly string[] | null,
 ): CachedComposition[] | undefined {
-  return useLiveQuery(() => readDraftCompositions(mailAccountId), [mailAccountId]);
+  const ids: readonly string[] =
+    mailAccountId === null ? [] : Array.isArray(mailAccountId) ? mailAccountId : [mailAccountId];
+  const key = ids.join(",");
+  return useLiveQuery(() => readDraftCompositions(ids), [key]);
 }
 
-async function readDraftCompositions(mailAccountId: string | null): Promise<CachedComposition[]> {
-  if (mailAccountId === null) return [];
-  const rows = await localCache().compositions.where({ mailAccountId, status: "draft" }).toArray();
+export async function readDraftCompositions(
+  mailAccountIds: readonly string[],
+): Promise<CachedComposition[]> {
+  if (mailAccountIds.length === 0) return [];
+  const rows = await localCache()
+    .compositions.where("mailAccountId")
+    .anyOf(mailAccountIds)
+    .filter((row) => row.status === "draft")
+    .toArray();
   return rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
@@ -351,6 +367,66 @@ async function setSendState(id: string, sendState: CachedComposition["sendState"
     const row = await db.compositions.get(id);
     if (row) await db.compositions.put({ ...row, sendState });
   });
+}
+
+async function setCompositionStatus(
+  id: string,
+  status: CachedComposition["status"],
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", db.compositions, async () => {
+    const row = await db.compositions.get(id);
+    if (row) await db.compositions.put({ ...row, status });
+  });
+}
+
+/**
+ * Delete (#101, ADR-0012's "deletion is asymmetric"). Optimistic the same
+ * way `useTriage.ts`'s `archive`/`trash` are: the row's `status` flips to
+ * `discarded` — which is the whole of what `useDraftCompositions` filters
+ * on — the instant this is called, not once the Sync Backend answers.
+ * `enqueueMutation`'s own coalescer (`mutation-queue.ts`'s "discard" bucket)
+ * cancels a still-queued `undiscardComposition` for free (ADR-0019), same
+ * as `sendComposition`/`cancelSend`'s "send" bucket.
+ *
+ * Callers own raising the Undo toast (`Composer.tsx`, mirroring
+ * `screener/Screener.tsx`'s own "the component wires the toast, the store
+ * stays store" posture) — this function only enqueues and flips the row.
+ */
+export async function discardComposition(id: string, mailAccountId: string): Promise<void> {
+  await enqueueMutation({ type: "discardComposition", compositionId: id }, mailAccountId);
+  await setCompositionStatus(id, "discarded");
+}
+
+/** Undo's real inverse (#95, ADR-0019) — see `discardComposition` above. */
+export async function undiscardComposition(id: string, mailAccountId: string): Promise<void> {
+  await enqueueMutation({ type: "undiscardComposition", compositionId: id }, mailAccountId);
+  await setCompositionStatus(id, "draft");
+}
+
+/**
+ * Turns a rejected `discardComposition`/`undiscardComposition` outcome back
+ * into the local `status` (`sync/sync-round.ts` calls this beside
+ * `resolveSendOutcomes`, same per-round pairing). An `applied` outcome needs
+ * nothing here — the same round trip already carries the confirming
+ * `Composition` delta, which is what "lets the server's synced status speak"
+ * means for `resolveSendOutcomes` too. A rejection (the row was no longer a
+ * Draft — sent, or already discarded elsewhere — by the time this reached
+ * the server) reverts the optimistic flip this file made above, rather than
+ * leaving a Draft stuck showing the wrong status until the next full sync.
+ */
+export async function resolveDiscardOutcomes(
+  outcomes: { intent: MutationIntent; status: "applied" | "rejected"; reason?: string }[],
+): Promise<void> {
+  for (const outcome of outcomes) {
+    const intent = outcome.intent;
+    if (intent.type !== "discardComposition" && intent.type !== "undiscardComposition") continue;
+    if (outcome.status === "applied") continue;
+    await setCompositionStatus(
+      intent.compositionId,
+      intent.type === "discardComposition" ? "draft" : "discarded",
+    );
+  }
 }
 
 /**

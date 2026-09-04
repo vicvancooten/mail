@@ -46,6 +46,14 @@ const envSchema = z.object({
   MAIL_VAPID_PRIVATE_KEY: z.string().optional(),
   /** The `mailto:`/`https:` contact `web-push` requires alongside a VAPID keypair (RFC 8292's "sub" claim) — a push service's abuse contact if it ever needs one. */
   MAIL_VAPID_CONTACT: z.string().default("mailto:admin@localhost"),
+  /**
+   * The image tag actually running (#104's Instance page): `compose.yaml`
+   * passes through its own `${MAIL_VERSION:-edge}` — the same variable that
+   * picks which GHCR tag to pull — so the Owner can see what's deployed
+   * without cross-referencing `docker image ls`. `"dev"` outside Docker
+   * (local `pnpm dev`, tests).
+   */
+  MAIL_VERSION: z.string().default("dev"),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -2,17 +2,21 @@ import type { ComposeDocument, MailAccount, Recipient } from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { ChevronDown, ChevronUp, TriangleAlert, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2, TriangleAlert, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl } from "../api/attachments.js";
 import { clearOpenComposerId, writeOpenComposerId } from "../mail/device-preferences.js";
+import { announceUndoableAction } from "../mail/undo-toast.js";
 import {
   type CachedComposition,
   type ComposeContent,
+  discardComposition,
+  isComposeContentEmpty,
   saveComposition,
   sendComposition,
   subscribeComposeConflicts,
+  undiscardComposition,
   useComposition,
 } from "../store/index.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
@@ -62,8 +66,11 @@ export interface ComposerProps {
  * lives on as a Pending Send, and its countdown belongs to `PendingSendBar`,
  * which renders outside any composer precisely because the send survives this
  * component (and this device) being gone. The sending-Mail-Account switcher
- * (#81, `fromChoices` below) is now in scope; the explicit Discard button
- * still isn't (#48).
+ * (#81, `fromChoices` below) is in scope; so is the explicit Discard button
+ * (#101, ADR-0012's "deletion is asymmetric") — see `discard` below, and its
+ * sibling in `flushAndClose`: a Draft with no content discards silently on
+ * close rather than leaving an empty row behind for the Drafts view to show
+ * forever.
  */
 export function Composer({
   compositionId,
@@ -350,11 +357,52 @@ export function Composer({
     // conflict was rejected for, and Esc must not become a silent third way
     // to pick a side.
     if (!hasUnresolvedConflict) {
-      void saveComposition(compositionId, mailAccountId, currentContent());
+      const content = currentContent();
+      // #101: a Draft with no content discards silently on close — no toast,
+      // no Undo, since nothing the User typed is at stake — rather than
+      // `saveComposition` writing an existing row through to blank
+      // (`store/compositions.ts`'s own "that is an ordinary edit, not a
+      // creation") and leaving an empty row for the Drafts view to show
+      // forever. `existing` is the guard for "there is a row to discard at
+      // all" — a composer that never got a keystroke has nothing to close.
+      if (existing && isComposeContentEmpty(content)) {
+        void discardComposition(compositionId, mailAccountId);
+      } else {
+        void saveComposition(compositionId, mailAccountId, content);
+      }
     }
     clearOpenComposerId();
     onClose();
-  }, [compositionId, mailAccountId, currentContent, onClose, hasUnresolvedConflict]);
+  }, [compositionId, mailAccountId, currentContent, onClose, hasUnresolvedConflict, existing]);
+
+  // Whether this row is one Discard can act on at all — a Draft only
+  // (#101): a Pending Send reopened here (`fromChoices`'s own doc comment on
+  // `reopenCompose`) has Cancel Send as its real undo, on `PendingSendBar`,
+  // and a brand-new composer with no row yet has nothing to discard.
+  const canDiscard = existing === undefined || existing.status === "draft";
+
+  /**
+   * The explicit Discard button (#101, ADR-0012's "deletion is asymmetric"):
+   * closes and discards regardless of content, unlike `flushAndClose`'s own
+   * silent empty-only path above. Undo rides the same coalesced toast every
+   * other undoable action does (`undo-toast.ts`) — this component wires it,
+   * the store (`discardComposition`) only enqueues and flips the row, the
+   * same split `screener/Screener.tsx` already uses for Deny/Block.
+   */
+  const discard = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    if (existing) {
+      void discardComposition(compositionId, mailAccountId);
+      announceUndoableAction("discard", () => {
+        void undiscardComposition(compositionId, mailAccountId);
+      });
+    }
+    clearOpenComposerId();
+    onClose();
+  }, [existing, compositionId, mailAccountId, onClose]);
 
   /** "Keep mine" (finding #1): an explicit, User-chosen re-save against the now-corrected version. */
   const keepMine = useCallback(() => {
@@ -452,6 +500,11 @@ export function Composer({
           </span>
         )}
         <div className="composer-header-actions">
+          {canDiscard ? (
+            <button type="button" aria-label="Discard draft" title="Discard" onClick={discard}>
+              <Trash2 size={14} />
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label={expanded ? "Collapse" : "Expand"}

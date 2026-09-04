@@ -133,45 +133,55 @@ export async function messageRoutes(
     },
   );
 
-  app.get(
-    "/messages/:messageId/image-proxy",
-    { preHandler: app.requireAuth },
-    async (request, reply) => {
-      const { messageId } = request.params as { messageId: string };
-      const userId = requireUser(request).id;
-      const query = request.query as { url?: string; sig?: string };
+  // ADR-0018: deliberately **not** `requireAuth`. The reader iframe that
+  // requests this has an opaque origin (no `allow-same-origin`), so the
+  // browser withholds the `SameSite=Lax` session cookie from it — an
+  // authenticated route here 401s every request the sandboxed frame ever
+  // makes. Authorization is the signature itself: a valid, unexpired
+  // `sig` is a bearer token for this one remote image, minted only by a
+  // server that already ran the ordinary `requireAuth`'d thread-messages
+  // read (`rewriteRemoteImageReferences`, above) — there is no user
+  // session left to check by the time a request reaches here.
+  app.get("/messages/:messageId/image-proxy", async (request, reply) => {
+    const { messageId } = request.params as { messageId: string };
+    const query = request.query as { url?: string; sig?: string; exp?: string };
 
-      if (!query.url || !query.sig) {
-        return reply.code(400).send({ error: "invalid_request" });
+    if (!query.url || !query.sig || !query.exp) {
+      return reply.code(400).send({ error: "invalid_request" });
+    }
+
+    // Signature first, row second (ADR-0018: "authorization is the
+    // signature itself"). `verifyImageProxySignature` only ever needs
+    // `messageId` as a string — never the row — so checking it before the
+    // `SELECT` below is free, and it is what keeps this route from
+    // answering an unsigned or forged request with a 404/403 split that
+    // tells an attacker whether a given `messageId` exists at all. The row
+    // read past this point exists only to refuse an image for a message
+    // that's gone (deleted, evicted), never as part of authorization.
+    if (
+      !verifyImageProxySignature(imageProxyKey, messageId, query.url, query.sig, Number(query.exp))
+    ) {
+      return reply.code(403).send({ error: "invalid_signature" });
+    }
+
+    const [row] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+
+    try {
+      const image = await fetchProxiedImage(query.url);
+      reply
+        .header("Content-Type", image.contentType)
+        // Private and short-lived: URLs are re-signed per serve with an
+        // expiry timestamp, so keep cache entries brief.
+        .header("Cache-Control", "private, max-age=60");
+      return reply.send(image.body);
+    } catch (err) {
+      if (err instanceof ImageProxyError) {
+        return reply.code(imageProxyStatus(err.code)).send({ error: err.code });
       }
-
-      const [row] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
-      if (!row) return reply.code(404).send({ error: "not_found" });
-      const account = await getMailAccountForUser(db, userId, row.mailAccountId);
-      if (!account) return reply.code(404).send({ error: "not_found" });
-
-      if (!verifyImageProxySignature(imageProxyKey, messageId, query.url, query.sig)) {
-        return reply.code(403).send({ error: "invalid_signature" });
-      }
-
-      try {
-        const image = await fetchProxiedImage(query.url);
-        reply
-          .header("Content-Type", image.contentType)
-          // Far-future and private: the URL already carries the sender's
-          // original address plus a signature over it, so it is effectively
-          // content-addressed — nothing about this response ever changes for
-          // the same query string (`docs/research/0005` §3).
-          .header("Cache-Control", "private, max-age=604800, immutable");
-        return reply.send(image.body);
-      } catch (err) {
-        if (err instanceof ImageProxyError) {
-          return reply.code(imageProxyStatus(err.code)).send({ error: err.code });
-        }
-        throw err;
-      }
-    },
-  );
+      throw err;
+    }
+  });
 }
 
 function imageProxyStatus(code: ImageProxyError["code"]): number {
@@ -285,6 +295,10 @@ function toWireMessage(
       row.bodyHtml === null
         ? null
         : rewriteRemoteImageReferences(row.bodyHtml, { messageId: row.id, key: imageProxyKey }),
+    // `null` (a body fetched before this column existed) reads as `false` —
+    // the pre-existing "HTML fills the pane" behavior, never narrowed
+    // without positive evidence the sender actually sent plain text only.
+    bodyIsPlainText: row.bodyIsPlainText ?? false,
     remoteImagesAllowed,
   });
 }

@@ -1,16 +1,31 @@
 /**
- * View mode, Stream mode, and last-active Mail Account are all **Device
- * Preferences** (CONTEXT.md): they deliberately never sync, because they
- * mean something different on each device. #54 builds the formal Device
- * Preferences seam; until then this is a plain `localStorage` stand-in —
- * still device-local, still never synced, just not routed through a
- * settings collection yet.
+ * View mode and last-active Mail Account are both **Device Preferences**
+ * (CONTEXT.md): they deliberately never sync, because they mean something
+ * different on each device. #54 builds the formal Device Preferences seam;
+ * until then this is a plain `localStorage` stand-in — still device-local,
+ * still never synced, just not routed through a settings collection yet.
+ *
+ * Stream mode (a Split/List toggle, `mail.devicePref.streamMode`) lived here
+ * too until #105 redefined Stream as its own full-screen route
+ * (`router/routes.tsx#streamRoute`) rather than a view mode — there is
+ * nothing left to prefer, so the key and its read/write pair are retired
+ * along with it.
  *
  * Every read/write is wrapped: `localStorage` can throw (private browsing,
  * a full quota, a disabled setting), and a lost preference costs nothing
  * more than falling back to the default — never worth surfacing as an
  * error on a triage surface that is silent when healthy.
+ *
+ * View mode, list density and sidebar-collapsed are reactive (#99): each
+ * gets a `use*` hook built on `useSyncExternalStore`, the same shape
+ * `theme/device-theme.ts#useAppearance` already established — a write from
+ * `mail/TopBar.tsx`/`Sidebar.tsx` and one from Settings' "This device" page
+ * reach every mounted subscriber the same instant, so the two surfaces can
+ * never drift out of sync (the reason this ticket exists: `SettingsSection`
+ * used to have no reactive subscription to these at all).
  */
+
+import { useCallback, useSyncExternalStore } from "react";
 
 export type ViewMode = "split" | "list";
 export const DEFAULT_VIEW_MODE: ViewMode = "split";
@@ -20,7 +35,6 @@ export type ListDensity = "comfortable" | "compact";
 export const DEFAULT_LIST_DENSITY: ListDensity = "comfortable";
 
 const VIEW_MODE_KEY = "mail.devicePref.viewMode";
-const STREAM_MODE_KEY = "mail.devicePref.streamMode";
 const OPEN_COMPOSER_KEY = "mail.devicePref.openComposerId";
 const LIST_DENSITY_KEY = "mail.devicePref.listDensity";
 
@@ -45,8 +59,23 @@ export function readViewMode(): ViewMode {
   return stored === "split" || stored === "list" ? stored : DEFAULT_VIEW_MODE;
 }
 
+const viewModeListeners = new Set<() => void>();
+
 export function writeViewMode(mode: ViewMode): void {
   writeStorage(VIEW_MODE_KEY, mode);
+  for (const listener of viewModeListeners) listener();
+}
+
+function subscribeViewMode(listener: () => void): () => void {
+  viewModeListeners.add(listener);
+  return () => viewModeListeners.delete(listener);
+}
+
+/** Reactive pair for View mode (Split/List) — read by `mail/MailSection.tsx`, written from there and from `settings/ThisDeviceSection.tsx`; both stay in sync. */
+export function useViewMode(): [ViewMode, (mode: ViewMode) => void] {
+  const mode = useSyncExternalStore(subscribeViewMode, readViewMode, () => DEFAULT_VIEW_MODE);
+  const setMode = useCallback((next: ViewMode) => writeViewMode(next), []);
+  return [mode, setMode];
 }
 
 export function readListDensity(): ListDensity {
@@ -54,16 +83,64 @@ export function readListDensity(): ListDensity {
   return stored === "comfortable" || stored === "compact" ? stored : DEFAULT_LIST_DENSITY;
 }
 
+const listDensityListeners = new Set<() => void>();
+
 export function writeListDensity(density: ListDensity): void {
   writeStorage(LIST_DENSITY_KEY, density);
+  for (const listener of listDensityListeners) listener();
 }
 
-export function readStreamMode(): boolean {
-  return readStorage(STREAM_MODE_KEY) === "1";
+function subscribeListDensity(listener: () => void): () => void {
+  listDensityListeners.add(listener);
+  return () => listDensityListeners.delete(listener);
 }
 
-export function writeStreamMode(enabled: boolean): void {
-  writeStorage(STREAM_MODE_KEY, enabled ? "1" : "0");
+/** Reactive pair for list density — read by `mail/MailSection.tsx`, written from there and from `settings/ThisDeviceSection.tsx`; both stay in sync. */
+export function useListDensity(): [ListDensity, (density: ListDensity) => void] {
+  const density = useSyncExternalStore(
+    subscribeListDensity,
+    readListDensity,
+    () => DEFAULT_LIST_DENSITY,
+  );
+  const setDensity = useCallback((next: ListDensity) => writeListDensity(next), []);
+  return [density, setDensity];
+}
+
+/**
+ * Whether the folder rail (`mail/Sidebar.tsx`, shadcn's `Sidebar` with
+ * `collapsible="icon"` since #93) is collapsed to icons-only (#99): a
+ * Device Preference — a phone and a widescreen monitor want different
+ * answers — set from `settings/ThisDeviceSection.tsx` *or* the rail's own
+ * collapse toggle, and read reactively by every mounted `SidebarProvider`
+ * the instant either writes, same shape as view mode/density above (and
+ * Appearance's `theme/device-theme.ts`).
+ */
+const SIDEBAR_COLLAPSED_KEY = "mail.devicePref.sidebarCollapsed";
+
+export function readSidebarCollapsed(): boolean {
+  return readStorage(SIDEBAR_COLLAPSED_KEY) === "1";
+}
+
+const sidebarCollapsedListeners = new Set<() => void>();
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  writeStorage(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  for (const listener of sidebarCollapsedListeners) listener();
+}
+
+function subscribeSidebarCollapsed(listener: () => void): () => void {
+  sidebarCollapsedListeners.add(listener);
+  return () => sidebarCollapsedListeners.delete(listener);
+}
+
+export function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
+  const collapsed = useSyncExternalStore(
+    subscribeSidebarCollapsed,
+    readSidebarCollapsed,
+    () => false,
+  );
+  const setCollapsed = useCallback((next: boolean) => writeSidebarCollapsed(next), []);
+  return [collapsed, setCollapsed];
 }
 
 /**
@@ -85,9 +162,7 @@ export type AccountScope = readonly string[];
 
 const ACCOUNT_SCOPE_KEY = "mail.devicePref.accountScope";
 
-/** The stored Scope verbatim, or `null` if never set or unreadable — callers resolve that against the live account list (`resolveAccountScope`), never render it directly. */
-export function readAccountScope(): AccountScope | null {
-  const stored = readStorage(ACCOUNT_SCOPE_KEY);
+function parseAccountScope(stored: string | null): AccountScope | null {
   if (!stored) return null;
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -98,10 +173,41 @@ export function readAccountScope(): AccountScope | null {
   }
 }
 
+// `readAccountScope` is `useAccountScope.ts`'s own `useSyncExternalStore`
+// snapshot (#96) — React's contract there requires it to return the *same*
+// reference across calls when nothing actually changed, or every render
+// schedules another ("Maximum update depth exceeded"). A bare
+// `JSON.parse` would fail that: it returns a fresh array every call even
+// when the underlying string didn't move. Cached on the raw string itself
+// (not just "have we read since the last write") so an external
+// `localStorage.clear()` — every test file's own `afterEach` — is picked
+// up too, not just this module's own `writeAccountScope`.
+let cachedRaw: string | null | undefined;
+let cachedParsed: AccountScope | null = null;
+
+/** The stored Scope verbatim, or `null` if never set or unreadable — callers resolve that against the live account list (`resolveAccountScope`), never render it directly. */
+export function readAccountScope(): AccountScope | null {
+  const stored = readStorage(ACCOUNT_SCOPE_KEY);
+  if (stored !== cachedRaw) {
+    cachedRaw = stored;
+    cachedParsed = parseAccountScope(stored);
+  }
+  return cachedParsed;
+}
+
 /** Scope "cannot be emptied" (#73's acceptance criteria) — a no-op guard here too, so a caller that skips the UI-level guard can't wipe a device's Scope preference by accident. */
 export function writeAccountScope(accountIds: AccountScope): void {
   if (accountIds.length === 0) return;
   writeStorage(ACCOUNT_SCOPE_KEY, JSON.stringify(accountIds));
+  for (const listener of accountScopeListeners) listener();
+}
+
+const accountScopeListeners = new Set<() => void>();
+
+/** Reactive subscription for the stored Scope (#96): the control moved from `mail/TopBar.tsx` into the Hub (`RootLayout.tsx`), while `MailSection.tsx` still resolves it against its own `mailAccounts` to filter the Thread list — same "one write reaches every mounted subscriber" shape as view mode/density/sidebar-collapsed above, or the two would drift the instant they're rendered by two different components. */
+export function subscribeAccountScope(listener: () => void): () => void {
+  accountScopeListeners.add(listener);
+  return () => accountScopeListeners.delete(listener);
 }
 
 /**

@@ -52,8 +52,7 @@
  * standalone app clear of a notch/home-indicator, so these are
  * unconditionally safe additions rather than a `display-mode: standalone`
  * media query around every one of them. */
-.thread-list,
-.stream-view {
+.thread-list {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -68,190 +67,23 @@
 }
 
 /* ============================================================================
-   MAIL'S TOOLBAR — the App's own view controls (#86)
-   The comp's global header carries four things (App Switcher, one centred
-   search entry, appearance, avatar) and none of the controls below; see
-   `TopBar.tsx`'s own doc comment for why they live in a second, quieter bar
-   here instead. The control language is the comp's: `--radius-md` icon
-   buttons, transparent at rest, `--color-hover` under the pointer,
-   `--color-accent-soft` with accent ink when current. No compartments, no
-   dividers, no uppercase letterspaced plates.
+   MAIL'S SEARCH BAR (#96)
+   `mail/TopBar.tsx` is gone entirely — Account Scope moved into the Hub
+   (`router/shell.css`'s own Account Scope block), the label filter and
+   Screener chip were dropped as redundant with the Sidebar's Labels/Screener
+   entries, and Stream's toggle moved to the Sidebar (`.stream-toggle`
+   below). All that's left here is the search field itself
+   (`search/SearchField.tsx`), so this is a slim strip around one control,
+   not the row of view-mode toggles the ticket's acceptance box removes.
    ========================================================================= */
 
-.mail-toolbar {
+.mail-search-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 8px 14px;
   padding-left: calc(14px + env(safe-area-inset-left));
   padding-right: calc(14px + env(safe-area-inset-right));
   background: var(--color-bg);
-}
-
-/* Split/List: two buttons that sit together as one choice, spaced rather
-   than divided — the gap between groups is what separates them from the
-   toggles beside them. */
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  transition: opacity var(--dur-fast) var(--ease);
-}
-
-/* Stream mode or search has taken the view over; the underlying Split/List
-   choice stays visible and selectable, just no longer in charge. */
-.toolbar-group.muted {
-  opacity: 0.45;
-}
-
-.toolbar-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-
-.toolbar-btn:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.toolbar-btn.current {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-
-/* The label filter (#43): a field, not a routing slip — same fill as every
-   other control's rest state, and it only exists once the account has a
-   Label to filter by. */
-.toolbar-select {
-  height: 32px;
-  max-width: 180px;
-  padding: 0 8px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--color-field);
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.toolbar-select:hover {
-  background: var(--color-field-strong);
-}
-
-/* The Screener entry (#56): the one place `--color-warn` reaches the triage
-   screen, as a soft tinted chip — a count worth a click, not an alert. */
-.screener-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
-  height: 32px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: color-mix(in oklab, var(--color-warn) 15%, transparent);
-  color: var(--color-warn);
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 12.5px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.screener-chip:hover {
-  background: color-mix(in oklab, var(--color-warn) 24%, transparent);
-}
-
-.toolbar-spacer {
-  flex: 1;
-}
-
-/* Account Scope (#73): stacked round avatars that disclose a checkbox per
-   Mail Account — the multi-select the single `<select>` it replaced
-   (`AccountSwitcher`, #40) couldn't express. */
-.account-scope {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.account-scope-toggle {
-  display: flex;
-  align-items: center;
-  padding: 3px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  cursor: pointer;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.account-scope-toggle:hover,
-.account-scope-toggle[aria-expanded="true"] {
-  background: var(--color-hover);
-}
-
-.account-scope-avatars {
-  display: flex;
-}
-
-/* Each tile is knocked out of the bar's own ground, so a stack of them
-   reads as overlapping discs rather than as one blurred shape. */
-.account-scope-avatars .mail-avatar {
-  width: 24px;
-  height: 24px;
-  font-size: 9px;
-  box-shadow: 0 0 0 2px var(--color-bg);
-}
-
-.account-scope-avatars .mail-avatar-wrap + .mail-avatar-wrap {
-  margin-left: -8px;
-}
-
-.account-scope-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 220px;
-  margin: 0;
-  padding: 10px 12px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-overlay);
-}
-
-.account-scope-panel legend {
-  padding: 0 0 4px;
-  color: var(--color-ink-faint);
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.account-scope-panel label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-ink);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 /* ============================================================================
@@ -276,10 +108,6 @@
   display: none;
 }
 
-.side-nav-scrim {
-  display: none;
-}
-
 .side-nav {
   flex: 0 0 auto;
   width: 216px;
@@ -290,6 +118,56 @@
   overflow-y: auto;
   min-height: 0;
   background: var(--color-bg);
+  transition: width var(--dur-fast) var(--ease);
+}
+
+/* The icon-rail collapse (#93, shadcn's `Sidebar` with `collapsible="icon"`):
+   the rail narrows to just its icons — every label, the "Labels" heading and
+   each entry's count hide, and `SidebarMenuButton`'s own `tooltip` prop
+   names the entry instead while it's collapsed. */
+.side-nav[data-collapsed="true"] {
+  width: 60px;
+  padding: 0 8px 16px;
+}
+
+.side-nav[data-collapsed="true"] .nav-label,
+.side-nav[data-collapsed="true"] .nav-heading,
+.side-nav[data-collapsed="true"] .nav-count,
+.side-nav[data-collapsed="true"] .compose-btn span {
+  display: none;
+}
+
+.side-nav[data-collapsed="true"] .compose-btn {
+  width: 40px;
+  padding: 0;
+}
+
+.side-nav-collapse-toggle {
+  align-self: flex-end;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 10px 2px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.side-nav-collapse-toggle:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.side-nav[data-collapsed="true"] .side-nav-collapse-toggle {
+  align-self: center;
 }
 
 /* Compose is the one filled control in the App, so it is the one control
@@ -375,6 +253,14 @@
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* Stream's own entry point (#105, started as an interim Split/List toggle
+   in #96): same `.nav-item` control language, set slightly apart from the
+   folder list below it since it navigates to a different route rather than
+   selecting among these destinations. */
+.stream-toggle {
+  margin: 0 0 10px;
 }
 
 .nav-label {
@@ -702,15 +588,70 @@
   color: var(--color-ink);
 }
 
+/* Phone's own entry to Done all / Mark all read / Collapse (#97's grill
+   decision: "no hover — an always-visible small overflow button... opens a
+   Sheet"). Hidden at every width that still has hover to grow the rail's
+   own node into a real target; the narrow-viewport media query below is
+   what actually shows it. */
+.gh-overflow {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.group-header-sheet {
+  padding: 4px 8px;
+}
+
+/* The overflow Sheet's own action list — one full-width row per action,
+   sharing the ground-and-gap posture (rounded, no rule between them) every
+   other list in the app already has. */
+.group-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+}
+
+.group-sheet-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-sheet-action:hover {
+  background: var(--color-hover);
+}
+
 /* ---------- the staggered collapse (#66): "the first ~8 rows stagger out,
  * then the group collapses as one" ---------------------------------------
  * `--group-clear-index` is set inline per row (`VirtualizedThreadList`),
  * capped at the same 8-row stagger — this only ever reads that one number,
- * never re-derives it. Reduced motion is handled globally (`index.css`'s
- * `prefers-reduced-motion` rule collapses every duration to 1ms), not
- * re-implemented here. */
+ * never re-derives it. The duration is `--dur-leave` (#97: this used to be
+ * a hardcoded 220ms, adrift from both the token budget and the 260ms
+ * `MailSection` actually waits before unmounting the row). Reduced motion
+ * is handled globally (`index.css`'s `prefers-reduced-motion` rule
+ * collapses every duration to 1ms), not re-implemented here. */
 .thread-list [data-clearing="true"] {
-  animation: group-row-leave 220ms var(--ease) both;
+  animation: group-row-leave var(--dur-leave) var(--ease) both;
   animation-delay: calc(var(--group-clear-index, 0) * 45ms);
 }
 
@@ -910,13 +851,18 @@
   transform: translate(-50%, -50%) scale(1.12);
 }
 
-/* The spine preview (#66: "hovering the header checkmark previews the whole
-   group's timeline spine and every row's Done action"): one accent line
-   drawn down the gutter of every row in the previewed group — the "spine"
-   is that line, not a novel widget. `ThreadRow`'s `previewArmed` is what
-   sets both this and the row's own armed state. */
+/* The spine preview (#66, #97: "hovering the header checkmark previews the
+   whole group's timeline spine and every row's Done action"): one accent
+   line drawn down the gutter of every row in the previewed group, and the
+   matching segment in the header's own rail — the "spine" is that one
+   line, not two independently-lit ones. Both sides key off the *node's*
+   own hover/focus, never the cluster's broader `data-armed` (#97 bug: a
+   header armed by hovering its label alone used to light the spine with
+   no row segments to match) — `GroupHeaderCluster`'s own `data-group-
+   preview` mirrors the `onPreview` callback that already drives
+   `ThreadRow`'s `previewArmed`, so header and rows always agree. */
 .thread-row[data-group-preview="true"] .row-check::before,
-.group-header-cluster[data-armed="true"] .gh-rail::before {
+.group-header-cluster[data-group-preview="true"] .gh-rail::before {
   opacity: 1;
 }
 
@@ -1262,39 +1208,11 @@
 }
 
 /* ---------- the two small popovers: Snooze (#76) and Label (#43) --------
- * Both float, so both take the one shadow — panels on `--color-surface` with
- * the panel radius and no hairline round them, holding rows in the same
- * `--radius-row` menu-item language the Command Palette uses. */
-
-/* `ThreadDetailPane`'s own anchor (#79's `h` binding) — `ThreadRow`'s row
-   actions anchor the same popover off `.thread-row-outer` instead (above). */
-.snooze-menu-anchor,
-.label-picker-anchor {
-  position: relative;
-  display: inline-flex;
-}
-
-.snooze-menu,
-.label-picker {
-  position: absolute;
-  top: calc(100% + 6px);
-  z-index: 30;
-  padding: 6px;
-  border: none;
-  border-radius: var(--radius-panel);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-overlay);
-}
-
-.snooze-menu {
-  left: 14px;
-  min-width: 200px;
-}
-
-.label-picker {
-  right: 0;
-  min-width: 220px;
-}
+ * Both are shadcn `Popover` content (#93) — a real portal fixes the
+ * clipping a virtualized, transformed row and its `overflow` scroller used
+ * to cause, and the panel chrome (radius, `--shadow-overlay`, `--color-surface`
+ * ground) comes from `PopoverContent` itself rather than from these rules.
+ * What's left here is just the two popovers' shared list/form layout. */
 
 .snooze-menu-list,
 .label-picker-list {
@@ -1421,8 +1339,15 @@
   background: var(--color-bg);
 }
 
+/* The Width decision (#98, grill Q10): the reading header centers at the
+   same 74ch column as the Snippet and a plain-text body, regardless of how
+   wide the HTML body below it fills the pane — `max-width` plus centering,
+   not the padding alone, so it stays a readable column at wide Split-pane
+   widths too. */
 .reading-header {
   flex: none;
+  max-width: 74ch;
+  margin-inline: auto;
   padding: 28px 34px 0;
 }
 
@@ -1597,9 +1522,11 @@
   padding: 0 34px 32px;
 }
 
+/* The Width decision (#98, grill Q10): centered at the same 74ch column as
+   the reading header and a plain-text body, not merely capped. */
 .reading-snippet {
-  margin: 0;
-  max-width: 70ch;
+  margin: 0 auto;
+  max-width: 74ch;
   font-size: 14.5px;
   line-height: 1.7;
   color: var(--color-ink);
@@ -1653,11 +1580,16 @@
    by a rule: the same rule the rest of the surface follows.
    ========================================================================= */
 
+/* The Width decision (#98, grill Q10): the HTML iframe fills the pane and
+   the sender's own document decides its width, same as any other mail
+   client — no `max-width` here any more. A plain-text message (no native
+   HTML alternative) narrows itself back to a centered readable column via
+   `.message-body-frame-plain` below, matching the Snippet and reading
+   header. */
 .message-list {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-width: 74ch;
 }
 
 .message-item {
@@ -1762,6 +1694,15 @@
      change the reader never sees mid-flight. */
 }
 
+/* A plain-text message (`Message.bodyIsPlainText` — no native HTML
+   alternative) reads as a centered column instead of filling the pane
+   (#98, grill Q10): there is no sender-authored layout here to defer to,
+   just `plainTextToHtml`'s escaped, `<br />`-joined lines. */
+.message-body-frame-plain {
+  max-width: 74ch;
+  margin-inline: auto;
+}
+
 .attachment-list {
   display: flex;
   flex-wrap: wrap;
@@ -1830,57 +1771,8 @@
   font-size: 12px;
 }
 
-/* ============================================================================
-   STREAM MODE
-   ========================================================================= */
-
-.stream-view {
-  height: 100%;
-  overflow-y: auto;
-  position: relative;
-  background: var(--color-bg);
-}
-
-.queue-peek {
-  display: flex;
-  gap: 4px;
-  padding: 14px 34px 0;
-  overflow-x: auto;
-}
-
-.queue-peek .chip {
-  height: 28px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: var(--color-field);
-  color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-
-.queue-peek .chip:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.queue-peek .chip.current {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
-.queue-peek .chip.pinned {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
+/* Stream (#105, CONTEXT.md) is no longer a mode of this list — it's its own
+   full-screen route, styled in `mail/stream/stream.css`. */
 
 /* ============================================================================
    TOASTS — the only things that float, so the only things with a shadow
@@ -1889,9 +1781,7 @@
    glance is easier to read in the ink it is already reading in.
    ========================================================================= */
 
-.rollback-toast,
-.notification-offer-banner,
-.group-bulk-toast {
+.notification-offer-banner {
   position: absolute;
   left: 50%;
   bottom: calc(20px + env(safe-area-inset-bottom));
@@ -1911,20 +1801,7 @@
   z-index: 20;
 }
 
-/* A rollback is the one toast that reports a failure, so it carries the
-   danger signal as one dot of ink rather than as a whole red box. */
-.rollback-toast::before {
-  content: "";
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-danger);
-}
-
-.notification-offer-banner button,
-.rollback-toast button,
-.group-bulk-toast-undo {
+.notification-offer-banner button {
   flex: none;
   height: 30px;
   padding: 0 14px;
@@ -1939,9 +1816,7 @@
   transition: filter var(--dur-press) var(--ease);
 }
 
-.notification-offer-banner button:hover,
-.rollback-toast button:hover,
-.group-bulk-toast-undo:hover {
+.notification-offer-banner button:hover {
   filter: brightness(1.08);
 }
 
@@ -1956,18 +1831,8 @@
   }
 }
 
-.new-mail-toast-stack {
-  position: absolute;
-  top: calc(14px + env(safe-area-inset-top));
-  right: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 20;
-  max-width: 320px;
-}
-
 .new-mail-toast {
+  max-width: 320px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -1981,7 +1846,6 @@
   text-align: left;
   cursor: pointer;
   box-shadow: var(--shadow-overlay);
-  animation: toast-enter var(--dur-fast) var(--ease-out);
   transition: background var(--dur-press) var(--ease);
 }
 
@@ -1999,19 +1863,15 @@
   white-space: pre-line;
 }
 
-.new-mail-toast-collapsed {
-  cursor: default;
-}
-
 /* ============================================================================
    SEARCH (#51)
    ========================================================================= */
 
-/* Mail's own search field (#51): a real text input, unlike the header's
-   Palette entry beside it. Same fill language as the toolbar's other
-   controls — no outline at rest, `--color-field-strong` once it holds
-   focus, and a pill so it reads as a sibling of the header's own search
-   entry. */
+/* Mail's own search field (#51): a real text input, unlike the Hub's
+   Palette-trigger entry above it. No outline at rest, `--color-field-strong`
+   once it holds focus, and a pill so it reads as a sibling of the Hub's own
+   search entry despite living in a different bar (`.mail-search-bar`,
+   #96). */
 .mail-search-field {
   position: relative;
   display: flex;
@@ -2140,6 +2000,33 @@
   background: var(--color-bg);
 }
 
+/* The results view's own visible Close (#100) — same icon-button language
+   as `.command-palette-close`, first in the row so leaving is never a
+   scavenger hunt through the chips. */
+.search-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.search-close:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .search-chip {
   display: flex;
   align-items: center;
@@ -2190,11 +2077,12 @@ button.search-chip-toggle.on {
   white-space: nowrap;
 }
 
-/* Which Mail Account a cross-account search result came from (#80) — the
-   same pill shape as `.folder-pill` (the two answer sibling questions,
-   "which account" and "which folder"), one step quieter so it never reads
-   as the folder pill at a glance. */
-.thread-row .account-badge {
+/* Which Mail Account a cross-account search result (#80) or Drafts row
+   (#101) came from — the same pill shape as `.folder-pill` (the two answer
+   sibling questions, "which account" and "which folder"), one step quieter
+   so it never reads as the folder pill at a glance. */
+.thread-row .account-badge,
+.draft-row .account-badge {
   flex: none;
   padding: 1px 8px;
   border-radius: var(--radius-pill);
@@ -2595,6 +2483,36 @@ button.search-chip-toggle.on {
   text-overflow: ellipsis;
 }
 
+/* View (#102): a quiet affordance to read a stranger's held mail before
+   deciding — same button geometry as Approve/Deny/Block so it sits in the
+   same row without its own bespoke sizing, but never filled or dangerous;
+   it's not a decision. */
+.screener-view {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-view:hover,
+.screener-view:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .screener-row-actions {
   display: flex;
   align-items: center;
@@ -2640,12 +2558,50 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
-.screener-row-actions button.screener-block {
+/* Block's split menu (#102): the split button reads as one piece — the
+   default action's own pill shape squares off on the side it meets the
+   chevron, which keeps its own pill shape and the same danger hover, so the
+   two halves never look like separate controls that happen to be adjacent. */
+.screener-block-split {
+  display: inline-flex;
+  align-items: center;
   margin-left: 10px;
+}
+
+.screener-block-split .screener-block {
+  margin-left: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .screener-row-actions button.screener-block:hover,
 .screener-row-actions button.screener-block:focus-visible {
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.screener-block-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-block-menu-trigger:hover,
+.screener-block-menu-trigger:focus-visible,
+.screener-block-menu-trigger[data-state="open"] {
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
 }
@@ -2680,7 +2636,8 @@ button.search-chip-toggle.on {
   color: var(--color-accent);
 }
 
-.screener-verdict[data-verdict="Blocked"] {
+.screener-verdict[data-verdict="Blocked"],
+.screener-verdict[data-verdict="Spam"] {
   color: var(--color-danger);
 }
 
@@ -2706,6 +2663,134 @@ button.search-chip-toggle.on {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ---------- the View dialog (#102) --------------------------------------
+ * "the decision actions on top, then a stack ... of that sender's held
+ * Threads" (the ticket's own words) — the dialog is a taller, wider Dialog
+ * than shadcn's own default so a real message body has room, and the
+ * Threads scroll inside it rather than the page growing without bound. */
+.screener-view-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 85vh;
+}
+
+.screener-view-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.screener-view-sender {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.screener-view-address {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.screener-view-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.screener-view-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: var(--hairline) solid var(--color-border);
+}
+
+.screener-view-thread:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.screener-view-message-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.screener-view-message-subject {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screener-view-message-date {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.screener-view-thread-loading,
+.screener-view-thread-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+
+/* ---------- Block Alias's own confirmation (#103) -----------------------
+ * "behind a confirmation that names the exact Alias and says Approved
+ * Senders are included" — the one Screener decision that stops for a
+ * confirmation rather than deciding on the first click, because it is also
+ * the one that overrides an Approved Sender. */
+.block-alias-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.block-alias-dialog button {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    filter var(--dur-press) var(--ease);
+}
+
+.block-alias-cancel {
+  background: transparent;
+  color: var(--color-ink-muted);
+}
+
+.block-alias-cancel:hover,
+.block-alias-cancel:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.block-alias-confirm {
+  background: var(--color-danger);
+  color: var(--color-accent-foreground);
+}
+
+.block-alias-confirm:hover {
+  filter: brightness(1.08);
 }
 
 /* ---------- Gatekeeper settings live in the ordinary frame, not the bay --- */
@@ -2753,15 +2838,24 @@ button.search-chip-toggle.on {
   font-size: 13px;
 }
 
+.gatekeeper-blocked-spam {
+  color: var(--color-ink-muted);
+  font-size: 12px;
+}
+
 /* ============================================================================
    NARROW VIEWPORT
    ========================================================================= */
 
 @media (max-width: 700px) {
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
-     becomes a bottom sheet instead, opened from its own toggle. `open`
-     slides it up from the bottom edge; the scrim behind it is what makes a
-     tap outside dismiss it, same as `LabelPicker`'s own popover. */
+     becomes a `Sheet` bottom sheet instead (#93), opened from its own
+     toggle — the sheet's own overlay and slide-up chrome replace the
+     hand-rolled scrim/transform this used to be. */
+  .side-nav-desktop {
+    display: none;
+  }
+
   .side-nav-toggle {
     display: flex;
     align-items: center;
@@ -2779,34 +2873,21 @@ button.search-chip-toggle.on {
     cursor: pointer;
   }
 
-  .side-nav-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    background: rgb(0 0 0 / 34%);
-    backdrop-filter: blur(3px);
-  }
-
-  .side-nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 21;
-    width: auto;
+  .side-nav-sheet {
     max-height: 70vh;
     padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
-    background: var(--color-surface);
-    box-shadow: var(--shadow-overlay);
-    transform: translateY(100%);
-    transition: transform var(--dur-fast) var(--ease);
   }
 
-  .side-nav.open {
-    transform: translateY(0);
+  .side-nav-sheet .side-nav {
+    width: auto;
+    padding: 0;
+    background: transparent;
   }
+
+  /* The collapsed rail is a desktop-width convenience (#93, #99): the
+     phone sheet always renders `RailContents` with `collapsed={false}`
+     regardless of the Device Preference — there's no icon-rail read of a
+     bottom sheet's own width to reclaim. */
 
   /* Split collapses to List's own "one pane at a time" behavior: there's
      no room for list + reading pane side by side on a phone. `has-selection`
@@ -2838,15 +2919,17 @@ button.search-chip-toggle.on {
     display: flex;
   }
 
-  /* Phone: the row's Done, Snooze and Pin controls are persistent rather
-     than hover-gated (#66 user story 47, #75, #76) — there is no hover on
-     touch, so the primary actions have to be reachable without one. Swipe
-     still commits the same actions (`useSwipeToTriage.ts`); these are the
-     tap-targets for them. */
-  .thread-row .done-btn {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translate(-50%, -50%) scale(1);
+  /* Phone: Snooze and Pin stay persistent rather than hover-gated (#66 user
+     story 47, #75, #76) — there is no hover on touch, so those two need a
+     permanent tap-target. Done is deliberately *not* among them (#97's
+     grill decision: "no persistent per-row check on phone") — swipe right
+     (`useSwipeToTriage.ts`) is the row's own Done gesture on touch, and the
+     group header's overflow Sheet (`.gh-overflow` below) covers a whole
+     Time Group at once, so the row's `done-btn` stays reserved whitespace
+     here exactly as it is everywhere else. */
+
+  .gh-overflow {
+    display: flex;
   }
 
   /* With the actions permanently on, the time cannot share their box the
@@ -2912,12 +2995,11 @@ button.search-chip-toggle.on {
     flex-basis: 100%;
   }
 
-  .screener-row-actions button.screener-block {
+  .screener-block-split {
     margin-left: auto;
   }
 
-  .new-mail-toast-stack {
-    left: 14px;
+  .new-mail-toast {
     max-width: none;
   }
 }
@@ -2976,32 +3058,14 @@ button.search-chip-toggle.on {
 }
 
 /* ============================================================================
-   THE TOOLBAR AT PHONE WIDTH
-   Mail's toolbar is a run of controls and a phone cannot hold all of them on
-   one line. It wraps rather than scrolling sideways: a horizontal strip hid
-   the search field entirely off the right edge with no affordance saying so.
+   THE SEARCH BAR AT PHONE WIDTH
    ========================================================================= */
 
 @media (max-width: 700px) {
-  .mail-toolbar {
-    flex-wrap: wrap;
-    row-gap: 8px;
+  .mail-search-bar {
     /* Room for the folder-rail toggle, which is absolutely positioned into
        the same top-left corner at this width. */
     padding-left: calc(48px + env(safe-area-inset-left));
-  }
-
-  /* Search takes the second row whole — the toolbar is the most expensive
-     chrome on the surface that can least afford height, so nothing shares
-     it. */
-  .mail-search-field {
-    order: 10;
-    flex: 1 1 100%;
-    max-width: none;
-  }
-
-  .toolbar-spacer {
-    display: none;
   }
 }
 
@@ -3241,12 +3305,12 @@ button.search-chip-toggle.on {
 /* The active row is where Enter would land, so it ranks the way every other
    current thing in the system ranks: an accent-soft tint, never an
    inversion. */
-.command-palette-row.active {
+.command-palette-row[aria-selected="true"] {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
 
-.command-palette-row.disabled {
+.command-palette-row[aria-disabled="true"] {
   color: var(--color-ink-faint);
   cursor: default;
 }
@@ -3258,7 +3322,7 @@ button.search-chip-toggle.on {
   font-size: 11.5px;
 }
 
-.command-palette-row.active .command-palette-row-section {
+.command-palette-row[aria-selected="true"] .command-palette-row-section {
   color: inherit;
   opacity: 0.75;
 }
@@ -3286,7 +3350,7 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
-.command-palette-row.active .command-palette-hit-subject {
+.command-palette-row[aria-selected="true"] .command-palette-hit-subject {
   color: inherit;
 }
 

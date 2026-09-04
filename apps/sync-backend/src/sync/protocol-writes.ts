@@ -14,11 +14,25 @@ import { findFolderByRole } from "./folders.js";
  * captured at enqueue time.
  */
 
-export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash";
+/**
+ * `inbox` (#95, ADR-0019) is Undo's own real inverse of `archive`/`trash` — a
+ * Message moves back the same way `moveBatch` already moves it out. `junk`
+ * (#102) is Spam's move, handled by `moveBatch` like `archive`/`trash`.
+ */
+export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash" | "inbox" | "junk";
 
-/** `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty list. */
+/** The transaction handle `db.transaction(async (tx) => ...)` hands its callback — same query surface as `Db`, per `compose/blob-store.ts`'s own alias. */
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty
+ * list. Takes `Db | Tx` rather than `Db` alone so `sync/restore-to-inbox.ts`
+ * can enqueue the "inbox" reversal inside the same transaction that cancels
+ * a still-queued original — one insert statement either way, so there is
+ * nothing transaction-specific here to get wrong.
+ */
 export async function enqueueProtocolWrites(
-  db: Db,
+  db: Db | Tx,
   mailAccountId: string,
   messageIds: string[],
   kind: ProtocolWriteKind,
@@ -98,7 +112,13 @@ export async function drainProtocolWrites(
       done.add(row.id);
       continue;
     }
-    if ((row.kind === "archive" || row.kind === "trash") && msg.folderRole === row.kind) {
+    if (
+      (row.kind === "archive" ||
+        row.kind === "trash" ||
+        row.kind === "inbox" ||
+        row.kind === "junk") &&
+      msg.folderRole === row.kind
+    ) {
       // Already there: a prior drain applied it, or another IMAP client
       // (or the User, from another device) moved it there first.
       done.add(row.id);
@@ -142,6 +162,8 @@ async function drainFolder(
   const flaggedOff: OutboxRow[] = [];
   const archiveRows: OutboxRow[] = [];
   const trashRows: OutboxRow[] = [];
+  const inboxRows: OutboxRow[] = [];
+  const junkRows: OutboxRow[] = [];
 
   for (const row of folderRows) {
     const msg = byMessageId.get(row.messageId);
@@ -159,6 +181,12 @@ async function drainFolder(
       case "trash":
         trashRows.push(row);
         break;
+      case "inbox":
+        inboxRows.push(row);
+        break;
+      case "junk":
+        junkRows.push(row);
+        break;
     }
   }
 
@@ -168,6 +196,10 @@ async function drainFolder(
   await flagBatch(client, byMessageId, flaggedOff, "\\Flagged", false, done);
   await moveBatch(db, client, mailAccountId, "archive", archiveRows, byMessageId, done);
   await moveBatch(db, client, mailAccountId, "trash", trashRows, byMessageId, done);
+  // Undo's own real inverse (#95, ADR-0019): moves a Message back to the
+  // Inbox the same way `archive`/`trash` move it out.
+  await moveBatch(db, client, mailAccountId, "inbox", inboxRows, byMessageId, done);
+  await moveBatch(db, client, mailAccountId, "junk", junkRows, byMessageId, done);
 }
 
 async function flagBatch(
@@ -193,7 +225,7 @@ async function moveBatch(
   db: Db,
   client: ImapFlow,
   mailAccountId: string,
-  role: "archive" | "trash",
+  role: "archive" | "trash" | "inbox" | "junk",
   rows: OutboxRow[],
   byMessageId: Map<string, CurrentMessage>,
   done: Set<string>,

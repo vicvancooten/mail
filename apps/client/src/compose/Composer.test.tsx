@@ -149,6 +149,75 @@ describe("Composer", () => {
     expect(await localCache().compositions.get("comp-1")).toBeUndefined();
   });
 
+  it("discards silently when Esc closes an existing Draft emptied back to blank (#101)", async () => {
+    const onClose = vi.fn();
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT]}
+        defaultMailAccountId="acct-1"
+        fromChoices={null}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Subject"), {
+      target: { value: "Half a thought" },
+    });
+    await waitFor(async () => {
+      expect((await localCache().compositions.get("comp-1"))?.status).toBe("draft");
+    });
+    // Lets `useComposition`'s live query round-trip and the composer's own
+    // reopen-hydration effect (`hydratedRef`) settle against the row just
+    // written, before typing again — clearing the subject in the same tick
+    // as the row's first-ever creation would otherwise race that one-time
+    // hydration, which reads the row back and could clobber this test's own
+    // very next edit with what it just autosaved.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    fireEvent.change(screen.getByPlaceholderText("Subject"), { target: { value: "" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(async () => {
+      const row = await localCache().compositions.get("comp-1");
+      expect(row?.status).toBe("discarded");
+    });
+  });
+
+  it("the Discard button closes and discards regardless of content, queuing discardComposition (#101)", async () => {
+    const onClose = vi.fn();
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT]}
+        defaultMailAccountId="acct-1"
+        fromChoices={null}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Subject"), { target: { value: "Keep typing" } });
+    await waitFor(async () => {
+      expect((await localCache().compositions.get("comp-1"))?.status).toBe("draft");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard draft" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(async () => {
+      const row = await localCache().compositions.get("comp-1");
+      expect(row?.status).toBe("discarded");
+      // The content itself survives the local flip — Undo has something to restore.
+      expect(row?.subject).toBe("Keep typing");
+    });
+    await waitFor(async () => {
+      expect(
+        (await listQueuedMutations("acct-1")).map((mutation) => mutation.intent),
+      ).toContainEqual({ type: "discardComposition", compositionId: "comp-1" });
+    });
+  });
+
   it("adds a recipient chip from typed text on Enter", async () => {
     render(
       <Composer

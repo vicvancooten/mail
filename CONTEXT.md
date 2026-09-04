@@ -59,6 +59,13 @@ are shown and marked unavailable rather than hidden, because the Client's shape 
 what the instance will hold.
 _Avoid_: app rail, nav bar
 
+**Hub**:
+The Client's own chrome: the bar holding the App Switcher, the home mark, search, Account Scope,
+appearance and the User's menu. It belongs to no App and is present on every screen. The current
+App sits on it as a raised card, and the browser's own chrome takes the Hub's colour, so the frame
+reads as one continuous piece rather than a bar inside a page.
+_Avoid_: header, top bar, nav bar
+
 **Local Cache**:
 The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering.
 _Avoid_: local store, local database, replica, offline store
@@ -109,6 +116,32 @@ _Avoid_: archive (as a verb), clear, dismiss
 Where a Thread lands once it is Done. A destination, never an action.
 _Avoid_: archive (as a verb), done (as a place)
 
+**Time Group**:
+A run of Threads in the message list that share a recency bucket — Pinned, Today, Yesterday, This
+week, Last week, This month, earlier months, Older, Undated — each with its own header. The list's
+only grouping; Threads are never grouped by sender or kind.
+_Avoid_: category, section, date group
+
+**Group Done**:
+Marking every Thread in one Time Group as Done in a single action, from the check control on that
+group's header. The control is the same "check means Done" glyph a hovered Thread row shows, grown
+to sit beside the group's title; it is an action, never a selection — nothing in the list is ever
+"selected" by a checkbox.
+_Avoid_: bulk select, select all, check all
+
+**Timeline Spine**:
+The vertical line that appears down the list's left gutter, from a Time Group's header through
+every row it covers, only while the pointer rests on that group's Group Done control. It exists to
+say "this is about to happen to all of these" before it does.
+_Avoid_: timeline, rail, gutter line
+
+**Undo**:
+Reversing a Triage action or Gatekeeper decision within a short window after it, from the toast that
+announced it. Always a real inverse action (restore to Inbox, unsnooze, unblock and restore), so it
+works whether or not the Sync Backend has already applied the original; never a cancellation of a
+queued request. Actions taken in quick succession share one toast and one Undo.
+_Avoid_: revert, rollback (which is the Sync Backend rejecting an action, not the User reversing one)
+
 **Protocol Feature**:
 Triage state stored as a real IMAP flag or folder operation, visible to any other IMAP client against the same Mail Account. Reserved for the rare case where a clean, near-universal mapping exists across the PoC's target providers — currently just read/unread (`\Seen`) and starred (`\Flagged`).
 _Avoid_: IMAP-native
@@ -126,6 +159,14 @@ Any Triage action whose result is shown instantly in the Client while the Sync B
 
 **Auto-advance**:
 After archiving or deleting, automatically opening the next thread or returning to the list (User-configurable).
+
+**Stream**:
+Processing the Inbox one Thread at a time, full screen, as a stack of cards: the newest Thread on
+top with the next one peeking out behind it, the Triage actions plus Skip laid out plainly, and
+each action moving the stack on. A way of working through what is unhandled, not a way of looking
+at the list: it is entered deliberately from Mail, ends when the stack is empty or the User leaves,
+and remembers nothing about layout. Skip leaves the Thread in the Inbox and moves on.
+_Avoid_: stream mode (as a view mode), reading mode, focus mode
 
 **Snooze**:
 Hiding a thread until a chosen time, after which it returns as new.
@@ -147,7 +188,10 @@ _Avoid_: tag, IMAP keyword
 The screening feature: mail from Unscreened Senders is held in the Screener until the User decides. A triage control, not a security control — spam and forgery remain the mail server's job. Opt-in per Mail Account, and Verdicts are scoped to a single Mail Account, so they never cross Users or a User's other accounts.
 
 **Verdict**:
-Where a sender stands with Gatekeeper on one Mail Account: Unscreened, Approved, or Blocked. Keyed to a sender's address, or to a whole domain.
+Where a sender stands with Gatekeeper on one Mail Account: Unscreened, Approved, or Blocked. Keyed to
+a sender's address, to a sender's whole domain, or — for Blocked only — to an Alias of the User's
+own that the mail arrived at. A sender's address beats their domain; a Blocked Alias beats both,
+because the Alias itself is what the User has given up on.
 
 **Unscreened Sender**:
 A sender the User has not yet approved or blocked.
@@ -159,6 +203,25 @@ _Avoid_: whitelisted
 **Blocked Sender**:
 A sender the User has denied for good: the Sync Backend moves their incoming mail straight to Trash on arrival.
 _Avoid_: blacklisted
+
+**Spam**:
+A Gatekeeper decision that Blocks the sender and, in addition, moves their mail to the Mail
+Account's Junk Folder rather than Trash, so the mail server's own filter learns from it. The one
+decision that deliberately speaks to the provider's spam filter; a plain Block never does, because
+"I don't want this" and "this is spam" are different claims.
+_Avoid_: junk (as a verb), report
+
+**Alias**:
+An address at a domain the User controls that mail can arrive at without being set up first — a
+catch-all address such as somecompany@theirdomain. Wicket learns an Alias from the mail that
+reaches it; it is never configured.
+_Avoid_: catch-all, plus address, recipient
+
+**Blocked Alias**:
+An Alias the User has given up on, usually because it leaked: mail arriving at it is moved straight
+to Trash regardless of who sent it, including Approved Senders. A Blocked Verdict keyed to the
+recipient rather than the sender, and the only Verdict that is.
+_Avoid_: blocked recipient, dead address
 
 **Screener**:
 The separate screen where held mail waits, listing Unscreened Senders rather than individual messages — one decision per stranger, not per message.

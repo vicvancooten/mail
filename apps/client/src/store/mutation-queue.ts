@@ -24,16 +24,20 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "archive":
     case "trash":
     case "snooze":
+    case "restoreToInbox":
+    case "unsnooze":
     case "setPinned":
     case "applyLabel":
     case "removeLabel":
       return [intent.threadId];
-    // The Composition intents (#46) and the Mail-Account-scoped Preference
-    // intents (#54) name no Thread. Empty is exactly right for both readers:
-    // nothing to exempt from Thread eviction, and nothing for the Thread
-    // overlay to match against.
+    // The Composition intents (#46, #101) and the Mail-Account-scoped
+    // Preference intents (#54) name no Thread. Empty is exactly right for
+    // both readers: nothing to exempt from Thread eviction, and nothing for
+    // the Thread overlay to match against.
     case "sendComposition":
     case "cancelSend":
+    case "discardComposition":
+    case "undiscardComposition":
     case "setSignature":
     case "setNotificationsEnabled":
       return [];
@@ -47,19 +51,32 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "approveSender":
     case "denySender":
     case "blockSender":
+    case "spamSender":
     case "unblockSender":
       return [];
+    // `unblockAndRestore` (#95, ADR-0019) is the one Gatekeeper intent that
+    // *does* name Threads — Undo has to restore exactly the ones the
+    // Screener decision it reverses trashed, captured by the Client at
+    // decision time (`ScreenerSenderGroup.threadIds`). Exempting them from
+    // eviction and overlaying them is exactly the treatment `archive`'s own
+    // inverse gets.
+    case "unblockAndRestore":
+      return intent.threadIds;
   }
 }
 
 /**
  * What "the exact inverse, still queued" means for one intent kind
- * (ADR-0010: no coalescing beyond this trivial case). `archive`/`trash`
- * (#42) have no inverse intent yet — there is no `unarchive` — so their key
- * never matches anything else's; `value: true` is a fixed placeholder, not
- * a real toggle. `snooze` (#76) is the same shape for the same reason —
- * no "un-snooze early" intent yet. `applyLabel`/`removeLabel` (#43) share
- * one `"label"`
+ * (ADR-0010: no coalescing beyond this trivial case, ADR-0019: Undo is a
+ * real inverse intent, which is exactly what lets this cancel a
+ * still-queued original for free). `archive` and `trash` (#42) now share
+ * one `"location"` bucket with their common inverse `restoreToInbox` (#95):
+ * both leave the Inbox the same way from Undo's point of view, so
+ * `restoreToInbox` cancels whichever of the two is still queued. `snooze`
+ * (#76) gets its own bucket paired with `unsnooze` (#95) rather than joining
+ * `"location"` — a snoozed Thread never actually leaves the Inbox on the
+ * wire the way archive/trash do, so its App-Feature-only inverse stays a
+ * separate pair. `applyLabel`/`removeLabel` (#43) share one `"label"`
  * bucket keyed on `threadId:name` so applying then removing (or vice versa)
  * the same name on the same Thread while both are still queued coalesces
  * away exactly like star does, rather than shipping a self-cancelling pair.
@@ -71,13 +88,14 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
     case "setRead":
       return { type: "setRead", targetId: intent.threadId, value: intent.read };
     case "archive":
-      return { type: "archive", targetId: intent.threadId, value: true };
     case "trash":
-      return { type: "trash", targetId: intent.threadId, value: true };
+      return { type: "location", targetId: intent.threadId, value: true };
+    case "restoreToInbox":
+      return { type: "location", targetId: intent.threadId, value: false };
     case "snooze":
-      // One-directional, same as archive/trash above — there is no
-      // "un-snooze early" intent yet, so this never coalesces with anything.
       return { type: "snooze", targetId: intent.threadId, value: true };
+    case "unsnooze":
+      return { type: "snooze", targetId: intent.threadId, value: false };
     case "setPinned":
       return { type: "setPinned", targetId: intent.threadId, value: intent.pinned };
     case "applyLabel":
@@ -102,6 +120,14 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "send", targetId: intent.compositionId, value: true };
     case "cancelSend":
       return { type: "send", targetId: intent.compositionId, value: false };
+    // Delete and its Undo (#101, ADR-0019) are the same genuine-inverse-pair
+    // shape as Send/Undo Send just above: a still-queued `discardComposition`
+    // cancelled by `undiscardComposition` before either ever reached the
+    // Sync Backend means the server never heard about the discard at all.
+    case "discardComposition":
+      return { type: "discard", targetId: intent.compositionId, value: true };
+    case "undiscardComposition":
+      return { type: "discard", targetId: intent.compositionId, value: false };
     // `setNotificationsEnabled` (#54) is a genuine boolean toggle, so it
     // coalesces the same way `setPinned` does — a Mail Account's own queue is
     // already what `enqueueMutation` scopes candidates to, so "notifications"
@@ -114,21 +140,42 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "setNotificationsEnabled", targetId: "notifications", value: intent.enabled };
     case "setSignature":
       return { type: "setSignature", targetId: "signature", value: true };
-    // Each Gatekeeper decision (#55) is keyed to its sender, and Approve vs.
-    // Block/Deny are not inverses of one another — Deny trashes mail, Approve
-    // releases it — so nothing here coalesces away a decision the User
-    // actually made. `approveSender` and `unblockSender` are the two that
-    // read as "yes", which is what `value` distinguishes; a second decision
-    // on the same sender while the first is still queued therefore just
-    // queues behind it, and FIFO lands on whichever they chose last.
+    // Each Gatekeeper decision (#55, #102) is keyed to its sender, and Approve
+    // vs. Block/Deny/Spam are not inverses of one another — Deny trashes mail,
+    // Spam moves it to Junk, Approve releases it — so nothing here coalesces
+    // away a decision the User actually made. `approveSender`, `spamSender` and
+    // `unblockSender` each keep their own per-sender bucket: `unblockAndRestore`
+    // (#95, ADR-0019) reverses Deny *or* Block only (see `packages/shared/src/
+    // sync.ts`), so Spam must not share the `"gatekeeper:hold"` bucket below or
+    // Undo would claim an inverse it does not have. A second decision on the
+    // same sender while the first is still queued just queues behind it, FIFO
+    // landing on whichever they chose last.
     case "approveSender":
-    case "denySender":
-    case "blockSender":
+    case "spamSender":
     case "unblockSender":
       return {
         type: `gatekeeper:${intent.type}`,
         targetId: `${intent.sender.scope}:${intent.sender.value.trim().toLowerCase()}`,
-        value: intent.type === "approveSender" || intent.type === "unblockSender",
+        value: true,
+      };
+    // Deny and Block (#55) share one `"gatekeeper:hold"` bucket, both
+    // `value: true` — both trash whatever this sender is holding, which is
+    // exactly what their shared inverse, `unblockAndRestore` (#95,
+    // ADR-0019), reverses. Undo cancels whichever of the two is still
+    // queued for free, the same "location" trick `archive`/`trash` share
+    // with `restoreToInbox` above.
+    case "denySender":
+    case "blockSender":
+      return {
+        type: "gatekeeper:hold",
+        targetId: `${intent.sender.scope}:${intent.sender.value.trim().toLowerCase()}`,
+        value: true,
+      };
+    case "unblockAndRestore":
+      return {
+        type: "gatekeeper:hold",
+        targetId: `${intent.sender.scope}:${intent.sender.value.trim().toLowerCase()}`,
+        value: false,
       };
   }
 }

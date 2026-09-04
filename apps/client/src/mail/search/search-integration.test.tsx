@@ -3,13 +3,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
+import { useMailAccounts } from "../../store/index.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../../store/mutation-queue.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { AccountScope } from "../AccountScope.js";
 import { MailSection } from "../MailSection.js";
+import { useAccountScope } from "../useAccountScope.js";
 
 /**
  * End-to-end coverage of #51's acceptance boxes, driven the way
@@ -75,9 +78,23 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
+/**
+ * Account Scope's own control lives in the Hub now (#96,
+ * `router/RootLayout.tsx`), a separate component from `MailSection` — this
+ * stands in for it here, wired to the same reactive store
+ * (`useAccountScope.ts`) `MailSection` itself reads (`MailSection.test.tsx`'s
+ * own harness of the same shape). Renders nothing with 0-1 Mail Accounts.
+ */
+function AccountScopeHarness() {
+  const mailAccounts = useMailAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(mailAccounts);
+  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+}
+
 function renderMail() {
   return render(
     <AuthProvider>
+      <AccountScopeHarness />
       <MailSection />
     </AuthProvider>,
   );
@@ -182,6 +199,27 @@ describe("search (#51)", () => {
     await waitFor(() => expect(document.querySelector(".search-chip-row")).toBeNull());
     const detail = await screen.findByText("Origin thread", { selector: ".reading-subject" });
     expect(detail).toBeDefined();
+  });
+
+  it("the results view's own Close restores the origin, same as Esc (#100)", async () => {
+    await seedOneThread();
+    stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
+
+    renderMail();
+    const row = await screen.findByText("Origin thread");
+    fireEvent.click(row);
+
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    fireEvent.change(field, { target: { value: "nothing" } });
+    expect(document.querySelector(".search-chip-row")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close search results" }));
+
+    await waitFor(() => expect(document.querySelector(".search-chip-row")).toBeNull());
+    expect(
+      await screen.findByText("Origin thread", { selector: ".reading-subject" }),
+    ).toBeDefined();
   });
 
   it("archiving a result row: it stays, visibly changed, and a rejection rolls it back", async () => {

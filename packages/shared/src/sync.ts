@@ -68,8 +68,16 @@ export const threadSchema = z.object({
    * `MOVE` following asynchronously after. One-directional today, the same
    * as `inInbox`: nothing sets a Thread back to `"inbox"` from `"archive"`
    * (there is no unarchive yet) except Bulk Triage's own Undo.
+   *
+   * `"junk"` (#102) is Spam's own destination — the Screener's `spamSender`
+   * decision and a Spam sender's future arrivals set it instead of
+   * `"trash"`. There is no Junk sidebar entry (`search/scope.ts`'s `in:junk`
+   * is the only way there today), so this value simply drops a Thread out of
+   * every folder-scoped view (Archive, Trash) rather than gaining one of its
+   * own — exactly the "out of sight, provider's filter takes it from here"
+   * Spam means.
    */
-  folderRole: z.enum(["inbox", "archive", "trash"]),
+  folderRole: z.enum(["inbox", "archive", "trash", "junk"]),
   /**
    * Whether this Thread has at least one Message the Sync Backend ingested
    * from the account's real `\Sent` folder (#74) — unlike `folderRole`
@@ -118,6 +126,21 @@ export const threadSchema = z.object({
    * to restore.
    */
   heldSender: z.string().nullable(),
+  /**
+   * The Alias (CONTEXT.md) this held Thread's opening message resolved to at
+   * ingest — `Delivered-To`/`X-Original-To`/`To`+`Cc`, whichever first named
+   * an address at the Mail Account's own domain (#103,
+   * `gatekeeper/alias.ts#resolveRecipientAlias` in the Sync Backend) — or
+   * `null` when nothing on the message did. `null` whenever `heldSender` is,
+   * for the same reason: a hold only ever exists for a message that started
+   * a Thread, so there is exactly one recipient Alias to name.
+   *
+   * What the Screener's Block split menu reads to offer *Block everything
+   * sent to `<alias>`* (#103) — a third, recipient-scoped Verdict scope
+   * alongside `heldSender`'s address/domain ones, beating even an Approved
+   * Sender.
+   */
+  heldRecipientAlias: z.string().nullable(),
   /**
    * Snooze (#76, CONTEXT.md: "hiding a thread until a chosen time, after
    * which it returns as new"): the instant this Thread wakes, or `null` when
@@ -376,7 +399,7 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
  * above for why they ride this queue rather than a new collection.
  *
- * The four Gatekeeper intents (#55) are the Screener's decisions and the
+ * The Gatekeeper intents (#55, #102) are the Screener's decisions and the
  * Blocked Senders list's undo. They ride this queue rather than their own
  * routes because CONTEXT.md files "approve/block senders" under **Triage**:
  * they are decisions the User makes while processing the list, and they want
@@ -394,15 +417,70 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  *   **Unscreened** — the next message from them is held again.
  * - `blockSender` trashes them and records a Blocked Verdict, after which
  *   every future arrival is moved to the real `\\Trash` folder on arrival
- *   (ADR-0008). It is the sole off-switch for an Approved sender.
- * - `unblockSender` clears a Blocked Verdict back to Unscreened. Future-only
- *   by construction: ADR-0008 is explicit that unblocking "stops the
- *   bleeding but recovers nothing".
+ *   (ADR-0008). It is the sole off-switch for an Approved sender. `sender`
+ *   is usually `address`/`domain`-scoped, but #103's Blocked Alias rides the
+ *   same intent at `scope: "recipient"` — the Screener's *Block everything
+ *   sent to `<alias>`* — with one difference: it names a Thread's recipient
+ *   Alias, not its sender, and it is refused (`rejected`, same shape as a
+ *   barred domain) if that Alias is the Mail Account's own primary address.
+ * - `spamSender` (#102, CONTEXT.md's Spam, ADR-0008's amendment) does exactly
+ *   what `blockSender` does, plus one thing: held and future mail move to the
+ *   Mail Account's Junk folder instead of Trash, so the provider's own filter
+ *   learns from it. The Screener's Block split menu offers it as a deliberate
+ *   extra click, never the default — "I don't want this" and "this is spam"
+ *   are different claims.
+ * - `unblockSender` clears a Blocked (or Spam) Verdict back to Unscreened.
+ *   Future-only by construction: ADR-0008 is explicit that unblocking "stops
+ *   the bleeding but recovers nothing".
  *
  * A domain-scoped intent for a public provider (`gatekeeper.ts`'s
  * `BARRED_VERDICT_DOMAINS`) is `rejected` rather than silently downgraded to
  * an address — the Client should never have offered the button, and a
  * rejection says so.
+ *
+ * `restoreToInbox`/`unsnooze`/`unblockAndRestore` (#95, ADR-0019) are Undo's
+ * own real inverses, never a queue cancellation — an enqueued inverse is
+ * exactly what the Undo toast sends, whether or not the original it reverses
+ * has already been flushed. `restoreToInbox` undoes `archive` *or* `trash`
+ * (an IMAP move back out of Archive/Trash) and is also what a Screener
+ * Approve already does to a held Thread — `sync/mutations.ts` reuses that
+ * same restore step. `unsnooze` undoes `snooze` the same App-Feature way
+ * Pin's own toggle works: no protocol write, just the Thread row. Both name
+ * one Thread, exactly like the actions they reverse, which is what lets
+ * `store/mutation-queue.ts`'s coalescer cancel a still-queued original for
+ * free. `unblockAndRestore` undoes Deny, Block, Spam, **or** #103's
+ * Block-Alias: `sender` is who (or, at `scope: "recipient"`, which Alias)
+ * the Verdict-clear targets (a no-op for Deny, which left none, and the
+ * one call that also drops Spam's `spam` flag, since it deletes the whole
+ * row), and `threadIds` — captured by the Client at decision time, the same
+ * way `ScreenerSenderGroup.threadIds` already is — names exactly the Threads
+ * that decision trashed *or moved to Junk*, since by the time Undo fires the
+ * sender (or Alias) may be holding a fresh, unrelated stranger's mail again.
+ * `restoreThreadsToInbox` (`sync/restore-to-inbox.ts`) is what actually
+ * widened to bring a Thread back out of Junk, not a new field here — Spam
+ * rides this exact intent rather than one of its own, because a Spam
+ * Verdict *is* a Blocked Verdict (`spam: true` alongside it) for every other
+ * purpose one answers, and undoing it is "clear the Verdict, restore the
+ * Threads" either way. The payload grows no new field for Block-Alias:
+ * `sender` at `scope: "recipient"` is already what `blockSender` used to
+ * create the Verdict, so undoing it is the exact
+ * same `clearVerdict` call `address`/`domain` scopes already get.
+ *
+ * `discardComposition`/`undiscardComposition` (#101, ADR-0012's "deletion is
+ * asymmetric") are Delete's own pair, the same shape `sendComposition`/
+ * `cancelSend` already have: name a Composition, not a Thread, ride this
+ * queue for its offline-survivable idempotent delivery, and dispatch through
+ * `sync/mutations.ts#applyCompositionIntent`. `discardComposition` marks a
+ * `draft`-status Composition `discarded` (rejecting anything else as
+ * `not_a_draft`), drops its attachment blobs synchronously, and lets the
+ * debounced push loop (`sync/draft-push.ts`) expunge the IMAP Drafts copy
+ * asynchronously, on its own interval — the same "never a user-visible
+ * error, always eventually consistent" posture the push itself already has.
+ * `undiscardComposition` is Undo's real inverse (#95, ADR-0019): restores
+ * `draft`, and — because the expunge may not have run yet — leaves the
+ * pushed-content bookkeeping alone, so a fast Undo costs the IMAP side
+ * nothing at all, and only a slow one (past the expunge) triggers the next
+ * push loop tick to re-export it.
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
@@ -410,17 +488,27 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive"), threadId: z.string() }),
   z.object({ type: z.literal("trash"), threadId: z.string() }),
   z.object({ type: z.literal("snooze"), threadId: z.string(), until: z.iso.datetime() }),
+  z.object({ type: z.literal("restoreToInbox"), threadId: z.string() }),
+  z.object({ type: z.literal("unsnooze"), threadId: z.string() }),
   z.object({ type: z.literal("setPinned"), threadId: z.string(), pinned: z.boolean() }),
   z.object({ type: z.literal("applyLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("sendComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("cancelSend"), compositionId: z.string() }),
+  z.object({ type: z.literal("discardComposition"), compositionId: z.string() }),
+  z.object({ type: z.literal("undiscardComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
   z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),
+  z.object({ type: z.literal("spamSender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("unblockSender"), sender: gatekeeperSenderSchema }),
+  z.object({
+    type: z.literal("unblockAndRestore"),
+    sender: gatekeeperSenderSchema,
+    threadIds: z.array(z.string()),
+  }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 

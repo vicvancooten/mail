@@ -12,12 +12,22 @@ import { refreshThreadRollups } from "../sync/thread-rollup.js";
 import { resolveThread } from "../sync/threading.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
-import { approveSender, blockSender, denySender, unblockSender } from "./decisions.js";
+import {
+  approveSender,
+  blockSender,
+  denySender,
+  spamSender,
+  unblockAndRestore,
+  unblockSender,
+} from "./decisions.js";
 import { disableGatekeeper, enableGatekeeper, resetGatekeeper } from "./settings.js";
 import {
   approveSendRecipients,
   countApprovedSenders,
   listBlockedSenders,
+  PrimaryAddressVerdictError,
+  RecipientVerdictMustBeBlockedError,
+  resolveBlockedAliases,
   resolveVerdict,
   setVerdict,
 } from "./verdicts.js";
@@ -48,6 +58,7 @@ beforeEach(async () => {
   inbox = await seedFolder("inbox", "INBOX");
   sent = await seedFolder("sent", "Sent");
   trash = await seedFolder("trash", "Trash");
+  await seedFolder("junk", "Junk");
 });
 
 afterAll(async () => {
@@ -80,6 +91,8 @@ interface DeliverInput {
   receivedAt?: Date;
   folder?: FolderRow;
   to?: { name: string | null; address: string }[];
+  /** The Alias this message resolved to at ingest (#103) — what `sync/ingest.ts#storeMessage` would have written to `messages.recipient_alias`. */
+  recipientAlias?: string | null;
 }
 
 /**
@@ -113,6 +126,7 @@ async function deliver(input: DeliverInput): Promise<{ messageId: string; thread
     fromName: input.fromName ?? null,
     fromAddress: input.from,
     toAddresses: input.to ?? [{ name: null, address: account.emailAddress }],
+    recipientAlias: input.recipientAlias ?? null,
     sentAt: receivedAt,
     receivedAt,
     seen: false,
@@ -329,6 +343,60 @@ describe("Verdict resolution (#55)", () => {
   });
 });
 
+describe("resolveBlockedAliases (#103)", () => {
+  it("answers only the Aliases among the batch that are actually Blocked", async () => {
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "recipient", value: "sales@mycompany.test" },
+      "blocked",
+      "screener",
+    );
+    const result = await resolveBlockedAliases(db, account.id, [
+      "sales@mycompany.test",
+      "support@mycompany.test",
+      null,
+    ]);
+    expect(result).toEqual(new Set(["sales@mycompany.test"]));
+  });
+
+  it("never lets one Mail Account's Blocked Aliases reach another", async () => {
+    const other = await createTestMailAccount(db);
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "recipient", value: "sales@mycompany.test" },
+      "blocked",
+      "screener",
+    );
+    expect(await resolveBlockedAliases(db, other.id, ["sales@mycompany.test"])).toEqual(new Set());
+  });
+
+  it("refuses a recipient Verdict that isn't Blocked — there is no Approved Alias", async () => {
+    await expect(
+      setVerdict(
+        db,
+        account.id,
+        { scope: "recipient", value: "sales@mycompany.test" },
+        "approved",
+        "screener",
+      ),
+    ).rejects.toThrow(RecipientVerdictMustBeBlockedError);
+  });
+
+  it("refuses to Block the Mail Account's own primary address", async () => {
+    await expect(
+      setVerdict(
+        db,
+        account.id,
+        { scope: "recipient", value: account.emailAddress },
+        "blocked",
+        "screener",
+      ),
+    ).rejects.toThrow(PrimaryAddressVerdictError);
+  });
+});
+
 describe("Screener decisions (#55)", () => {
   beforeEach(async () => {
     await enableGatekeeper(db, account.id);
@@ -447,6 +515,139 @@ describe("Screener decisions (#55)", () => {
     expect((await threadRow(two.threadId)).heldSender).toBeNull();
     expect((await resolveVerdict(db, account.id, "c@conference.test")).verdict).toBe("blocked");
   });
+
+  it("Spam (#102) moves the held Threads to Junk instead of Trash, and records it on the Verdict", async () => {
+    const { threadId, messageId } = await deliver({ from: "villain@example.test" });
+
+    expect(
+      await spamSender(db, account.id, { scope: "address", value: "villain@example.test" }),
+    ).toEqual({ ok: true });
+
+    const after = await threadRow(threadId);
+    expect(after.heldSender).toBeNull();
+    expect(after.inInbox).toBe(false);
+    expect(after.folderRole).toBe("junk");
+    // Spam is still a Blocked Verdict for resolution's own purposes — only the destination differs.
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe("blocked");
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({
+        scope: "address",
+        value: "villain@example.test",
+        source: "screener",
+        spam: true,
+      }),
+    ]);
+
+    // The real IMAP move targets Junk, not Trash.
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "junk", messageId, mailAccountId: account.id }),
+    ]);
+
+    // Unblock clears Spam back to Unscreened exactly like a plain Block.
+    expect(
+      await unblockSender(db, account.id, { scope: "address", value: "villain@example.test" }),
+    ).toEqual({ ok: true });
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe(
+      "unscreened",
+    );
+  });
+
+  it("a plain Block leaves the Verdict's spam flag false", async () => {
+    await blockSender(db, account.id, { scope: "address", value: "stranger@example.test" });
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({ value: "stranger@example.test", spam: false }),
+    ]);
+  });
+});
+
+describe("Block Alias (#103, CONTEXT.md, ADR-0008 amendment)", () => {
+  beforeEach(async () => {
+    await enableGatekeeper(db, account.id);
+    await reloadAccount();
+  });
+
+  it("trashes every held Thread at that Alias, from any sender, and leaves other Aliases' holds alone", async () => {
+    const target = await deliver({
+      from: "stranger@example.test",
+      subject: "Buy now",
+      recipientAlias: "sales@mycompany.test",
+    });
+    const sameAlias = await deliver({
+      from: "another@example.test",
+      subject: "Also buy now",
+      recipientAlias: "sales@mycompany.test",
+    });
+    const differentAlias = await deliver({
+      from: "friend@example.test",
+      subject: "Not the Alias",
+      recipientAlias: "support@mycompany.test",
+    });
+
+    expect(
+      await blockSender(db, account.id, { scope: "recipient", value: "sales@mycompany.test" }),
+    ).toEqual({ ok: true });
+
+    for (const held of [target, sameAlias]) {
+      const thread = await threadRow(held.threadId);
+      expect(thread.inInbox).toBe(false);
+      expect(thread.heldSender).toBeNull();
+      expect(thread.heldRecipientAlias).toBeNull();
+    }
+    const untouched = await threadRow(differentAlias.threadId);
+    expect(untouched.inInbox).toBe(true);
+    expect(untouched.heldSender).toBe("friend@example.test");
+
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({
+        scope: "recipient",
+        value: "sales@mycompany.test",
+        source: "screener",
+      }),
+    ]);
+
+    // Unblock (Settings, future-only) clears it back out of the list.
+    expect(
+      await unblockSender(db, account.id, { scope: "recipient", value: "sales@mycompany.test" }),
+    ).toEqual({ ok: true });
+    expect(await listBlockedSenders(db, account.id)).toEqual([]);
+  });
+
+  it("refuses when the Alias equals the Mail Account's own primary address", async () => {
+    const result = await blockSender(db, account.id, {
+      scope: "recipient",
+      value: account.emailAddress,
+    });
+    expect(result).toEqual({ ok: false, reason: "cannot_block_own_address" });
+    expect(await listBlockedSenders(db, account.id)).toEqual([]);
+  });
+
+  it("Undo (unblockAndRestore) clears the Verdict and restores exactly the named Threads", async () => {
+    const target = await deliver({
+      from: "stranger@example.test",
+      recipientAlias: "sales@mycompany.test",
+    });
+    await blockSender(db, account.id, { scope: "recipient", value: "sales@mycompany.test" });
+    expect((await threadRow(target.threadId)).inInbox).toBe(false);
+
+    expect(
+      await unblockAndRestore(
+        db,
+        account.id,
+        { scope: "recipient", value: "sales@mycompany.test" },
+        [target.threadId],
+      ),
+    ).toEqual({ ok: true });
+
+    const restored = await threadRow(target.threadId);
+    expect(restored.inInbox).toBe(true);
+    expect(restored.heldSender).toBeNull();
+    expect(restored.heldRecipientAlias).toBeNull();
+    expect(await listBlockedSenders(db, account.id)).toEqual([]);
+  });
 });
 
 describe("a Blocked Sender's next message (#55, ADR-0008)", () => {
@@ -504,6 +705,111 @@ describe("a Blocked Sender's next message (#55, ADR-0008)", () => {
       .from(protocolWrites)
       .where(eq(protocolWrites.mailAccountId, account.id));
     expect(queued.map((row) => row.kind)).toEqual(["trash"]);
+  });
+});
+
+describe("A Blocked Alias's next arrival (#103, CONTEXT.md, ADR-0008 amendment)", () => {
+  beforeEach(async () => {
+    await enableGatekeeper(db, account.id);
+    await reloadAccount();
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "recipient", value: "sales@mycompany.test" },
+      "blocked",
+      "screener",
+    );
+  });
+
+  it("moves to Trash on arrival regardless of sender, beating even an Approved Sender", async () => {
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "address", value: "colleague@partner.test" },
+      "approved",
+      "seed",
+    );
+
+    const { threadId, messageId } = await deliver({
+      from: "colleague@partner.test",
+      recipientAlias: "sales@mycompany.test",
+    });
+
+    const thread = await threadRow(threadId);
+    expect(thread.inInbox).toBe(false);
+    expect(thread.heldSender).toBeNull();
+    expect(await pendingKinds()).toEqual([]);
+
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "trash", messageId, mailAccountId: account.id }),
+    ]);
+  });
+
+  it("never holds — an Unscreened stranger's opener at a Blocked Alias skips the Screener entirely", async () => {
+    const { threadId } = await deliver({
+      from: "stranger@example.test",
+      recipientAlias: "sales@mycompany.test",
+    });
+    const thread = await threadRow(threadId);
+    expect(thread.heldSender).toBeNull();
+    expect(thread.inInbox).toBe(false);
+  });
+
+  it("leaves mail arriving at a different Alias alone", async () => {
+    const { threadId } = await deliver({
+      from: "stranger@example.test",
+      recipientAlias: "support@mycompany.test",
+    });
+    const thread = await threadRow(threadId);
+    expect(thread.inInbox).toBe(true);
+    expect(thread.heldSender).toBe("stranger@example.test");
+  });
+
+  it("leaves mail with no resolved Alias alone", async () => {
+    const { threadId } = await deliver({ from: "stranger@example.test" });
+    const thread = await threadRow(threadId);
+    expect(thread.inInbox).toBe(true);
+    expect(thread.heldSender).toBe("stranger@example.test");
+  });
+});
+
+describe("a Spam Sender's next message (#102, ADR-0008 amendment)", () => {
+  beforeEach(async () => {
+    await enableGatekeeper(db, account.id);
+    await reloadAccount();
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "address", value: "spammer@example.test" },
+      "blocked",
+      "screener",
+      true,
+    );
+  });
+
+  it("never reaches the Inbox and is queued for a real \\Junk move, not \\Trash", async () => {
+    const { threadId, messageId } = await deliver({
+      from: "spammer@example.test",
+      subject: "Buy now",
+    });
+
+    const thread = await threadRow(threadId);
+    expect(thread.inInbox).toBe(false);
+    expect(thread.heldSender).toBeNull();
+    expect(thread.folderRole).toBe("junk");
+    expect(await pendingKinds()).toEqual([]);
+
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "junk", messageId, mailAccountId: account.id }),
+    ]);
   });
 });
 

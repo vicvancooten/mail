@@ -5,6 +5,7 @@ import {
   deriveImageProxyKey,
   fetchOnce,
   fetchProxiedImage,
+  IMAGE_PROXY_TTL_MS,
   ImageProxyError,
   isPrivateOrReservedAddress,
   type ProxiedImage,
@@ -16,38 +17,85 @@ import {
 
 const KEY = deriveImageProxyKey("test-only-mail-credential-key-not-real-32b");
 
+/** Pulls `sig` and `exp` off a path this module minted, the pair `verifyImageProxySignature` needs. */
+function signedParams(path: string): { sig: string; exp: number } {
+  const url = new URL(path, "http://localhost");
+  return {
+    sig: url.searchParams.get("sig") as string,
+    exp: Number(url.searchParams.get("exp")),
+  };
+}
+
 describe("sign/verify", () => {
   it("verifies a signature this module minted", () => {
     const path = buildImageProxyPath(KEY, "msg-1", "https://sender.example/x.png");
-    const url = new URL(path, "http://localhost");
-    const sig = url.searchParams.get("sig");
+    const { sig, exp } = signedParams(path);
     expect(sig).toBeTruthy();
-    expect(
-      verifyImageProxySignature(KEY, "msg-1", "https://sender.example/x.png", sig as string),
-    ).toBe(true);
+    expect(verifyImageProxySignature(KEY, "msg-1", "https://sender.example/x.png", sig, exp)).toBe(
+      true,
+    );
   });
 
   it("rejects a signature minted for a different message id", () => {
     expect(
-      verifyImageProxySignature(KEY, "msg-2", "https://sender.example/x.png", "not-real"),
+      verifyImageProxySignature(
+        KEY,
+        "msg-2",
+        "https://sender.example/x.png",
+        "not-real",
+        Date.now() + IMAGE_PROXY_TTL_MS,
+      ),
     ).toBe(false);
   });
 
   it("rejects a tampered url even with the original signature", () => {
     const path = buildImageProxyPath(KEY, "msg-1", "https://sender.example/x.png");
-    const sig = new URL(path, "http://localhost").searchParams.get("sig") as string;
+    const { sig, exp } = signedParams(path);
     // Same signature, different target — the classic "point the proxy
     // somewhere new" tamper this HMAC exists to catch.
-    expect(verifyImageProxySignature(KEY, "msg-1", "https://evil.example/x.png", sig)).toBe(false);
+    expect(verifyImageProxySignature(KEY, "msg-1", "https://evil.example/x.png", sig, exp)).toBe(
+      false,
+    );
   });
 
   it("rejects a signature minted under a different key", () => {
     const otherKey = deriveImageProxyKey("a-completely-different-32-byte-secret!!");
     const path = buildImageProxyPath(otherKey, "msg-1", "https://sender.example/x.png");
-    const sig = new URL(path, "http://localhost").searchParams.get("sig") as string;
-    expect(verifyImageProxySignature(KEY, "msg-1", "https://sender.example/x.png", sig)).toBe(
+    const { sig, exp } = signedParams(path);
+    expect(verifyImageProxySignature(KEY, "msg-1", "https://sender.example/x.png", sig, exp)).toBe(
       false,
     );
+  });
+
+  it("rejects an expired signature even though the HMAC itself is genuine", () => {
+    const now = Date.now();
+    const path = buildImageProxyPath(KEY, "msg-1", "https://sender.example/x.png", now);
+    const { sig, exp } = signedParams(path);
+    expect(
+      verifyImageProxySignature(
+        KEY,
+        "msg-1",
+        "https://sender.example/x.png",
+        sig,
+        exp,
+        exp + 1, // "now" arrives one ms after the URL's own expiry
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts a signature right up to its own expiry", () => {
+    const now = Date.now();
+    const path = buildImageProxyPath(KEY, "msg-1", "https://sender.example/x.png", now);
+    const { sig, exp } = signedParams(path);
+    expect(
+      verifyImageProxySignature(KEY, "msg-1", "https://sender.example/x.png", sig, exp, exp),
+    ).toBe(true);
+  });
+
+  it("rejects a non-numeric or missing expiry outright, without touching the HMAC", () => {
+    expect(
+      verifyImageProxySignature(KEY, "msg-1", "https://sender.example/x.png", "anything", NaN),
+    ).toBe(false);
   });
 });
 

@@ -1,20 +1,28 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Mark } from "../brand/Mark.js";
 import { APPS, appForPath, appIconFor } from "./apps.js";
 
 /**
- * Header-left (#72, part of #66; rebuilt against the comp in #86): the hub
- * mark carrying a badge for whichever App is current, which expands *in
- * place* into a row of pill tabs naming all four Apps — Mail live,
- * Contacts/Calendar/Tasks named and reachable but marked SOON, never
- * hidden.
+ * The App Switcher (#72, part of #66; rebuilt against the comp in #86;
+ * split from the home mark in #96) — a compact toggle naming the current
+ * App, which expands *in place* into a row of pill tabs naming all four
+ * Apps — Mail live, Contacts/Calendar/Tasks named and reachable but marked
+ * SOON, never hidden.
+ *
+ * Before #96 this toggle *was* the hub mark — the only way home, App
+ * identity and App switching were all one control, with no click that just
+ * meant "home" and no product name anywhere signed in. `RootLayout.tsx`'s
+ * own `HomeLink` now carries the mark + "Wicket" wordmark as a plain `Link`
+ * to `/mail`; this component is the *adjacent* control the grill's
+ * acceptance box asks for, naming only the current App's icon plus a
+ * chevron — deliberately not the postmark any more, so the two controls
+ * read as separate affordances rather than one button wearing two hats.
  *
  * The expansion is the comp's own (`.switcher-cell` in
  * `docs/design/prototypes/the-instrument.html`): two grid cells that trade a
  * `grid-template-columns: 0fr → 1fr` transition, so the tabs grow out of the
- * mark's own position rather than dropping as a menu over the page. That is
+ * toggle's own position rather than dropping as a menu over the page. That is
  * why this is a pair of cells and a piece of local state instead of the
  * shadcn `DropdownMenu` it used to be — a popover cannot animate from zero
  * width in the header's own flow.
@@ -60,11 +68,8 @@ export function AppSwitcher({ pathname }: { pathname: string }) {
             aria-expanded={open}
             onClick={() => setOpen((current) => !current)}
           >
-            <span className="hub-mark">
-              <Mark size={21} stroke />
-              <span className="app-badge">
-                <CurrentIcon size={11} />
-              </span>
+            <span className="app-tile">
+              <CurrentIcon size={15} />
             </span>
             <ChevronDown size={13} className="chev" />
           </button>

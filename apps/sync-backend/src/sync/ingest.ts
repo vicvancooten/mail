@@ -3,7 +3,8 @@ import { eq, sql } from "drizzle-orm";
 import type { FetchMessageObject, ImapFlow, MessageAddressObject } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, messages } from "../db/schema.js";
-import { bumpThreadsEpoch } from "../mail-accounts/store.js";
+import { resolveRecipientAlias } from "../gatekeeper/alias.js";
+import { bumpThreadsEpoch, getMailAccountById } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { hasRealAttachments, readBodyParts } from "./body-structure.js";
 import {
@@ -17,6 +18,18 @@ import { extractReferencesHeader, normalizeMessageId, threadingIdsFor } from "./
 import { reindexMessages } from "./search-index.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { deleteEmptyThreads, resolveThread } from "./threading.js";
+
+/**
+ * The extra headers every ingest FETCH asks for beyond the envelope: the
+ * `References` chain threading needs (`message-ids.ts`) plus the two Alias
+ * headers #103's `gatekeeper/alias.ts#resolveRecipientAlias` reads —
+ * `Delivered-To`/`X-Original-To` are not part of ImapFlow's `envelope`
+ * (they are ordinary headers, not envelope fields), so they only ever reach
+ * `storeMessage` through this list. Shared by every FETCH that stores a
+ * message (`ingest.ts`, `sync/delta.ts`, `sync/qresync-catchup.ts`) so the
+ * three can never drift on what a message needs to resolve its Alias.
+ */
+export const INGEST_HEADERS = ["references", "delivered-to", "x-original-to"] as const;
 
 /**
  * Header ingest for one folder (#34), newest first.
@@ -120,16 +133,24 @@ export async function ingestFolder(
 
     if (total > 0) {
       const wanted = options.limit ?? total;
+      // Fetched once per folder pass, not per batch or per message — an
+      // account's own address never changes mid-sync, and this is the one
+      // thing `fetchAndStoreSequenceBatch`'s per-message Alias resolution
+      // (#103) needs that a FETCH itself can't supply.
+      const account = await getMailAccountById(db, folder.mailAccountId);
 
       while (high >= 1 && result.ingested < wanted) {
         const remaining = wanted - result.ingested;
         const low = Math.max(1, high - Math.min(batchSize, remaining) + 1);
 
-        const batch = await fetchAndStoreSequenceBatch(db, client, folder, uidValidity, {
-          low,
-          high,
-          fetchBodies: options.fetchBodies,
-        });
+        const batch = await fetchAndStoreSequenceBatch(
+          db,
+          client,
+          folder,
+          uidValidity,
+          { low, high, fetchBodies: options.fetchBodies },
+          account?.emailAddress ?? "",
+        );
         result.ingested += batch.length;
         result.created += batch.filter((message) => message.created).length;
         await options.onBatch?.(batch);
@@ -164,6 +185,12 @@ export async function ingestFolder(
  * backfill walker (`sync/backfill.ts`) can drive the exact same fetch shape
  * and storage path one bounded batch at a time instead of the unbounded loop
  * above.
+ *
+ * `mailAccountEmailAddress` is what #103's Alias resolution needs
+ * (`storeMessage`) — an empty string is a safe "resolve nothing" input
+ * (`gatekeeper/alias.ts#resolveRecipientAlias` returns `null` for an address
+ * with no parseable domain), so a caller that can't find the account row
+ * degrades to "no Alias resolved" rather than failing the whole batch.
  */
 export async function fetchAndStoreSequenceBatch(
   db: Db,
@@ -171,6 +198,7 @@ export async function fetchAndStoreSequenceBatch(
   folder: FolderRow,
   uidValidity: number,
   range: { low: number; high: number; fetchBodies?: boolean },
+  mailAccountEmailAddress: string,
 ): Promise<IngestedMessage[]> {
   const fetched = await client.fetchAll(`${range.low}:${range.high}`, {
     uid: true,
@@ -179,9 +207,10 @@ export async function fetchAndStoreSequenceBatch(
     internalDate: true,
     size: true,
     bodyStructure: true,
-    // The envelope carries `In-Reply-To` but not `References`, and
-    // threading needs the whole chain (`message-ids.ts`).
-    headers: ["references"],
+    // The envelope carries `In-Reply-To` but not `References`, and threading
+    // needs the whole chain (`message-ids.ts`); the other two are #103's
+    // Alias headers — see `INGEST_HEADERS`'s own doc comment.
+    headers: [...INGEST_HEADERS],
   });
 
   // `fetchAll` answers in ascending sequence order; the newest message in
@@ -189,7 +218,7 @@ export async function fetchAndStoreSequenceBatch(
   const newestFirst = fetched.reverse();
   const batch: IngestedMessage[] = [];
   for (const message of newestFirst) {
-    const stored = await storeMessage(db, folder, uidValidity, message);
+    const stored = await storeMessage(db, folder, uidValidity, message, mailAccountEmailAddress);
     batch.push(stored);
   }
 
@@ -244,12 +273,18 @@ export async function applyUidValidity(
  * through exactly this path rather than a second copy of it, so a message
  * ingested via a delta and one ingested via a full pass are indistinguishable
  * rows.
+ *
+ * `mailAccountEmailAddress` is #103's own addition — every caller passes the
+ * Mail Account's own address (or `""` when it can't be found, which resolves
+ * no Alias rather than failing the store) so `resolveRecipientAlias` can tell
+ * an Alias of this mailbox's own domain apart from an ordinary co-recipient.
  */
 export async function storeMessage(
   db: Db,
   folder: FolderRow,
   uidValidity: number,
   fetched: FetchMessageObject,
+  mailAccountEmailAddress: string,
 ): Promise<IngestedMessage> {
   const envelope = fetched.envelope ?? {};
   const receivedAt = toDate(fetched.internalDate) ?? toDate(envelope.date) ?? new Date();
@@ -262,6 +297,14 @@ export async function storeMessage(
   const flags = [...(fetched.flags ?? [])];
   const parts = readBodyParts(fetched.bodyStructure);
   const from = toAddresses(envelope.from)[0] ?? null;
+  const to = toAddresses(envelope.to);
+  const cc = toAddresses(envelope.cc);
+  const recipientAlias = resolveRecipientAlias({
+    mailAccountEmailAddress,
+    headerBlock: fetched.headers,
+    toAddresses: to,
+    ccAddresses: cc,
+  });
 
   const threadId = await resolveThread(db, {
     mailAccountId: folder.mailAccountId,
@@ -282,9 +325,10 @@ export async function storeMessage(
     subject: envelope.subject ?? "",
     fromName: from?.name ?? null,
     fromAddress: from?.address ?? null,
-    toAddresses: toAddresses(envelope.to),
-    ccAddresses: toAddresses(envelope.cc),
+    toAddresses: to,
+    ccAddresses: cc,
     replyToAddresses: toAddresses(envelope.replyTo),
+    recipientAlias,
     sentAt,
     receivedAt,
     // The two Protocol Features (ADR-0006), mapped straight off the IMAP

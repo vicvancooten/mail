@@ -1,12 +1,11 @@
 import type { MailAccount } from "@mail/shared";
+import { Command as CommandPrimitive } from "cmdk";
 import { Search, X } from "lucide-react";
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 import type { CachedThread } from "../../store/index.js";
-import { useThreadMessages } from "../reading/useThreadMessages.js";
+import type { ActionContext } from "../actions/types.js";
 import type { ViewOrigin } from "../search/scope.js";
 import { formatIndexWatermark, type SearchState } from "../search/useSearchState.js";
-import type { OnReply } from "../ThreadDetailPane.js";
-import type { Triage } from "../useTriage.js";
 import { buildCommands, type PaletteCommand } from "./commands.js";
 
 /** A palette row is either a Command or a mail hit — one flat, keyboard-navigable list (#79's "keyboard-complete"). */
@@ -15,6 +14,12 @@ type PaletteRow =
   | { kind: "hit"; thread: CachedThread }
   | { kind: "see-all"; count: number };
 
+function rowValue(row: PaletteRow): string {
+  if (row.kind === "command") return `command:${row.command.id}`;
+  if (row.kind === "hit") return `hit:${row.thread.id}`;
+  return "see-all";
+}
+
 function matchesQuery(command: PaletteCommand, query: string): boolean {
   if (!query) return true;
   const needle = query.toLowerCase();
@@ -22,10 +27,6 @@ function matchesQuery(command: PaletteCommand, query: string): boolean {
     command.label.toLowerCase().includes(needle) ||
     (command.shortcut?.toLowerCase().includes(needle) ?? false)
   );
-}
-
-function rowDomId(index: number): string {
-  return `command-palette-row-${index}`;
 }
 
 /**
@@ -39,30 +40,30 @@ function rowDomId(index: number): string {
  *
  * Deliberately reuses `search` wholesale rather than a second search
  * pipeline: typing here calls `search.onFieldChange` exactly like the top
- * bar field does, which is what activates `search.active` and, with it,
- * `MailSection`'s own `<SearchResultsView>` swap underneath this overlay —
- * "the list pane behind the palette" is already live by the time "See all
- * results" is reached; this overlay just stops covering it. Committing (via
- * "See all results", or Enter on a hit) calls `search.onCommit`, the same
- * "Enter commits" contract the header field keeps.
+ * bar field does, plus `search.engage()` on the first keystroke — which
+ * runs the same prefilter/server round trip `search.active` always has,
+ * *without* opening the results view (#100: the Palette must never swap the
+ * list pane just because someone is typing). Enter on a hit
+ * (`search.select`) opens it in the reading pane the same way, still
+ * without opening the results view. **"See all results"** is the only row
+ * that calls `search.openResultsView()` — that's what swaps the list pane
+ * into `MailSection`'s own `<SearchResultsView>` for real.
  *
- * Keyboard nav is a flat list, not a real DOM focus walk: the input keeps
- * focus throughout (typing never has to fight losing/regaining it), and
- * `activeIndex` alone tracks which row Up/Down/Enter act on —
- * `aria-activedescendant` is what makes that legible to a screen reader.
+ * The list/input/keyboard-nav shell is cmdk (#93) — `shouldFilter={false}`
+ * since `matchedCommands`/`hits` are already the pre-filtered set
+ * (`search`'s own floor/debounce for hits, `matchesQuery` for commands),
+ * so cmdk only ever owns Up/Down/Enter and the roving `aria-selected`
+ * highlight (`mail.css`'s own `.command-palette-row[aria-selected="true"]`)
+ * across whichever rows are actually mounted — never a second filtering
+ * pass on top of ours. The backdrop, its own outside-click/Escape
+ * dismissal and focus-return, stay hand-rolled exactly as before: this is
+ * a full-viewport modal already built to the comp, not one of the
+ * hand-rolled popovers/menus #93 replaces.
  */
 export function CommandPalette({
   open,
   onClose,
-  selectedThread,
-  triage,
-  onReply,
-  onCompose,
-  onBackToList,
-  onOpenScreener,
-  screenerCount,
-  onFocusSearch,
-  onOpenShortcutSheet,
+  ctx,
   search,
   searchOrigin,
   accounts,
@@ -70,64 +71,32 @@ export function CommandPalette({
 }: {
   open: boolean;
   onClose: () => void;
-  selectedThread: CachedThread | null;
-  triage: Triage;
-  onReply: OnReply;
-  onCompose: () => void;
-  onBackToList: () => void;
-  onOpenScreener: () => void;
-  screenerCount: number;
-  onFocusSearch: () => void;
-  onOpenShortcutSheet: () => void;
+  /** The Action registry's context for right now (#94) — one object in place of the nine callbacks this component used to take, and the same one the keyboard and every menu read. */
+  ctx: ActionContext;
   search: SearchState;
   searchOrigin: ViewOrigin;
   accounts: readonly MailAccount[];
   /** Which Mail Account a hit came from is only worth naming once a search actually spans more than one (#80, same "several are in Scope" gate `SearchResultsView`'s own row badge uses). */
   accountScope: readonly string[];
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-  // Rules of Hooks: called unconditionally even with nothing selected —
-  // `useThreadMessages("")`'s own doc comment is what makes that a no-op.
-  const { messages } = useThreadMessages(selectedThread?.id ?? "");
-  const latestMessage = messages?.at(-1) ?? null;
+  // `search.engage` (#100) seeds the scope from `searchOrigin` the same way
+  // `open` does, so it must fire once per Palette session rather than on
+  // every keystroke — otherwise a mid-session `popSeed` (backspace on an
+  // empty field) would be undone by the very next character typed.
+  const engagedRef = useRef(false);
 
+  // Autofocus (cmdk's `Input` `autoFocus`) handles focus on each fresh
+  // mount, but this component never unmounts while closed (`if (!open)
+  // return null` below, after every hook) — `engagedRef` needs its own
+  // reset on reopen, or a second Palette session would skip `search.engage`
+  // entirely, believing an earlier session already ran it.
   useEffect(() => {
-    if (open) {
-      inputRef.current?.focus();
-      setActiveIndex(0);
-    }
+    if (open) engagedRef.current = false;
   }, [open]);
 
   const query = search.queryText;
 
-  const commands = useMemo(
-    () =>
-      buildCommands({
-        selectedThread,
-        triage,
-        latestMessage,
-        onReply,
-        onCompose,
-        onBackToList,
-        onOpenScreener,
-        screenerCount,
-        onFocusSearch,
-        onOpenShortcutSheet,
-      }),
-    [
-      selectedThread,
-      triage,
-      latestMessage,
-      onReply,
-      onCompose,
-      onBackToList,
-      onOpenScreener,
-      screenerCount,
-      onFocusSearch,
-      onOpenShortcutSheet,
-    ],
-  );
+  const commands = useMemo(() => buildCommands(ctx), [ctx]);
 
   const matchedCommands = useMemo(
     () => commands.filter((command) => matchesQuery(command, query)),
@@ -142,19 +111,6 @@ export function CommandPalette({
   const hits = showHits ? search.results.slice(0, 5) : [];
   const showAccountBadge = accountScope.length > 1;
 
-  const rows: PaletteRow[] = useMemo(
-    () => [
-      ...matchedCommands.map((command): PaletteRow => ({ kind: "command", command })),
-      ...hits.map((thread): PaletteRow => ({ kind: "hit", thread })),
-      ...(showHits ? [{ kind: "see-all" as const, count: search.results.length }] : []),
-    ],
-    [matchedCommands, hits, showHits, search.results.length],
-  );
-
-  // Clamp rather than reset on every keystroke — losing the highlight each
-  // time a character lands would make Down-arrow-then-type unusable.
-  const activeRowIndex = rows.length === 0 ? -1 : Math.min(activeIndex, rows.length - 1);
-
   function runRow(row: PaletteRow) {
     if (row.kind === "command") {
       if (!row.command.run) return;
@@ -163,35 +119,31 @@ export function CommandPalette({
       return;
     }
     if (row.kind === "hit") {
+      // Opens the top (or arrow-selected) hit in Split — the reading pane
+      // only. The list pane stays exactly what it already was; "See all
+      // results", below, is the only row that swaps it (#100).
       search.select(row.thread.id);
       onClose();
       return;
     }
     search.onCommit(query);
+    search.openResultsView();
     onClose();
   }
 
   function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveIndex((current) => (rows.length === 0 ? 0 : (current + 1) % rows.length));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIndex((current) =>
-        rows.length === 0 ? 0 : (current - 1 + rows.length) % rows.length,
-      );
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const row = activeRowIndex >= 0 ? rows[activeRowIndex] : undefined;
-      if (row) runRow(row);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      if (query.length > 0) {
-        search.onFieldChange("");
-      } else {
-        search.onEsc();
-        onClose();
-      }
+    // Up/Down/Enter are cmdk's own (the root's `onKeyDown`, which this
+    // bubbles to) — only Escape's two-stage "clear text, then leave" is
+    // this component's own, so it's the one key stopped here before cmdk
+    // or the surrounding Dialog-less backdrop ever see it.
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (query.length > 0) {
+      search.onFieldChange("");
+    } else {
+      search.onEsc();
+      onClose();
     }
   }
 
@@ -207,24 +159,29 @@ export function CommandPalette({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <CommandPrimitive
+        className="command-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        label="Search commands and mail"
+        shouldFilter={false}
+      >
         <div className="command-palette-input-row">
           <Search size={15} className="command-palette-icon" />
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="command-palette-list"
-            aria-activedescendant={activeRowIndex >= 0 ? rowDomId(activeRowIndex) : undefined}
-            aria-autocomplete="list"
-            aria-label="Search commands and mail"
+          <CommandPrimitive.Input
+            autoFocus
             placeholder="Search commands or mail…"
             value={query}
-            onChange={(event) => {
-              if (!search.active) search.open(searchOrigin);
-              search.onFieldChange(event.target.value);
-              setActiveIndex(0);
+            onValueChange={(value) => {
+              // Engages the round trip (prefilter + debounced server search)
+              // without opening the results view — the list pane behind the
+              // Palette stays untouched while typing (#100).
+              if (!engagedRef.current) {
+                engagedRef.current = true;
+                search.engage(searchOrigin);
+              }
+              search.onFieldChange(value);
             }}
             onKeyDown={handleInputKeyDown}
           />
@@ -238,35 +195,24 @@ export function CommandPalette({
           </button>
         </div>
 
-        <div
-          id="command-palette-list"
-          role="listbox"
-          aria-label="Commands and mail"
-          className="command-palette-list"
-        >
-          {rows.length === 0 ? (
-            <p className="command-palette-empty">No matching commands.</p>
-          ) : null}
+        <CommandPrimitive.List className="command-palette-list">
+          <CommandPrimitive.Empty className="command-palette-empty">
+            No matching commands.
+          </CommandPrimitive.Empty>
 
           {matchedCommands.length > 0 ? (
-            <div className="command-palette-section">
-              <p className="command-palette-section-label">Commands</p>
-              {matchedCommands.map((command, offset) => {
-                const index = offset;
+            <CommandPrimitive.Group className="command-palette-section" heading="Commands">
+              {matchedCommands.map((command) => {
+                const row: PaletteRow = { kind: "command", command };
                 const disabled = !command.run || Boolean(command.disabledReason);
                 return (
-                  <button
-                    type="button"
+                  <CommandPrimitive.Item
                     key={command.id}
-                    id={rowDomId(index)}
-                    role="option"
-                    aria-selected={index === activeRowIndex}
-                    aria-disabled={disabled}
-                    className={`command-palette-row${index === activeRowIndex ? " active" : ""}${disabled ? " disabled" : ""}`}
+                    value={rowValue(row)}
+                    disabled={disabled}
+                    onSelect={() => runRow(row)}
+                    className={`command-palette-row${disabled ? " disabled" : ""}`}
                     title={command.disabledReason}
-                    disabled={!command.run}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => runRow({ kind: "command", command })}
                   >
                     <span className="command-palette-row-section">{command.section}</span>
                     <span className="command-palette-row-label">{command.label}</span>
@@ -275,17 +221,16 @@ export function CommandPalette({
                     ) : (
                       <span className="command-palette-unbound">unbound</span>
                     )}
-                  </button>
+                  </CommandPrimitive.Item>
                 );
               })}
-            </div>
+            </CommandPrimitive.Group>
           ) : null}
 
           {hits.length > 0 ? (
-            <div className="command-palette-section">
-              <p className="command-palette-section-label">Mail</p>
-              {hits.map((thread, offset) => {
-                const index = matchedCommands.length + offset;
+            <CommandPrimitive.Group className="command-palette-section" heading="Mail">
+              {hits.map((thread) => {
+                const row: PaletteRow = { kind: "hit", thread };
                 const display = search.displayById.get(thread.id);
                 const participants =
                   thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
@@ -294,15 +239,11 @@ export function CommandPalette({
                       ?.emailAddress
                   : null;
                 return (
-                  <button
-                    type="button"
+                  <CommandPrimitive.Item
                     key={thread.id}
-                    id={rowDomId(index)}
-                    role="option"
-                    aria-selected={index === activeRowIndex}
-                    className={`command-palette-row${index === activeRowIndex ? " active" : ""}`}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => runRow({ kind: "hit", thread })}
+                    value={rowValue(row)}
+                    onSelect={() => runRow(row)}
+                    className="command-palette-row"
                   >
                     <span className="command-palette-hit-subject">
                       {thread.subject || "(no subject)"}
@@ -314,30 +255,21 @@ export function CommandPalette({
                     {display?.gatekeeper ? (
                       <span className="command-palette-hit-badge">{display.gatekeeper}</span>
                     ) : null}
-                  </button>
+                  </CommandPrimitive.Item>
                 );
               })}
-              {(() => {
-                const seeAllIndex = matchedCommands.length + hits.length;
-                return (
-                  <button
-                    type="button"
-                    id={rowDomId(seeAllIndex)}
-                    role="option"
-                    aria-selected={seeAllIndex === activeRowIndex}
-                    className={`command-palette-row command-palette-see-all${seeAllIndex === activeRowIndex ? " active" : ""}`}
-                    onMouseEnter={() => setActiveIndex(seeAllIndex)}
-                    onClick={() => runRow({ kind: "see-all", count: search.results.length })}
-                  >
-                    See all results ({search.results.length})
-                  </button>
-                );
-              })()}
+              <CommandPrimitive.Item
+                value="see-all"
+                onSelect={() => runRow({ kind: "see-all", count: search.results.length })}
+                className="command-palette-row command-palette-see-all"
+              >
+                See all results ({search.results.length})
+              </CommandPrimitive.Item>
               {watermark ? <p className="command-palette-watermark">{watermark}</p> : null}
-            </div>
+            </CommandPrimitive.Group>
           ) : null}
-        </div>
-      </div>
+        </CommandPrimitive.List>
+      </CommandPrimitive>
     </div>
   );
 }

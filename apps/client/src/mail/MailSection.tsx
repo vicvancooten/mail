@@ -1,5 +1,4 @@
 import type {
-  AutoAdvanceDirection,
   BulkTriageAccountOutcome,
   BulkTriageAction,
   Label,
@@ -21,10 +20,9 @@ import {
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
-import { useComposeShortcut } from "../compose/useComposeShortcut.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
-  enqueueUserMutation,
+  EMPTY_COMPOSE_CONTENT,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
@@ -38,6 +36,9 @@ import {
 import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
+import { ActionsProvider, useActionKeyboard } from "./actions/ActionsProvider.js";
+import { currentListHandle, currentReaderHandle } from "./actions/surface-handles.js";
+import type { ActionContext } from "./actions/types.js";
 import { CommandPalette } from "./command-palette/CommandPalette.js";
 import {
   consumeGlobalPaletteOpenRequest,
@@ -46,32 +47,28 @@ import {
 import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
-  type AccountScope as AccountScopeIds,
-  readListDensity,
   readOpenComposerId,
-  readStreamMode,
-  readViewMode,
-  writeListDensity,
+  useListDensity,
+  useViewMode,
   writeScreenerViewed,
-  writeStreamMode,
-  writeViewMode,
 } from "./device-preferences.js";
 import { DEFAULT_FOLDER, type FolderKey, folderToView } from "./folders.js";
-import { GroupBulkToast, type GroupBulkToastState } from "./GroupBulkToast.js";
+import { showGroupBulkToast } from "./GroupBulkToast.js";
 import { bulkTriageFolderRoleForFolder, bulkTriageTarget, groupDateRange } from "./group-target.js";
 import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
+import type { MailtoLink } from "./reading/mailto.js";
+import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
-import { StreamView } from "./StreamView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
 import { Screener } from "./screener/Screener.js";
+import { SearchField } from "./search/SearchField.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
-import { TopBar } from "./TopBar.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
@@ -98,8 +95,11 @@ const Composer = lazy(() =>
 
 /**
  * The real thread list UI over the Local Cache (#40, #42, #43): the
- * windowed, time-grouped list, the Split (default) / List top-bar modes
- * plus Stream as an independent opt-in, Account Scope (#73), and triage.
+ * windowed, time-grouped list, the Split (default) / List top-bar modes,
+ * Account Scope (#73), and triage. Stream (#105, CONTEXT.md) is no longer a
+ * third mode here — it's its own full-screen route
+ * (`router/routes.tsx#streamRoute`, `stream/StreamStack.tsx`), reached
+ * through `onOpenStream` below rather than a Device Preference toggle.
  * `useTriage` is called exactly once, here, so archive, trash, star, read,
  * pin, and label mean the same thing no matter which view is showing; every
  * view below is handed the same actions and never enqueues a mutation on
@@ -138,6 +138,7 @@ export function MailSection({
   initialFolder,
   initialThreadId = null,
   onLocationChange,
+  onOpenStream = () => {},
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
@@ -147,17 +148,19 @@ export function MailSection({
     folder: FolderKey;
     threadId: string | null;
   }) => void;
+  /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
+  onOpenStream?: () => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
 
-  const [viewMode, setViewMode] = useState(readViewMode);
-  const [streamMode, setStreamMode] = useState(readStreamMode);
-  // List density (#54, CONTEXT.md's Device Preference): local `useState`
-  // seeded from `localStorage`, same mechanics as `viewMode`/`streamMode`
-  // above — deliberately never synced, because density means something
-  // different on each device the User signs in from.
-  const [density, setDensity] = useState(readListDensity);
+  // View mode and list density (#99): reactive Device Preferences now
+  // (`device-preferences.ts#useViewMode`/`useListDensity`), so a change made
+  // from Settings' "This device" page (`settings/ThisDeviceSection.tsx`)
+  // reaches this component instantly — the ticket's own acceptance
+  // criterion ("changing density in Settings updates the list immediately").
+  const [viewMode] = useViewMode();
+  const [density] = useListDensity();
   // Account Scope (#73): the Thread list's own accounts; `accountId` below
   // is derived from it, not tracked separately — see the doc comment above.
   const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
@@ -180,7 +183,11 @@ export function MailSection({
     (sum, group) => sum + group.senders.length,
     0,
   );
-  const draftCompositions = useDraftCompositions(accountId) ?? [];
+  // Account Scope (#73, #101): Drafts span every in-scope account, the same
+  // "merged into one newest-first list across Scope" treatment
+  // `useThreadWindow`/`useScreenerSenders` already give the Thread list and
+  // the Screener.
+  const draftCompositions = useDraftCompositions(accountScope) ?? [];
   // Auto-advance on/off + direction (#54, poc-spec.md §Preferences):
   // User-scoped and synced — `usePreference()` already carries `base ⊕
   // pending`, so a change made offline (or on another device) is reflected
@@ -243,9 +250,8 @@ export function MailSection({
   // open guard, so swapping `composeId` can never unmount a live `Composer`
   // out from under unsaved typing (a `key={composeId}` change unmounts it
   // with no synchronous flush of whatever's still sitting in the debounce).
-  // `useComposeShortcut`'s own `disabled` guard below is now redundant with
-  // this, but harmless — it just means `c` never re-mints an id it would
-  // throw away.
+  // The registry's own `compose` entry (`c`) is guarded by this too, so a
+  // second `c` while one is open never re-mints an id it would throw away.
   const openComposer = useCallback((id: string) => {
     setComposeId((current) => current ?? id);
   }, []);
@@ -279,7 +285,6 @@ export function MailSection({
     },
     [openComposer],
   );
-  useComposeShortcut(openCompose, composeId !== null);
 
   // Reply/reply-all/forward (#47): seeds a freshly-minted Composition
   // (`compose/reply.ts#buildReplyContent`) *before* the composer ever
@@ -288,7 +293,7 @@ export function MailSection({
   // time `<Composer>` reads `useComposition(id)` on its first hydration
   // effect, the row is already there to hydrate from. "One composer at a
   // time" (compose-spec) is why this no-ops while one is already open,
-  // matching `useComposeShortcut`'s own suppression.
+  // matching the registry's own `compose` guard.
   //
   // The From account (#81): always the arriving Message's own account
   // (`message.mailAccountId`), never Account Scope's primary one and never
@@ -309,45 +314,88 @@ export function MailSection({
     [composeId, mailAccounts],
   );
 
+  // A `mailto:` link clicked inside a Message body (ADR-0018's click
+  // bridge, `MessageBody.tsx`): the same "one composer at a time" guard as
+  // `openReply`, but there is no arriving Message to settle the From
+  // account against, so it follows `openCompose`'s own choice instead
+  // (Account Scope's primary account, or a picker when Scope holds
+  // several) — a `mailto:` link says nothing about which of the User's
+  // Mail Accounts should send the reply.
+  const openMailto = useCallback(
+    (link: MailtoLink) => {
+      if (composeId !== null || !mailAccounts || !accountId) return;
+      setComposeFromChoices(
+        accountScope.length > 1
+          ? mailAccounts.filter((account) => accountScope.includes(account.id))
+          : null,
+      );
+      const id = newCompositionId();
+      void saveComposition(
+        id,
+        accountId,
+        { ...EMPTY_COMPOSE_CONTENT, to: link.to, subject: link.subject ?? "" },
+        { force: true },
+      ).then(() => openComposer(id));
+    },
+    [composeId, mailAccounts, accountId, accountScope, openComposer],
+  );
+
   // Account Scope resolution — which accounts exist, and the default-to-all
   // fallback — lives in `useAccountScope` itself now (#73); this component
   // only ever reads `accountScope`/`accountId` back.
+
+  // Account Scope's own control lives in the Hub now (#96,
+  // `router/RootLayout.tsx`), a different component instance from this one —
+  // so "reset the transient view state when the *primary* account (Scope's
+  // first member) actually changes" can no longer be a side effect wrapped
+  // around the setter a caller here hands out (the old `changeAccountScope`).
+  // Instead this watches `accountId` itself, the same "react to the shared
+  // store's value, not to who wrote it" posture the count-invalidation
+  // effect below already takes on `accountScope[0]`. Adding or removing a
+  // non-primary account from Scope doesn't change `accountId` and so still
+  // doesn't drop whatever the User was looking at. `narrowScopeTo` below
+  // stamps this ref itself, synchronously, so this effect's own reset never
+  // fires a render *after* one of that callback's own callers (the
+  // notification handlers) already placed a specific Thread/Composition —
+  // this effect would otherwise wipe that out a tick later.
+  const previousPrimaryAccountRef = useRef(accountId);
+  useEffect(() => {
+    const previousPrimary = previousPrimaryAccountRef.current;
+    previousPrimaryAccountRef.current = accountId;
+    if (accountId === previousPrimary) return;
+    // `null` means "Scope hadn't resolved to a real primary account yet"
+    // (`useMailAccounts` resolves the Local Cache a render or two after
+    // mount) — that first settling is not a User-driven Scope change, and
+    // resetting `initialThreadId`'s own selection out from under a fresh
+    // routed mount (`router/MailRoute.tsx`'s own `?thread=` restore) would
+    // be exactly the drift this effect exists to prevent, not fix.
+    if (previousPrimary === null) return;
+    setSelectedThreadId(null);
+    setLimit(THREAD_PAGE_SIZE);
+    setLabelFilter(null);
+    setFolder(DEFAULT_FOLDER);
+  }, [accountId]);
 
   // Narrows Scope to exactly one account: the one path (a notification
   // click landing on an account not currently primary) where a *single*
   // account still has to be picked out from the rest, the same "switch to
   // it" behavior the pre-Scope account switcher had. Resets the transient
-  // view state the same way a User-driven Scope change to a new primary
-  // does (`changeAccountScope` below) — including the folder (#74), since a
-  // narrowed Scope may not have the previous folder's contents at all.
+  // view state the same way the effect above does for a User-driven Scope
+  // change — including the folder (#74), since a narrowed Scope may not
+  // have the previous folder's contents at all — and stamps
+  // `previousPrimaryAccountRef` itself so that effect doesn't redo (and
+  // re-fire a render behind) the same reset once `accountId` actually
+  // catches up.
   const narrowScopeTo = useCallback(
     (id: string) => {
       setAccountScope([id]);
+      previousPrimaryAccountRef.current = id;
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
       setLabelFilter(null);
       setFolder(DEFAULT_FOLDER);
     },
     [setAccountScope],
-  );
-
-  // The Account Scope control's own onChange (#73): the transient view
-  // state (selection, label filter, folder, Screener, page size) only
-  // resets when the *primary* account (Scope's first member) actually
-  // changes — adding or removing a non-primary account from Scope shouldn't
-  // drop whatever the User was looking at.
-  const changeAccountScope = useCallback(
-    (ids: AccountScopeIds) => {
-      const previousPrimary = accountId;
-      setAccountScope(ids);
-      if (ids[0] !== previousPrimary) {
-        setSelectedThreadId(null);
-        setLimit(THREAD_PAGE_SIZE);
-        setLabelFilter(null);
-        setFolder(DEFAULT_FOLDER);
-      }
-    },
-    [accountId, setAccountScope],
   );
 
   // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own
@@ -414,32 +462,6 @@ export function MailSection({
     setLimit(THREAD_PAGE_SIZE);
     if (labelId !== null) setFolder(DEFAULT_FOLDER);
   }, []);
-
-  const changeViewMode = useCallback((mode: typeof viewMode) => {
-    setViewMode(mode);
-    writeViewMode(mode);
-  }, []);
-
-  const changeStreamMode = useCallback((enabled: boolean) => {
-    setStreamMode(enabled);
-    writeStreamMode(enabled);
-  }, []);
-
-  const changeDensity = useCallback((next: typeof density) => {
-    setDensity(next);
-    writeListDensity(next);
-  }, []);
-
-  const changeDirection = useCallback(
-    (next: AutoAdvanceDirection) => {
-      void enqueueUserMutation({
-        type: "setAutoAdvance",
-        enabled: autoAdvanceEnabled,
-        direction: next,
-      });
-    },
-    [autoAdvanceEnabled],
-  );
 
   const view = useMemo(
     () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : folderToView(folder)),
@@ -508,7 +530,6 @@ export function MailSection({
   const [hiddenThreadIds, setHiddenThreadIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
-  const [groupBulkToast, setGroupBulkToast] = useState<GroupBulkToastState | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Switching what target set is even on screen — a different folder or a
@@ -607,7 +628,7 @@ export function MailSection({
               ? `${verb}: ${response.affectedCount} in ${label}.`
               : `${verb} for ${response.accounts.length - failed.length} of ${response.accounts.length} accounts — ${failed.map(describeRejectedAccount).join(", ")}.`;
           const undoable = action === "done" && response.affectedCount > 0;
-          setGroupBulkToast({
+          showGroupBulkToast({
             message,
             durationMs: undoable
               ? BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000
@@ -642,7 +663,7 @@ export function MailSection({
             for (const id of groupThreadIds) next.delete(id);
             return next;
           });
-          setGroupBulkToast({
+          showGroupBulkToast({
             message: `Couldn't clear ${label} — restored to the list.`,
             durationMs: GROUP_BULK_MESSAGE_TOAST_MS,
           });
@@ -674,6 +695,13 @@ export function MailSection({
         : threads.filter((thread) => !hiddenThreadIds.has(thread.id)),
     [threads, hiddenThreadIds],
   );
+  // Split/List's own neighbor set (#97's bug 4): `visibleThreads` is what
+  // they actually render, so their `ids` prop — the source `neighborId`
+  // walks for "the reading pane's own back/forward" — has to name exactly
+  // those rows too. Feeding it the unfiltered `ids` below let a Group Done
+  // clear leave `j`/`k`/back landing on a Thread whose row had already
+  // disappeared: "nothing open."
+  const visibleIds = useMemo(() => visibleThreads.map((thread) => thread.id), [visibleThreads]);
 
   // Search (#51, `docs/search-ux-spec.md`): one hook owns the route, the
   // parse, the prefilter + server round trip and the merged result set;
@@ -697,10 +725,23 @@ export function MailSection({
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
   // the same "nothing cached yet" shape `useThreadWindow` already handles.
+  // The Palette's "Enter opens the top hit" (#100): opens a search hit in
+  // the reading pane while the results view stays closed and the list pane
+  // keeps showing whatever it already was — "Enter opens the top (or
+  // arrow-selected) hit in Split", never the results view itself, which
+  // only "See all results" opens. Derived straight off `search`'s own
+  // selection rather than tracked separately, so it disappears on its own
+  // once the hit falls out of `search.results` (a new query, say).
+  const openedSearchThread = search.active
+    ? null
+    : (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null);
+
   // Stream is suppressed and the view-mode pair muted while searching
   // (search-ux-spec.md §The surface) — `search.active` joins `composeId` in
   // disabling this hook's own keydown listener so a result row's `j`/`k`
-  // (handled by `searchTriage` below) is the only scheme live at once.
+  // (handled by `searchTriage` below) is the only scheme live at once. An
+  // opened search hit (above) counts too: the reading pane it occupies
+  // belongs to `searchTriage`, not the folder's own selection.
   const triage = useTriage({
     mailAccountId: accountId,
     threads,
@@ -709,7 +750,6 @@ export function MailSection({
     onSelect: setSelectedThreadId,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || search.active || screenerOpen,
   });
   const rawSearchTriage = useTriage({
     mailAccountId: accountId,
@@ -719,7 +759,6 @@ export function MailSection({
     onSelect: search.select,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || !search.active || screenerOpen,
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
 
@@ -755,211 +794,284 @@ export function MailSection({
   useEffect(() => subscribeGlobalPaletteOpen(openPalette), [openPalette]);
 
   // Whichever Thread is actually open right now — the ordinary Inbox
-  // pairing or Search's own, matching the same branch the JSX below already
-  // takes — is what the Palette's Triage commands (and "back to list") act
-  // on; there is no third, Palette-owned notion of "the current Thread".
+  // pairing, Search's own results-view selection, or an opened search hit
+  // (#100), matching the same branch the JSX below already takes — is what
+  // the Palette's Triage commands (and "back to list") act on; there is no
+  // fourth, Palette-owned notion of "the current Thread".
   const activeSelectedThread = search.active
     ? (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null)
-    : (threads.find((candidate) => candidate.id === selectedThreadId) ?? null);
-  const activeTriage = search.active ? searchTriage : triage;
+    : (openedSearchThread ??
+      threads.find((candidate) => candidate.id === selectedThreadId) ??
+      null);
+  const activeTriage = search.active || openedSearchThread ? searchTriage : triage;
   const backToList = useCallback(() => {
-    if (search.active) search.select(null);
+    if (search.active || openedSearchThread) search.select(null);
     else setSelectedThreadId(null);
-  }, [search.active, search.select]);
+  }, [search.active, search.select, openedSearchThread]);
 
-  // `/`, `⌘K`/`Ctrl-K` and `?` — all three inert while typing elsewhere, the
-  // composer's open, or the Screener's up (the same "not typing" guard
-  // `useTriage`'s own scheme uses).
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (composeId !== null || screenerOpen) return;
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+  // The Messages of whichever Thread is open — what makes Reply/Reply
+  // all/Forward *available* (the registry's `latestMessage`). Called
+  // unconditionally, Rules of Hooks; `useThreadMessages("")` is a no-op.
+  const { messages: activeMessages } = useThreadMessages(activeSelectedThread?.id ?? "");
 
-      if (event.key === "/" && !typing) {
-        event.preventDefault();
-        // Focusing is enough — `TopBar`'s own `onFocus` is what opens
-        // search when it isn't already active (`SearchField`'s own doc
-        // comment). Opening here too would double-push the route (two
-        // `/search` history entries for one open), which then takes two
-        // Back presses to leave.
-        focusSearchField();
+  // Which list `j`/`k` walk right now: Search's results while its view is
+  // up, the folder's own window otherwise. The mounted list publishes a
+  // collapse-aware mover of its own (`actions/surface-handles.ts`), which
+  // is what actually runs where one is mounted — this pairing is the
+  // fallback for a surface with no list at all (Stream).
+  const searching = search.active || Boolean(openedSearchThread);
+  const activeIds = searching ? search.results.map((thread) => thread.id) : ids;
+  const activeSelect = searching ? search.select : setSelectedThreadId;
+  const activeSelectedId = searching ? search.selectedThreadId : selectedThreadId;
+  const moveSelection = useCallback(
+    (delta: 1 | -1) => {
+      const list = currentListHandle();
+      if (list) {
+        list.move(delta);
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault();
-        openPalette();
-        return;
-      }
-      if (event.key === "?" && !typing) {
-        event.preventDefault();
-        setShortcutSheetOpen(true);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [composeId, screenerOpen, focusSearchField, openPalette]);
+      if (activeIds.length === 0) return;
+      const index = activeSelectedId ? activeIds.indexOf(activeSelectedId) : -1;
+      const next =
+        index === -1
+          ? activeIds[0]
+          : activeIds[Math.min(Math.max(index + delta, 0), activeIds.length - 1)];
+      if (next) activeSelect(next);
+    },
+    [activeIds, activeSelectedId, activeSelect],
+  );
+
+  /**
+   * The Action registry's context (#94) — built once, here, and handed both
+   * to the single `keydown` listener and (through `ActionsProvider`) to
+   * every surface that draws a control: the row cluster, the row/reader/
+   * header/Screener/Drafts menus, the Command Palette and the Shortcut
+   * Sheet. There is no second notion of "the current Thread" anywhere.
+   *
+   * `openPicker` is present exactly while a reading pane is showing the
+   * Thread — that pane owns the Snooze/Label Popovers, so it is what makes
+   * those two runnable from the keyboard and the Palette at all
+   * (`actions/surface-handles.ts`).
+   */
+  const actionContext = useMemo<ActionContext>(
+    () => ({
+      thread: activeSelectedThread,
+      triage: activeTriage,
+      latestMessage: activeMessages?.at(-1) ?? null,
+      labels: labelsForPicker,
+      onReply: openReply,
+      onCompose: openCompose,
+      onBackToList: backToList,
+      onOpenScreener: openScreener,
+      screenerCount: screenerSenderCount,
+      onFocusSearch: focusSearchField,
+      onOpenPalette: openPalette,
+      onOpenShortcutSheet: () => setShortcutSheetOpen(true),
+      onOpenStream,
+      onMove: moveSelection,
+      threadCount: activeIds.length,
+      openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
+      group: null,
+      screenerSender: null,
+      draft: null,
+      streamSkip: null,
+    }),
+    [
+      activeSelectedThread,
+      activeTriage,
+      activeMessages,
+      labelsForPicker,
+      openReply,
+      openCompose,
+      backToList,
+      openScreener,
+      screenerSenderCount,
+      focusSearchField,
+      openPalette,
+      onOpenStream,
+      moveSelection,
+      activeIds.length,
+    ],
+  );
+
+  // **The** `keydown` listener (#94). Inert while the composer owns the
+  // keyboard (#45), while the Screener is up with its own modal scheme, and
+  // while either overlay is — the Palette handles its own keys, and the
+  // Sheet must not let `e` archive something behind it.
+  useActionKeyboard(
+    actionContext,
+    composeId !== null || screenerOpen || paletteOpen || shortcutSheetOpen,
+  );
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
 
   return (
-    <section className="mail-section">
-      <TopBar
-        viewMode={viewMode}
-        onViewMode={changeViewMode}
-        streamMode={streamMode}
-        onStreamMode={changeStreamMode}
-        density={density}
-        onDensity={changeDensity}
-        direction={direction}
-        onDirection={changeDirection}
-        accounts={mailAccounts}
-        accountScope={accountScope}
-        onAccountScopeChange={changeAccountScope}
-        labels={labelsForPicker}
-        labelFilter={labelFilter}
-        onLabelFilter={selectLabelFilter}
-        screener={{ count: screenerSenderCount, onOpen: openScreener }}
-        search={{
-          active: search.active,
-          queryText: search.queryText,
-          inputRef: searchInputRef,
-          onChange: search.onFieldChange,
-          onCommit: search.onCommit,
-          onEsc: search.onEsc,
-          onBackspaceEmpty: search.onBackspaceEmpty,
-          // The header field's own click/focus (#79: "the header search
-          // field is its other entry point" for the Palette) — unless it
-          // was `/` that focused it a moment ago (`suppressPaletteOnFocusRef`
-          // above), in which case this is the pre-#79 "just open search"
-          // path, matching `search-integration.test.tsx`'s own `/`-driven
-          // coverage exactly.
-          onOpen: () => {
-            if (suppressPaletteOnFocusRef.current) {
-              suppressPaletteOnFocusRef.current = false;
-              search.open(searchOrigin);
-            } else {
-              openPalette();
-            }
-          },
-          recentSearches: search.recentSearches,
-          onRunRecent: search.runRecent,
-          onClearRecent: search.clearRecent,
-        }}
-      />
-      {/* Unmounted rather than merely hidden while the Screener is open: a
-          `readScreenerSeenUntil` read only happens on mount/account change
-          (`GatekeeperBanner`'s own doc comment), and `openScreener` just
-          wrote a fresh cursor — remounting is what picks it up, so the
-          banner doesn't still claim "unseen" for holds it was just shown. */}
-      {!screenerOpen && <GatekeeperBanner accountScope={accountScope} onOpen={openScreener} />}
-      <div className="mail-frame">
-        <Sidebar
-          folder={folder}
-          onSelectFolder={selectFolder}
-          labels={labelsForPicker}
-          labelFilter={labelFilter}
-          onSelectLabel={selectLabelFilter}
-          onCompose={openCompose}
-          screenerCount={screenerSenderCount}
-          draftsCount={draftCompositions.length}
-        />
-        <div className="mail-body">
-          {screenerOpen && accountScope.length > 0 ? (
-            <Screener accountScope={accountScope} onClose={closeScreener} />
-          ) : search.active ? (
-            <SearchResultsView
-              viewMode={viewMode}
-              state={search}
-              triage={searchTriage}
-              onReply={openReply}
-              accounts={mailAccounts}
-              mailAccountId={accountId}
-              accountScope={accountScope}
-            />
-          ) : folder === "drafts" ? (
-            <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
-          ) : streamMode ? (
-            <StreamView
-              threads={threads}
-              ids={ids}
-              selectedThreadId={selectedThreadId}
-              onSelect={setSelectedThreadId}
-              triage={triage}
-              onReply={openReply}
-            />
-          ) : viewMode === "split" ? (
-            <SplitView
-              threads={visibleThreads}
-              ids={ids}
-              complete={page.complete}
-              selectedThreadId={selectedThreadId}
-              onSelect={setSelectedThreadId}
-              onClearSelection={() => setSelectedThreadId(null)}
-              onLoadMore={loadMore}
-              triage={triage}
-              onReply={openReply}
-              initialScrollThreadId={selectedThreadId}
-              density={density}
-              groupBulk={groupBulk}
-            />
-          ) : (
-            <ListView
-              threads={visibleThreads}
-              ids={ids}
-              complete={page.complete}
-              selectedThreadId={selectedThreadId}
-              onSelect={setSelectedThreadId}
-              onBack={() => setSelectedThreadId(null)}
-              onLoadMore={loadMore}
-              triage={triage}
-              onReply={openReply}
-              initialScrollThreadId={selectedThreadId}
-              density={density}
-              groupBulk={groupBulk}
-            />
-          )}
-        </div>
-      </div>
-      <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
-      <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />
-      <RollbackToast />
-      <GroupBulkToast state={groupBulkToast} onDismiss={() => setGroupBulkToast(null)} />
-      <NewMailToast />
-      <NotificationOfferBanner />
-      <CommandPalette
-        open={paletteOpen}
-        onClose={closePalette}
-        selectedThread={activeSelectedThread}
-        triage={activeTriage}
-        onReply={openReply}
-        onCompose={openCompose}
-        onBackToList={backToList}
-        onOpenScreener={openScreener}
-        screenerCount={screenerSenderCount}
-        onFocusSearch={focusSearchField}
-        onOpenShortcutSheet={() => setShortcutSheetOpen(true)}
-        search={search}
-        searchOrigin={searchOrigin}
-        accounts={mailAccounts ?? []}
-        accountScope={accountScope}
-      />
-      <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
-      {composeId && accountId && (
-        <Suspense fallback={null}>
-          <Composer
-            key={composeId}
-            compositionId={composeId}
-            mailAccounts={mailAccounts}
-            defaultMailAccountId={accountId}
-            fromChoices={composeFromChoices}
-            onClose={closeCompose}
+    <ActionsProvider value={actionContext}>
+      <section className="mail-section">
+        {/* Mail's own search bar (#96): all that's left of `mail/TopBar.tsx`
+            after Account Scope moved into the Hub, the label filter and
+            Screener chip were dropped as redundant with the Sidebar's own
+            Labels/Screener entries, and Stream's entry point moved to the
+            Sidebar (`Sidebar.tsx`'s own doc comment) — a single field, not a
+            row of view-mode controls, so this isn't "the Mail toolbar" the
+            ticket's acceptance box says is gone. */}
+        <div className="mail-search-bar">
+          <SearchField
+            search={{
+              active: search.active,
+              queryText: search.queryText,
+              inputRef: searchInputRef,
+              onChange: search.onFieldChange,
+              onCommit: search.onCommit,
+              onEsc: search.onEsc,
+              onBackspaceEmpty: search.onBackspaceEmpty,
+              // The header field's own click/focus (#79: "the header search
+              // field is its other entry point" for the Palette) — unless it
+              // was `/` that focused it a moment ago (`suppressPaletteOnFocusRef`
+              // above), in which case this is the pre-#79 "just open search"
+              // path, matching `search-integration.test.tsx`'s own `/`-driven
+              // coverage exactly.
+              onOpen: () => {
+                if (suppressPaletteOnFocusRef.current) {
+                  suppressPaletteOnFocusRef.current = false;
+                  search.open(searchOrigin);
+                } else {
+                  openPalette();
+                }
+              },
+              recentSearches: search.recentSearches,
+              onRunRecent: search.runRecent,
+              onClearRecent: search.clearRecent,
+            }}
           />
-        </Suspense>
-      )}
-    </section>
+        </div>
+        {/* Unmounted rather than merely hidden while the Screener is open: a
+            `readScreenerSeenUntil` read only happens on mount/account change
+            (`GatekeeperBanner`'s own doc comment), and `openScreener` just
+            wrote a fresh cursor — remounting is what picks it up, so the
+            banner doesn't still claim "unseen" for holds it was just shown. */}
+        {!screenerOpen && <GatekeeperBanner accountScope={accountScope} onOpen={openScreener} />}
+        <div className="mail-frame">
+          <Sidebar
+            folder={folder}
+            onSelectFolder={selectFolder}
+            labels={labelsForPicker}
+            labelFilter={labelFilter}
+            onSelectLabel={selectLabelFilter}
+            onCompose={openCompose}
+            screenerCount={screenerSenderCount}
+            draftsCount={draftCompositions.length}
+            onOpenStream={onOpenStream}
+          />
+          <div className="mail-body">
+            {screenerOpen && accountScope.length > 0 ? (
+              <Screener accountScope={accountScope} onClose={closeScreener} />
+            ) : search.active ? (
+              <SearchResultsView
+                viewMode={viewMode}
+                state={search}
+                triage={searchTriage}
+                onReply={openReply}
+                onMailtoLink={openMailto}
+                accounts={mailAccounts}
+                mailAccountId={accountId}
+                accountScope={accountScope}
+              />
+            ) : openedSearchThread ? (
+              // "Enter opens the top hit... in Split" (#100): forced to Split
+              // regardless of `viewMode`/the current folder — the
+              // list pane below is still `visibleThreads`, untouched, with
+              // nothing in it highlighted; only the reading pane shows the hit.
+              <SplitView
+                threads={visibleThreads}
+                ids={visibleIds}
+                complete={page.complete}
+                selectedThreadId={null}
+                selectedThreadOverride={openedSearchThread}
+                onSelect={(id) => {
+                  search.select(null);
+                  setSelectedThreadId(id);
+                }}
+                onClearSelection={() => search.select(null)}
+                onLoadMore={loadMore}
+                triage={searchTriage}
+                onReply={openReply}
+                onMailtoLink={openMailto}
+                density={density}
+                groupBulk={groupBulk}
+              />
+            ) : folder === "drafts" ? (
+              <DraftsView
+                drafts={draftCompositions}
+                onOpen={reopenCompose}
+                accounts={
+                  mailAccounts?.filter((account) => accountScope.includes(account.id)) ?? []
+                }
+              />
+            ) : viewMode === "split" ? (
+              <SplitView
+                threads={visibleThreads}
+                ids={visibleIds}
+                complete={page.complete}
+                selectedThreadId={selectedThreadId}
+                onSelect={setSelectedThreadId}
+                onClearSelection={() => setSelectedThreadId(null)}
+                onLoadMore={loadMore}
+                triage={triage}
+                onReply={openReply}
+                onMailtoLink={openMailto}
+                initialScrollThreadId={selectedThreadId}
+                density={density}
+                groupBulk={groupBulk}
+              />
+            ) : (
+              <ListView
+                threads={visibleThreads}
+                ids={visibleIds}
+                complete={page.complete}
+                selectedThreadId={selectedThreadId}
+                onSelect={setSelectedThreadId}
+                onBack={() => setSelectedThreadId(null)}
+                onLoadMore={loadMore}
+                triage={triage}
+                onReply={openReply}
+                onMailtoLink={openMailto}
+                initialScrollThreadId={selectedThreadId}
+                density={density}
+                groupBulk={groupBulk}
+              />
+            )}
+          </div>
+        </div>
+        <SendFailureBanner mailAccountId={accountId} onOpen={reopenCompose} />
+        <PendingSendBar mailAccountId={accountId} onReopen={reopenCompose} />
+        <RollbackToast />
+        <NewMailToast />
+        <NotificationOfferBanner />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={closePalette}
+          ctx={actionContext}
+          search={search}
+          searchOrigin={searchOrigin}
+          accounts={mailAccounts ?? []}
+          accountScope={accountScope}
+        />
+        <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+        {composeId && accountId && (
+          <Suspense fallback={null}>
+            <Composer
+              key={composeId}
+              compositionId={composeId}
+              mailAccounts={mailAccounts}
+              defaultMailAccountId={accountId}
+              fromChoices={composeFromChoices}
+              onClose={closeCompose}
+            />
+          </Suspense>
+        )}
+      </section>
+    </ActionsProvider>
   );
 }

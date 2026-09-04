@@ -2,6 +2,7 @@ import type { MailAccount } from "@mail/shared";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { ReauthMailAccountForm } from "../../mail-accounts/ReauthMailAccountForm.js";
+import type { MailtoLink } from "../reading/mailto.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
 import type { Triage } from "../useTriage.js";
@@ -42,6 +43,19 @@ function ChipRow({
 
   return (
     <div className="search-chip-row">
+      {/* The results view's own visible exit (#100) — restores the origin
+          (folder, scroll, open Thread) in one click, unlike the field's own
+          two-stage Esc, which this leaves untouched. */}
+      <button
+        type="button"
+        className="search-close"
+        onClick={state.close}
+        aria-label="Close search results"
+        title="Close — back to where you were"
+      >
+        <X size={14} />
+      </button>
+
       {accounts.length > 1 && account ? (
         <span className="search-chip search-chip-account">{account.emailAddress}</span>
       ) : null}
@@ -212,6 +226,7 @@ export function SearchResultsView({
   state,
   triage,
   onReply,
+  onMailtoLink,
   accounts,
   mailAccountId,
   accountScope,
@@ -220,6 +235,7 @@ export function SearchResultsView({
   state: SearchState;
   triage: Triage;
   onReply: OnReply;
+  onMailtoLink: (link: MailtoLink) => void;
   accounts: readonly MailAccount[];
   mailAccountId: string | null;
   /** Search's own account badge (#80's "each row shows which account it came from where several are in Scope") — the row itself already carries its `mailAccountId` (`sync.ts#threadSchema`); this is only what decides whether the badge is worth showing at all. */
@@ -311,6 +327,7 @@ export function SearchResultsView({
         onBack={() => state.select(null)}
         triage={triage}
         onReply={onReply}
+        onMailtoLink={onMailtoLink}
         focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
       />
     );
@@ -339,6 +356,7 @@ export function SearchResultsView({
             onBack={() => state.select(null)}
             triage={triage}
             onReply={onReply}
+            onMailtoLink={onMailtoLink}
             focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
           />
         ) : (

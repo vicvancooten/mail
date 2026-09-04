@@ -160,6 +160,7 @@ describe("buildMessageDocument", () => {
     imagesLoaded: false,
     nonce: "test-nonce",
     origin: "https://mail.example.com",
+    linkBridge: true,
   };
 
   it("wraps sanitized content in a document carrying the CSP meta tag and the nonced resize script", () => {
@@ -169,6 +170,34 @@ describe("buildMessageDocument", () => {
     expect(doc).toContain('<script nonce="test-nonce">');
     expect(doc).toContain("ResizeObserver");
     expect(doc).toContain("<p>hello</p>");
+  });
+
+  it("carries the click bridge (ADR-0018) under the same nonce as the resize script", () => {
+    const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
+    expect(doc).toContain("mail-link-click");
+    expect(doc).toContain('closest("a[href]")');
+    expect(doc).toContain('"https://mail.example.com"');
+    expect(doc).not.toContain(',"*"');
+  });
+
+  it("omits the click bridge when linkBridge is false (#102: links inert, no bridge in this context)", () => {
+    const doc = buildMessageDocument({
+      ...baseOpts,
+      linkBridge: false,
+      html: '<p><a href="https://evil.example">click</a></p>',
+      darkMode: false,
+    });
+    expect(doc).not.toContain("mail-link-click");
+    expect(doc).not.toContain('closest("a[href]")');
+    // The resize and image-error scripts still run — only the bridge is dropped.
+    expect(doc).toContain("ResizeObserver");
+    expect(doc).toContain("mail-image-error");
+  });
+
+  it("carries the image-error handler and its visible-error style", () => {
+    const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
+    expect(doc).toContain("mail-image-error");
+    expect(doc).toContain('"error"');
   });
 
   it("applies the double-invert wrapper only when dark mode is on and the sender hasn't opted out", () => {

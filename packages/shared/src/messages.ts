@@ -72,6 +72,18 @@ export const messageSchema = z.object({
    */
   bodyHtml: z.string().nullable(),
   /**
+   * `true` when `bodyHtml` has no native HTML alternative behind it — the
+   * server synthesized it from `bodyText` (`plainTextToHtml`,
+   * `sync/bodies.ts`) because the sender only sent plain text. The Width
+   * decision (#98, ADR-0018, `apps/client/DESIGN.md`): the reading pane
+   * lets an HTML body fill the pane — the sender's own document decides its
+   * width — but centers a plain-text one at the same readable column the
+   * Snippet and reading header use. `false` for a body fetched before this
+   * field existed (`routes/messages.ts` reads a `null` column as `false`),
+   * which is the same "fills the pane" behavior those messages already had.
+   */
+  bodyIsPlainText: z.boolean(),
+  /**
    * Whether this message's remote images should load without asking (#55,
    * poc-scope.md: "Remote images blocked by default and loaded automatically
    * for Approved Senders — the Gatekeeper verdict *is* the image-loading

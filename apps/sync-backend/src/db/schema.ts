@@ -427,7 +427,9 @@ export const threads = pgTable(
     // own to flip a flag: a Thread lands there by actually containing a
     // Message the Sync Backend ingested from the account's real `\Sent`
     // folder, which the rollup already sees on every pass.
-    folderRole: text("folder_role", { enum: ["inbox", "archive", "trash"] })
+    // "junk" (#102) is Spam's own destination — see `@mail/shared`'s
+    // `folderRoleSchema`-equivalent doc comment on the wire `Thread` type.
+    folderRole: text("folder_role", { enum: ["inbox", "archive", "trash", "junk"] })
       .notNull()
       .default("inbox"),
     hasSentMessage: boolean("has_sent_message").notNull().default(false),
@@ -458,6 +460,15 @@ export const threads = pgTable(
     // only writer, the same way `inInbox`/`pinned` belong to
     // `sync/mutations.ts` alone.
     heldSender: text("held_sender"),
+    // The recipient Alias (#103, CONTEXT.md) this hold's opening message
+    // resolved to at ingest — `gatekeeper/alias.ts#resolveRecipientAlias`'s
+    // output, copied here the same instant `heldSender`/`heldAt` are set
+    // (`gatekeeper/screening.ts#screenArrivals`), null whenever they are.
+    // What `gatekeeper/decisions.ts`'s Block-Alias decision matches held
+    // Threads against, the recipient-scoped sibling of `heldBySender`'s
+    // `heldSender` match — never written by the rollup, only by Gatekeeper,
+    // same as `heldSender` itself.
+    heldRecipientAlias: text("held_recipient_alias"),
     heldAt: timestamp("held_at", { withTimezone: true }),
     // Snooze (#76, CONTEXT.md): the instant this Thread wakes, or null when
     // it isn't snoozed. An App Feature, `sync/mutations.ts`'s own field
@@ -485,6 +496,12 @@ export const threads = pgTable(
     index("threads_held_sender_idx")
       .on(table.mailAccountId, table.heldSender)
       .where(sql`${table.heldSender} is not null`),
+    // #103's Block-Alias decision's own query: "whatever is currently held
+    // for this Alias" — the same partial-index reasoning as
+    // `threads_held_sender_idx` above, keyed to the Alias instead.
+    index("threads_held_recipient_alias_idx")
+      .on(table.mailAccountId, table.heldRecipientAlias)
+      .where(sql`${table.heldRecipientAlias} is not null`),
     // The Snooze wake sweep's own query (#76, `sync/snooze.ts`): partial for
     // the same reason `threads_held_sender_idx` above is — a snoozed Thread
     // is a rounding error against an 80k-thread account, and the sweep only
@@ -716,6 +733,17 @@ export const messages = pgTable(
     toAddresses: jsonb("to_addresses").$type<MessageAddress[]>().notNull().default([]),
     ccAddresses: jsonb("cc_addresses").$type<MessageAddress[]>().notNull().default([]),
     replyToAddresses: jsonb("reply_to_addresses").$type<MessageAddress[]>().notNull().default([]),
+    /**
+     * The Alias (#103, CONTEXT.md) this message arrived at, resolved once at
+     * ingest by `gatekeeper/alias.ts#resolveRecipientAlias`: `Delivered-To`,
+     * then `X-Original-To`, then the first of `toAddresses`/`ccAddresses` at
+     * the Mail Account's own domain — null when nothing on the message named
+     * one. Stored per message, not derived on read, because the headers
+     * (`Delivered-To`/`X-Original-To`) that make it trustworthy for a
+     * Bcc'd-to-a-catch-all stranger only ever exist on the wire at ingest
+     * time. `sync/ingest.ts#storeMessage` is the only writer.
+     */
+    recipientAlias: text("recipient_alias"),
 
     /** The `Date` header, falling back to INTERNALDATE when the sender omitted or mangled it. */
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
@@ -735,6 +763,17 @@ export const messages = pgTable(
     snippet: text("snippet"),
     bodyText: text("body_text"),
     bodyHtml: text("body_html"),
+    /**
+     * `true` when `bodyHtml` is `plainTextToHtml`'s synthesized markup (no
+     * native HTML alternative on the wire) rather than the sender's own
+     * document — the Width decision (#98, `apps/client/DESIGN.md`): the
+     * reading pane fills the pane with an HTML body but centers a
+     * plain-text one at a readable column width. `null` for a body fetched
+     * before this column existed; `routes/messages.ts` reads that as
+     * `false` (the pre-existing "fills the pane" behavior) rather than
+     * guessing.
+     */
+    bodyIsPlainText: boolean("body_is_plain_text"),
     bodyFetchedAt: timestamp("body_fetched_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -932,7 +971,8 @@ export interface BulkTriageAccountOutcomeRow {
  * one row per real IMAP command still owed to the mail server after an
  * Optimistic Action's synchronous ack — `\Seen`/`\Flagged` for
  * `setRead`/`setStarred`, a `MOVE` to the account's Archive/Trash folder for
- * `archive`/`trash`. `sync/mutations.ts` is the only writer;
+ * `archive`/`trash`, and a `MOVE` back to Inbox for `inbox` — Undo's own
+ * real inverse (#95, ADR-0019). `sync/mutations.ts` is the only writer;
  * `sync/protocol-writes.ts#drainProtocolWrites` is the only reader, run
  * periodically against a short-lived connection
  * (`sync/protocol-write-loop.ts`) rather than the resident IDLE session, so
@@ -956,7 +996,15 @@ export const protocolWrites = pgTable(
     messageId: text("message_id")
       .notNull()
       .references(() => messages.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["seen", "flagged", "archive", "trash"] }).notNull(),
+    // "inbox" (#95, ADR-0019) is Undo's inverse move — `restoreToInbox` puts a
+    // thread back where it was. "junk" (#102) is Spam's own move —
+    // `sync/protocol-writes.ts`'s `moveBatch` handles it exactly like
+    // "archive"/"trash", targeting whichever folder carries that special-use
+    // role. Drizzle's `enum` here is TypeScript-only, so widening it needs no
+    // migration.
+    kind: text("kind", {
+      enum: ["seen", "flagged", "archive", "trash", "inbox", "junk"],
+    }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("protocol_writes_account_idx").on(table.mailAccountId, table.createdAt)],
@@ -997,10 +1045,20 @@ export const gatekeeperVerdicts = pgTable(
     mailAccountId: text("mail_account_id")
       .notNull()
       .references(() => mailAccounts.id, { onDelete: "cascade" }),
-    scope: text("scope", { enum: ["address", "domain"] }).notNull(),
-    /** A normalized address (plus tag intact) or a bare domain — `@mail/shared`'s `normalizeSenderAddress`. */
+    // `recipient` (#103, CONTEXT.md's Blocked Alias, ADR-0008's amendment):
+    // the third scope, keyed not to a sender but to an Alias of the Mail
+    // Account's own that mail arrived at. `gatekeeper/verdicts.ts#setVerdict`
+    // is the one place that enforces it can only ever carry `verdict:
+    // 'blocked'` — there is no Approved Alias.
+    scope: text("scope", { enum: ["address", "domain", "recipient"] }).notNull(),
+    /** A normalized address (plus tag intact), a bare domain, or a normalized Alias address for `recipient` scope — `@mail/shared`'s `normalizeSenderAddress`. */
     value: text("value").notNull(),
     verdict: text("verdict", { enum: ["approved", "blocked"] }).notNull(),
+    // Spam (#102, CONTEXT.md, ADR-0008 amendment): only ever meaningful
+    // alongside `verdict: "blocked"` — it is not a fourth Verdict value, only
+    // the flag that picks Junk over Trash as the destination
+    // (`gatekeeper/decisions.ts#spamSender`, `gatekeeper/screening.ts`).
+    spam: boolean("spam").notNull().default(false),
     source: text("source", { enum: ["seed", "sent", "screener", "settings"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1032,7 +1090,10 @@ export type GatekeeperVerdictRow = typeof gatekeeperVerdicts.$inferSelect;
  * send is accepted, `submitting` from the sweeper's atomic claim, `sent`
  * once the `Sent` APPEND lands. A cancel and a permanent rejection both
  * return the row to `draft` — see `@mail/shared`'s `compositionStatusSchema`
- * for why, and why `failed` stays reserved rather than written.
+ * for why, and why `failed` stays reserved rather than written. `discarded`
+ * (#101) is Delete's own one-directional status, the same "flip a field,
+ * never delete the row" shape a Thread's `archive`/`trash` already use —
+ * `undiscardComposition` (#95) is its real inverse, restoring `draft`.
  *
  * `document` is the ProseMirror JSON itself (ADR-0013: "a Composition is a
  * structured document, not HTML") — the mail HTML and plaintext alternative
@@ -1055,7 +1116,7 @@ export const compositions = pgTable(
       .notNull()
       .references(() => mailAccounts.id, { onDelete: "cascade" }),
     status: text("status", {
-      enum: ["draft", "pending", "submitting", "sent", "failed"],
+      enum: ["draft", "pending", "submitting", "sent", "failed", "discarded"],
     })
       .notNull()
       .default("draft"),

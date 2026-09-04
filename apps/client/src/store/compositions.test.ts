@@ -2,16 +2,20 @@ import type { ComposeSave } from "@mail/shared";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  discardComposition,
   EMPTY_COMPOSE_CONTENT,
   isComposeContentEmpty,
   listQueuedComposeSaves,
+  readDraftCompositions,
   requestCancelSend,
   resolveComposeSaveOutcomes,
+  resolveDiscardOutcomes,
   resolveSendOutcomes,
   saveComposition,
   sendComposition,
   subscribeComposeConflicts,
   toWireComposeSave,
+  undiscardComposition,
   undoSecondsRemaining,
 } from "./compositions.js";
 import { localCache, openLocalCache } from "./local-cache.js";
@@ -327,6 +331,113 @@ describe("requestCancelSend", () => {
       },
     ]);
     expect((await localCache().compositions.get("comp-1"))?.sendState).toBe("too_late");
+  });
+});
+
+describe("discardComposition (#101)", () => {
+  const CONTENT = {
+    ...EMPTY_COMPOSE_CONTENT,
+    subject: "Half a thought",
+  };
+
+  it("flips the row to discarded and queues the intent, optimistically", async () => {
+    await saveComposition("comp-1", ACCOUNT, CONTENT, { force: true });
+
+    await discardComposition("comp-1", ACCOUNT);
+
+    const row = defined(await localCache().compositions.get("comp-1"));
+    expect(row.status).toBe("discarded");
+    expect(row.subject).toBe("Half a thought"); // content survives the flip, for Undo to restore
+    expect((await listQueuedMutations(ACCOUNT)).map((mutation) => mutation.intent)).toEqual([
+      { type: "discardComposition", compositionId: "comp-1" },
+    ]);
+  });
+
+  it("reverts the optimistic flip when the Sync Backend rejects the discard", async () => {
+    await saveComposition("comp-1", ACCOUNT, CONTENT, { force: true });
+    await discardComposition("comp-1", ACCOUNT);
+
+    await resolveDiscardOutcomes([
+      {
+        intent: { type: "discardComposition", compositionId: "comp-1" },
+        status: "rejected",
+        reason: "not_a_draft",
+      },
+    ]);
+
+    expect((await localCache().compositions.get("comp-1"))?.status).toBe("draft");
+  });
+
+  it("needs no reversion for an applied outcome — the Composition delta confirms it", async () => {
+    await saveComposition("comp-1", ACCOUNT, CONTENT, { force: true });
+    await discardComposition("comp-1", ACCOUNT);
+
+    await resolveDiscardOutcomes([
+      { intent: { type: "discardComposition", compositionId: "comp-1" }, status: "applied" },
+    ]);
+
+    expect((await localCache().compositions.get("comp-1"))?.status).toBe("discarded");
+  });
+});
+
+describe("undiscardComposition (#95, ADR-0019)", () => {
+  it("coalesces away a discard still sitting in the queue — the Sync Backend never hears about it", async () => {
+    await saveComposition("comp-1", ACCOUNT, EMPTY_COMPOSE_CONTENT, { force: true });
+    await discardComposition("comp-1", ACCOUNT);
+
+    await undiscardComposition("comp-1", ACCOUNT);
+
+    expect(await listQueuedMutations(ACCOUNT)).toEqual([]);
+    expect((await localCache().compositions.get("comp-1"))?.status).toBe("draft");
+  });
+
+  it("queues the real inverse once the discard has already flushed", async () => {
+    await saveComposition("comp-1", ACCOUNT, EMPTY_COMPOSE_CONTENT, { force: true });
+    await discardComposition("comp-1", ACCOUNT);
+    const queued = defined((await listQueuedMutations(ACCOUNT))[0]);
+    await resolveMutationOutcomes(ACCOUNT, [queued], [{ id: queued.id, status: "applied" }]);
+
+    await undiscardComposition("comp-1", ACCOUNT);
+
+    expect((await listQueuedMutations(ACCOUNT)).map((mutation) => mutation.intent)).toEqual([
+      { type: "undiscardComposition", compositionId: "comp-1" },
+    ]);
+    expect((await localCache().compositions.get("comp-1"))?.status).toBe("draft");
+  });
+});
+
+describe("readDraftCompositions — Account Scope (#73, #101)", () => {
+  it("merges every named account's Drafts into one newest-first list", async () => {
+    await saveComposition(
+      "comp-1",
+      "acct-1",
+      { ...EMPTY_COMPOSE_CONTENT, subject: "older" },
+      { force: true },
+    );
+    await saveComposition(
+      "comp-2",
+      "acct-2",
+      { ...EMPTY_COMPOSE_CONTENT, subject: "newer" },
+      { force: true },
+    );
+    // Bump comp-2's updatedAt ahead of comp-1's without depending on real clock ordering.
+    const row = defined(await localCache().compositions.get("comp-2"));
+    await localCache().compositions.put({ ...row, updatedAt: "2099-01-01T00:00:00.000Z" });
+
+    const drafts = await readDraftCompositions(["acct-1", "acct-2"]);
+
+    expect(drafts.map((draft) => draft.subject)).toEqual(["newer", "older"]);
+  });
+
+  it("excludes a discarded Composition — the whole of what 'Delete removes the row' means client-side", async () => {
+    await saveComposition("comp-1", ACCOUNT, EMPTY_COMPOSE_CONTENT, { force: true });
+    await discardComposition("comp-1", ACCOUNT);
+
+    expect(await readDraftCompositions([ACCOUNT])).toEqual([]);
+  });
+
+  it("returns nothing for an empty Scope", async () => {
+    expect(await readDraftCompositions([])).toEqual([]);
   });
 });
 

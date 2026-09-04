@@ -13,7 +13,8 @@ import {
   normalizeLabelName,
   UNDO_SEND_DELAY_OPTIONS,
 } from "@mail/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import type { Db } from "../db/client.js";
 import {
@@ -25,13 +26,21 @@ import {
   threads,
   users,
 } from "../db/schema.js";
-import { approveSender, blockSender, denySender, unblockSender } from "../gatekeeper/decisions.js";
+import {
+  approveSender,
+  blockSender,
+  denySender,
+  spamSender,
+  unblockAndRestore,
+  unblockSender,
+} from "../gatekeeper/decisions.js";
 import {
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
+import { restoreThreadsToInbox } from "./restore-to-inbox.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 
 /**
@@ -113,17 +122,24 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
  * synchronous `inInbox: false` ack — a permanent rejection for a Thread this
  * account no longer has, same as every intent above, and also for a
  * non-future `until` (`invalid_snooze_time`), since a Thread can't be
- * snoozed into the past.
+ * snoozed into the past. `restoreToInbox`/`unsnooze` (#95, ADR-0019) are
+ * their real inverses — Undo's own intents, applied through this exact same
+ * Thread lookup and rejection, never a queue cancellation.
  */
 async function applyIntent(
   db: Db,
   mailAccountId: string,
   intent: MutationIntent,
 ): Promise<IntentResult> {
-  // The two Composition intents (#46) and the two Preference intents (#54)
-  // name no Thread, so they are dispatched ahead of the Thread lookup every
-  // other intent starts from.
-  if (intent.type === "sendComposition" || intent.type === "cancelSend") {
+  // The four Composition intents (#46, #101) and the two Preference intents
+  // (#54) name no Thread, so they are dispatched ahead of the Thread lookup
+  // every other intent starts from.
+  if (
+    intent.type === "sendComposition" ||
+    intent.type === "cancelSend" ||
+    intent.type === "discardComposition" ||
+    intent.type === "undiscardComposition"
+  ) {
     return applyCompositionIntent(db, mailAccountId, intent);
   }
   if (intent.type === "setSignature") {
@@ -142,7 +158,9 @@ async function applyIntent(
     intent.type === "approveSender" ||
     intent.type === "denySender" ||
     intent.type === "blockSender" ||
-    intent.type === "unblockSender"
+    intent.type === "spamSender" ||
+    intent.type === "unblockSender" ||
+    intent.type === "unblockAndRestore"
   ) {
     return applyGatekeeperIntent(db, mailAccountId, intent);
   }
@@ -231,6 +249,31 @@ async function applyIntent(
       return { ok: true };
     }
 
+    case "restoreToInbox":
+      // Undo's own real inverse of `archive`/`trash` (#95, ADR-0019) — the
+      // Thread lookup above already confirmed it belongs to this account,
+      // so this is a thin call over the shared restore step.
+      await restoreThreadsToInbox(db, mailAccountId, [intent.threadId]);
+      return { ok: true };
+
+    case "unsnooze":
+      // Undo's own real inverse of `snooze` (#95) — an App Feature exactly
+      // like `snooze` itself, so the Thread row is the whole of it, no
+      // protocol write. Guarded on `snoozeUntil` actually being set: a
+      // Thread that was never snoozed (Undo racing the wake sweep, say) is
+      // a harmless no-op, same tolerance `removeLabel` gives a name that
+      // was never applied — but without this guard it was not a no-op at
+      // all, it unconditionally forced `inInbox: true`, which would
+      // un-triage a Thread the User had since archived or trashed out from
+      // under that later, more deliberate decision (#90's review). Whoever
+      // fires `unsnooze` for a Thread no longer snoozed gets exactly
+      // nothing changed, the same as this comment always claimed.
+      await db
+        .update(threads)
+        .set({ inInbox: true, snoozeUntil: null })
+        .where(and(eq(threads.id, intent.threadId), isNotNull(threads.snoozeUntil)));
+      return { ok: true };
+
     case "applyLabel": {
       const name = normalizeLabelName(intent.name);
       if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
@@ -271,9 +314,10 @@ async function applyIntent(
 }
 
 /**
- * The four Gatekeeper intents (#55, poc-spec.md §Gatekeeper v1). Thin
- * dispatch over `gatekeeper/decisions.ts`, which owns what each decision
- * actually does to the held Threads and to the Verdict table.
+ * The Gatekeeper intents (#55, #102, poc-spec.md §Gatekeeper v1, plus #95's
+ * `unblockAndRestore`). Thin dispatch over `gatekeeper/decisions.ts`, which
+ * owns what each decision actually does to the held Threads and to the
+ * Verdict table.
  *
  * The only rejection any of them can produce is `barred_verdict_domain` — a
  * domain-scoped decision aimed at a public provider (`@mail/shared`'s
@@ -293,26 +337,33 @@ async function applyGatekeeperIntent(
       return denySender(db, mailAccountId, intent.sender);
     case "blockSender":
       return blockSender(db, mailAccountId, intent.sender);
+    case "spamSender":
+      return spamSender(db, mailAccountId, intent.sender);
     case "unblockSender":
       return unblockSender(db, mailAccountId, intent.sender);
+    case "unblockAndRestore":
+      return unblockAndRestore(db, mailAccountId, intent.sender, intent.threadIds);
   }
 }
 
 /**
- * `sendComposition`/`cancelSend` (#46, ADR-0007). Both are thin wrappers over
- * `compose/pending-send.ts`'s conditional transitions — the whole point of
- * routing them through this queue rather than a dedicated route is that they
- * inherit its idempotency ledger, so a resent `sendComposition` id replays
- * its recorded outcome instead of arming a second Pending Send.
+ * The four Composition intents (#46, #101, ADR-0007, ADR-0012). Each is a
+ * thin wrapper over a conditional transition in `compose/pending-send.ts` or
+ * `compose/discard.ts` — the whole point of routing them through this queue
+ * rather than a dedicated route is that they inherit its idempotency ledger,
+ * so a resent id replays its recorded outcome instead of applying twice.
  *
- * The delay is read from the sending User's own preference here, not taken
- * from the intent: ADR-0007 measures it "from server receipt, never from the
- * Client's clock", which makes `submit_after` this server's to compute.
+ * `sendComposition`'s delay is read from the sending User's own preference
+ * here, not taken from the intent: ADR-0007 measures it "from server
+ * receipt, never from the Client's clock", which makes `submit_after` this
+ * server's to compute.
  *
  * A `too_late` cancel is a `rejected` outcome, which is what the Client turns
  * into ADR-0007's "reported to the User as too late" — the one rejection in
  * this whole union that is an ordinary, expected result rather than a bug or
- * a stale Client.
+ * a stale Client. `discardComposition`/`undiscardComposition` (#101) are the
+ * synchronous half of Delete and its Undo — see `compose/discard.ts` for why
+ * the IMAP expunge itself is deliberately not here.
  */
 async function applyCompositionIntent(
   db: Db,
@@ -322,6 +373,14 @@ async function applyCompositionIntent(
   if (intent.type === "cancelSend") {
     const result = await cancelSend(db, mailAccountId, intent.compositionId);
     return result.status === "cancelled" ? { ok: true } : { ok: false, reason: result.reason };
+  }
+  if (intent.type === "discardComposition") {
+    const result = await discardComposition(db, mailAccountId, intent.compositionId);
+    return result.status === "discarded" ? { ok: true } : { ok: false, reason: result.reason };
+  }
+  if (intent.type === "undiscardComposition") {
+    const result = await undiscardComposition(db, mailAccountId, intent.compositionId);
+    return result.status === "undiscarded" ? { ok: true } : { ok: false, reason: result.reason };
   }
 
   const delaySeconds = await undoSendDelayForAccount(db, mailAccountId);

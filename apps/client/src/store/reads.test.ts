@@ -289,6 +289,50 @@ describe("readThreadWindow — Pin (#43)", () => {
     await enqueueMutation({ type: "setPinned", threadId: "t1", pinned: true }, "acct-1");
     expect((await readThreadWindow("acct-1")).threads[0]?.pinned).toBe(true);
   });
+
+  it("excludes a spammed Thread from Pinned — Junk overrides it the same way Trash does (#102)", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [makeThread("t1", "acct-1", { inInbox: false, pinned: true, folderRole: "junk" })],
+      }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1", { view: "pinned" })).threads).toEqual([]);
+  });
+});
+
+describe("readThreadWindow — Sent (#74)", () => {
+  it("excludes a spammed Thread from Sent — Junk overrides it the same way Trash does (#102)", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", {
+            inInbox: false,
+            hasSentMessage: true,
+            folderRole: "junk",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1", { view: "sent" })).threads).toEqual([]);
+  });
+
+  it("lists a Sent Thread that hasn't left any folder-scoped view", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [makeThread("t1", "acct-1", { inInbox: false, hasSentMessage: true })],
+      }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1", { view: "sent" })).threads).toHaveLength(1);
+  });
 });
 
 describe("readThreadWindow — Label filter view (#43)", () => {
@@ -404,6 +448,24 @@ describe("readThreadWindow — Snooze (#76)", () => {
     expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
   });
 
+  it("excludes a snoozed-then-spammed Thread from Snoozed — Junk overrides it the same way Trash does (#102)", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", {
+            inInbox: false,
+            snoozeUntil: "2026-06-02T08:00:00.000Z",
+            folderRole: "junk",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
+  });
+
   it("archiving a still-snoozed Thread drops it out of Snoozed the instant it's queued — Archive overrides Snooze", async () => {
     await applyThreadDelta(
       "acct-1",
@@ -419,6 +481,75 @@ describe("readThreadWindow — Snooze (#76)", () => {
     await enqueueMutation({ type: "archive", threadId: "t1" }, "acct-1");
 
     expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
+  });
+});
+
+describe("readThreadWindow — Undo (#95, ADR-0019)", () => {
+  it("reappears in the Inbox the instant restoreToInbox is queued, undoing an archive offline included", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { inInbox: false, folderRole: "archive" })] }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+
+    await enqueueMutation({ type: "restoreToInbox", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
+  });
+
+  it("reappears in the Inbox and drops out of Snoozed the instant unsnooze is queued", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { inInbox: false, snoozeUntil: "2026-06-02T08:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toHaveLength(1);
+
+    await enqueueMutation({ type: "unsnooze", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
+  });
+
+  it("restores every Thread unblockAndRestore names to the Inbox — Undo of a Screener Deny/Block", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", {
+            inInbox: false,
+            folderRole: "trash",
+            heldSender: "stranger@example.test",
+          }),
+          makeThread("t2", "acct-1", {
+            inInbox: false,
+            folderRole: "trash",
+            heldSender: "stranger@example.test",
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+
+    await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "stranger@example.test" },
+        threadIds: ["t1", "t2"],
+      },
+      "acct-1",
+    );
+
+    const restored = (await readThreadWindow("acct-1")).threads;
+    expect(restored.map((thread) => thread.id).sort()).toEqual(["t1", "t2"]);
+    expect(restored.every((thread) => thread.heldSender === null)).toBe(true);
   });
 });
 

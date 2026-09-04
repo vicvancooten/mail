@@ -1,6 +1,8 @@
+import type { Message } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations } from "../../store/mutation-queue.js";
@@ -14,6 +16,60 @@ import {
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { MailSection } from "../MailSection.js";
+import { resetUndoToastsForTest } from "../undo-toast.js";
+
+/**
+ * Undo (#95, ADR-0019) rides `undo-toast.ts`'s real `announceUndoableAction`
+ * — the same module every other Triage Undo goes through — so the toast
+ * this file needs to click is a real Sonner `toast()` call. Mocking Sonner
+ * itself (`undo-toast.test.ts`'s own pattern) is what lets a test reach the
+ * `action.onClick` a toast carries without also mounting a `<Toaster />`
+ * this suite otherwise has no reason to render.
+ */
+interface ToastCallOptions {
+  id: string;
+  duration: number;
+  action?: { label: string; onClick(): void };
+}
+const toastCalls: [string, ToastCallOptions][] = [];
+vi.mock("sonner", () => ({
+  toast: Object.assign(
+    (message: string, opts: ToastCallOptions) => toastCalls.push([message, opts]),
+    { dismiss: () => {} },
+  ),
+}));
+
+/** The most recently raised toast for one `id` — mirrors `undo-toast.test.ts#lastToastFor`. */
+function lastToastFor(id: string): ToastCallOptions {
+  const call = [...toastCalls].reverse().find(([, opts]) => opts.id === id);
+  if (!call) throw new Error(`no toast raised for ${id}`);
+  return call[1];
+}
+
+function makeMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: "msg-1",
+    threadId: "held-1",
+    mailAccountId: "acct-1",
+    messageIdHeader: "<msg-1@example.test>",
+    references: [],
+    subject: "Please read",
+    from: { name: "A Stranger", address: "stranger@example.test" },
+    to: [],
+    cc: [],
+    replyTo: [],
+    sentAt: "2026-06-01T12:00:00.000Z",
+    receivedAt: "2026-06-01T12:00:00.000Z",
+    seen: false,
+    flagged: false,
+    attachments: [],
+    bodyText: "First contact",
+    bodyHtml: "<p>First contact</p>",
+    bodyIsPlainText: false,
+    remoteImagesAllowed: false,
+    ...overrides,
+  };
+}
 
 /**
  * End-to-end coverage of #56's acceptance boxes: the banner appearing for a
@@ -36,18 +92,26 @@ const AUTH_RESPONSES: Record<string, () => Response> = {
 
 const never = () => new Promise<Response>(() => {});
 
-function stubFetch() {
+/** `threadId -> Message[]`, read by the View dialog's `/threads/:id/messages` (#102). */
+function stubFetch(threadMessages: Record<string, Message[]> = {}) {
   return async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     const auth = AUTH_RESPONSES[url];
     if (auth) return auth();
     if (url === "/sync") return never();
+    const threadMatch = /^\/threads\/([^/]+)\/messages$/.exec(url);
+    if (threadMatch) {
+      const messages = threadMessages[decodeURIComponent(threadMatch[1] ?? "")] ?? [];
+      return jsonResponse({ messages });
+    }
     throw new Error(`Unexpected fetch: ${url}`);
   };
 }
 
 beforeEach(async () => {
   resetSyncStatus();
+  resetUndoToastsForTest();
+  toastCalls.length = 0;
   const name = `screener-integration-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
@@ -56,6 +120,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   cleanup();
+  resetUndoToastsForTest();
   localCache().close();
   for (const name of names.splice(0)) await Dexie.delete(name);
 });
@@ -84,9 +149,9 @@ async function seedHeldSenders(): Promise<void> {
   );
 }
 
-function renderMail() {
+function renderMail(threadMessages: Record<string, Message[]> = {}) {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = stubFetch() as typeof fetch;
+  globalThis.fetch = stubFetch(threadMessages) as typeof fetch;
   const result = render(
     <AuthProvider>
       <MailSection />
@@ -139,6 +204,26 @@ describe("Gatekeeper banner and Screener (#56)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Back to Inbox" }));
     expect(await screen.findByText("Please read")).toBeDefined();
+  });
+
+  it("right-clicking a held sender's row offers the same three Verdicts, with their keycaps (#94)", async () => {
+    await seedHeldSenders();
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    const row = await screen.findByText("A Stranger");
+
+    fireEvent.contextMenu(row);
+
+    const approve = await screen.findByRole("menuitem", { name: /Approve sender/ });
+    expect(approve.textContent).toContain("A");
+    expect(screen.getByRole("menuitem", { name: /Deny sender/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Block sender/ })).toBeDefined();
+
+    fireEvent.click(approve);
+    await waitFor(() => expect(screen.queryByText("A Stranger")).toBeNull());
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent.type)).toContain("approveSender");
   });
 
   it("a keyboard-only pass through the Screener: j/k navigate, a approves, Escape closes", async () => {
@@ -270,5 +355,298 @@ describe("Gatekeeper banner and Screener (#56)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
     expect(document.querySelector(".screener-group-header")).toBeNull();
+  });
+});
+
+describe("the View dialog and Block's split menu (#102)", () => {
+  async function seedOneHeldSender(
+    threadId: string,
+    address: string,
+    name: string,
+    alias: string | null = null,
+  ) {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread(threadId, "acct-1", {
+            subject: "Please read",
+            snippet: "First contact",
+            heldSender: address,
+            heldRecipientAlias: alias,
+            participants: [{ name, address }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  it("View opens a dialog reading the held mail; deciding from inside it closes the dialog", async () => {
+    await seedOneHeldSender("held-view", "stranger@example.test", "A Stranger");
+    renderMail({
+      "held-view": [
+        makeMessage({
+          id: "m-view-1",
+          threadId: "held-view",
+          subject: "Please read",
+          bodyHtml: "<p>First contact, unabridged</p>",
+        }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    // The message's own subject and date are visible (#102's acceptance box).
+    expect(within(dialog).getByText("Please read")).toBeDefined();
+
+    // Acting from inside the dialog decides and closes it — see
+    // `ScreenerViewDialog.tsx`'s own doc comment for why that's free.
+    fireEvent.click(within(dialog).getByRole("button", { name: /Approve/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toEqual([
+      { type: "approveSender", sender: { scope: "address", value: "stranger@example.test" } },
+    ]);
+  });
+
+  it("blocks remote images and offers no click-through inside the dialog", async () => {
+    await seedOneHeldSender("held-view-images", "stranger@example.test", "A Stranger");
+    renderMail({
+      "held-view-images": [
+        makeMessage({
+          id: "m-view-2",
+          threadId: "held-view-images",
+          bodyHtml:
+            '<img src="/messages/m-view-2/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">',
+        }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+
+    // No "Load remote images" opt-in anywhere in the dialog — there is no
+    // Verdict yet to have loaded them for (`MessageBody.tsx`'s own doc
+    // comment on `interactive`).
+    expect(within(dialog).queryByRole("button", { name: "Load remote images" })).toBeNull();
+  });
+
+  it("Block's split menu offers Block domain, scoped to the sender's own domain", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-block", "stranger@lists.example.test", "A Stranger");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    // Radix's menu opens off pointer events `fireEvent.click` doesn't
+    // synthesize — `userEvent` drives the real sequence.
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Block domain (lists.example.test)"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "blockSender", sender: { scope: "domain", value: "lists.example.test" } },
+      ]);
+    });
+  });
+
+  it("Block's split menu offers Mark as spam, queuing a spamSender decision", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-spam", "villain@example.test", "A Villain");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Villain");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Mark as spam"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "spamSender", sender: { scope: "address", value: "villain@example.test" } },
+      ]);
+    });
+    // The row leaves the Screener the instant the decision is queued, same
+    // as every other Screener decision.
+    await waitFor(() => expect(screen.queryByText("A Villain")).toBeNull());
+  });
+
+  it("disables Block domain for a barred public provider", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-barred", "stranger@gmail.com", "A Stranger");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    const item = await screen.findByText(/Block domain — not offered for gmail\.com/);
+    expect(item.closest("[data-disabled]")).not.toBeNull();
+  });
+
+  it("Block's split menu offers Block Alias behind a confirmation naming the exact Alias (#103)", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender(
+      "held-alias",
+      "stranger@example.test",
+      "A Stranger",
+      "sales@mycompany.test",
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Block everything sent to sales@mycompany.test"));
+
+    // Selecting the menu item opens the confirmation rather than deciding
+    // immediately — nothing queued yet.
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Block everything sent to sales@mycompany.test?"),
+    ).toBeDefined();
+    expect(await listQueuedMutations("acct-1")).toEqual([]);
+
+    await user.click(within(dialog).getByRole("button", { name: "Block alias" }));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "blockSender", sender: { scope: "recipient", value: "sales@mycompany.test" } },
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("A Stranger")).toBeNull());
+  });
+
+  it("Block Alias's confirmation Cancel queues nothing", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender(
+      "held-alias-cancel",
+      "stranger@example.test",
+      "A Stranger",
+      "sales@mycompany.test",
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Block everything sent to sales@mycompany.test"));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await listQueuedMutations("acct-1")).toEqual([]);
+    // The row is still there — nothing was decided.
+    expect(screen.getByText("A Stranger")).toBeDefined();
+  });
+
+  it("disables Block Alias for the Mail Account's own primary address", async () => {
+    const user = userEvent.setup();
+    // `makeMailAccount("acct-1")`'s default `emailAddress` (`test-support/
+    // mail-fixtures.ts`) is exactly this — the address a Blocked Alias may
+    // never silence.
+    await seedOneHeldSender(
+      "held-alias-own",
+      "stranger@example.test",
+      "A Stranger",
+      "acct-1@example.test",
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    const item = await screen.findByText(
+      "Block everything sent to acct-1@example.test — not offered for your own address",
+    );
+    expect(item.closest("[data-disabled]")).not.toBeNull();
+  });
+
+  it("offers no Block Alias item when the held Thread never resolved one", async () => {
+    const user = userEvent.setup();
+    await seedOneHeldSender("held-no-alias", "stranger@example.test", "A Stranger");
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    const item = await screen.findByText("Block everything sent to their Alias");
+    expect(item.closest("[data-disabled]")).not.toBeNull();
+  });
+});
+
+describe("Mark as spam has a real Undo (#90's close-out of #102's Acceptance box)", () => {
+  it("Mark as spam raises an Undo toast whose Undo enqueues unblockAndRestore", async () => {
+    const user = userEvent.setup();
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-spam-undo", "acct-1", {
+            subject: "Please read",
+            heldSender: "villain@example.test",
+            participants: [{ name: "A Villain", address: "villain@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Villain");
+
+    await user.click(screen.getByRole("button", { name: /More block options/ }));
+    await user.click(await screen.findByText("Mark as spam"));
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent.type)).toContain("spamSender");
+    });
+
+    // Same coalesced toast Block/Deny already raise (`undo-toast.ts`'s
+    // `"block"` kind) — Spam is a Blocked Verdict for every purpose this
+    // reversal answers, see `Screener.tsx`'s own doc comment on why it
+    // rides that kind rather than a new one.
+    const toastOptions = lastToastFor("undo-toast-block");
+    expect(toastOptions.action?.label).toBe("Undo");
+
+    toastOptions.action?.onClick();
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "villain@example.test" },
+        threadIds: ["held-spam-undo"],
+      });
+    });
   });
 });

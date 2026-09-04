@@ -80,6 +80,7 @@ interface SeedMessageInput {
   threadId: string;
   bodyHtml?: string | null;
   bodyText?: string | null;
+  bodyIsPlainText?: boolean | null;
   bodyFetchedAt?: Date | null;
   attachments?: MessageAttachment[];
   fromName?: string | null;
@@ -129,6 +130,7 @@ async function seedMessage(input: SeedMessageInput): Promise<string> {
     attachments: input.attachments ?? [],
     bodyText: input.bodyText ?? "hi",
     bodyHtml: input.bodyHtml ?? "<p>hi</p>",
+    bodyIsPlainText: input.bodyIsPlainText ?? null,
     bodyFetchedAt:
       input.bodyFetchedAt === undefined ? new Date("2026-01-01T00:00:01Z") : input.bodyFetchedAt,
   });
@@ -251,12 +253,47 @@ describe("GET /threads/:threadId/messages", () => {
     expect(message.from).toEqual({ name: "Ada", address: "ada@example.test" });
     expect(message.bodyHtml).toContain('src="cid:logo@example"');
     expect(message.bodyHtml).toContain(`/messages/${messageId}/image-proxy?url=`);
+    // The signature is expiring (ADR-0018) — every proxied reference
+    // carries its own `exp`, not just a `sig`.
+    expect(message.bodyHtml).toContain("&amp;exp=");
     expect(message.bodyHtml).not.toContain("https://sender.example");
     // Both attachments travel on the wire — the cid:-only inline part is
     // still here so the Client can resolve `cid:logo@example` against it;
     // filtering it out of the *panel* is a Client-side rendering concern.
     expect(message.attachments).toHaveLength(2);
     expect(message.attachments.map((a) => a.filename)).toEqual(["photo.png", null]);
+  });
+
+  it("reads bodyIsPlainText false for a native-HTML body and null-as-false for a pre-existing row", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const accountId = await createOwnedMailAccount(app, cookie);
+    const threadId = randomUUID();
+    await seedMessage({ mailAccountId: accountId, threadId, bodyIsPlainText: null });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/threads/${threadId}/messages`,
+      headers: { cookie },
+    });
+    const body = response.json() as { messages: Array<{ bodyIsPlainText: boolean }> };
+    expect(body.messages[0]?.bodyIsPlainText).toBe(false);
+  });
+
+  it("reads bodyIsPlainText true for a message stored with no native HTML alternative", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const accountId = await createOwnedMailAccount(app, cookie);
+    const threadId = randomUUID();
+    await seedMessage({ mailAccountId: accountId, threadId, bodyIsPlainText: true });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/threads/${threadId}/messages`,
+      headers: { cookie },
+    });
+    const body = response.json() as { messages: Array<{ bodyIsPlainText: boolean }> };
+    expect(body.messages[0]?.bodyIsPlainText).toBe(true);
   });
 
   it("allows remote images only for an Approved Sender — the Gatekeeper verdict is the permission (#55)", async () => {
@@ -338,13 +375,29 @@ describe("GET /messages/:messageId/attachments/:part", () => {
 });
 
 describe("GET /messages/:messageId/image-proxy", () => {
-  it("requires a session", async () => {
+  // ADR-0018: deliberately unauthenticated — the sandboxed reader iframe's
+  // opaque origin means the browser never sends the session cookie here at
+  // all, so a route that required one would 401 on every real request the
+  // frame makes. Authorization is the signature, not a session.
+  it("serves an unauthenticated request carrying a genuine, unexpired signature", async () => {
     const app = buildTestApp();
-    const response = await app.inject({ method: "GET", url: "/messages/x/image-proxy" });
-    expect(response.statusCode).toBe(401);
+    const cookie = await claimOwner(app);
+    const accountId = await createOwnedMailAccount(app, cookie);
+    const threadId = randomUUID();
+    const messageId = await seedMessage({ mailAccountId: accountId, threadId });
+
+    const key = deriveImageProxyKey(TEST_MAIL_CREDENTIAL_KEY);
+    const path = buildImageProxyPath(key, messageId, `${PUBLIC_URL}/pixel.gif`);
+    // No `cookie` header at all — the whole point of the test.
+    const response = await app.inject({ method: "GET", url: path });
+    // `PUBLIC_URL` (localhost) is itself a disallowed fetch target
+    // (`resolveSafeAddress` refuses loopback) — this only asserts the
+    // route got *past* auth and signature checking to attempt the fetch at
+    // all, which is what "the route is not gated on a session" means here.
+    expect(response.statusCode).not.toBe(401);
   });
 
-  it("400s a request missing url or sig", async () => {
+  it("400s a request missing url, sig, or exp", async () => {
     const app = buildTestApp();
     const cookie = await claimOwner(app);
     const accountId = await createOwnedMailAccount(app, cookie);
@@ -368,10 +421,43 @@ describe("GET /messages/:messageId/image-proxy", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: `/messages/${messageId}/image-proxy?url=${encodeURIComponent("https://sender.example/t.gif")}&sig=forged`,
+      url: `/messages/${messageId}/image-proxy?url=${encodeURIComponent("https://sender.example/t.gif")}&exp=${Date.now() + 60_000}&sig=forged`,
       headers: { cookie },
     });
     expect(response.statusCode).toBe(403);
+  });
+
+  it("403s a forged signature for a messageId that doesn't exist — never a 404, which would be an existence oracle (ADR-0018)", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/messages/${randomUUID()}/image-proxy?url=${encodeURIComponent("https://sender.example/t.gif")}&exp=${Date.now() + 60_000}&sig=forged`,
+      headers: { cookie },
+    });
+    // A 404 here (the row lookup running before the signature check) would
+    // tell a caller with no valid signature at all whether a `messageId`
+    // exists — the exact oracle ADR-0018's "authorization is the signature
+    // itself" rules out.
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("403s an otherwise-genuine signature that has expired", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const accountId = await createOwnedMailAccount(app, cookie);
+    const threadId = randomUUID();
+    const messageId = await seedMessage({ mailAccountId: accountId, threadId });
+
+    const key = deriveImageProxyKey(TEST_MAIL_CREDENTIAL_KEY);
+    const target = "https://sender.example/t.gif";
+    // Minted with "now" already in the past — the URL comes out pre-expired.
+    const path = buildImageProxyPath(key, messageId, target, Date.now() - 3_600_000 - 1);
+
+    const response = await app.inject({ method: "GET", url: path, headers: { cookie } });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "invalid_signature" });
   });
 
   it("403s a target that resolves to a private address, even with a genuine signature", async () => {
@@ -390,19 +476,14 @@ describe("GET /messages/:messageId/image-proxy", () => {
     expect(response.json()).toEqual({ error: "disallowed_address" });
   });
 
-  it("404s when the signed message id belongs to someone else", async () => {
-    const app = buildTestApp();
-    const cookie = await claimOwner(app);
-    const accountId = await createOwnedMailAccount(app, cookie);
-    const threadId = randomUUID();
-    const messageId = await seedMessage({ mailAccountId: accountId, threadId });
-
-    // A second, unauthenticated caller (no cookie at all) — the ownership
-    // check has to run before signature verification even gets a say.
+  it("404s when the signed message id does not exist", async () => {
     const key = deriveImageProxyKey(TEST_MAIL_CREDENTIAL_KEY);
-    const path = buildImageProxyPath(key, messageId, "https://sender.example/t.gif");
+    const path = buildImageProxyPath(key, randomUUID(), "https://sender.example/t.gif");
+    const app = buildTestApp();
+    // No session at all, matching the real reader-iframe request this route
+    // now serves — the message-existence check is the only gate left.
     const response = await app.inject({ method: "GET", url: path });
-    expect(response.statusCode).toBe(401);
+    expect(response.statusCode).toBe(404);
   });
 });
 

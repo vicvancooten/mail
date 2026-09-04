@@ -267,6 +267,7 @@ describe("auth-methods management (#32)", () => {
 
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("link", { name: "Security" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     expect(await screen.findByText("Enable two-factor authentication")).toBeDefined();
@@ -297,6 +298,7 @@ describe("auth-methods management (#32)", () => {
     await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("link", { name: "Security" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await user.click(
@@ -328,6 +330,7 @@ describe("auth-methods management (#32)", () => {
     await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("link", { name: "Security" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     await screen.findByText("Two-factor authentication is enabled.");
@@ -360,6 +363,7 @@ describe("auth-methods management (#32)", () => {
     await screen.findByLabelText("Switch app");
     await user.click(screen.getByRole("button", { name: /Account menu for/ }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("link", { name: "Security" }));
     await user.click(screen.getByText("Sign-in methods"));
 
     expect(await screen.findByText(/Added/)).toBeDefined();
