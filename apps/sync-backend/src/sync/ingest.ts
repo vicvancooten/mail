@@ -20,6 +20,7 @@ import {
   wasRecordedAtSend,
 } from "./correspondents.js";
 import type { FolderRow } from "./folders.js";
+import { isSentMessage } from "./inbox.js";
 import { extractReferencesHeader, normalizeMessageId, threadingIdsFor } from "./message-ids.js";
 import { reindexMessages } from "./search-index.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -431,13 +432,15 @@ export async function storeMessage(
   // stored — see `correspondents.ts`'s own doc comment for why gating on
   // `created` (never on the update branch, which only means a re-ingest
   // refreshed flags/headers) is what makes this exactly-once with no ledger.
-  // The one exception: a Sent-role folder's own message may already have
-  // been counted at send time (`compose/send-sweeper.ts`), in which case
-  // this ordinary poll ingesting the `Sent` copy back must not count it
-  // again — `wasRecordedAtSend` is that check.
+  // The one exception: a sent message (`sync/inbox.ts#isSentMessage` — a
+  // Sent-role folder's own message on a generic account, or a
+  // `\Sent`-labelled All Mail message on Gmail, #123) may already have been
+  // counted at send time (`compose/send-sweeper.ts`), in which case this
+  // ordinary poll ingesting that copy back must not count it again —
+  // `wasRecordedAtSend` is that check.
   if (row.created) {
     const alreadyCounted =
-      folder.role === "sent" &&
+      isSentMessage(folder.role, values.gmailLabels) &&
       messageIdHeader !== null &&
       (await wasRecordedAtSend(db, folder.mailAccountId, messageIdHeader));
     if (!alreadyCounted) {
@@ -452,6 +455,7 @@ export async function storeMessage(
           ccAddresses: values.ccAddresses,
           sentAt: values.sentAt,
           receivedAt: values.receivedAt,
+          gmailLabels: values.gmailLabels,
         }),
       );
     }

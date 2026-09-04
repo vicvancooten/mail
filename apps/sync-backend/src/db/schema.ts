@@ -716,7 +716,9 @@ export interface MessageAddress {
  * Gmail Folder except All Mail — Spam/Trash/Drafts messages are never
  * labelled per message, only the row that actually needs it (a Gmail Label
  * is read through All Mail) gets one. `sync/ingest.ts#storeMessage` is the
- * only writer; `sync/inbox.ts#isInInbox` is the one seam that reads it back.
+ * only writer; `sync/inbox.ts#isInInbox` and `sync/inbox.ts#isSentMessage`
+ * (#123 — `\Sent` stands in for the Sent Folder role Gmail never syncs) are
+ * the seams that read it back.
  *
  * `bodyText`/`bodyHtml`/`snippet` are null until the body is fetched:
  * ADR-0005's backfill is headers-first with lazy bodies, and #36's sweep

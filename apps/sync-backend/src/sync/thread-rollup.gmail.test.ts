@@ -104,6 +104,19 @@ describe("refreshThreadRollups — Gmail projection (#122)", () => {
     expect(thread).toMatchObject({ folderRole: "trash", inInbox: false });
   });
 
+  it("marks hasSentMessage when the only message carries \\Sent on All Mail (#123)", async () => {
+    const account = await createTestMailAccount(db, { serverKind: "gmail" });
+    const allMail = await seedFolder(account.id, "all", "[Gmail]/All Mail");
+    const threadId = randomUUID();
+    await db.insert(threads).values({ id: threadId, mailAccountId: account.id, subject: "Hi" });
+    await seedMessage(account, threadId, allMail, ["\\Sent"]);
+
+    await refreshThreadRollups(db, [threadId]);
+
+    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(thread).toMatchObject({ hasSentMessage: true });
+  });
+
   it("leaves a generic account's folderRole/inInbox exactly as seeded", async () => {
     const account = await createTestMailAccount(db, { serverKind: "generic" });
     const archive = await seedFolder(account.id, "archive", "Archive");
@@ -123,5 +136,18 @@ describe("refreshThreadRollups — Gmail projection (#122)", () => {
 
     const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
     expect(thread).toMatchObject({ folderRole: "archive", inInbox: false });
+  });
+
+  it("still reads the Sent Folder role for a generic account's hasSentMessage (#123)", async () => {
+    const account = await createTestMailAccount(db, { serverKind: "generic" });
+    const sent = await seedFolder(account.id, "sent", "Sent");
+    const threadId = randomUUID();
+    await db.insert(threads).values({ id: threadId, mailAccountId: account.id, subject: "Hi" });
+    await seedMessage(account, threadId, sent, null);
+
+    await refreshThreadRollups(db, [threadId]);
+
+    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(thread).toMatchObject({ hasSentMessage: true });
   });
 });

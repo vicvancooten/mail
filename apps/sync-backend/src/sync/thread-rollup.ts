@@ -1,7 +1,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages, type ThreadParticipant, threads } from "../db/schema.js";
-import { projectGmailThreadStatus } from "./inbox.js";
+import { isSentMessage, projectGmailThreadStatus } from "./inbox.js";
 
 /**
  * Recomputes the denormalized columns on `threads` (#34).
@@ -36,9 +36,11 @@ const ROLLUP_COLUMNS = {
   seen: messages.seen,
   flagged: messages.flagged,
   hasAttachments: messages.hasAttachments,
-  // Sent (#74): a real signal, not an app-owned flag like `folderRole` —
-  // whether *this* Message currently sits in the account's real `\Sent`
-  // folder, per its own `folderId`'s join to `folders.role`.
+  // Sent (#74, #123): a real signal, not an app-owned flag like `folderRole`
+  // — whether *this* Message currently sits in the account's real `\Sent`
+  // folder, per its own `folderId`'s join to `folders.role`, or (Gmail,
+  // which never syncs one) carries the `\Sent` Gmail Label. See
+  // `sync/inbox.ts#isSentMessage`.
   folderRole: folders.role,
   // Gmail Labels (#122) — null on every non-Gmail message, and on every
   // Gmail message outside All Mail (`db/schema.ts`'s own doc comment).
@@ -121,7 +123,7 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       unread_count: ordered.filter((row) => !row.seen).length,
       starred: ordered.some((row) => row.flagged),
       has_attachments: ordered.some((row) => row.hasAttachments),
-      has_sent_message: ordered.some((row) => row.folderRole === "sent"),
+      has_sent_message: ordered.some((row) => isSentMessage(row.folderRole, row.gmailLabels)),
       first_message_at: oldest.receivedAt.toISOString(),
       last_message_at: newest.receivedAt.toISOString(),
       last_message_id: newest.id,
