@@ -84,6 +84,16 @@ const GROUP_COLLAPSE_DURATION_MS = 260;
 /** How long a plain (non-undoable) group-bulk toast — a partial failure, a rollback — stays up. Shorter than the Undo toast's `BULK_TRIAGE_UNDO_WINDOW_SECONDS`, since there's nothing left to act on. */
 const GROUP_BULK_MESSAGE_TOAST_MS = 6_000;
 
+/** `onOpenStream`'s default for every unrouted caller — module-level so its
+ * identity is stable across renders. An inline `() => {}` default is
+ * re-evaluated fresh on every render in which the caller omits the prop,
+ * which broke the `actionContext` memo (below) below it depends on: every
+ * unrouted caller got a new `ctx` identity each render, which in turn made
+ * `CommandPalette`'s own `useMemo(() => buildCommands(ctx), [ctx])` rebuild
+ * from scratch on every keystroke — the root of the Palette's "results
+ * flicker to 'No matching commands'" bug. */
+function noop() {}
+
 /**
  * Lazy-loaded (compose-spec §Editor: "TipTap v3 ... lazy-loaded so it never
  * touches the <1s cold-start budget"): TipTap and its extensions are real
@@ -138,7 +148,7 @@ export function MailSection({
   initialFolder,
   initialThreadId = null,
   onLocationChange,
-  onOpenStream = () => {},
+  onOpenStream = noop,
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;

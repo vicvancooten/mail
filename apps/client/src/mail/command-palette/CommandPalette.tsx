@@ -111,6 +111,21 @@ export function CommandPalette({
   const hits = showHits ? search.results.slice(0, 5) : [];
   const showAccountBadge = accountScope.length > 1;
 
+  // Whether the list is genuinely empty, computed from the same
+  // `matchedCommands`/`hits` the two Groups below render from — never from
+  // cmdk's own `filtered.count`. That count comes from `Command.Item`s
+  // registering themselves via `useLayoutEffect` on mount, which for the
+  // Mail hits group churns on nearly every keystroke (`hits` is sourced
+  // from an async prefilter/server round trip): a keystroke that empties
+  // and instantly repopulates the Mail group can leave cmdk's own
+  // bookkeeping believing the list is momentarily empty even while
+  // `matchedCommands` still has real, on-screen rows — which is what
+  // rendered "No matching commands." under real results for a frame. Since
+  // this component already knows the true count, `Command.Empty` (whose
+  // visibility cmdk drives from that separate, async-desynced source) is
+  // skipped entirely in favor of this.
+  const isEmpty = matchedCommands.length === 0 && hits.length === 0;
+
   function runRow(row: PaletteRow) {
     if (row.kind === "command") {
       if (!row.command.run) return;
@@ -196,9 +211,7 @@ export function CommandPalette({
         </div>
 
         <CommandPrimitive.List className="command-palette-list">
-          <CommandPrimitive.Empty className="command-palette-empty">
-            No matching commands.
-          </CommandPrimitive.Empty>
+          {isEmpty ? <p className="command-palette-empty">No matching commands.</p> : null}
 
           {matchedCommands.length > 0 ? (
             <CommandPrimitive.Group className="command-palette-section" heading="Commands">
