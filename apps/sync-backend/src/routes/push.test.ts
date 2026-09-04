@@ -8,6 +8,7 @@ import { createSession } from "../auth/sessions.js";
 import type { Db } from "../db/client.js";
 import { folders, messages, threads, users } from "../db/schema.js";
 import { listPushSubscriptionsForUser } from "../notifier/subscriptions.js";
+import { disabledVapidKeyStore } from "../notifier/vapid-keys.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 
 /**
@@ -43,7 +44,18 @@ function buildTestApp(vapidPublicKey: string | null = null) {
     publicUrl: PUBLIC_URL,
     mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
     mailAccountVerify: async () => ({ ok: true }),
-    vapidPublicKey,
+    // `/push/config` reads the key through the store per request now
+    // (ADR-0015 as amended: it can be minted while the process runs), so a
+    // fixed answer is all this suite needs to state.
+    vapidKeys: vapidPublicKey
+      ? {
+          canGenerate: false,
+          read: async () => ({ publicKey: vapidPublicKey, privateKey: "test-private" }),
+          readPublicKey: async () => vapidPublicKey,
+          ensure: async () => ({ publicKey: vapidPublicKey, privateKey: "test-private" }),
+          repair: async () => null,
+        }
+      : disabledVapidKeyStore,
   });
 }
 

@@ -15,7 +15,17 @@
       `--color-surface-strong` in each theme, the header's own ground
       (@mail/design-tokens; `router/shell.css`'s `.app-header`). Literal
       hex because a meta tag cannot read a custom property — keep them in
-      step with the token if it ever moves.
+      step with the token, and with `theme/device-theme.ts`'s own copy, if
+      it ever moves.
+
+      These two are the *cold-load* answer only, and they are right for
+      `system` alone: Appearance is a Device Preference in `localStorage`
+      (`theme/device-theme.ts`), which no media query can see. `applyTheme`
+      rewrites both `content` values from the appearance actually chosen —
+      before the first paint, from `main.tsx` — so a light app on a dark OS
+      no longer sits under near-black browser chrome. `manifest.webmanifest`
+      carries the light value in `theme_color`, since a manifest can only
+      hold one and an installed window paints it before any script runs.
     -->
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f5f8" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#08090b" />

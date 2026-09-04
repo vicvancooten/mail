@@ -199,6 +199,41 @@ describe("reindexMessages", () => {
       expect(result).toEqual({ processed: 0, complete: true });
     });
 
+    it("indexes a Message that has no row at all — the pass that heals a pre-index mailbox", async () => {
+      // Nothing backfilled a Message stored before this table existed
+      // (migration `0015`), and the stale-version sweep structurally
+      // cannot: there is no row to find stale. Such a Message stayed
+      // invisible to `POST /search` forever while the Client's own list
+      // still showed it — which reads as "results appear, then vanish",
+      // since the Local Cache prefilter finds the Thread and the
+      // authoritative answer that replaces it wholesale has nothing.
+      const { messageId } = await seedMessage();
+      expect(await db.select().from(messageSearch)).toHaveLength(0);
+
+      const result = await runSearchIndexRebuildBatch(db, 50);
+      expect(result).toEqual({ processed: 1, complete: false });
+
+      const [row] = await db
+        .select()
+        .from(messageSearch)
+        .where(eq(messageSearch.messageId, messageId));
+      expect(row?.indexVersion).toBe(CURRENT_SEARCH_INDEX_VERSION);
+      expect(row?.doc).toBeTruthy();
+
+      // Caught up: the next tick has neither a missing row nor a stale one.
+      expect(await runSearchIndexRebuildBatch(db, 50)).toEqual({ processed: 0, complete: true });
+    });
+
+    it("bounds the missing-row pass by the batch size", async () => {
+      await seedMessage();
+      await seedMessage();
+      await seedMessage();
+
+      expect(await runSearchIndexRebuildBatch(db, 2)).toEqual({ processed: 2, complete: false });
+      expect(await runSearchIndexRebuildBatch(db, 2)).toEqual({ processed: 1, complete: false });
+      expect(await runSearchIndexRebuildBatch(db, 2)).toEqual({ processed: 0, complete: true });
+    });
+
     it("brings a stale-version row up to the current version, oldest-version-first", async () => {
       const { messageId } = await seedMessage();
       await reindexMessages(db, [messageId]);

@@ -95,6 +95,27 @@ function escapeAttr(value: string): string {
 }
 
 /**
+ * The inverse, and load-bearing rather than cosmetic: the two patterns above
+ * match against *serialized* HTML (`sanitize.ts`'s output), where an
+ * attribute value has already been escaped — so a perfectly ordinary
+ * tracking URL arrives here as
+ * `https://cdn.example/px.gif?id=42&amp;u=abc`. Signing and fetching that
+ * verbatim asks the upstream for query parameters literally named `amp;u`,
+ * which is a 400/404 from anything that reads its own query string: every
+ * remote image with more than one parameter — most of them, in real mail —
+ * failed to load. Only the entities an HTML serializer actually emits are
+ * decoded; the URL is re-escaped on the way back out.
+ */
+function decodeEntities(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/**
  * Rewrites every remaining remote image reference in already-sanitized HTML
  * to a signed same-origin proxy path (`docs/research/0005`'s recommended
  * pipeline, step 3). Runs at **serve time** (`routes/messages.ts`), not
@@ -112,11 +133,11 @@ export function rewriteRemoteImageReferences(
   { messageId, key }: { messageId: string; key: Buffer },
 ): string {
   const withImg = html.replace(REMOTE_IMG_SRC, (_match, pre: string, url: string, post: string) => {
-    const proxied = buildImageProxyPath(key, messageId, url);
+    const proxied = buildImageProxyPath(key, messageId, decodeEntities(url));
     return `${pre}${escapeAttr(proxied)}${post}`;
   });
   return withImg.replace(REMOTE_CSS_URL, (_match, quote: string, url: string) => {
-    const proxied = buildImageProxyPath(key, messageId, url);
+    const proxied = buildImageProxyPath(key, messageId, decodeEntities(url));
     return `url(${quote}${proxied}${quote})`;
   });
 }
@@ -193,6 +214,16 @@ export interface ResolvedAddress {
   address: string;
   family: 4 | 6;
 }
+
+/**
+ * Both shapes Node's `lookup` request option can be called back with — the
+ * plain one, and the `{ all: true }` one `net.createConnection` uses while
+ * `autoSelectFamily` is on (its default). `fetchOnce` below answers whichever
+ * the caller asked for; see its own comment for what answering only the first
+ * one cost.
+ */
+type LookupCallback = ((err: null, address: string, family: number) => void) &
+  ((err: null, addresses: { address: string; family: number }[]) => void);
 
 /** Injectable so tests never need real DNS. Node's `dns.lookup` by default, `{ all: true }`. */
 export type Resolver = (hostname: string) => Promise<ResolvedAddress[]>;
@@ -337,13 +368,26 @@ export function fetchOnce(
         // other option (`hostname`, `servername`, the `Host` header Node
         // derives from `hostname`) still reflects the sender's original
         // URL, which is what a virtual-hosted upstream and TLS both need.
-        lookup: (
-          _hostname,
-          _options,
-          callback: (err: null, address: string, family: number) => void,
-        ) => {
+        //
+        // Both callback shapes are answered, keyed off `options.all`, and
+        // that is load-bearing rather than defensive: `autoSelectFamily`
+        // defaults to **true** on the Node this runs on (22; confirmed with
+        // `net.getDefaultAutoSelectFamily()`), so `net.createConnection`
+        // calls this with `{ hints, all: true }` and expects
+        // `callback(null, addresses[])`. Answering that with the
+        // three-argument form left `net` holding `addresses === undefined`
+        // and every single upstream fetch failed on `Invalid IP address:
+        // undefined` — a 502 from this route for every remote image in
+        // every message, which is exactly what "Image failed to load"
+        // reported.
+        lookup: ((_hostname: string, options: { all?: boolean }, callback: LookupCallback) => {
+          if (options?.all) {
+            callback(null, [{ address: resolved.address, family: resolved.family }]);
+            return;
+          }
           callback(null, resolved.address, resolved.family);
-        },
+          // eslint-disable-next-line -- see the type's own comment
+        }) as never,
       },
       (res: IncomingMessage) => {
         const status = res.statusCode ?? 0;
