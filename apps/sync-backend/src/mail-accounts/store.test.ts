@@ -43,7 +43,13 @@ describe("markNeedsReauth", () => {
   it("fires again on a later, separate transition after reauth clears the first one", async () => {
     const account = await createTestMailAccount(db);
     await markNeedsReauth(db, account.id);
-    await replaceMailAccountCredential(db, account.id, account.username, account.credential);
+    await replaceMailAccountCredential(
+      db,
+      account.id,
+      account.username,
+      account.credential,
+      "generic",
+    );
     const second = await markNeedsReauth(db, account.id);
     expect(second?.status).toBe("needs_reauth");
   });

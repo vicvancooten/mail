@@ -121,7 +121,7 @@ function buildTestApp({ adapter = fakeAdapter(), verify, syncManager }: TestAppO
     // `null` is "this build has no adapter for Google" — the shape Microsoft
     // is in until #117, expressed against the Provider the tests can drive.
     providerAdapters: adapter ? { google: adapter } : {},
-    mailAccountVerify: verify ?? (async () => ({ ok: true })),
+    mailAccountVerify: verify ?? (async () => ({ ok: true, serverKind: "generic" })),
     syncManager,
   });
 }

@@ -25,6 +25,11 @@ vi.mock("imapflow", () => ({
     return {
       connect: () => connectImpl(),
       close: () => undefined,
+      // No test here exercises Gmail detection (#121) — that's
+      // `server-kind.test.ts` and the GreenMail suites — so an empty
+      // capability list keeps `detectServerKind` callable without every
+      // case here having to know about it.
+      capabilities: new Map<string, boolean>(),
     };
   }),
 }));

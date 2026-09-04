@@ -2,6 +2,7 @@ import type { MailAccountConnection } from "@mail/shared";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { type MailAccountSecret, toImapAuth, toSmtpAuth } from "./credential-auth.js";
+import { detectServerKind, type MailAccountServerKind } from "./server-kind.js";
 
 /** A few seconds per docs/research/0004 §4's "short, fixed timeout, move on" guidance. */
 const VERIFY_TIMEOUT_MS = 8000;
@@ -21,7 +22,7 @@ export interface VerifyMailAccountInput {
 }
 
 export type VerifyMailAccountResult =
-  | { ok: true }
+  | { ok: true; serverKind: MailAccountServerKind }
   | { ok: false; reason: "credentials_rejected" | "connection_failed"; detail: string };
 
 /**
@@ -43,7 +44,7 @@ export async function verifyMailAccountCredentials(
   if (!smtpResult.ok) {
     return smtpResult;
   }
-  return { ok: true };
+  return imapResult;
 }
 
 async function verifyImap({
@@ -66,8 +67,12 @@ async function verifyImap({
 
   try {
     await client.connect();
+    // Capabilities are known as soon as `connect()` resolves (the
+    // greeting/CAPABILITY exchange), so this needs no command of its own
+    // and can run before `logout()` (#121, ADR-0020).
+    const serverKind = detectServerKind(client);
     await client.logout();
-    return { ok: true };
+    return { ok: true, serverKind };
   } catch (err) {
     // imapflow's `AuthenticationFailure` class isn't actually exported from
     // its public API (only its .d.ts claims it is) — `authenticationFailed`
@@ -86,11 +91,15 @@ function isImapAuthFailure(err: unknown): err is Error & { authenticationFailed:
   return err instanceof Error && "authenticationFailed" in err && err.authenticationFailed === true;
 }
 
+type VerifySmtpResult =
+  | { ok: true }
+  | { ok: false; reason: "credentials_rejected" | "connection_failed"; detail: string };
+
 async function verifySmtp({
   smtp,
   username,
   credential,
-}: VerifyMailAccountInput): Promise<VerifyMailAccountResult> {
+}: VerifyMailAccountInput): Promise<VerifySmtpResult> {
   const transport = nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,

@@ -1,8 +1,9 @@
 import type { MailAccount, MailAccountConnection } from "@mail/shared";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mailAccounts } from "../db/schema.js";
 import type { MailAccountCredential } from "./credential-crypto.js";
+import type { MailAccountServerKind } from "./server-kind.js";
 
 export type MailAccountRow = typeof mailAccounts.$inferSelect;
 
@@ -52,6 +53,8 @@ export interface InsertMailAccountInput {
   smtp: MailAccountConnection;
   username: string;
   credential: MailAccountCredential;
+  /** Detected by `mail-accounts/verify.ts` in the same live check that authorized this insert (#121). */
+  serverKind: MailAccountServerKind;
 }
 
 export async function insertMailAccount(
@@ -72,6 +75,7 @@ export async function insertMailAccount(
       smtpSecurity: input.smtp.security,
       username: input.username,
       credential: input.credential,
+      serverKind: input.serverKind,
       status: "active",
     })
     .returning();
@@ -244,16 +248,23 @@ export async function updateMailAccountNotificationsEnabled(
     .where(eq(mailAccounts.id, id));
 }
 
-/** Re-entering credentials (CONTEXT.md's Needs Reauth flow) resumes: sets `username`+`credential`, clears the status. */
+/**
+ * Re-entering credentials (CONTEXT.md's Needs Reauth flow) resumes: sets
+ * `username`+`credential`, clears the status. Reauth re-verifies live
+ * (`routes/mail-accounts.ts`), so it also carries the freshly detected
+ * server kind (#121) — the same rule `updateMailAccountServerKind` applies
+ * for a plain reconnect.
+ */
 export async function replaceMailAccountCredential(
   db: Db,
   id: string,
   username: string,
   credential: MailAccountCredential,
+  serverKind: MailAccountServerKind,
 ): Promise<void> {
   await db
     .update(mailAccounts)
-    .set({ username, credential, status: "active", updatedAt: new Date() })
+    .set({ username, credential, serverKind, status: "active", updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
 }
 
@@ -287,5 +298,30 @@ export async function listActiveOAuthMailAccounts(db: Db): Promise<MailAccountRo
     .from(mailAccounts)
     .where(
       and(eq(mailAccounts.status, "active"), sql`${mailAccounts.credential}->>'kind' = 'oauth'`),
+    );
+}
+
+/**
+ * The sync engine's "on connect" half of #121 (ADR-0020): a Mail Account
+ * added before this column existed, or whose server changed, picks up the
+ * detected kind on its next successful IMAP connect
+ * (`sync/imap-connection.ts#connectMailAccount`) rather than needing a
+ * migration backfill. Guarded to a no-op when the stored kind already
+ * matches, so a resident sync loop's routine reconnects don't bump
+ * `syncRev` (`db/schema.ts`'s delta-sync trigger) for nothing.
+ */
+export async function updateMailAccountServerKind(
+  db: Db,
+  id: string,
+  serverKind: MailAccountServerKind,
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ serverKind, updatedAt: new Date() })
+    .where(
+      and(
+        eq(mailAccounts.id, id),
+        or(isNull(mailAccounts.serverKind), ne(mailAccounts.serverKind, serverKind)),
+      ),
     );
 }

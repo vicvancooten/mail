@@ -91,6 +91,7 @@ export async function mailAccountRoutes(
       smtp,
       username,
       credential: sealPasswordCredential(password, id, key),
+      serverKind: result.serverKind,
     });
     syncManager.start(row);
     return reply
@@ -128,7 +129,13 @@ export async function mailAccountRoutes(
         .send({ error: result.reason, detail: result.detail });
     }
 
-    await replaceMailAccountCredential(db, id, username, sealPasswordCredential(password, id, key));
+    await replaceMailAccountCredential(
+      db,
+      id,
+      username,
+      sealPasswordCredential(password, id, key),
+      result.serverKind,
+    );
     const updated = await getMailAccountForUser(db, requireUser(request).id, id);
     if (!updated) {
       throw new Error("Mail Account disappeared between reauth update and re-read.");

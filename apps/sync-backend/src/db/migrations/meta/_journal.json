@@ -225,6 +225,13 @@
       "when": 1788552487590,
       "tag": "0031_safe_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788555695512,
+      "tag": "0032_damp_darkstar",
+      "breakpoints": true
     }
   ]
 }
