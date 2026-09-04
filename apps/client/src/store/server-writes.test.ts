@@ -145,19 +145,27 @@ describe("applyThreadDelta", () => {
  * real idle tick.
  */
 describe("the bounded working set", () => {
-  it("trims to the floor once the window passes its high water, and says the list is truncated", async () => {
-    await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
-      replace: false,
-    });
-    await flushScheduledWindowTrims();
+  // 1,001 Threads in one delta plus their eviction pass is comfortably under
+  // vitest's default 5s timeout locally, but not on GitHub Actions' slower
+  // shared runners against fake-indexeddb — bump it rather than the suite's
+  // global default (see the same note on "holds the floor..." below).
+  it(
+    "trims to the floor once the window passes its high water, and says the list is truncated",
+    async () => {
+      await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
+        replace: false,
+      });
+      await flushScheduledWindowTrims();
 
-    const page = await readThreadWindow(ACCOUNT, { limit: THREAD_WINDOW_HIGH_WATER + 1 });
-    expect(page.threads).toHaveLength(THREAD_WINDOW_FLOOR);
-    expect(page.complete).toBe(false);
-    // Contiguous from newest: the floor's worth of newest Threads, nothing older.
-    expect(page.threads[0]?.id).toBe(`t${String(THREAD_WINDOW_HIGH_WATER).padStart(6, "0")}`);
-    expect(await localCache().threads.count()).toBe(THREAD_WINDOW_FLOOR);
-  });
+      const page = await readThreadWindow(ACCOUNT, { limit: THREAD_WINDOW_HIGH_WATER + 1 });
+      expect(page.threads).toHaveLength(THREAD_WINDOW_FLOOR);
+      expect(page.complete).toBe(false);
+      // Contiguous from newest: the floor's worth of newest Threads, nothing older.
+      expect(page.threads[0]?.id).toBe(`t${String(THREAD_WINDOW_HIGH_WATER).padStart(6, "0")}`);
+      expect(await localCache().threads.count()).toBe(THREAD_WINDOW_FLOOR);
+    },
+    20_000,
+  );
 
   it("does not trim inline — the sync write settles before any sweep runs", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
