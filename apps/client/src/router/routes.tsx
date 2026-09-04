@@ -11,6 +11,7 @@ import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
+import { InstancePage } from "../settings/InstancePage.js";
 import { MailAccountsPage } from "../settings/MailAccountsPage.js";
 import { NotificationsPage } from "../settings/NotificationsPage.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
@@ -142,6 +143,25 @@ export const settingsSecurityRoute = createRoute({
   component: SecurityPage,
 });
 
+/**
+ * Owner-only (#104): `SettingsLayout`'s nav already hides this destination
+ * from a Member, but a direct URL still has to go somewhere sane, so
+ * `beforeLoad` redirects to General exactly the way `settingsIndexRoute`
+ * above forwards a bare `/settings`. `GET /instance/health` itself repeats
+ * the check server-side (`routes/instance.ts`'s `requireOwner`) — this is
+ * belt, not the only suspender.
+ */
+export const settingsInstanceRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/instance",
+  beforeLoad: ({ context }) => {
+    if (context.user.role !== "owner") {
+      throw redirect({ to: "/settings/general" });
+    }
+  },
+  component: InstancePage,
+});
+
 export const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
@@ -171,6 +191,7 @@ export const routeTree = rootRoute.addChildren([
     settingsGatekeeperRoute,
     settingsNotificationsRoute,
     settingsSecurityRoute,
+    settingsInstanceRoute,
   ]),
   contactsRoute,
   calendarRoute,

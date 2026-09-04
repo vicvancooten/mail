@@ -1,5 +1,6 @@
 import { Link, Outlet } from "@tanstack/react-router";
-import { AtSign, Bell, Lock, Monitor, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AtSign, Bell, Lock, Monitor, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { rootRoute } from "../router/routes.js";
 
 /**
  * Settings' own side navigation (#99): sub-routes under `/settings`
@@ -18,6 +19,13 @@ import { AtSign, Bell, Lock, Monitor, ShieldCheck, SlidersHorizontal } from "luc
  * precedent — is hand-rolled the same way. Six static links need none of
  * it; `Link`'s own active-match styling (`data-status="active"`) is what
  * highlights the current page.
+ *
+ * Instance (#104) is the one Owner-only entry: filtered out of `NAV_ITEMS`
+ * for a Member entirely, per grill's "a Member gets no such nav entry"
+ * rather than shown-then-blocked. `rootRoute.useRouteContext()` here is the
+ * same seam `router/RootLayout.tsx` already reads `user` through — a
+ * circular import with `router/routes.js` that resolves fine, since both
+ * modules are fully evaluated before any component actually renders.
  */
 
 const NAV_ITEMS = [
@@ -29,11 +37,16 @@ const NAV_ITEMS = [
   { to: "/settings/security", label: "Security", Icon: Lock },
 ] as const;
 
+const OWNER_ONLY_NAV_ITEM = { to: "/settings/instance", label: "Instance", Icon: Server } as const;
+
 export function SettingsLayout() {
+  const { user } = rootRoute.useRouteContext();
+  const navItems = user.role === "owner" ? [...NAV_ITEMS, OWNER_ONLY_NAV_ITEM] : NAV_ITEMS;
+
   return (
     <div className="settings-shell">
       <nav className="settings-nav" aria-label="Settings">
-        {NAV_ITEMS.map(({ to, label, Icon }) => (
+        {navItems.map(({ to, label, Icon }) => (
           <Link key={to} to={to} className="settings-nav-item">
             <Icon size={15} />
             {label}
