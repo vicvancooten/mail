@@ -5,6 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
+  compositions,
   folders,
   labels,
   messages,
@@ -763,5 +764,54 @@ describe("flushMutations — the Gatekeeper decisions (#55)", () => {
 
     expect(outcomes).toEqual([{ id: "01CROSS", status: "applied" }]); // clears (nothing to clear on `other`) — silently drops the foreign Thread
     expect((await threadRow(threadId))?.folderRole).toBe("trash"); // untouched
+  });
+});
+
+describe("flushMutations — discardComposition/undiscardComposition (#101)", () => {
+  async function insertComposition(status: "draft" | "discarded" | "pending" = "draft") {
+    const id = randomUUID();
+    await db.insert(compositions).values({
+      id,
+      mailAccountId: account.id,
+      subject: "Subject",
+      document: { type: "doc", content: [] },
+      version: 1,
+      status,
+    });
+    return id;
+  }
+
+  it("dispatches discardComposition to compose/discard.ts, ahead of the Thread lookup", async () => {
+    const id = await insertComposition("draft");
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01D", intent: { type: "discardComposition", compositionId: id } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01D", status: "applied" }]);
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id)).limit(1);
+    expect(row?.status).toBe("discarded");
+  });
+
+  it("rejects discardComposition for a Composition that isn't a Draft", async () => {
+    const id = await insertComposition("pending");
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01D", intent: { type: "discardComposition", compositionId: id } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01D", status: "rejected", reason: "not_a_draft" }]);
+  });
+
+  it("dispatches undiscardComposition, Undo's real inverse (#95)", async () => {
+    const id = await insertComposition("discarded");
+
+    const outcomes = await flushMutations(db, account.id, [
+      { id: "01U", intent: { type: "undiscardComposition", compositionId: id } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01U", status: "applied" }]);
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id)).limit(1);
+    expect(row?.status).toBe("draft");
   });
 });

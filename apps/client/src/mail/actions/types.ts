@@ -78,10 +78,11 @@ export interface ScreenerActionTarget {
   onBlock: () => void;
 }
 
-/** The Drafts row the pointer is on (#74). Delete lands with #101; today the only thing a Draft row can do is open. */
+/** The Drafts row the pointer is on (#74, #101): Open and Delete. */
 export interface DraftActionTarget {
   draft: CachedComposition;
   onOpen: () => void;
+  onDelete: () => void;
 }
 
 /**

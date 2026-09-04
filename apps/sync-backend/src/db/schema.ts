@@ -1059,7 +1059,10 @@ export type GatekeeperVerdictRow = typeof gatekeeperVerdicts.$inferSelect;
  * send is accepted, `submitting` from the sweeper's atomic claim, `sent`
  * once the `Sent` APPEND lands. A cancel and a permanent rejection both
  * return the row to `draft` — see `@mail/shared`'s `compositionStatusSchema`
- * for why, and why `failed` stays reserved rather than written.
+ * for why, and why `failed` stays reserved rather than written. `discarded`
+ * (#101) is Delete's own one-directional status, the same "flip a field,
+ * never delete the row" shape a Thread's `archive`/`trash` already use —
+ * `undiscardComposition` (#95) is its real inverse, restoring `draft`.
  *
  * `document` is the ProseMirror JSON itself (ADR-0013: "a Composition is a
  * structured document, not HTML") — the mail HTML and plaintext alternative
@@ -1082,7 +1085,7 @@ export const compositions = pgTable(
       .notNull()
       .references(() => mailAccounts.id, { onDelete: "cascade" }),
     status: text("status", {
-      enum: ["draft", "pending", "submitting", "sent", "failed"],
+      enum: ["draft", "pending", "submitting", "sent", "failed", "discarded"],
     })
       .notNull()
       .default("draft"),

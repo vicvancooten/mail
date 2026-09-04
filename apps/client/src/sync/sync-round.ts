@@ -10,6 +10,7 @@ import { setBadgeCount } from "../pwa/badge.js";
 import {
   listQueuedComposeSaves,
   resolveComposeSaveOutcomes,
+  resolveDiscardOutcomes,
   resolveSendOutcomes,
   toWireComposeSave,
 } from "../store/compositions.js";
@@ -233,12 +234,12 @@ async function applyMutationOutcomes(request: SyncRequest, response: SyncRespons
     // race" — so they are paired up here, before `resolveMutationOutcomes`
     // dequeues and forgets them.
     const byId = new Map(queued.map((mutation) => [mutation.id, mutation.intent]));
-    await resolveSendOutcomes(
-      outcomes.flatMap((outcome) => {
-        const intent = byId.get(outcome.id);
-        return intent ? [{ intent, status: outcome.status, reason: outcome.reason }] : [];
-      }),
-    );
+    const pairedOutcomes = outcomes.flatMap((outcome) => {
+      const intent = byId.get(outcome.id);
+      return intent ? [{ intent, status: outcome.status, reason: outcome.reason }] : [];
+    });
+    await resolveSendOutcomes(pairedOutcomes);
+    await resolveDiscardOutcomes(pairedOutcomes);
     await resolveMutationOutcomes(mailAccountId, queued, outcomes);
   }
 }

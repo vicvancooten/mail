@@ -323,8 +323,14 @@ function mergeComposition(
     submitAfter: wire.submitAfter,
     sendError: wire.sendError,
     sentAt: wire.sentAt,
+    // #101: `discarded` joins `draft`/`sent` here for the same reason —
+    // neither status can ever follow a live `pending`/`submitting` send
+    // without passing back through `draft` first (Discard only ever accepts
+    // a `draft` row), so this is defensive rather than reachable today.
     sendState:
-      wire.status === "draft" || wire.status === "sent" ? null : (local?.sendState ?? null),
+      wire.status === "draft" || wire.status === "sent" || wire.status === "discarded"
+        ? null
+        : (local?.sendState ?? null),
     createdAt: local?.createdAt ?? wire.updatedAt,
     updatedAt: wire.updatedAt,
     // Server-owned, always — an attach/delete already lands optimistically

@@ -14,6 +14,7 @@ import {
   UNDO_SEND_DELAY_OPTIONS,
 } from "@mail/shared";
 import { and, eq, sql } from "drizzle-orm";
+import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import type { Db } from "../db/client.js";
 import {
@@ -130,10 +131,15 @@ async function applyIntent(
   mailAccountId: string,
   intent: MutationIntent,
 ): Promise<IntentResult> {
-  // The two Composition intents (#46) and the two Preference intents (#54)
-  // name no Thread, so they are dispatched ahead of the Thread lookup every
-  // other intent starts from.
-  if (intent.type === "sendComposition" || intent.type === "cancelSend") {
+  // The four Composition intents (#46, #101) and the two Preference intents
+  // (#54) name no Thread, so they are dispatched ahead of the Thread lookup
+  // every other intent starts from.
+  if (
+    intent.type === "sendComposition" ||
+    intent.type === "cancelSend" ||
+    intent.type === "discardComposition" ||
+    intent.type === "undiscardComposition"
+  ) {
     return applyCompositionIntent(db, mailAccountId, intent);
   }
   if (intent.type === "setSignature") {
@@ -335,20 +341,23 @@ async function applyGatekeeperIntent(
 }
 
 /**
- * `sendComposition`/`cancelSend` (#46, ADR-0007). Both are thin wrappers over
- * `compose/pending-send.ts`'s conditional transitions — the whole point of
- * routing them through this queue rather than a dedicated route is that they
- * inherit its idempotency ledger, so a resent `sendComposition` id replays
- * its recorded outcome instead of arming a second Pending Send.
+ * The four Composition intents (#46, #101, ADR-0007, ADR-0012). Each is a
+ * thin wrapper over a conditional transition in `compose/pending-send.ts` or
+ * `compose/discard.ts` — the whole point of routing them through this queue
+ * rather than a dedicated route is that they inherit its idempotency ledger,
+ * so a resent id replays its recorded outcome instead of applying twice.
  *
- * The delay is read from the sending User's own preference here, not taken
- * from the intent: ADR-0007 measures it "from server receipt, never from the
- * Client's clock", which makes `submit_after` this server's to compute.
+ * `sendComposition`'s delay is read from the sending User's own preference
+ * here, not taken from the intent: ADR-0007 measures it "from server
+ * receipt, never from the Client's clock", which makes `submit_after` this
+ * server's to compute.
  *
  * A `too_late` cancel is a `rejected` outcome, which is what the Client turns
  * into ADR-0007's "reported to the User as too late" — the one rejection in
  * this whole union that is an ordinary, expected result rather than a bug or
- * a stale Client.
+ * a stale Client. `discardComposition`/`undiscardComposition` (#101) are the
+ * synchronous half of Delete and its Undo — see `compose/discard.ts` for why
+ * the IMAP expunge itself is deliberately not here.
  */
 async function applyCompositionIntent(
   db: Db,
@@ -358,6 +367,14 @@ async function applyCompositionIntent(
   if (intent.type === "cancelSend") {
     const result = await cancelSend(db, mailAccountId, intent.compositionId);
     return result.status === "cancelled" ? { ok: true } : { ok: false, reason: result.reason };
+  }
+  if (intent.type === "discardComposition") {
+    const result = await discardComposition(db, mailAccountId, intent.compositionId);
+    return result.status === "discarded" ? { ok: true } : { ok: false, reason: result.reason };
+  }
+  if (intent.type === "undiscardComposition") {
+    const result = await undiscardComposition(db, mailAccountId, intent.compositionId);
+    return result.status === "undiscarded" ? { ok: true } : { ok: false, reason: result.reason };
   }
 
   const delaySeconds = await undoSendDelayForAccount(db, mailAccountId);

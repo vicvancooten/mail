@@ -30,12 +30,14 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "applyLabel":
     case "removeLabel":
       return [intent.threadId];
-    // The Composition intents (#46) and the Mail-Account-scoped Preference
-    // intents (#54) name no Thread. Empty is exactly right for both readers:
-    // nothing to exempt from Thread eviction, and nothing for the Thread
-    // overlay to match against.
+    // The Composition intents (#46, #101) and the Mail-Account-scoped
+    // Preference intents (#54) name no Thread. Empty is exactly right for
+    // both readers: nothing to exempt from Thread eviction, and nothing for
+    // the Thread overlay to match against.
     case "sendComposition":
     case "cancelSend":
+    case "discardComposition":
+    case "undiscardComposition":
     case "setSignature":
     case "setNotificationsEnabled":
       return [];
@@ -118,6 +120,14 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "send", targetId: intent.compositionId, value: true };
     case "cancelSend":
       return { type: "send", targetId: intent.compositionId, value: false };
+    // Delete and its Undo (#101, ADR-0019) are the same genuine-inverse-pair
+    // shape as Send/Undo Send just above: a still-queued `discardComposition`
+    // cancelled by `undiscardComposition` before either ever reached the
+    // Sync Backend means the server never heard about the discard at all.
+    case "discardComposition":
+      return { type: "discard", targetId: intent.compositionId, value: true };
+    case "undiscardComposition":
+      return { type: "discard", targetId: intent.compositionId, value: false };
     // `setNotificationsEnabled` (#54) is a genuine boolean toggle, so it
     // coalesces the same way `setPinned` does — a Mail Account's own queue is
     // already what `enqueueMutation` scopes candidates to, so "notifications"

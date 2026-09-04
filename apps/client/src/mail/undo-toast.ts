@@ -2,13 +2,15 @@ import { BULK_TRIAGE_UNDO_WINDOW_SECONDS } from "@mail/shared";
 import { dismissActionToast, raiseActionToast } from "./action-toast.js";
 
 /**
- * Coalesced Undo toasts for the ordinary Triage/Screener actions (#95,
- * ADR-0019, CONTEXT.md's own Undo entry: "actions taken in quick succession
- * share one toast and one Undo"). `useTriage.ts`'s `archive`/`trash`/
- * `snooze` and `screener/Screener.tsx`'s Deny/Block decisions each call
+ * Coalesced Undo toasts for the ordinary Triage/Screener/Compose actions
+ * (#95, ADR-0019, CONTEXT.md's own Undo entry: "actions taken in quick
+ * succession share one toast and one Undo"). `useTriage.ts`'s `archive`/
+ * `trash`/`snooze`, `screener/Screener.tsx`'s Deny/Block decisions, and
+ * `compose/Composer.tsx`'s explicit Discard (#101) each call
  * `announceUndoableAction` right after enqueueing the forward Optimistic
  * Action — Approve/Star/Pin/Read/Label never do, matching #95's own list of
- * what's undoable.
+ * what's undoable, and neither does a Draft that discards silently on close
+ * with no content (`Composer.tsx`'s own doc comment).
  *
  * Pressing `e` eight times fast raises one toast, "8 done · Undo", not
  * eight — every call within `BULK_TRIAGE_UNDO_WINDOW_SECONDS` of the last
@@ -22,7 +24,7 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * visible toast to click in the meantime.
  */
 
-export type UndoableActionKind = "done" | "trash" | "snooze" | "block" | "deny";
+export type UndoableActionKind = "done" | "trash" | "snooze" | "block" | "deny" | "discard";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -34,6 +36,8 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   block: { one: "Blocked", many: (count) => `${count} blocked` },
   // Matches `Screener.tsx`'s own "Returned" verdict label for Deny.
   deny: { one: "Returned", many: (count) => `${count} returned` },
+  // Discard (#101) — `Composer.tsx`'s own explicit Discard button.
+  discard: { one: "Draft discarded", many: (count) => `${count} drafts discarded` },
 };
 
 interface Bucket {

@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
-import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { type CompositionRow, compositions } from "../db/schema.js";
 import { approveSendRecipients } from "../gatekeeper/verdicts.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
 import { activityForSentComposition, recordCorrespondentActivity } from "../sync/correspondents.js";
+import { expungeDraftCopy } from "../sync/draft-push.js";
 import { findFolderByRole } from "../sync/folders.js";
 import { withMailAccountConnection } from "../sync/imap-connection.js";
 import { deleteBlobsForComposition } from "./blob-store.js";
@@ -209,28 +209,6 @@ export function imapSentWriter(db: Db, credentialKey: Buffer): AppendToSent {
     });
     await deleteBlobsForComposition(db, row.id);
   };
-}
-
-/**
- * Drops the Composition's own copy from `Drafts`. Guarded by the same "one
- * UID per Composition" rule the push uses (ADR-0012): only the UID this
- * Composition owns is ever deleted, and a UID that no longer resolves is
- * left alone rather than guessed at.
- */
-async function expungeDraftCopy(db: Db, client: ImapFlow, row: CompositionRow): Promise<void> {
-  if (row.imapDraftUid === null) return;
-  const drafts = await findFolderByRole(db, row.mailAccountId, "drafts");
-  if (!drafts) return;
-  const lock = await client.getMailboxLock(drafts.path);
-  try {
-    await client.messageDelete(String(row.imapDraftUid), { uid: true }).catch(() => undefined);
-  } finally {
-    lock.release();
-  }
-  await db
-    .update(compositions)
-    .set({ imapDraftUid: null, pushedContentHash: null })
-    .where(eq(compositions.id, row.id));
 }
 
 /**
