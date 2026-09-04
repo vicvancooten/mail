@@ -162,7 +162,11 @@ export function GatekeeperSection({ account }: { account: MailAccount }) {
           <ul>
             {blocked.map((sender) => (
               <li key={senderKey(sender)}>
-                <span>{sender.value}</span>
+                <span>
+                  {sender.value}
+                  {/* Spam (#102): the one Block that also speaks to the provider's filter (ADR-0008 amendment) — named here so "why is this in Junk?" is answerable from the same list. */}
+                  {sender.spam ? <span className="gatekeeper-blocked-spam"> · Spam</span> : null}
+                </span>
                 <button
                   type="button"
                   onClick={() => unblock({ scope: sender.scope, value: sender.value })}

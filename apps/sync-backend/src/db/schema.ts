@@ -427,7 +427,9 @@ export const threads = pgTable(
     // own to flip a flag: a Thread lands there by actually containing a
     // Message the Sync Backend ingested from the account's real `\Sent`
     // folder, which the rollup already sees on every pass.
-    folderRole: text("folder_role", { enum: ["inbox", "archive", "trash"] })
+    // "junk" (#102) is Spam's own destination — see `@mail/shared`'s
+    // `folderRoleSchema`-equivalent doc comment on the wire `Thread` type.
+    folderRole: text("folder_role", { enum: ["inbox", "archive", "trash", "junk"] })
       .notNull()
       .default("inbox"),
     hasSentMessage: boolean("has_sent_message").notNull().default(false),
@@ -967,7 +969,10 @@ export const protocolWrites = pgTable(
     messageId: text("message_id")
       .notNull()
       .references(() => messages.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["seen", "flagged", "archive", "trash"] }).notNull(),
+    // "junk" (#102) is Spam's own move — `sync/protocol-writes.ts`'s
+    // `moveBatch` handles it exactly like "archive"/"trash", targeting
+    // whichever folder carries that special-use role.
+    kind: text("kind", { enum: ["seen", "flagged", "archive", "trash", "junk"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("protocol_writes_account_idx").on(table.mailAccountId, table.createdAt)],
@@ -1012,6 +1017,11 @@ export const gatekeeperVerdicts = pgTable(
     /** A normalized address (plus tag intact) or a bare domain — `@mail/shared`'s `normalizeSenderAddress`. */
     value: text("value").notNull(),
     verdict: text("verdict", { enum: ["approved", "blocked"] }).notNull(),
+    // Spam (#102, CONTEXT.md, ADR-0008 amendment): only ever meaningful
+    // alongside `verdict: "blocked"` — it is not a fourth Verdict value, only
+    // the flag that picks Junk over Trash as the destination
+    // (`gatekeeper/decisions.ts#spamSender`, `gatekeeper/screening.ts`).
+    spam: boolean("spam").notNull().default(false),
     source: text("source", { enum: ["seed", "sent", "screener", "settings"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

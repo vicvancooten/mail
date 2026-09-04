@@ -47,6 +47,7 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "approveSender":
     case "denySender":
     case "blockSender":
+    case "spamSender":
     case "unblockSender":
       return [];
   }
@@ -114,16 +115,18 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "setNotificationsEnabled", targetId: "notifications", value: intent.enabled };
     case "setSignature":
       return { type: "setSignature", targetId: "signature", value: true };
-    // Each Gatekeeper decision (#55) is keyed to its sender, and Approve vs.
-    // Block/Deny are not inverses of one another — Deny trashes mail, Approve
-    // releases it — so nothing here coalesces away a decision the User
-    // actually made. `approveSender` and `unblockSender` are the two that
-    // read as "yes", which is what `value` distinguishes; a second decision
-    // on the same sender while the first is still queued therefore just
-    // queues behind it, and FIFO lands on whichever they chose last.
+    // Each Gatekeeper decision (#55, #102) is keyed to its sender, and
+    // Approve vs. Block/Deny/Spam are not inverses of one another — Deny
+    // trashes mail, Spam moves it to Junk, Approve releases it — so nothing
+    // here coalesces away a decision the User actually made. `approveSender`
+    // and `unblockSender` are the two that read as "yes", which is what
+    // `value` distinguishes; a second decision on the same sender while the
+    // first is still queued therefore just queues behind it, and FIFO lands
+    // on whichever they chose last.
     case "approveSender":
     case "denySender":
     case "blockSender":
+    case "spamSender":
     case "unblockSender":
       return {
         type: `gatekeeper:${intent.type}`,

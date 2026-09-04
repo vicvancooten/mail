@@ -25,7 +25,13 @@ import {
   threads,
   users,
 } from "../db/schema.js";
-import { approveSender, blockSender, denySender, unblockSender } from "../gatekeeper/decisions.js";
+import {
+  approveSender,
+  blockSender,
+  denySender,
+  spamSender,
+  unblockSender,
+} from "../gatekeeper/decisions.js";
 import {
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
@@ -142,6 +148,7 @@ async function applyIntent(
     intent.type === "approveSender" ||
     intent.type === "denySender" ||
     intent.type === "blockSender" ||
+    intent.type === "spamSender" ||
     intent.type === "unblockSender"
   ) {
     return applyGatekeeperIntent(db, mailAccountId, intent);
@@ -271,7 +278,7 @@ async function applyIntent(
 }
 
 /**
- * The four Gatekeeper intents (#55, poc-spec.md §Gatekeeper v1). Thin
+ * The five Gatekeeper intents (#55, #102, poc-spec.md §Gatekeeper v1). Thin
  * dispatch over `gatekeeper/decisions.ts`, which owns what each decision
  * actually does to the held Threads and to the Verdict table.
  *
@@ -293,6 +300,8 @@ async function applyGatekeeperIntent(
       return denySender(db, mailAccountId, intent.sender);
     case "blockSender":
       return blockSender(db, mailAccountId, intent.sender);
+    case "spamSender":
+      return spamSender(db, mailAccountId, intent.sender);
     case "unblockSender":
       return unblockSender(db, mailAccountId, intent.sender);
   }

@@ -58,20 +58,34 @@ function usePrefersDark(): boolean {
  * the Composer prefilled (`onMailtoLink`), anything else is ignored. Never
  * `allow-popups`: handing the click to the browser would lose this seam
  * entirely (ADR-0018's considered-and-rejected options).
+ *
+ * `interactive` (#102, default `true`) is the ordinary reading pane's mode.
+ * The Screener's View dialog passes `false` for a stranger's held mail the
+ * User hasn't decided about yet: remote images stay blocked with no "Load
+ * remote images" opt-in (there is no Verdict yet to have loaded them for),
+ * and the click bridge is never wired at all, so a link does nothing rather
+ * than opening — the sandbox's own default (ADR-0018), deliberately left in
+ * place rather than crossed. The parent's own `mail-link-click` handler
+ * checks it too, belt-and-braces: nothing sender-authored can ever reach it
+ * with the bridge script absent (CSP strips anything unnonced), but the
+ * check keeps the contract airtight rather than resting on that alone.
  */
 export function MessageBody({
   message,
   onMailtoLink,
+  interactive = true,
 }: {
   message: Message;
-  onMailtoLink: (link: MailtoLink) => void;
+  onMailtoLink?: (link: MailtoLink) => void;
+  interactive?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [cidBlobs, setCidBlobs] = useState<CidBlob[]>([]);
   // Seeded from the sender's Verdict, then the User's own per-message
   // override on top. A fresh mount per Message (see `key={message.id}`
   // above) is what re-reads the seed when they move to another one.
-  const [imagesLoaded, setImagesLoaded] = useState(message.remoteImagesAllowed);
+  // Non-interactive never seeds true — see the doc comment above.
+  const [imagesLoaded, setImagesLoaded] = useState(interactive && message.remoteImagesAllowed);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const darkMode = usePrefersDark();
 
@@ -113,8 +127,9 @@ export function MessageBody({
       darkMode,
       nonce: generateNonce(),
       origin: window.location.origin,
+      linkBridge: interactive,
     });
-  }, [bodyHtml, cidBlobs, imagesLoaded, darkMode]);
+  }, [bodyHtml, cidBlobs, imagesLoaded, darkMode, interactive]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -133,11 +148,15 @@ export function MessageBody({
         return;
       }
 
-      if (type === "mail-link-click" && typeof (data as { href?: unknown }).href === "string") {
+      if (
+        interactive &&
+        type === "mail-link-click" &&
+        typeof (data as { href?: unknown }).href === "string"
+      ) {
         const href = (data as { href: string }).href;
         const mailto = parseMailtoHref(href);
         if (mailto) {
-          onMailtoLink(mailto);
+          onMailtoLink?.(mailto);
           return;
         }
         if (/^https?:\/\//i.test(href)) {
@@ -151,9 +170,9 @@ export function MessageBody({
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [onMailtoLink]);
+  }, [onMailtoLink, interactive]);
 
-  const showLoadImages = !imagesLoaded && hasProxiedImages(bodyHtml);
+  const showLoadImages = interactive && !imagesLoaded && hasProxiedImages(bodyHtml);
   const frameClassName = message.bodyIsPlainText
     ? "message-body-frame message-body-frame-plain"
     : "message-body-frame";

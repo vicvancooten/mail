@@ -68,6 +68,8 @@ function describeIntent(intent: MutationIntent): string | null {
       return "Couldn't deny — the sender is still waiting in the Screener.";
     case "blockSender":
       return "Couldn't block — the sender is still waiting in the Screener.";
+    case "spamSender":
+      return "Couldn't mark as spam — the sender is still waiting in the Screener.";
     case "unblockSender":
       return "Couldn't unblock — they are still blocked.";
   }

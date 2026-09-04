@@ -239,18 +239,20 @@ function matchesGatekeeperSender(heldAddress: string, sender: GatekeeperSender):
 }
 
 /**
- * Senders a Screener decision is already queued for (#56): `approveSender`/
- * `denySender`/`blockSender` name no Thread (`mutation-queue.ts`'s own doc
- * comment — "the Screener's own optimistic feel comes from the row leaving
- * the Screener list"), so this is the overlay that makes a decision hide its
- * row immediately, before the Sync Backend has answered.
+ * Senders a Screener decision is already queued for (#56, #102):
+ * `approveSender`/`denySender`/`blockSender`/`spamSender` name no Thread
+ * (`mutation-queue.ts`'s own doc comment — "the Screener's own optimistic
+ * feel comes from the row leaving the Screener list"), so this is the
+ * overlay that makes a decision hide its row immediately, before the Sync
+ * Backend has answered.
  */
 async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<GatekeeperSender[]> {
   const pending = await db.pendingMutations.where("mailAccountId").equals(mailAccountId).toArray();
   return pending.flatMap((mutation) =>
     mutation.intent.type === "approveSender" ||
     mutation.intent.type === "denySender" ||
-    mutation.intent.type === "blockSender"
+    mutation.intent.type === "blockSender" ||
+    mutation.intent.type === "spamSender"
       ? [mutation.intent.sender]
       : [],
   );

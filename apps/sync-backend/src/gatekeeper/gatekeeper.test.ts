@@ -12,7 +12,7 @@ import { refreshThreadRollups } from "../sync/thread-rollup.js";
 import { resolveThread } from "../sync/threading.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
-import { approveSender, blockSender, denySender, unblockSender } from "./decisions.js";
+import { approveSender, blockSender, denySender, spamSender, unblockSender } from "./decisions.js";
 import { disableGatekeeper, enableGatekeeper, resetGatekeeper } from "./settings.js";
 import {
   approveSendRecipients,
@@ -48,6 +48,7 @@ beforeEach(async () => {
   inbox = await seedFolder("inbox", "INBOX");
   sent = await seedFolder("sent", "Sent");
   trash = await seedFolder("trash", "Trash");
+  await seedFolder("junk", "Junk");
 });
 
 afterAll(async () => {
@@ -447,6 +448,53 @@ describe("Screener decisions (#55)", () => {
     expect((await threadRow(two.threadId)).heldSender).toBeNull();
     expect((await resolveVerdict(db, account.id, "c@conference.test")).verdict).toBe("blocked");
   });
+
+  it("Spam (#102) moves the held Threads to Junk instead of Trash, and records it on the Verdict", async () => {
+    const { threadId, messageId } = await deliver({ from: "villain@example.test" });
+
+    expect(
+      await spamSender(db, account.id, { scope: "address", value: "villain@example.test" }),
+    ).toEqual({ ok: true });
+
+    const after = await threadRow(threadId);
+    expect(after.heldSender).toBeNull();
+    expect(after.inInbox).toBe(false);
+    expect(after.folderRole).toBe("junk");
+    // Spam is still a Blocked Verdict for resolution's own purposes — only the destination differs.
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe("blocked");
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({
+        scope: "address",
+        value: "villain@example.test",
+        source: "screener",
+        spam: true,
+      }),
+    ]);
+
+    // The real IMAP move targets Junk, not Trash.
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "junk", messageId, mailAccountId: account.id }),
+    ]);
+
+    // Unblock clears Spam back to Unscreened exactly like a plain Block.
+    expect(
+      await unblockSender(db, account.id, { scope: "address", value: "villain@example.test" }),
+    ).toEqual({ ok: true });
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe(
+      "unscreened",
+    );
+  });
+
+  it("a plain Block leaves the Verdict's spam flag false", async () => {
+    await blockSender(db, account.id, { scope: "address", value: "stranger@example.test" });
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({ value: "stranger@example.test", spam: false }),
+    ]);
+  });
 });
 
 describe("a Blocked Sender's next message (#55, ADR-0008)", () => {
@@ -504,6 +552,42 @@ describe("a Blocked Sender's next message (#55, ADR-0008)", () => {
       .from(protocolWrites)
       .where(eq(protocolWrites.mailAccountId, account.id));
     expect(queued.map((row) => row.kind)).toEqual(["trash"]);
+  });
+});
+
+describe("a Spam Sender's next message (#102, ADR-0008 amendment)", () => {
+  beforeEach(async () => {
+    await enableGatekeeper(db, account.id);
+    await reloadAccount();
+    await setVerdict(
+      db,
+      account.id,
+      { scope: "address", value: "spammer@example.test" },
+      "blocked",
+      "screener",
+      true,
+    );
+  });
+
+  it("never reaches the Inbox and is queued for a real \\Junk move, not \\Trash", async () => {
+    const { threadId, messageId } = await deliver({
+      from: "spammer@example.test",
+      subject: "Buy now",
+    });
+
+    const thread = await threadRow(threadId);
+    expect(thread.inInbox).toBe(false);
+    expect(thread.heldSender).toBeNull();
+    expect(thread.folderRole).toBe("junk");
+    expect(await pendingKinds()).toEqual([]);
+
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "junk", messageId, mailAccountId: account.id }),
+    ]);
   });
 });
 

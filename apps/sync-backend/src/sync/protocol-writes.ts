@@ -14,7 +14,7 @@ import { findFolderByRole } from "./folders.js";
  * captured at enqueue time.
  */
 
-export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash";
+export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash" | "junk";
 
 /** `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty list. */
 export async function enqueueProtocolWrites(
@@ -98,7 +98,10 @@ export async function drainProtocolWrites(
       done.add(row.id);
       continue;
     }
-    if ((row.kind === "archive" || row.kind === "trash") && msg.folderRole === row.kind) {
+    if (
+      (row.kind === "archive" || row.kind === "trash" || row.kind === "junk") &&
+      msg.folderRole === row.kind
+    ) {
       // Already there: a prior drain applied it, or another IMAP client
       // (or the User, from another device) moved it there first.
       done.add(row.id);
@@ -142,6 +145,7 @@ async function drainFolder(
   const flaggedOff: OutboxRow[] = [];
   const archiveRows: OutboxRow[] = [];
   const trashRows: OutboxRow[] = [];
+  const junkRows: OutboxRow[] = [];
 
   for (const row of folderRows) {
     const msg = byMessageId.get(row.messageId);
@@ -159,6 +163,9 @@ async function drainFolder(
       case "trash":
         trashRows.push(row);
         break;
+      case "junk":
+        junkRows.push(row);
+        break;
     }
   }
 
@@ -168,6 +175,7 @@ async function drainFolder(
   await flagBatch(client, byMessageId, flaggedOff, "\\Flagged", false, done);
   await moveBatch(db, client, mailAccountId, "archive", archiveRows, byMessageId, done);
   await moveBatch(db, client, mailAccountId, "trash", trashRows, byMessageId, done);
+  await moveBatch(db, client, mailAccountId, "junk", junkRows, byMessageId, done);
 }
 
 async function flagBatch(
@@ -193,7 +201,7 @@ async function moveBatch(
   db: Db,
   client: ImapFlow,
   mailAccountId: string,
-  role: "archive" | "trash",
+  role: "archive" | "trash" | "junk",
   rows: OutboxRow[],
   byMessageId: Map<string, CurrentMessage>,
   done: Set<string>,

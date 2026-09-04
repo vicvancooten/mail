@@ -1,4 +1,6 @@
-import { ArrowLeft, Ban, Check, X } from "lucide-react";
+import type { GatekeeperSender } from "@mail/shared";
+import { senderDomain } from "@mail/shared";
+import { ArrowLeft, Eye } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   enqueueMutation,
@@ -6,9 +8,11 @@ import {
   useScreenerSenders,
 } from "../../store/index.js";
 import { Avatar } from "../Avatar.js";
+import { ScreenerActions } from "./ScreenerActions.js";
+import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
 
 /**
- * The Screener screen (#56, poc-spec.md §Gatekeeper v1): "lists held
+ * The Screener screen (#56, #102, poc-spec.md §Gatekeeper v1): "lists held
  * *senders*: Approve (release, original dates) / Deny (trash, stays
  * Unscreened) / Block (trash + all future mail moved to `\Trash` on
  * arrival)." One row per stranger, oldest hold first — a queue to work
@@ -21,15 +25,19 @@ import { Avatar } from "../Avatar.js";
  * account's Screener reads exactly as it always has, no header standing
  * over a list that has nothing to disambiguate.
  *
- * Every decision fires `enqueueMutation` with an `address`-scoped sender —
- * the row it targets disappears the instant the Optimistic Action is
- * queued (`store/reads.ts`'s own overlay), before any round trip. The
- * domain-scoped "overflow convenience" poc-spec.md also describes is not
- * wired to a button here — every row this Client can show already names one
- * real address, and offering a domain-wide Block from a single stranger's
- * row risks blocking far more people than the User meant to; a future pass
- * can add it once there is a place to show "these N senders share a
- * domain" honestly.
+ * Every decision fires `enqueueMutation` — the row it targets disappears the
+ * instant the Optimistic Action is queued (`store/reads.ts`'s own overlay),
+ * before any round trip. `#102`'s grill wired the domain-scoped "overflow
+ * convenience" poc-spec.md describes: Block's split menu (`ScreenerActions.
+ * tsx`) offers *Block domain*, resolving the row's own address to its domain
+ * (`blockDomain` below) rather than requiring a place that shows "these N
+ * senders share a domain" first, and *Mark as spam* (CONTEXT.md's Spam) —
+ * both a deliberate extra click behind Block's own default, never it.
+ *
+ * View (#102) opens `ScreenerViewDialog` on a row's held Threads, read
+ * through the ordinary sandboxed reader with images blocked and links inert
+ * — see that module's own doc comment for how deciding from inside it closes
+ * the dialog for free.
  *
  * No `useTriage` here — the Inbox's actions (archive, star, ...) mean
  * nothing to a sender the User has never let through the gate yet, so this
@@ -83,14 +91,39 @@ export function Screener({
    */
   const [decided, setDecided] = useState<{ group: ScreenerSenderGroup; verdict: string }[]>([]);
 
+  /**
+   * The View dialog's own target (#102) — a row key, not the group object
+   * itself, so it stays a live lookup against `groups` below rather than a
+   * snapshot: the group it names simply stops existing once a decision is
+   * queued for it, which is what closes the dialog (see
+   * `ScreenerViewDialog.tsx`'s own doc comment).
+   */
+  const [viewingKey, setViewingKey] = useState<string | null>(null);
+  const viewingGroup = groups.find((group) => rowKey(group) === viewingKey) ?? null;
+
+  /**
+   * `sender` overrides the default address-scoped target (#102's Block
+   * domain, `{scope:"domain", value}`) — every other decision keeps naming
+   * the row's own address, exactly as before.
+   */
   const decide = useCallback(
-    (type: "approveSender" | "denySender" | "blockSender", group: ScreenerSenderGroup) => {
+    (
+      type: "approveSender" | "denySender" | "blockSender" | "spamSender",
+      group: ScreenerSenderGroup,
+      sender?: GatekeeperSender,
+    ) => {
       void enqueueMutation(
-        { type, sender: { scope: "address", value: group.address } },
+        { type, sender: sender ?? { scope: "address", value: group.address } },
         group.mailAccountId,
       );
       const verdict =
-        type === "approveSender" ? "Approved" : type === "blockSender" ? "Blocked" : "Returned";
+        type === "approveSender"
+          ? "Approved"
+          : type === "blockSender"
+            ? "Blocked"
+            : type === "spamSender"
+              ? "Spam"
+              : "Returned";
       setDecided((current) => [...current, { group, verdict }]);
       const key = rowKey(group);
       window.setTimeout(
@@ -111,9 +144,15 @@ export function Screener({
 
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        // The View dialog owns Escape while it's open — one press backs out
+        // of it, not all the way to the Inbox.
+        if (viewingKey !== null) setViewingKey(null);
+        else onClose();
         return;
       }
+      // The dialog is modal; its own keyboard handling (Radix) takes over
+      // while it's open, so the Screener's j/k/a/d/b scheme stays quiet.
+      if (viewingKey !== null) return;
       if (groups.length === 0) return;
       const index = groups.findIndex((group) => rowKey(group) === selectedKey);
       const selected = index >= 0 ? groups[index] : null;
@@ -146,7 +185,13 @@ export function Screener({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [groups, selectedKey, onClose, decide]);
+  }, [groups, selectedKey, onClose, decide, viewingKey]);
+
+  /** Block domain (#102): resolves the row's own address to its domain and decides with that scope instead of the default address one. */
+  function blockDomain(group: ScreenerSenderGroup): void {
+    const domain = senderDomain(group.address);
+    if (domain) decide("blockSender", group, { scope: "domain", value: domain });
+  }
 
   return (
     <section className="screener" aria-label="Screener">
@@ -174,9 +219,12 @@ export function Screener({
                     group={group}
                     selected={rowKey(group) === selectedKey}
                     onSelect={() => setSelectedKey(rowKey(group))}
+                    onView={() => setViewingKey(rowKey(group))}
                     onApprove={() => decide("approveSender", group)}
                     onDeny={() => decide("denySender", group)}
                     onBlock={() => decide("blockSender", group)}
+                    onBlockDomain={() => blockDomain(group)}
+                    onSpam={() => decide("spamSender", group)}
                   />
                 ))}
               </ul>
@@ -189,9 +237,12 @@ export function Screener({
               selected={false}
               verdict={verdict}
               onSelect={() => {}}
+              onView={() => {}}
               onApprove={() => {}}
               onDeny={() => {}}
               onBlock={() => {}}
+              onBlockDomain={() => {}}
+              onSpam={() => {}}
             />
           ))}
         </ul>
@@ -200,9 +251,18 @@ export function Screener({
           Mail Account and decides a sender, not a message (CONTEXT.md). */}
       <p className="screener-rule">
         One decision per sender, not per message. Approving lets their mail through and loads their
-        remote images; blocking sends future mail straight to Trash. Either way it applies to the
-        sender's own Mail Account only.
+        remote images; blocking sends future mail straight to Trash (Mark as spam moves it to Junk
+        instead). Either way it applies to the sender's own Mail Account only.
       </p>
+      <ScreenerViewDialog
+        group={viewingGroup}
+        onClose={() => setViewingKey(null)}
+        onApprove={() => viewingGroup && decide("approveSender", viewingGroup)}
+        onDeny={() => viewingGroup && decide("denySender", viewingGroup)}
+        onBlock={() => viewingGroup && decide("blockSender", viewingGroup)}
+        onBlockDomain={() => viewingGroup && blockDomain(viewingGroup)}
+        onSpam={() => viewingGroup && decide("spamSender", viewingGroup)}
+      />
     </section>
   );
 }
@@ -210,28 +270,34 @@ export function Screener({
 /**
  * One stranger's slip: the correspondent's own tile (the same mark the Inbox
  * draws them with, so the Screener is recognisably the same product rather
- * than a second one), who they are, a peek at what they sent, and the three
- * verdicts. Approve is the only filled control on the screen — Return and
- * Block stay quiet until reached for, and Block answers in danger rather
- * than sitting in it.
+ * than a second one), who they are, a peek at what they sent, View (#102),
+ * and the Screener's decisions (`ScreenerActions.tsx`). Approve is the only
+ * filled control on the screen — Return and Block stay quiet until reached
+ * for, and Block answers in danger rather than sitting in it.
  */
 function ScreenerRow({
   group,
   selected,
   verdict = null,
   onSelect,
+  onView,
   onApprove,
   onDeny,
   onBlock,
+  onBlockDomain,
+  onSpam,
 }: {
   group: ScreenerSenderGroup;
   selected: boolean;
   /** The Verdict just applied — the slip states it and then clears. */
   verdict?: string | null;
   onSelect: () => void;
+  onView: () => void;
   onApprove: () => void;
   onDeny: () => void;
   onBlock: () => void;
+  onBlockDomain: () => void;
+  onSpam: () => void;
 }) {
   const displayName = group.name ?? group.address;
   return (
@@ -260,22 +326,19 @@ function ScreenerRow({
           {verdict}
         </span>
       ) : (
-        <div className="screener-row-actions">
-          <button
-            type="button"
-            className="screener-approve"
-            onClick={onApprove}
-            title="Approve (a)"
-          >
-            <Check size={14} /> Approve
+        <>
+          <button type="button" className="screener-view" onClick={onView} title="View held mail">
+            <Eye size={14} /> View
           </button>
-          <button type="button" className="screener-deny" onClick={onDeny} title="Deny (d)">
-            <X size={14} /> Deny
-          </button>
-          <button type="button" className="screener-block" onClick={onBlock} title="Block (b)">
-            <Ban size={14} /> Block
-          </button>
-        </div>
+          <ScreenerActions
+            group={group}
+            onApprove={onApprove}
+            onDeny={onDeny}
+            onBlock={onBlock}
+            onBlockDomain={onBlockDomain}
+            onSpam={onSpam}
+          />
+        </>
       )}
     </li>
   );

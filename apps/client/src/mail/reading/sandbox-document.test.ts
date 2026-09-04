@@ -160,6 +160,7 @@ describe("buildMessageDocument", () => {
     imagesLoaded: false,
     nonce: "test-nonce",
     origin: "https://mail.example.com",
+    linkBridge: true,
   };
 
   it("wraps sanitized content in a document carrying the CSP meta tag and the nonced resize script", () => {
@@ -175,6 +176,20 @@ describe("buildMessageDocument", () => {
     const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
     expect(doc).toContain("mail-link-click");
     expect(doc).toContain('closest("a[href]")');
+  });
+
+  it("omits the click bridge when linkBridge is false (#102: links inert, no bridge in this context)", () => {
+    const doc = buildMessageDocument({
+      ...baseOpts,
+      linkBridge: false,
+      html: '<p><a href="https://evil.example">click</a></p>',
+      darkMode: false,
+    });
+    expect(doc).not.toContain("mail-link-click");
+    expect(doc).not.toContain('closest("a[href]")');
+    // The resize and image-error scripts still run — only the bridge is dropped.
+    expect(doc).toContain("ResizeObserver");
+    expect(doc).toContain("mail-image-error");
   });
 
   it("carries the image-error handler and its visible-error style", () => {
