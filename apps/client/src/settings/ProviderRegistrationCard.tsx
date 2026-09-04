@@ -33,8 +33,11 @@ const PROVIDER_STEPS: Record<Provider, { consoleName: string; steps: string[] }>
   },
 };
 
-const INSTALLATION_DOCS_URL =
-  "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#enabling-gmail-and-outlook-sign-in-optional";
+/** #120: each Provider's card links to its own anchor in the walkthrough, not just the section top. */
+const INSTALLATION_DOCS_URL: Record<Provider, string> = {
+  google: "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#google",
+  microsoft: "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#microsoft",
+};
 
 /**
  * One Provider's row in the Instance page's Providers section (#115, ADR-0021):
@@ -223,7 +226,7 @@ export function ProviderRegistrationCard({
         </ol>
         <p>
           See{" "}
-          <a href={INSTALLATION_DOCS_URL} target="_blank" rel="noreferrer">
+          <a href={INSTALLATION_DOCS_URL[provider]} target="_blank" rel="noreferrer">
             the installation docs
           </a>{" "}
           for a full walkthrough.

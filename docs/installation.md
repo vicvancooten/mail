@@ -134,14 +134,73 @@ regenerating it invalidates every browser's existing push subscription.
 
 Google and Microsoft accounts are added by signing in with the Provider (CONTEXT.md), which needs a
 Provider Registration — an OAuth app the Owner registers with that Provider, per instance
-([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)). Register it, then
-paste the client ID and secret into the Instance page (Owner only) — no restart, no `.env` entry.
-The Instance page shows the exact redirect URI to copy and short in-app steps for each Provider's own
-console; a full walkthrough for the Google Cloud console and Microsoft Entra lands with #120.
+([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)). There's no shared
+client ID baked into Mail itself: each instance's Owner registers their own app with Google or
+Microsoft, then pastes the client ID and secret into the Instance page (Owner only) — no restart, no
+`.env` entry, no env var (the form is the only source; the [configuration reference](#configuration-reference)
+above doesn't grow one). The Instance page shows the exact redirect URI to copy and a short version
+of the steps below beside each Provider's fields; this section is the full walkthrough it links to.
 
-The one thing worth calling out ahead of time: **set the Google app to In Production**, not Testing —
-an app left in Testing issues refresh tokens that expire after seven days, which lands every Gmail
-Mail Account in Needs Reauth weekly for no visible reason ([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)).
+Both providers derive the redirect URI the same way, from `PUBLIC_URL` (the same
+[single source of truth](#public-url) cookies, WebAuthn, and Web Push already use):
+
+```
+{PUBLIC_URL}/auth/oauth/{google|microsoft}/callback
+```
+
+e.g. `https://mail.example.com/auth/oauth/google/callback`. Both providers reject a redirect URI
+that's plain `http://` on a non-loopback host — the Instance page warns about this if your `PUBLIC_URL`
+is affected — so this only works once you're [exposed over https](#exposing-it-publicly), or when
+trying it against `http://localhost:3000`.
+
+### Google
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a new project (or pick an
+   existing one you're happy to dedicate to this).
+2. Under **APIs & Services → OAuth consent screen**, configure the consent screen (External user type
+   is fine for a personal instance — you don't need to publish it anywhere).
+3. Under **APIs & Services → Credentials**, create an **OAuth client ID** of type **Web application**,
+   and add the redirect URI from above under **Authorized redirect URIs**.
+4. **Set the app to In Production**, not Testing. This is the one step it's easy to skip and painful
+   to miss: an app left in Testing status issues refresh tokens that expire after **seven days**,
+   which lands every Gmail Mail Account in Needs Reauth weekly for no visible reason
+   ([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)). An unverified
+   app in Production is fine for this use — Google shows a one-time "unverified app" warning on the
+   consent screen the first time you sign in, nothing more; formal verification is a CASA audit
+   you don't need for a household instance.
+   - **Google Workspace Owner?** Register the app as **Internal** instead of External, and skip this
+     step entirely — Internal apps aren't subject to the Testing/Production distinction or the
+     seven-day refresh-token expiry.
+5. Copy the **Client ID** and **Client secret** from the credentials page and paste them into the
+   Instance page's Google Registration form.
+
+### Microsoft
+
+1. In the [Microsoft Entra admin center](https://entra.microsoft.com/), go to **App registrations →
+   New registration**.
+2. Under **Supported account types**, choose **Accounts in any organizational directory and personal
+   Microsoft accounts** — this is what lets both Outlook.com addresses and work/school (Microsoft 365)
+   addresses sign in through the same Registration.
+3. Under **Redirect URI**, add a **Web** platform entry with the redirect URI from above.
+4. Under **Certificates & secrets**, create a new **client secret** — note it down immediately, it's
+   only shown once.
+5. Under **API permissions**, add the delegated Microsoft Graph/IMAP permissions for mail access
+   (`IMAP.AccessAsUser.All`, `SMTP.Send`) plus `offline_access` (without it, Microsoft won't issue a
+   refresh token at all, so sign-in would appear to work once and then fail on every subsequent sync).
+6. Copy the **Application (client) ID** from the app's Overview page and the client secret's **value**
+   (not its ID) from step 4, and paste them into the Instance page's Microsoft Registration form.
+
+**A caveat outside the Owner's control:** an M365 (work/school) tenant's admin may have IMAP disabled
+tenant-wide, or may require admin consent before anyone in that tenant can use this Registration at
+all. Neither is something Mail or the Registration can detect or fix — it surfaces to that user as a
+failed sign-in with a plain error message, and the fix is asking their tenant admin, not re-registering
+anything here ([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)).
+
+### After registering
+
+Back on the Instance page, the Provider's status moves from **Not registered** to **Registered,
+untested** — untested because neither Provider can be validated without a User actually consenting.
+"Working" only shows up once someone signs in and Mail can see a real Grant refreshing successfully.
 
 ## Upgrading
 
