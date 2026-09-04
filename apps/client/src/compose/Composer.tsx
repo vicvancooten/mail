@@ -379,7 +379,7 @@ export function Composer({
   // (#101): a Pending Send reopened here (`fromChoices`'s own doc comment on
   // `reopenCompose`) has Cancel Send as its real undo, on `PendingSendBar`,
   // and a brand-new composer with no row yet has nothing to discard.
-  const canDiscard = existing === undefined || existing.status === "draft";
+  const canDiscard = existing?.status === "draft";
 
   /**
    * The explicit Discard button (#101, ADR-0012's "deletion is asymmetric"):
