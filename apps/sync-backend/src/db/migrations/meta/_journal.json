@@ -239,6 +239,13 @@
       "when": 1788558324345,
       "tag": "0033_gorgeous_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788561426178,
+      "tag": "0034_cultured_ghost_rider",
+      "breakpoints": true
     }
   ]
 }

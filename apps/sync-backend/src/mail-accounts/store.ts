@@ -26,6 +26,7 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
     smtp: { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity },
     status: row.status,
     authKind: toWireAuthKind(row.credential),
+    serverKind: row.serverKind,
     sync: {
       state: row.syncState,
       lastProgressAt: row.lastProgressAt?.toISOString() ?? null,

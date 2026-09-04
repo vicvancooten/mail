@@ -7,6 +7,7 @@ import { computeUnreadInboxCount } from "../notifier/badge.js";
 import {
   syncCompositionCollection,
   syncCorrespondentCollection,
+  syncGmailLabelCollection,
   syncLabelCollection,
   syncMailAccountCollection,
   syncPreferenceCollection,
@@ -78,6 +79,7 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {
       const wantsThread = requested.Thread !== undefined;
       const wantsLabel = requested.Label !== undefined;
+      const wantsGmailLabel = requested.GmailLabel !== undefined;
       const wantsComposition = requested.Composition !== undefined;
       const wantsCorrespondent = requested.Correspondent !== undefined;
       const queued = requested.mutations ?? [];
@@ -85,6 +87,7 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       if (
         !wantsThread &&
         !wantsLabel &&
+        !wantsGmailLabel &&
         !wantsComposition &&
         !wantsCorrespondent &&
         queued.length === 0 &&
@@ -153,6 +156,10 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         ? await syncLabelCollection(db, mailAccountId, requested.Label ?? null)
         : null;
 
+      const gmailLabelDelta = wantsGmailLabel
+        ? await syncGmailLabelCollection(db, mailAccountId, requested.GmailLabel ?? null)
+        : null;
+
       const compositionDelta = wantsComposition
         ? await syncCompositionCollection(db, mailAccountId, requested.Composition ?? null)
         : null;
@@ -164,6 +171,7 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       if (
         threadDelta ||
         labelDelta ||
+        gmailLabelDelta ||
         compositionDelta ||
         correspondentDelta ||
         mutationResults.length > 0 ||
@@ -172,6 +180,7 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         mailAccountsResult[mailAccountId] = {
           ...(threadDelta ? { Thread: threadDelta } : {}),
           ...(labelDelta ? { Label: labelDelta } : {}),
+          ...(gmailLabelDelta ? { GmailLabel: gmailLabelDelta } : {}),
           ...(compositionDelta ? { Composition: compositionDelta } : {}),
           ...(correspondentDelta ? { Correspondent: correspondentDelta } : {}),
           ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),

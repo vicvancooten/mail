@@ -1,6 +1,7 @@
 import type {
   Correspondent,
   GatekeeperSender,
+  GmailLabel,
   Label,
   MailAccount,
   Preference,
@@ -173,6 +174,27 @@ export function useLabels(mailAccountId: string | null): Label[] | undefined {
 
 export async function readLabels(mailAccountId: string): Promise<Label[]> {
   const rows = await localCache().labels.where("mailAccountId").equals(mailAccountId).toArray();
+  return rows.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * Every Gmail Label (#126, ADR-0020) a Mail Account has, name-ordered —
+ * `useLabels`'s sibling for the sidebar's "Gmail labels" section. Never the
+ * Label picker's data source: a Gmail Label is never a Wicket Label
+ * (CONTEXT.md), so it has no picker to appear in.
+ */
+export function useGmailLabels(mailAccountId: string | null): GmailLabel[] | undefined {
+  return useLiveQuery(
+    () => (mailAccountId === null ? Promise.resolve([]) : readGmailLabels(mailAccountId)),
+    [mailAccountId],
+  );
+}
+
+export async function readGmailLabels(mailAccountId: string): Promise<GmailLabel[]> {
+  const rows = await localCache()
+    .gmailLabels.where("mailAccountId")
+    .equals(mailAccountId)
+    .toArray();
   return rows.sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -475,6 +497,17 @@ function hasLeftFolderScopedViews(thread: CachedThread): boolean {
 
 function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
   if (typeof view !== "string") {
+    // A Gmail Label browses the archive, not just the Inbox — the whole
+    // point (#91 story 38: "fifteen years of filing is not hidden") — unlike
+    // a Wicket `label` view, which stays Inbox-scoped, a Triage tool rather
+    // than an archival one. Trash/Junk still drop out, the same "left every
+    // folder-scoped view" rule `sent`/`pinned`/`snoozed` already follow.
+    if (view.kind === "gmailLabel") {
+      return threads.filter(
+        (thread) =>
+          thread.gmailLabelIds.includes(view.labelId) && !hasLeftFolderScopedViews(thread),
+      );
+    }
     return threads.filter(
       (thread) => thread.inInbox && !thread.heldSender && thread.labelIds.includes(view.labelId),
     );

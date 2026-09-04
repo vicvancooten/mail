@@ -1,5 +1,5 @@
-import type { Composition, Correspondent, Label, Thread } from "@mail/shared";
-import type { CompositionRow, CorrespondentRow, LabelRow } from "../db/schema.js";
+import type { Composition, Correspondent, GmailLabel, Label, Thread } from "@mail/shared";
+import type { CompositionRow, CorrespondentRow, GmailLabelRow, LabelRow } from "../db/schema.js";
 import type { ThreadRow } from "./threading.js";
 
 /** Maps a stored Thread row to ADR-0011's wire projection — the list row, never a Message body. */
@@ -22,6 +22,7 @@ export function toWireThread(row: ThreadRow): Thread {
     hasSentMessage: row.hasSentMessage,
     pinned: row.pinned,
     labelIds: row.labelIds,
+    gmailLabelIds: row.gmailLabelIds,
     heldSender: row.heldSender,
     heldRecipientAlias: row.heldRecipientAlias,
     snoozeUntil: row.snoozeUntil?.toISOString() ?? null,
@@ -35,6 +36,17 @@ export function toWireLabel(row: LabelRow): Label {
     id: row.id,
     mailAccountId: row.mailAccountId,
     name: row.name,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Maps a stored Gmail Label row (#126, ADR-0020) to ADR-0011's wire projection. */
+export function toWireGmailLabel(row: GmailLabelRow): GmailLabel {
+  return {
+    id: row.id,
+    mailAccountId: row.mailAccountId,
+    name: row.name,
+    path: row.path,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

@@ -455,6 +455,16 @@ export const threads = pgTable(
     // mutations.ts` is the only writer; `labels` below is the id→name
     // collection those ids resolve against.
     labelIds: text("label_ids").array().notNull().default([]),
+    // Gmail Labels currently on this Thread (#126, ADR-0020) — `labelIds`'s
+    // sibling, never merged into it: a Gmail Label is never a Wicket Label
+    // (CONTEXT.md). Always `[]` on a non-Gmail account. `sync/thread-rollup.ts`
+    // is the only writer, computed from the union of every Message in the
+    // Thread's `gmailLabels` (a Gmail conversation is not always labelled
+    // identically on every message), mapped through
+    // `gmail-labels.ts#gmailLabelId` and filtered to exclude system
+    // pseudo-labels the same way `sync/gmail-labels.ts#persistGmailLabels`
+    // excludes them from the `GmailLabel` collection itself.
+    gmailLabelIds: text("gmail_label_ids").array().notNull().default([]),
     // The Screening Hold (#55, CONTEXT.md, ADR-0008): the normalized `From`
     // address of the Unscreened Sender holding this Thread in the Screener,
     // null when it is not held. An App Feature with no IMAP-side trace —
@@ -595,6 +605,50 @@ export const labels = pgTable(
   ],
 );
 export type LabelRow = typeof labels.$inferSelect;
+
+/**
+ * A Gmail Label (#126, ADR-0020, CONTEXT.md): Gmail's own tag on a message,
+ * which IMAP shows as a folder — browsable, never editable from Wicket, and
+ * never a `labels` row above. Its own ADR-0011 collection, never merged into
+ * `labels`. `id` is **deterministic** (`gmailLabelId` in
+ * `packages/shared/src/gmail-labels.ts`, `(mailAccountId, path)`) the same
+ * way a `labels` row's is, but for a different reason: Gmail — not the
+ * User — assigns the path, so determinism here is purely so
+ * `sync/gmail-labels.ts#persistGmailLabels` can upsert by id with no
+ * lookup-by-path round trip, and so `threads.gmailLabelIds` (built off a raw
+ * `X-GM-LABELS` string, never a join) always names the same row.
+ *
+ * `sync/gmail-labels.ts` is the only writer — fed by the same folder listing
+ * `sync/folders.ts#discoverFolders` already performs on every sync, filtered
+ * to the subset that is a genuine browsable User Gmail Label rather than one
+ * of the four Folders Gmail's mail actually syncs into (All Mail, Spam,
+ * Trash, Drafts — `sync/sync-plan.ts`'s `GMAIL_SYNCED_ROLES`) or one of its
+ * housekeeping labels never shown (Inbox, Sent, Starred, Important,
+ * Categories, Chats — #91 story 40). A rename changes Gmail's own IMAP path,
+ * so it is a destroy of the old id plus a create of the new one, exactly like
+ * `sync/folders.ts#persistFolders` already treats a renamed Folder.
+ */
+export const gmailLabels = pgTable(
+  "gmail_labels",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    /** The display leaf, e.g. "Kids" for the label at path "Family/Kids" — `folders.ts`'s own `name`. */
+    name: text("name").notNull(),
+    /** Gmail's own full hierarchy, e.g. "Family/Kids" — `folders.ts`'s own `path`, and half of this row's deterministic id. */
+    path: text("path").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `labels`/`threads` — see their
+    // comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [index("gmail_labels_sync_rev_idx").on(table.mailAccountId, table.syncRev)],
+);
+export type GmailLabelRow = typeof gmailLabels.$inferSelect;
 
 /**
  * A Correspondent (#49, CONTEXT.md, compose-spec §Recipient autocomplete):

@@ -1,5 +1,5 @@
 import type { SyncResponse } from "@mail/shared";
-import { labelId } from "@mail/shared";
+import { gmailLabelId, labelId } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { enqueueUserMutation, useMailAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
+  applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
@@ -19,6 +20,7 @@ import {
 import { resetSyncStatus } from "../sync/sync-loop.js";
 import {
   delta,
+  makeGmailLabel,
   makeLabel,
   makeMailAccount,
   makeThread,
@@ -1077,5 +1079,117 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
     fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
 
     expect(await screen.findByText("4200")).toBeDefined();
+  });
+});
+
+describe("Gmail labels (#126, ADR-0020)", () => {
+  it('hides the Sidebar\'s "Gmail labels" section until the collection has rows', async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    const { unmount } = renderMail();
+    await screen.findByText("Newer thread");
+    expect(screen.queryByText("Gmail labels")).toBeNull();
+    unmount();
+    cleanup();
+
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Family/Kids"), "acct-1", {
+            name: "Kids",
+            path: "Family/Kids",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    renderMail();
+    await screen.findByText("Newer thread");
+    expect(await screen.findByRole("button", { name: "Kids" })).toBeDefined();
+  });
+
+  it("selecting a Gmail Label in the Sidebar filters the list to Threads carrying it, archived mail included (#91 story 38)", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1", { serverKind: "gmail" })] }),
+      { replace: false },
+    );
+    const kidsId = gmailLabelId("acct-1", "Family/Kids");
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-inbox", "acct-1", {
+            subject: "Inbox with the label",
+            gmailLabelIds: [kidsId],
+            lastMessageAt: minutesAfterEpoch(3),
+          }),
+          makeThread("t-archived", "acct-1", {
+            subject: "Archived with the label",
+            inInbox: false,
+            folderRole: "archive",
+            gmailLabelIds: [kidsId],
+            lastMessageAt: minutesAfterEpoch(2),
+          }),
+          makeThread("t-unlabelled", "acct-1", {
+            subject: "No label here",
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [makeGmailLabel(kidsId, "acct-1", { name: "Kids", path: "Family/Kids" })],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("No label here");
+    fireEvent.click(await screen.findByRole("button", { name: "Kids" }));
+
+    await waitFor(() => expect(screen.queryByText("No label here")).toBeNull());
+    // Both the Inbox and the archived Thread show — unlike a Wicket Label
+    // filter (Inbox-scoped), browsing a Gmail Label is archival: "fifteen
+    // years of filing is not hidden."
+    expect(screen.getByText("Inbox with the label")).toBeDefined();
+    expect(screen.getByText("Archived with the label")).toBeDefined();
+  });
+
+  it("never offers a Gmail Label from the Label picker (#126, ADR-0020: never a Wicket Label)", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1", { serverKind: "gmail" })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Only thread" })] }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Family/Kids"), "acct-1", {
+            name: "Kids",
+            path: "Family/Kids",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Only thread"));
+    fireEvent.keyDown(window, { key: "L" });
+    await screen.findByLabelText("New label name");
+
+    expect(screen.queryByRole("menuitemcheckbox", { name: /Kids/ })).toBeNull();
   });
 });

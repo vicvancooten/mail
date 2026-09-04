@@ -3,6 +3,7 @@ import type {
   ComposeDocument,
   CompositionStatus,
   Correspondent,
+  GmailLabel,
   Label,
   MailAccount,
   MutationIntent,
@@ -32,7 +33,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 6; // #54: `preferences` (User-scoped) and its own `pendingUserMutations` queue
+export const CACHE_SCHEMA_VERSION = 7; // #126: `gmailLabels` (Gmail's own Labels, browsable and read-only, ADR-0020)
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -57,6 +58,10 @@ export type CachedThread = Thread & { sortKey: string };
  * `all` hasn't already fetched. A future server-side label filter (once
  * search, ADR-0016, lands) would turn this into a real second window without
  * reshaping this type further.
+ *
+ * `gmailLabel` (#126, ADR-0020) is `label`'s sibling, filtering by
+ * `Thread.gmailLabelIds` instead — never merged into `label`'s own variant, a
+ * Gmail Label is never a Wicket Label (CONTEXT.md).
  */
 export type ViewKey =
   | "all"
@@ -65,11 +70,13 @@ export type ViewKey =
   | "sent"
   | "pinned"
   | "snoozed"
-  | { readonly kind: "label"; readonly labelId: string };
+  | { readonly kind: "label"; readonly labelId: string }
+  | { readonly kind: "gmailLabel"; readonly labelId: string };
 export const DEFAULT_VIEW: ViewKey = "all";
 
 function viewKeyPart(view: ViewKey): string {
-  return typeof view === "string" ? view : `label:${view.labelId}`;
+  if (typeof view === "string") return view;
+  return view.kind === "gmailLabel" ? `gmailLabel:${view.labelId}` : `label:${view.labelId}`;
 }
 
 export function listWindowKey(mailAccountId: string, view: ViewKey): string {
@@ -265,6 +272,8 @@ export class LocalCache extends Dexie {
   mailAccounts!: EntityTable<MailAccount, "id">;
   threads!: EntityTable<CachedThread, "id">;
   labels!: EntityTable<Label, "id">;
+  /** `GmailLabel` (#126, ADR-0020): a Gmail Mail Account's own Labels, browsable and read-only — never merged into `labels`. */
+  gmailLabels!: EntityTable<GmailLabel, "id">;
   correspondents!: EntityTable<Correspondent, "id">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
@@ -287,6 +296,7 @@ export class LocalCache extends Dexie {
       mailAccounts: "id, createdAt",
       threads: "id, mailAccountId, [mailAccountId+sortKey]",
       labels: "id, mailAccountId",
+      gmailLabels: "id, mailAccountId",
       // Sorted by score descending at read time (`reads.ts#readCorrespondents`)
       // — the `[mailAccountId+score]` index is what makes that a fast
       // reverse range scan rather than a table scan of a Mail Account's
@@ -321,6 +331,7 @@ const DATA_TABLES = [
   "mailAccounts",
   "threads",
   "labels",
+  "gmailLabels",
   "correspondents",
   "listWindows",
   "cachePins",

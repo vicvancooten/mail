@@ -11,6 +11,7 @@ import {
   correspondents,
   folders,
   gatekeeperVerdicts,
+  gmailLabels,
   labels,
   loginChallenges,
   mailAccounts,
@@ -82,6 +83,7 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(syncTombstones);
   await db.delete(correspondents);
   await db.delete(labels);
+  await db.delete(gmailLabels);
   await db.delete(threads);
   await db.delete(folders);
   await db.delete(sessions);

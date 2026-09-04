@@ -1,8 +1,9 @@
-import { labelId } from "@mail/shared";
+import { gmailLabelId, labelId } from "@mail/shared";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   delta,
+  makeGmailLabel,
   makeLabel,
   makeMailAccount,
   makeThread,
@@ -11,6 +12,7 @@ import {
 import { localCache, openLocalCache } from "./local-cache.js";
 import { enqueueMutation } from "./mutation-queue.js";
 import {
+  readGmailLabels,
   readLabels,
   readMailAccounts,
   readPreference,
@@ -18,6 +20,7 @@ import {
   THREAD_PAGE_SIZE,
 } from "./reads.js";
 import {
+  applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyPreferenceDelta,
@@ -392,6 +395,45 @@ describe("readThreadWindow — Label filter view (#43)", () => {
   });
 });
 
+describe("readThreadWindow — Gmail Label filter view (#126, ADR-0020)", () => {
+  it("filters to Threads carrying the given Gmail Label id, archived mail included (#91 story 38)", async () => {
+    const kidsId = gmailLabelId("acct-1", "Family/Kids");
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("kids-inbox", "acct-1", {
+            lastMessageAt: minutesAfterEpoch(1),
+            gmailLabelIds: [kidsId],
+          }),
+          makeThread("kids-archived", "acct-1", {
+            lastMessageAt: minutesAfterEpoch(2),
+            inInbox: false,
+            folderRole: "archive",
+            gmailLabelIds: [kidsId],
+          }),
+          makeThread("kids-trashed", "acct-1", {
+            lastMessageAt: minutesAfterEpoch(3),
+            inInbox: false,
+            folderRole: "trash",
+            gmailLabelIds: [kidsId],
+          }),
+          makeThread("no-label", "acct-1", { lastMessageAt: minutesAfterEpoch(4) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow("acct-1", {
+      view: { kind: "gmailLabel", labelId: kidsId },
+    });
+    // Newest first, archived included, trashed excluded — the same
+    // "left every folder-scoped view" rule Sent/Pinned/Snoozed already
+    // follow, applied here too.
+    expect(page.threads.map((thread) => thread.id)).toEqual(["kids-archived", "kids-inbox"]);
+  });
+});
+
 describe("readThreadWindow — Snooze (#76)", () => {
   it("hides a Thread from the Inbox and lists it in Snoozed the instant snooze is queued", async () => {
     await applyThreadDelta(
@@ -571,6 +613,30 @@ describe("readLabels", () => {
 
   it("is empty for a Mail Account with no Labels synced yet", async () => {
     expect(await readLabels("never-synced")).toEqual([]);
+  });
+});
+
+describe("readGmailLabels (#126, ADR-0020)", () => {
+  it("returns this Mail Account's Gmail Labels, name-ordered", async () => {
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Zeta"), "acct-1", { name: "Zeta", path: "Zeta" }),
+          makeGmailLabel(gmailLabelId("acct-1", "Family/Alpha"), "acct-1", {
+            name: "Alpha",
+            path: "Family/Alpha",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    expect((await readGmailLabels("acct-1")).map((label) => label.name)).toEqual(["Alpha", "Zeta"]);
+  });
+
+  it("is empty for a Mail Account with no Gmail Labels synced yet (a generic account, always)", async () => {
+    expect(await readGmailLabels("never-synced")).toEqual([]);
   });
 });
 

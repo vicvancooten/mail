@@ -1,4 +1,11 @@
-import type { CollectionDelta, Composition, Label, MailAccount, Thread } from "@mail/shared";
+import type {
+  CollectionDelta,
+  Composition,
+  GmailLabel,
+  Label,
+  MailAccount,
+  Thread,
+} from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 
 /** Builders for the `POST /sync` wire shapes, so a test states only the field it is about. */
@@ -13,6 +20,7 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     authKind: { kind: "password" },
     sync: { state: "idle", lastProgressAt: null, lastError: null },
     indexWatermark: { coveredSince: null, complete: false },
+    serverKind: null,
     signature: null,
     notificationsEnabled: true,
     gatekeeper: { enabled: false, cutoff: null },
@@ -45,6 +53,7 @@ export function makeThread(
     hasSentMessage: false,
     pinned: false,
     labelIds: [],
+    gmailLabelIds: [],
     heldSender: null,
     heldRecipientAlias: null,
     snoozeUntil: null,
@@ -62,6 +71,22 @@ export function makeLabel(
     id,
     mailAccountId,
     name: id,
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `GmailLabel` (#126, ADR-0020) — `makeLabel`'s sibling, with a `path` alongside the display `name`. */
+export function makeGmailLabel(
+  id: string,
+  mailAccountId: string,
+  overrides: Partial<GmailLabel> = {},
+): GmailLabel {
+  return {
+    id,
+    mailAccountId,
+    name: id,
+    path: id,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };
