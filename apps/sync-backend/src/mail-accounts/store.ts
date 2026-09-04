@@ -89,6 +89,26 @@ export async function getMailAccountForUser(
 }
 
 /**
+ * Scoped by User, matched on the mailbox address (#116): "signing in as an
+ * address already among the User's Mail Accounts is refused". Scoped by User
+ * and not instance-wide on purpose — two Users on one instance may each hold
+ * a Mail Account on the same shared address (ADR-0004: ownership is the only
+ * authorization primitive), and neither is a duplicate of the other.
+ */
+export async function getMailAccountForUserByAddress(
+  db: Db,
+  userId: string,
+  emailAddress: string,
+): Promise<MailAccountRow | null> {
+  const [row] = await db
+    .select()
+    .from(mailAccounts)
+    .where(and(eq(mailAccounts.userId, userId), eq(mailAccounts.emailAddress, emailAddress)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
  * Scoped by User, batched (#68) — the Account Scope's ownership check:
  * every id in `ids` that this User actually owns comes back, silently
  * dropping the rest, so a caller can tell "some of these aren't mine" from

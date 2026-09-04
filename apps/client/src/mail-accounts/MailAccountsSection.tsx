@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchMailAccounts } from "../api/mail-accounts.js";
 import { AddMailAccountForm } from "./AddMailAccountForm.js";
 import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
+import { clearSignInOutcome, readSignInOutcome, type SignInOutcome } from "./sign-in-outcome.js";
 
 /**
  * The DOM anchor a `needs_reauth` notification click scrolls to (#53,
@@ -37,10 +38,11 @@ export function scrollToMailAccountSettings(mailAccountId: string): void {
  * acceptance criteria) already means: a User who has filtered an account out
  * of Scope can still reach it here to fix it.
  */
-export function MailAccountsSection() {
+export function MailAccountsSection({ isOwner = false }: { isOwner?: boolean } = {}) {
   const [accounts, setAccounts] = useState<MailAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [signInOutcome, setSignInOutcome] = useState<SignInOutcome | null>(null);
 
   const reload = useCallback(() => {
     return fetchMailAccounts()
@@ -52,10 +54,32 @@ export function MailAccountsSection() {
     reload();
   }, [reload]);
 
+  // The return leg of a Provider sign-in (#116): the callback redirected
+  // here with an outcome in the query string. Read it once, then clear it,
+  // so a reload or a shared URL can't resurrect a toast about something that
+  // already happened. A success means the account was created while the
+  // browser was away — nothing local knows about it until this reload.
+  useEffect(() => {
+    const outcome = readSignInOutcome(window.location.search);
+    if (!outcome) return;
+    setSignInOutcome(outcome);
+    clearSignInOutcome();
+    if (outcome.succeeded) void reload();
+  }, [reload]);
+
   return (
     <section>
       <h3>Mail Accounts</h3>
       {error && <p role="alert">{error}</p>}
+
+      {signInOutcome && (
+        <p role="status">
+          {signInOutcome.message}{" "}
+          <button type="button" onClick={() => setSignInOutcome(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
 
       {accounts === null && <p>Loading…</p>}
 
@@ -83,6 +107,7 @@ export function MailAccountsSection() {
 
       {adding ? (
         <AddMailAccountForm
+          isOwner={isOwner}
           onAdded={() => {
             setAdding(false);
             reload();
