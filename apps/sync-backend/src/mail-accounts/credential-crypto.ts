@@ -113,3 +113,44 @@ export function unsealPasswordCredential(
   }
   return unsealSecret(credential.secret, mailAccountId, key);
 }
+
+/** The plaintext a Grant carries — what a sign-in flow (#116/#117) hands this module to seal. */
+export interface OAuthTokens {
+  provider: "google" | "microsoft";
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+  scope: string[];
+}
+
+/** Seals an `oauth` credential's access and refresh tokens — the Grant, per ADR-0021. */
+export function sealOAuthCredential(
+  tokens: OAuthTokens,
+  mailAccountId: string,
+  key: Buffer,
+): MailAccountCredential {
+  return {
+    kind: "oauth",
+    provider: tokens.provider,
+    accessToken: sealSecret(tokens.accessToken, mailAccountId, key),
+    refreshToken: sealSecret(tokens.refreshToken, mailAccountId, key),
+    expiresAt: tokens.expiresAt,
+    scope: tokens.scope,
+  };
+}
+
+/**
+ * Unseals an `oauth` credential's access token — the one XOAUTH2 needs to
+ * authenticate. Refresh (#118) is the only other consumer of the sibling
+ * `refreshToken` field; nothing here reads it.
+ */
+export function unsealOAuthAccessToken(
+  credential: MailAccountCredential,
+  mailAccountId: string,
+  key: Buffer,
+): string {
+  if (credential.kind !== "oauth") {
+    throw new Error(`Cannot unseal a "${credential.kind}" credential as oauth.`);
+  }
+  return unsealSecret(credential.accessToken, mailAccountId, key);
+}

@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../db/client.js";
 import { mailAccounts, users } from "../db/schema.js";
-import { deriveCredentialKey, sealPasswordCredential } from "../mail-accounts/credential-crypto.js";
+import {
+  deriveCredentialKey,
+  type MailAccountCredential,
+  sealOAuthCredential,
+  sealPasswordCredential,
+} from "../mail-accounts/credential-crypto.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { TEST_MAIL_CREDENTIAL_KEY } from "./db.js";
 
@@ -13,6 +18,13 @@ export interface TestMailAccountInput {
   smtpPort?: number;
   /** Adds this Mail Account to an existing User instead of creating a new one — an Account Scope (#68) test's second, same-User account. */
   userId?: string;
+  /**
+   * Seeds an `oauth` credential (the Grant) instead of `password` — #114:
+   * no sign-in flow exists yet, so a test inserting one directly is the only
+   * way an oauth-variant Mail Account row comes to exist. Ignored when
+   * `password` is also set; the two are mutually exclusive credential kinds.
+   */
+  oauth?: { accessToken: string; provider?: "google" | "microsoft" };
 }
 
 /**
@@ -41,6 +53,19 @@ export async function createTestMailAccount(
 
   const id = randomUUID();
   const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
+  const credential: MailAccountCredential = input.oauth
+    ? sealOAuthCredential(
+        {
+          provider: input.oauth.provider ?? "google",
+          accessToken: input.oauth.accessToken,
+          refreshToken: "unused-in-this-ticket-refresh-token",
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          scope: ["https://mail.google.com/"],
+        },
+        id,
+        key,
+      )
+    : sealPasswordCredential(password, id, key);
   const [row] = await db
     .insert(mailAccounts)
     .values({
@@ -54,7 +79,7 @@ export async function createTestMailAccount(
       smtpPort: input.smtpPort ?? 3025,
       smtpSecurity: "none",
       username: emailAddress,
-      credential: sealPasswordCredential(password, id, key),
+      credential,
     })
     .returning();
 
