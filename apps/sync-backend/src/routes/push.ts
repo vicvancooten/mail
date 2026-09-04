@@ -16,8 +16,15 @@ import { flushMutations } from "../sync/mutations.js";
 
 export interface PushRoutesOptions {
   db: Db;
-  /** `env.MAIL_VAPID_PUBLIC_KEY` — `null` when the operator has never run `generate-vapid-keys` (#53, ADR-0015). */
-  vapidPublicKey: string | null;
+  /**
+   * The instance's current VAPID public key, or `null` when it has none
+   * (#53, ADR-0015 as amended). A reader rather than a value: since the
+   * keypair can be minted from the Instance page while the process runs
+   * (`notifier/vapid-keys.ts`), a value captured at boot would keep
+   * answering `null` — and the Client reads this before it will even offer
+   * to enable notifications.
+   */
+  readVapidPublicKey: () => Promise<string | null>;
 }
 
 /**
@@ -26,12 +33,15 @@ export interface PushRoutesOptions {
  * same as every other route — a subscription/action is only ever read or
  * written for `request.user`.
  */
-export async function pushRoutes(app: FastifyInstance, { db, vapidPublicKey }: PushRoutesOptions) {
+export async function pushRoutes(
+  app: FastifyInstance,
+  { db, readVapidPublicKey }: PushRoutesOptions,
+) {
   // Read by the settings screen to decide whether to offer "enable
-  // notifications on this device" at all — an instance that never generated
-  // a VAPID keypair simply doesn't have the feature, rather than failing.
+  // notifications on this device" at all — an instance that has no VAPID
+  // keypair simply doesn't have the feature, rather than failing.
   app.get("/push/config", { preHandler: app.requireAuth }, async () => {
-    return pushConfigResponseSchema.parse({ vapidPublicKey });
+    return pushConfigResponseSchema.parse({ vapidPublicKey: await readVapidPublicKey() });
   });
 
   app.post("/push/subscriptions", { preHandler: app.requireAuth }, async (request, reply) => {

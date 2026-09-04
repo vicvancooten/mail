@@ -7,6 +7,7 @@ import { loadEnv } from "./env.js";
 import { GENERATE_VAPID_KEYS_COMMAND, isSecureContext } from "./instance-info.js";
 import type { SendPushFn } from "./notifier/deliver.js";
 import { startNotifierDeliverLoop } from "./notifier/deliver-loop.js";
+import { createVapidKeyStore } from "./notifier/vapid-keys.js";
 import { createWebPushSender } from "./notifier/web-push-sender.js";
 import { createSyncHintBroker } from "./realtime/sync-hints.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
@@ -47,15 +48,21 @@ const syncManager = createSyncManager(db, { mailCredentialKey: env.MAIL_CREDENTI
 // `GET /push/config` before ever calling `pushManager.subscribe`) — the
 // disabled branch below is therefore a safety net for an operator who
 // *removes* previously-configured keys, not the ordinary path.
-const vapidPublicKey = env.MAIL_VAPID_PUBLIC_KEY ?? null;
-const sendPush: SendPushFn =
-  env.MAIL_VAPID_PUBLIC_KEY && env.MAIL_VAPID_PRIVATE_KEY
-    ? createWebPushSender({
-        publicKey: env.MAIL_VAPID_PUBLIC_KEY,
-        privateKey: env.MAIL_VAPID_PRIVATE_KEY,
-        contact: env.MAIL_VAPID_CONTACT,
-      })
-    : async () => ({ ok: false, expired: false });
+const vapidKeys = createVapidKeyStore(db, {
+  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+  envKeypair:
+    env.MAIL_VAPID_PUBLIC_KEY && env.MAIL_VAPID_PRIVATE_KEY
+      ? { publicKey: env.MAIL_VAPID_PUBLIC_KEY, privateKey: env.MAIL_VAPID_PRIVATE_KEY }
+      : null,
+  onUnsealFailure: () =>
+    app.log.warn(
+      "This instance's stored Web Push keypair cannot be unsealed with the current MAIL_CREDENTIAL_KEY. Web Push stays off until the Owner generates a new keypair from Settings → Instance; every device will then have to re-enable notifications.",
+    ),
+});
+const sendPush: SendPushFn = createWebPushSender({
+  readKeypair: () => vapidKeys.read(),
+  contact: env.MAIL_VAPID_CONTACT,
+});
 
 const app = buildApp({
   db,
@@ -64,18 +71,33 @@ const app = buildApp({
   syncManager,
   attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
   syncHints,
-  vapidPublicKey,
+  vapidKeys,
   imageTag: env.MAIL_VERSION,
 });
 
-// Boot-time warnings for the two ways Web Push (and, for the second, also
-// passkeys) can end up silently absent (#104, grill Q21/Q32) — the Owner's
-// other way to learn these facts, alongside the Instance page's own
-// `GET /instance/health` (`routes/instance.js`), which states the same two
-// facts in the same words rather than requiring a log dig.
-if (!vapidPublicKey) {
-  app.log.warn(`Web Push disabled: generate keys with \`${GENERATE_VAPID_KEYS_COMMAND}\``);
+// Web Push's keypair (#53, ADR-0015 as amended): minted here on the first
+// boot of an instance whose operator hasn't pinned
+// `MAIL_VAPID_PUBLIC_KEY`/`_PRIVATE_KEY`, a no-op on every boot after that
+// and on an env-pinned instance. Push therefore works out of the box rather
+// than waiting on a CLI command and a hand-edited `.env`; the command still
+// exists (`cli.ts`) for an operator who wants to own the keypair in their
+// environment instead.
+//
+// `null` here means the one case generation refuses to touch: a stored
+// keypair this build cannot unseal, which `onUnsealFailure` above has
+// already logged in the Owner's own terms. Deliberately not fatal — every
+// other feature works fine without push.
+const vapidKeypair = await vapidKeys.ensure();
+if (!vapidKeypair) {
+  app.log.warn(
+    `Web Push disabled: this instance has no usable VAPID keypair. Generate one from Settings → Instance, or set MAIL_VAPID_PUBLIC_KEY/MAIL_VAPID_PRIVATE_KEY from \`${GENERATE_VAPID_KEYS_COMMAND}\`.`,
+  );
 }
+
+// The other way Web Push (and passkeys) can end up silently absent (#104,
+// grill Q21/Q32) — the Owner's other way to learn these facts, alongside the
+// Instance page's own `GET /instance/health` (`routes/instance.js`), which
+// states them in the same words rather than requiring a log dig.
 if (!isSecureContext(env.PUBLIC_URL)) {
   app.log.warn(
     "PUBLIC_URL is not a secure context (http:// on a non-localhost host): push and passkeys will not work from other devices.",

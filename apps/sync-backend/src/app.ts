@@ -7,6 +7,7 @@ import authPlugin from "./auth/plugin.js";
 import type { Db } from "./db/client.js";
 import type { discoverMailAccount } from "./mail-accounts/autodiscover.js";
 import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
+import { disabledVapidKeyStore, type VapidKeyStore } from "./notifier/vapid-keys.js";
 import { noopSyncHintBroker, type SyncHintBroker } from "./realtime/sync-hints.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
@@ -63,8 +64,14 @@ export interface BuildAppOptions {
   syncManager?: SyncManager;
   /** ADR-0012's instance-level attachment budget, in encoded bytes. Defaults for tests that never touch #48. */
   attachmentBudgetBytes?: number;
-  /** `env.MAIL_VAPID_PUBLIC_KEY` (#53, ADR-0015) — `null` (the default) states Web Push is disabled instance-wide. */
-  vapidPublicKey?: string | null;
+  /**
+   * The instance's Web Push keypair (#53, ADR-0015 as amended): the store
+   * `routes/push.ts`, `routes/instance.ts` and the Notifier all read
+   * through, so there is one answer to "is Web Push configured" rather than
+   * three. Defaults to a store that has no keypair and cannot generate one —
+   * Web Push off, which is what every test that never touches it wants.
+   */
+  vapidKeys?: VapidKeyStore;
   /** `env.MAIL_VERSION` (#104) — the Instance page's image-tag fact. Defaults to `"dev"`, the same default `env.ts` gives outside Docker. */
   imageTag?: string;
   /**
@@ -94,7 +101,7 @@ export function buildApp({
   attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
   syncHints = noopSyncHintBroker,
   eventsHeartbeatMs,
-  vapidPublicKey = null,
+  vapidKeys = disabledVapidKeyStore,
   imageTag = "dev",
   publicDir = defaultPublicDir,
 }: BuildAppOptions) {
@@ -128,8 +135,8 @@ export function buildApp({
   app.register(syncRoutes, { db });
   app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
-  app.register(pushRoutes, { db, vapidPublicKey });
-  app.register(instanceRoutes, { publicUrl, vapidPublicKey, imageTag });
+  app.register(pushRoutes, { db, readVapidPublicKey: () => vapidKeys.readPublicKey() });
+  app.register(instanceRoutes, { publicUrl, vapidKeys, imageTag });
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });
