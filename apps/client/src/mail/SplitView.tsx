@@ -22,6 +22,7 @@ export function SplitView({
   ids,
   complete,
   selectedThreadId,
+  selectedThreadOverride,
   onSelect,
   onClearSelection,
   onLoadMore,
@@ -35,6 +36,8 @@ export function SplitView({
   ids: readonly string[];
   complete: boolean;
   selectedThreadId: string | null;
+  /** Shows this Thread in the pane instead of looking `selectedThreadId` up in `threads` — the Command Palette's "Enter opens the top hit" (#100): the list pane stays whatever it already was while the pane shows a hit that may not belong to it. */
+  selectedThreadOverride?: CachedThread | null;
   onSelect: (id: string) => void;
   onClearSelection: () => void;
   onLoadMore?: () => void;
@@ -47,7 +50,8 @@ export function SplitView({
   /** Passed straight through to `VirtualizedThreadList` — the group header cluster (#66, #77). */
   groupBulk?: GroupBulkController;
 }) {
-  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
+  const selectedThread =
+    selectedThreadOverride ?? threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const prevId = neighborId(ids, selectedThreadId, -1);
   const nextId = neighborId(ids, selectedThreadId, 1);
 

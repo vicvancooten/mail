@@ -42,6 +42,19 @@ function ChipRow({
 
   return (
     <div className="search-chip-row">
+      {/* The results view's own visible exit (#100) — restores the origin
+          (folder, scroll, open Thread) in one click, unlike the field's own
+          two-stage Esc, which this leaves untouched. */}
+      <button
+        type="button"
+        className="search-close"
+        onClick={state.close}
+        aria-label="Close search results"
+        title="Close — back to where you were"
+      >
+        <X size={14} />
+      </button>
+
       {accounts.length > 1 && account ? (
         <span className="search-chip search-chip-account">{account.emailAddress}</span>
       ) : null}

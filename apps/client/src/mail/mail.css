@@ -2140,6 +2140,33 @@
   background: var(--color-bg);
 }
 
+/* The results view's own visible Close (#100) — same icon-button language
+   as `.command-palette-close`, first in the row so leaving is never a
+   scavenger hunt through the chips. */
+.search-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.search-close:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .search-chip {
   display: flex;
   align-items: center;

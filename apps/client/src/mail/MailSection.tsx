@@ -697,10 +697,23 @@ export function MailSection({
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
   // the same "nothing cached yet" shape `useThreadWindow` already handles.
+  // The Palette's "Enter opens the top hit" (#100): opens a search hit in
+  // the reading pane while the results view stays closed and the list pane
+  // keeps showing whatever it already was — "Enter opens the top (or
+  // arrow-selected) hit in Split", never the results view itself, which
+  // only "See all results" opens. Derived straight off `search`'s own
+  // selection rather than tracked separately, so it disappears on its own
+  // once the hit falls out of `search.results` (a new query, say).
+  const openedSearchThread = search.active
+    ? null
+    : (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null);
+
   // Stream is suppressed and the view-mode pair muted while searching
   // (search-ux-spec.md §The surface) — `search.active` joins `composeId` in
   // disabling this hook's own keydown listener so a result row's `j`/`k`
-  // (handled by `searchTriage` below) is the only scheme live at once.
+  // (handled by `searchTriage` below) is the only scheme live at once. An
+  // opened search hit (above) counts too: the reading pane it occupies
+  // belongs to `searchTriage`, not the folder's own selection.
   const triage = useTriage({
     mailAccountId: accountId,
     threads,
@@ -709,7 +722,8 @@ export function MailSection({
     onSelect: setSelectedThreadId,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || search.active || screenerOpen,
+    shortcutsDisabled:
+      composeId !== null || search.active || Boolean(openedSearchThread) || screenerOpen,
   });
   const rawSearchTriage = useTriage({
     mailAccountId: accountId,
@@ -719,7 +733,8 @@ export function MailSection({
     onSelect: search.select,
     direction,
     autoAdvanceEnabled,
-    shortcutsDisabled: composeId !== null || !search.active || screenerOpen,
+    shortcutsDisabled:
+      composeId !== null || !(search.active || Boolean(openedSearchThread)) || screenerOpen,
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
 
@@ -755,17 +770,20 @@ export function MailSection({
   useEffect(() => subscribeGlobalPaletteOpen(openPalette), [openPalette]);
 
   // Whichever Thread is actually open right now — the ordinary Inbox
-  // pairing or Search's own, matching the same branch the JSX below already
-  // takes — is what the Palette's Triage commands (and "back to list") act
-  // on; there is no third, Palette-owned notion of "the current Thread".
+  // pairing, Search's own results-view selection, or an opened search hit
+  // (#100), matching the same branch the JSX below already takes — is what
+  // the Palette's Triage commands (and "back to list") act on; there is no
+  // fourth, Palette-owned notion of "the current Thread".
   const activeSelectedThread = search.active
     ? (search.results.find((candidate) => candidate.id === search.selectedThreadId) ?? null)
-    : (threads.find((candidate) => candidate.id === selectedThreadId) ?? null);
-  const activeTriage = search.active ? searchTriage : triage;
+    : (openedSearchThread ??
+      threads.find((candidate) => candidate.id === selectedThreadId) ??
+      null);
+  const activeTriage = search.active || openedSearchThread ? searchTriage : triage;
   const backToList = useCallback(() => {
-    if (search.active) search.select(null);
+    if (search.active || openedSearchThread) search.select(null);
     else setSelectedThreadId(null);
-  }, [search.active, search.select]);
+  }, [search.active, search.select, openedSearchThread]);
 
   // `/`, `⌘K`/`Ctrl-K` and `?` — all three inert while typing elsewhere, the
   // composer's open, or the Screener's up (the same "not typing" guard
@@ -879,6 +897,28 @@ export function MailSection({
               accounts={mailAccounts}
               mailAccountId={accountId}
               accountScope={accountScope}
+            />
+          ) : openedSearchThread ? (
+            // "Enter opens the top hit... in Split" (#100): forced to Split
+            // regardless of `viewMode`/`streamMode`/the current folder — the
+            // list pane below is still `visibleThreads`, untouched, with
+            // nothing in it highlighted; only the reading pane shows the hit.
+            <SplitView
+              threads={visibleThreads}
+              ids={ids}
+              complete={page.complete}
+              selectedThreadId={null}
+              selectedThreadOverride={openedSearchThread}
+              onSelect={(id) => {
+                search.select(null);
+                setSelectedThreadId(id);
+              }}
+              onClearSelection={() => search.select(null)}
+              onLoadMore={loadMore}
+              triage={searchTriage}
+              onReply={openReply}
+              density={density}
+              groupBulk={groupBulk}
             />
           ) : folder === "drafts" ? (
             <DraftsView drafts={draftCompositions} onOpen={reopenCompose} />
