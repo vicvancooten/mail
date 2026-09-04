@@ -129,7 +129,7 @@ export function buildApp({
   app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
   app.register(pushRoutes, { db, vapidPublicKey });
-  app.register(instanceRoutes, { publicUrl, vapidPublicKey, imageTag });
+  app.register(instanceRoutes, { db, publicUrl, mailCredentialKey, vapidPublicKey, imageTag });
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });

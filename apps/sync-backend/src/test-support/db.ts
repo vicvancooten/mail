@@ -19,6 +19,7 @@ import {
   notifierOutbox,
   passkeyCredentials,
   protocolWrites,
+  providerRegistrations,
   pushSubscriptions,
   sessions,
   syncTombstones,
@@ -87,5 +88,6 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(totpCredentials);
   await db.delete(passkeyCredentials);
   await db.delete(mailAccounts);
+  await db.delete(providerRegistrations);
   await db.delete(users);
 }

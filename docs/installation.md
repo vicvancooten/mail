@@ -130,6 +130,19 @@ Copy the two printed lines into `.env` as `MAIL_VAPID_PUBLIC_KEY` / `MAIL_VAPID_
 `docker compose up -d` to pick them up. The pair is generated once and reused across restarts —
 regenerating it invalidates every browser's existing push subscription.
 
+## Enabling Gmail and Outlook sign-in (optional)
+
+Google and Microsoft accounts are added by signing in with the Provider (CONTEXT.md), which needs a
+Provider Registration — an OAuth app the Owner registers with that Provider, per instance
+([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)). Register it, then
+paste the client ID and secret into the Instance page (Owner only) — no restart, no `.env` entry.
+The Instance page shows the exact redirect URI to copy and short in-app steps for each Provider's own
+console; a full walkthrough for the Google Cloud console and Microsoft Entra lands with #120.
+
+The one thing worth calling out ahead of time: **set the Google app to In Production**, not Testing —
+an app left in Testing issues refresh tokens that expire after seven days, which lands every Gmail
+Mail Account in Needs Reauth weekly for no visible reason ([ADR-0021](adr/0021-provider-registration-is-per-instance-and-owner-entered.md)).
+
 ## Upgrading
 
 Every merge to `main` publishes `ghcr.io/vicvancooten/mail:edge` plus an immutable
