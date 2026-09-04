@@ -24,6 +24,25 @@ export function isInInbox(
   return (gmailLabels ?? []).includes("\\Inbox");
 }
 
+/**
+ * The Sent predicate (#123, ADR-0020): "this message was sent by the User",
+ * the seam the Thread rollup's `hasSentMessage` cue and the Correspondent
+ * sent-copy dedupe both ask instead of re-deriving it from a folder role.
+ *
+ * On a generic account a sent message lives in the Folder with role
+ * `"sent"`. Gmail never syncs one (ADR-0020: Gmail files the SMTP-submitted
+ * copy into All Mail, not a synced Sent folder), so `gmailLabels` is what a
+ * message ingested from Gmail's All Mail carries instead — `\Sent` in that
+ * set means the same thing `role === "sent"` means everywhere else.
+ */
+export function isSentMessage(
+  folderRole: FolderRole | null,
+  gmailLabels: readonly string[] | null | undefined,
+): boolean {
+  if (folderRole === "sent") return true;
+  return (gmailLabels ?? []).includes("\\Sent");
+}
+
 /** The wire-facing states a Thread's Gmail projection resolves to — `threads.folderRole`'s own enum, minus `"all"`. */
 export type GmailThreadFolderRole = "inbox" | "archive" | "trash" | "junk";
 

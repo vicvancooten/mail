@@ -4,6 +4,7 @@ import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { compositions, correspondents, type MessageAddress } from "../db/schema.js";
 import type { FolderRole } from "./folders.js";
+import { isSentMessage } from "./inbox.js";
 import { recordTombstones } from "./tombstones.js";
 
 /**
@@ -62,12 +63,13 @@ export interface CorrespondentActivity {
 
 /**
  * Derives the Correspondent activity one newly-stored message represents.
- * A Sent-role folder's recipients are who *this account* mailed; every other
- * folder's `From` is who mailed *this account* — Drafts, Trash and Junk are
- * excluded, the first because a draft has not actually been exchanged with
- * anyone yet, the latter two so junk and deleted mail don't inflate a
- * Correspondent's standing (compose-spec never says so explicitly, but
- * "derived from message history" reads as *real* history).
+ * A sent message's (`sync/inbox.ts#isSentMessage`) recipients are who *this
+ * account* mailed; every other message's `From` is who mailed *this
+ * account* — Drafts, Trash and Junk are excluded, the first because a draft
+ * has not actually been exchanged with anyone yet, the latter two so junk
+ * and deleted mail don't inflate a Correspondent's standing (compose-spec
+ * never says so explicitly, but "derived from message history" reads as
+ * *real* history).
  */
 export function activityForMessage(
   folderRole: FolderRole | null,
@@ -77,11 +79,12 @@ export function activityForMessage(
     ccAddresses: MessageAddress[];
     sentAt: Date;
     receivedAt: Date;
+    gmailLabels?: readonly string[] | null;
   },
 ): CorrespondentActivity[] {
   if (folderRole === "trash" || folderRole === "junk" || folderRole === "drafts") return [];
 
-  if (folderRole === "sent") {
+  if (isSentMessage(folderRole, message.gmailLabels)) {
     const seen = new Map<string, CorrespondentActivity>();
     for (const recipient of [...message.toAddresses, ...message.ccAddresses]) {
       const key = normalizeCorrespondentAddress(recipient.address);
@@ -152,6 +155,9 @@ export function activityForSentComposition(
  * `recordCorrespondentActivity` for one it already ran **at send time** —
  * without it, the ordinary poll re-ingesting that same message a moment
  * later as a "genuinely new row" would double-count every recipient.
+ * `ingest.ts` calls this for a Sent-role folder's message on a generic
+ * account, and for a `\Sent`-labelled All Mail message on Gmail (#123) —
+ * `sync/inbox.ts#isSentMessage` is what the caller gates on.
  */
 export async function wasRecordedAtSend(
   db: Db,
