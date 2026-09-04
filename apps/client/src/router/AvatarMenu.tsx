@@ -26,11 +26,12 @@ import { type Theme, useAppearance } from "../theme/device-theme.js";
  * session. Who that avatar belongs to still has to be answerable, so the
  * menu it opens says it in words.
  *
- * Appearance is the same `useAppearance` control `SettingsSection` renders
- * (`theme/device-theme.ts`'s own docstring) — one Device Preference, written
- * from either place, read by both. The header's own one-press light/dark
- * toggle writes through the same module (`useResolvedAppearance`), so this
- * three-way group and that button can never disagree.
+ * Appearance is the same `useAppearance` control Settings' "This device"
+ * page renders (`settings/ThisDeviceSection.tsx`, `theme/device-theme.ts`'s
+ * own docstring) — one Device Preference, written from either place, read
+ * by both. The header's own one-press light/dark toggle writes through the
+ * same module (`useResolvedAppearance`), so this three-way group and that
+ * button can never disagree.
  */
 export function AvatarMenu({
   username,

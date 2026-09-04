@@ -88,22 +88,6 @@
   background: var(--color-bg);
 }
 
-/* Split/List: two buttons that sit together as one choice, spaced rather
-   than divided — the gap between groups is what separates them from the
-   toggles beside them. */
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  transition: opacity var(--dur-fast) var(--ease);
-}
-
-/* Stream mode or search has taken the view over; the underlying Split/List
-   choice stays visible and selectable, just no longer in charge. */
-.toolbar-group.muted {
-  opacity: 0.45;
-}
-
 .toolbar-btn {
   width: 32px;
   height: 32px;
@@ -290,6 +274,7 @@
   overflow-y: auto;
   min-height: 0;
   background: var(--color-bg);
+  transition: width var(--dur-fast) var(--ease);
 }
 
 /* Compose is the one filled control in the App, so it is the one control
@@ -394,6 +379,30 @@
 
 .nav-item.active .nav-count {
   color: var(--color-accent);
+}
+
+/* Icons-only (#99, Settings' "This device" page): the rail narrows to just
+   room for the icon column, and every label collapses out — each entry
+   keeps its `title` as a tooltip and accessible name, so nothing here loses
+   its name, only its visible width. */
+.side-nav.collapsed {
+  width: 60px;
+}
+
+.side-nav.collapsed .nav-label,
+.side-nav.collapsed .nav-count,
+.side-nav.collapsed .nav-heading {
+  display: none;
+}
+
+.side-nav.collapsed .compose-btn {
+  width: 40px;
+  padding: 0;
+}
+
+.side-nav.collapsed .nav-item {
+  justify-content: center;
+  padding: 0;
 }
 
 .mail-body {
@@ -2806,6 +2815,29 @@ button.search-chip-toggle.on {
 
   .side-nav.open {
     transform: translateY(0);
+  }
+
+  /* The collapsed rail is a desktop-width convenience (#99): the phone
+     sheet ignores it and always shows full labels — there's no icon-rail
+     read of a bottom sheet's own width to reclaim. */
+  .side-nav.collapsed {
+    width: auto;
+  }
+
+  .side-nav.collapsed .nav-label,
+  .side-nav.collapsed .nav-count,
+  .side-nav.collapsed .nav-heading {
+    display: revert;
+  }
+
+  .side-nav.collapsed .compose-btn {
+    width: auto;
+    padding: 0 17px;
+  }
+
+  .side-nav.collapsed .nav-item {
+    justify-content: flex-start;
+    padding: 0 10px;
   }
 
   /* Split collapses to List's own "one pane at a time" behavior: there's

@@ -9,7 +9,7 @@ import { useAuth } from "./AuthContext.js";
  * `Router` — seeded with the signed-in `User` and the sign-out handler
  * every route's header rail needs (`router/routes.ts#RouterContext`) — and
  * hands it to `RouterProvider`. `router/RootLayout.tsx` is what actually
- * renders the header rail and the routed `MailSection`/`SettingsSection`/
+ * renders the header rail and the routed `MailSection`/`SettingsLayout`/
  * placeholder-App views underneath it.
  *
  * `useState(() => …)` rather than a plain `useMemo`/module-scope constant:
