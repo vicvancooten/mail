@@ -1,4 +1,14 @@
 import type { MailAccountConnection } from "@mail/shared";
+import {
+  classifyRefreshFailure,
+  decodeIdTokenClaims,
+  expiresAtFrom,
+  OAuthTokenError,
+  postForm,
+  requireString,
+  scopeFrom,
+  type TokenExchangeConfig,
+} from "./oauth-token-exchange.js";
 import type {
   AuthorizationCallbackError,
   AuthorizationUrlInput,
@@ -15,7 +25,9 @@ import type {
  * `google-adapter.ts`'s own shape. Every decision that isn't Microsoft's own
  * (what to do with a duplicate address, when to verify, what to store) lives
  * in `routes/oauth-signin.ts`; everything here is "what Microsoft's API
- * happens to look like".
+ * happens to look like". The plumbing common to every Provider's token
+ * endpoint lives in `oauth-token-exchange.ts`; this file is only what's
+ * Microsoft's own.
  */
 
 /**
@@ -77,6 +89,12 @@ const TENANT_REFUSAL_ERRORS = new Set([
   "interaction_required",
 ]);
 
+const TOKEN_EXCHANGE: TokenExchangeConfig = {
+  providerName: "Microsoft",
+  tokenEndpoint: TOKEN_ENDPOINT,
+  fallbackScopes: MICROSOFT_SCOPES,
+};
+
 export const microsoftProviderAdapter: ProviderAdapter = {
   connection: OUTLOOK_CONNECTION,
   scopes: MICROSOFT_SCOPES,
@@ -114,7 +132,7 @@ export const microsoftProviderAdapter: ProviderAdapter = {
     code,
     codeVerifier,
   }: ExchangeCodeInput): Promise<ProviderGrant> {
-    const payload = await postForm({
+    const payload = await postForm(TOKEN_EXCHANGE, {
       client_id: clientId,
       client_secret: clientSecret,
       redirect_uri: redirectUri,
@@ -124,14 +142,14 @@ export const microsoftProviderAdapter: ProviderAdapter = {
       scope: MICROSOFT_SCOPES.join(" "),
     });
 
-    const accessToken = requireString(payload, "access_token");
-    const refreshToken = requireString(payload, "refresh_token");
-    const idToken = requireString(payload, "id_token");
+    const accessToken = requireString(TOKEN_EXCHANGE, payload, "access_token");
+    const refreshToken = requireString(TOKEN_EXCHANGE, payload, "refresh_token");
+    const idToken = requireString(TOKEN_EXCHANGE, payload, "id_token");
     return {
       accessToken,
       refreshToken,
       expiresAt: expiresAtFrom(payload),
-      scope: scopeFrom(payload),
+      scope: scopeFrom(TOKEN_EXCHANGE, payload),
       emailAddress: emailFromIdToken(idToken),
     };
   },
@@ -139,7 +157,7 @@ export const microsoftProviderAdapter: ProviderAdapter = {
   async refresh({ clientId, clientSecret, refreshToken }: RefreshInput) {
     let payload: Record<string, unknown>;
     try {
-      payload = await postForm({
+      payload = await postForm(TOKEN_EXCHANGE, {
         client_id: clientId,
         client_secret: clientSecret,
         refresh_token: refreshToken,
@@ -147,18 +165,18 @@ export const microsoftProviderAdapter: ProviderAdapter = {
         scope: MICROSOFT_SCOPES.join(" "),
       });
     } catch (err) {
-      return classifyRefreshFailure(err);
+      return classifyRefreshFailure(err, WITHDRAWN_ERROR);
     }
     return {
       ok: true,
-      accessToken: requireString(payload, "access_token"),
+      accessToken: requireString(TOKEN_EXCHANGE, payload, "access_token"),
       // Microsoft rotates refresh tokens on most successful refreshes but
       // doesn't guarantee it (learn.microsoft.com's own "discard the old
       // refresh token" note) — echo the original back when none comes.
       refreshToken:
         typeof payload.refresh_token === "string" ? payload.refresh_token : refreshToken,
       expiresAt: expiresAtFrom(payload),
-      scope: scopeFrom(payload),
+      scope: scopeFrom(TOKEN_EXCHANGE, payload),
     } satisfies ProviderRefreshResult;
   },
 
@@ -168,109 +186,17 @@ export const microsoftProviderAdapter: ProviderAdapter = {
 };
 
 /**
- * A non-2xx from Microsoft's token endpoint, carrying its own `error`
- * code — the same shape `GoogleTokenError` uses, structurally, so
- * `routes/oauth-signin.ts` can read `.error` off either without naming
- * either Provider.
- */
-export class MicrosoftTokenError extends Error {
-  readonly error: string;
-
-  constructor(error: string, detail: string) {
-    super(detail);
-    this.name = "MicrosoftTokenError";
-    this.error = error;
-  }
-}
-
-function classifyRefreshFailure(err: unknown): ProviderRefreshResult {
-  if (err instanceof MicrosoftTokenError && err.error === WITHDRAWN_ERROR) {
-    return { ok: false, reason: "withdrawn", detail: err.message };
-  }
-  return {
-    ok: false,
-    reason: "transient",
-    detail: err instanceof Error ? err.message : String(err),
-  };
-}
-
-async function postForm(fields: Record<string, string>): Promise<Record<string, unknown>> {
-  const response = await fetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(fields).toString(),
-  });
-  const text = await response.text();
-  let payload: Record<string, unknown>;
-  try {
-    payload = JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    payload = {};
-  }
-  if (!response.ok) {
-    const error = typeof payload.error === "string" ? payload.error : `http_${response.status}`;
-    const description =
-      typeof payload.error_description === "string"
-        ? payload.error_description
-        : text.slice(0, 200);
-    throw new MicrosoftTokenError(error, `Microsoft token endpoint: ${error} — ${description}`);
-  }
-  return payload;
-}
-
-function requireString(payload: Record<string, unknown>, field: string): string {
-  const value = payload[field];
-  if (typeof value !== "string" || value.length === 0) {
-    throw new MicrosoftTokenError(
-      "malformed_response",
-      `Microsoft's token response had no "${field}".`,
-    );
-  }
-  return value;
-}
-
-function expiresAtFrom(payload: Record<string, unknown>): string {
-  const seconds = typeof payload.expires_in === "number" ? payload.expires_in : 3600;
-  return new Date(Date.now() + seconds * 1000).toISOString();
-}
-
-function scopeFrom(payload: Record<string, unknown>): string[] {
-  const scope = payload.scope;
-  return typeof scope === "string" && scope.length > 0 ? scope.split(" ") : MICROSOFT_SCOPES;
-}
-
-/**
  * The signed-in address, out of the `id_token` Microsoft returns alongside
- * the access token. As with Google's own adapter, its signature is
- * deliberately not verified — this token came back over TLS directly from
- * Microsoft's own token endpoint in response to a request carrying the
- * client secret. Prefers the `email` claim (present when the `email` scope
- * was requested and granted, learn.microsoft.com's ID token claims
+ * the access token. Its signature is deliberately not verified — see
+ * `decodeIdTokenClaims`. Prefers the `email` claim (present when the `email`
+ * scope was requested and granted, learn.microsoft.com's ID token claims
  * reference), and falls back to `preferred_username` — which for a
  * work/school or Outlook.com account is its sign-in address — since
  * Microsoft's own docs warn `email` "isn't guaranteed" to be present even
  * when requested.
  */
 function emailFromIdToken(idToken: string): string {
-  const segment = idToken.split(".")[1];
-  if (!segment) {
-    throw new MicrosoftTokenError(
-      "malformed_response",
-      "Microsoft's id_token had no payload segment.",
-    );
-  }
-  let claims: Record<string, unknown>;
-  try {
-    claims = JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    throw new MicrosoftTokenError(
-      "malformed_response",
-      "Microsoft's id_token payload was not JSON.",
-    );
-  }
+  const claims = decodeIdTokenClaims(TOKEN_EXCHANGE, idToken);
   const email = typeof claims.email === "string" && claims.email.length > 0 ? claims.email : null;
   const preferredUsername =
     typeof claims.preferred_username === "string" && claims.preferred_username.length > 0
@@ -278,7 +204,8 @@ function emailFromIdToken(idToken: string): string {
       : null;
   const address = email ?? preferredUsername;
   if (!address) {
-    throw new MicrosoftTokenError(
+    throw new OAuthTokenError(
+      TOKEN_EXCHANGE.providerName,
       "malformed_response",
       "Microsoft's id_token carried neither an email nor a preferred_username claim.",
     );
