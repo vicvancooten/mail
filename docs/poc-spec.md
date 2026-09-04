@@ -117,10 +117,12 @@ branch `prototype/triage-loop-ui`) and the scope contract:
 
 - Actions: archive, trash, read/unread, star, pin, label (apply / remove / filter-by only),
   auto-advance with a direction setting. All optimistic with visible rollback.
-- Two top-bar view modes — **Split** (default) and **List** — plus **Stream mode** as an
-  independent opt-in that remembers the underlying choice. One shared `useTriage` hook so actions
+- Two top-bar view modes — **Split** (default) and **List**. One shared `useTriage` hook so actions
   mean the same thing everywhere. Explicit prev/next chevrons alongside `j`/`k`/`h`/`l`; a complete
   keyboard-only inbox pass is an acceptance criterion.
+- **Stream** (CONTEXT.md) is not a third view mode: it's a full-screen processing stack over the
+  Inbox, its own route (`/mail/stream`), entered deliberately rather than toggled into. See
+  [#105](https://github.com/vicvancooten/mail/issues/105).
 - lucide-react + shadcn button conventions; the small animation token set from the prototype;
   keyboard-repeated paths deliberately un-animated.
 - Threaded list with time-grouping headers (header specifics are still fog on the map — pick
@@ -177,8 +179,8 @@ The Client half — surface, query language, result list — is [`docs/search-ux
 - Search is an **overlay** (revised by #71 —
   [ADR-0017](adr/0017-search-has-no-route.md); it was a route, `/search?q=`, before the Client had a
   router) that takes over the thread list **inside the current view mode** — one list renderer, and
-  triage-on-a-result needs no special case. Stream is suppressed inside search. Live-debounced from
-  3 chars; `Esc` clears then leaves, and leaving restores the origin view exactly.
+  triage-on-a-result needs no special case. Live-debounced from 3 chars; `Esc` clears then leaves,
+  and leaving restores the origin view exactly.
 - **The raw query text is the source of truth**; the parser is a pure `string -> filter fields`
   function and chips edit the string. Closed operator set: `from:` `to:` `has:attachment` `in:`
   `before:`/`after:` `label:`, implicit AND, `-` on operators only, unknown `foo:` falls through to

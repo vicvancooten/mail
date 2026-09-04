@@ -5,7 +5,7 @@
  * the one place the single `keydown` listener can live: which Message the
  * reader has scrolled to (its reply target) plus its two picker Popovers,
  * and the list's own collapse-aware selection mover. Rather than thread two
- * more props through `SplitView`/`ListView`/`StreamView`/`SearchResultsView`,
+ * more props through `SplitView`/`ListView`/`SearchResultsView`/`stream/StreamStack`,
  * the mounted surface publishes a small handle here and clears it on
  * unmount — the same module-level channel shape `command-palette/global-open.ts`
  * and `pwa/notification-router.ts` already use.

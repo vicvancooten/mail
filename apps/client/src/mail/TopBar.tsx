@@ -139,8 +139,9 @@ function SearchField({ search }: { search: TopBarSearch }) {
  * List and density are now `settings/ThisDeviceSection.tsx`'s Device
  * Preferences, direction is `settings/GeneralSection.tsx`'s synced
  * `Preference` — this toolbar no longer renders any of the three. Stream
- * mode stays here: its own Device Preference is retired by a separate
- * ticket (#105), not this one, so it keeps its toggle for now.
+ * (#105, CONTEXT.md) isn't a toggle any more either — it's `onOpenStream`,
+ * a plain navigation to its own full-screen route, entered deliberately
+ * rather than switched into.
  *
  * Compose is not here: the comp's Compose is the accent pill at the top of
  * the folder rail, and that is where `Sidebar.tsx` renders it. Nor is a
@@ -152,8 +153,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
  * screen reader and by test.
  */
 export function TopBar({
-  streamMode,
-  onStreamMode,
+  onOpenStream,
   accounts,
   accountScope,
   onAccountScopeChange,
@@ -163,8 +163,8 @@ export function TopBar({
   screener,
   search,
 }: {
-  streamMode: boolean;
-  onStreamMode: (enabled: boolean) => void;
+  /** Stream's own entry point (#105) — a plain navigation, run through the Action registry's `open-stream` (`MailSection.tsx`'s own `onOpenStream`). */
+  onOpenStream: () => void;
   accounts: MailAccount[];
   /** Account Scope (#73): which Mail Accounts the Thread list draws from. */
   accountScope: AccountScopeIds;
@@ -182,10 +182,10 @@ export function TopBar({
     <div className="mail-toolbar">
       <button
         type="button"
-        className={`toolbar-btn${streamMode ? " current" : ""}`}
-        onClick={() => onStreamMode(!streamMode)}
-        aria-label="Stream mode"
-        title="Stream mode — replaces Split/List with one-thread-at-a-time browsing"
+        className="toolbar-btn"
+        onClick={onOpenStream}
+        aria-label="Open Stream"
+        title="Stream — process the Inbox one Thread at a time, full screen"
       >
         <Layers size={15} />
       </button>

@@ -19,6 +19,7 @@ import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
 import { MailRoute } from "./MailRoute.js";
 import { RootLayout } from "./RootLayout.js";
+import { StreamRoute } from "./StreamRoute.js";
 
 /**
  * TanStack Router replaces the routerless view state (#71, part of #66): a
@@ -84,6 +85,20 @@ export const mailRoute = createRoute({
     thread: typeof search.thread === "string" ? search.thread : undefined,
   }),
   component: MailRoute,
+});
+
+/**
+ * Stream (#105, CONTEXT.md): "entered deliberately from Mail ... own route
+ * (`/mail/stream`) so reload restores it — Stream is a destination, unlike
+ * search (ADR-0017's test)." A sibling of `mailRoute` rather than a search
+ * param on it — Stream carries no selection of its own to mirror into the
+ * URL (`stream/StreamStack.tsx` "remembers nothing about layout"), so there
+ * is nothing for `validateSearch` to do here.
+ */
+export const streamRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mail/stream",
+  component: StreamRoute,
 });
 
 /**
@@ -183,6 +198,7 @@ export const tasksRoute = createRoute({
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
+  streamRoute,
   settingsRoute.addChildren([
     settingsIndexRoute,
     settingsGeneralRoute,

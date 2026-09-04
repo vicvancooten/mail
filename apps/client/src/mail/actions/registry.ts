@@ -9,6 +9,7 @@ import {
   CornerUpLeft,
   Forward,
   Keyboard,
+  Layers,
   MailOpen,
   PenSquare,
   Pin,
@@ -16,6 +17,7 @@ import {
   ReplyAll,
   Search,
   Shield,
+  SkipForward,
   Star,
   Tag,
   Trash2,
@@ -278,6 +280,34 @@ export const ACTIONS: readonly Action[] = [
     availability: (ctx) =>
       ctx.screenerCount > 0 ? available : unavailable("Nothing held right now."),
     run: (ctx) => ctx.onOpenScreener(),
+  },
+  // Stream (#105, CONTEXT.md): entered deliberately, never a toggle — the
+  // Palette command and Mail's own entry point (`TopBar.tsx`) both run this
+  // one action. Unbound, like Screener above: no key was carved out for it.
+  {
+    id: "open-stream",
+    label: "Open Stream",
+    icon: Layers,
+    section: "Navigation",
+    binding: null,
+    surfaces: [],
+    availability: () => available,
+    run: (ctx) => ctx.onOpenStream(),
+  },
+  // Skip (CONTEXT.md's Stream): only ever available while Stream's own
+  // stack is mounted (`ctx.streamSkip`) — everywhere else this is a
+  // disabled Palette row explaining why, same as Snooze/Label without a
+  // picker in reach. Also what makes right-clicking a Stream card show
+  // Skip in its menu, for free, alongside Done/Trash/Snooze/Reply.
+  {
+    id: "stream-skip",
+    label: "Skip",
+    icon: SkipForward,
+    section: "Triage",
+    binding: { keys: ["n"], display: "N" },
+    surfaces: ["menu"],
+    availability: (ctx) => (ctx.streamSkip ? available : unavailable("Only available in Stream.")),
+    run: (ctx) => ctx.streamSkip?.(),
   },
 
   {

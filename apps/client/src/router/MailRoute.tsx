@@ -45,12 +45,17 @@ export function MailRoute() {
     [navigate],
   );
 
+  const onOpenStream = useCallback(() => {
+    void navigate({ to: "/mail/stream" });
+  }, [navigate]);
+
   return (
     <MailSection
       initialLabelFilter={search.label ?? null}
       initialFolder={search.folder}
       initialThreadId={search.thread ?? null}
       onLocationChange={onLocationChange}
+      onOpenStream={onOpenStream}
     />
   );
 }
