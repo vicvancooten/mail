@@ -23,9 +23,19 @@ export function fetchProviderAvailability(): Promise<ProviderAvailabilityListRes
   );
 }
 
-/** `POST /auth/oauth/:provider/start`: records the sign-in attempt and answers with where to send the browser. */
-export function startProviderSignIn(provider: Provider): Promise<StartProviderSignInResponse> {
-  return postJson(`/auth/oauth/${provider}/start`, {}, (data) =>
-    startProviderSignInResponseSchema.parse(data),
+/**
+ * `POST /auth/oauth/:provider/start`: records the sign-in attempt and
+ * answers with where to send the browser. Naming `mailAccountId` (#119)
+ * starts a `reauth` attempt instead of `add_mail_account` — "sign in again"
+ * on that Mail Account, or a password account switching to a Grant.
+ */
+export function startProviderSignIn(
+  provider: Provider,
+  options?: { mailAccountId?: string },
+): Promise<StartProviderSignInResponse> {
+  return postJson(
+    `/auth/oauth/${provider}/start`,
+    options?.mailAccountId ? { mailAccountId: options.mailAccountId } : {},
+    (data) => startProviderSignInResponseSchema.parse(data),
   );
 }

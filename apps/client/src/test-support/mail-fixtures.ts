@@ -10,6 +10,7 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     imap: { host: "imap.example.test", port: 993, security: "tls" },
     smtp: { host: "smtp.example.test", port: 465, security: "tls" },
     status: "active",
+    authKind: { kind: "password" },
     sync: { state: "idle", lastProgressAt: null, lastError: null },
     indexWatermark: { coveredSince: null, complete: false },
     signature: null,

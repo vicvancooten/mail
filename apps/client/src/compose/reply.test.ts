@@ -16,6 +16,7 @@ function makeAccount(overrides: Partial<MailAccount> = {}): MailAccount {
     imap: { host: "imap.example.test", port: 993, security: "tls" },
     smtp: { host: "smtp.example.test", port: 587, security: "starttls" },
     status: "active",
+    authKind: { kind: "password" },
     sync: { state: "idle", lastProgressAt: null, lastError: null },
     indexWatermark: { coveredSince: null, complete: false },
     signature: null,

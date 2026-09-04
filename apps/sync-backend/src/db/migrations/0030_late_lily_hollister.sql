@@ -1,0 +1,2 @@
+ALTER TABLE "oauth_sign_in_attempts" ADD COLUMN "mail_account_id" text;--> statement-breakpoint
+ALTER TABLE "oauth_sign_in_attempts" ADD CONSTRAINT "oauth_sign_in_attempts_mail_account_id_mail_accounts_id_fk" FOREIGN KEY ("mail_account_id") REFERENCES "public"."mail_accounts"("id") ON DELETE cascade ON UPDATE no action;

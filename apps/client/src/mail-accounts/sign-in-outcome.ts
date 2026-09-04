@@ -24,15 +24,24 @@ const MESSAGES: Record<OAuthSignInOutcome, string> = {
   provider_error: "The provider couldn't complete the sign-in. Nothing was added; try again.",
   provider_not_registered:
     "That provider is no longer set up on this instance. Ask the Owner, then try again.",
+  reauth_succeeded: "Signed in again. This Mail Account is syncing normally now.",
+  reauth_address_mismatch:
+    "That account doesn't match this Mail Account's address. Sign in with the matching account instead.",
   // ADR-0021: an M365 tenant blocked this — never worth a retry, so unlike
   // every failure above, this message doesn't invite one.
   tenant_refused: "Refused by your organisation. Ask your IT admin about IMAP access or consent.",
 };
 
+/** The outcomes that leave the account list stale — a new row, or a replaced credential. */
+const SUCCESS_OUTCOMES: ReadonlySet<OAuthSignInOutcome> = new Set([
+  "signed_in",
+  "reauth_succeeded",
+]);
+
 export interface SignInOutcome {
   outcome: OAuthSignInOutcome;
   message: string;
-  /** The only outcome the account list needs reloading for. */
+  /** The only outcomes the account list needs reloading for. */
   succeeded: boolean;
 }
 
@@ -43,7 +52,7 @@ export function readSignInOutcome(search: string): SignInOutcome | null {
     return null;
   }
   const outcome = value as OAuthSignInOutcome;
-  return { outcome, message: MESSAGES[outcome], succeeded: outcome === "signed_in" };
+  return { outcome, message: MESSAGES[outcome], succeeded: SUCCESS_OUTCOMES.has(outcome) };
 }
 
 /**

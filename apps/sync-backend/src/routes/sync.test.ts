@@ -165,6 +165,8 @@ describe("POST /sync", () => {
       const firstBody = first.json();
       const delta = firstBody.user.MailAccount as MailAccountDelta;
       expect(delta.created.map((row) => row.id)).toEqual([accountId]);
+      // The delta endpoint exposes `authKind`, never the credential (#119).
+      expect(delta.created[0]).toMatchObject({ authKind: { kind: "password" } });
       expect(delta.updated).toEqual([]);
       expect(delta.destroyed).toEqual([]);
       expect(delta.hasMore).toBe(false);

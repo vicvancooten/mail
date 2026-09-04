@@ -2,6 +2,8 @@ import type { MailAccount } from "@mail/shared";
 import { useCallback, useEffect, useState } from "react";
 import { fetchMailAccounts } from "../api/mail-accounts.js";
 import { AddMailAccountForm } from "./AddMailAccountForm.js";
+import { ProviderReauthAction } from "./ProviderReauthAction.js";
+import { PROVIDER_LABEL } from "./provider-labels.js";
 import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
 import { clearSignInOutcome, readSignInOutcome, type SignInOutcome } from "./sign-in-outcome.js";
 
@@ -95,10 +97,33 @@ export function MailAccountsSection({ isOwner = false }: { isOwner?: boolean } =
                   <p role="status">
                     Needs Reauth — the mail server rejected the stored credential.
                   </p>
-                  <ReauthMailAccountForm mailAccountId={account.id} onResumed={reload} />
+                  {account.authKind.kind === "oauth" ? (
+                    // Never a password form (#119, ADR-0021 user story 27):
+                    // recovery matches how the Grant was set up.
+                    <ProviderReauthAction
+                      mailAccountId={account.id}
+                      provider={account.authKind.provider}
+                      label={`Sign in with ${PROVIDER_LABEL[account.authKind.provider]} again`}
+                      isOwner={isOwner}
+                    />
+                  ) : (
+                    <ReauthMailAccountForm mailAccountId={account.id} onResumed={reload} />
+                  )}
                 </>
               ) : (
                 <span> — connected</span>
+              )}
+              {account.authKind.kind === "password" && (
+                // The same door a Gmail app-password account uses to switch
+                // to a Grant on this same Mail Account (#119, ADR-0021 user
+                // story 29) — offered regardless of status, not only Needs
+                // Reauth.
+                <ProviderReauthAction
+                  mailAccountId={account.id}
+                  provider="google"
+                  label="Switch to Google sign-in"
+                  isOwner={isOwner}
+                />
               )}
             </li>
           ))}
