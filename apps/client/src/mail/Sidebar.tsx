@@ -142,7 +142,7 @@ function RailContents({
       <SidebarMenu className="nav-list">
         {FOLDER_ORDER.map((key) => {
           const count = key === "screener" ? screenerCount : key === "drafts" ? draftsCount : 0;
-          const active = labelFilter === null && folder === key;
+          const active = labelFilter === null && gmailLabelFilter === null && folder === key;
           const Icon = FOLDER_ICONS[key];
           return (
             <SidebarMenuItem key={key}>
