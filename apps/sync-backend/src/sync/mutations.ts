@@ -25,13 +25,21 @@ import {
   threads,
   users,
 } from "../db/schema.js";
-import { approveSender, blockSender, denySender, unblockSender } from "../gatekeeper/decisions.js";
+import {
+  approveSender,
+  blockSender,
+  denySender,
+  spamSender,
+  unblockAndRestore,
+  unblockSender,
+} from "../gatekeeper/decisions.js";
 import {
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
+import { restoreThreadsToInbox } from "./restore-to-inbox.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 
 /**
@@ -113,7 +121,9 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
  * synchronous `inInbox: false` ack — a permanent rejection for a Thread this
  * account no longer has, same as every intent above, and also for a
  * non-future `until` (`invalid_snooze_time`), since a Thread can't be
- * snoozed into the past.
+ * snoozed into the past. `restoreToInbox`/`unsnooze` (#95, ADR-0019) are
+ * their real inverses — Undo's own intents, applied through this exact same
+ * Thread lookup and rejection, never a queue cancellation.
  */
 async function applyIntent(
   db: Db,
@@ -142,7 +152,9 @@ async function applyIntent(
     intent.type === "approveSender" ||
     intent.type === "denySender" ||
     intent.type === "blockSender" ||
-    intent.type === "unblockSender"
+    intent.type === "spamSender" ||
+    intent.type === "unblockSender" ||
+    intent.type === "unblockAndRestore"
   ) {
     return applyGatekeeperIntent(db, mailAccountId, intent);
   }
@@ -231,6 +243,25 @@ async function applyIntent(
       return { ok: true };
     }
 
+    case "restoreToInbox":
+      // Undo's own real inverse of `archive`/`trash` (#95, ADR-0019) — the
+      // Thread lookup above already confirmed it belongs to this account,
+      // so this is a thin call over the shared restore step.
+      await restoreThreadsToInbox(db, mailAccountId, [intent.threadId]);
+      return { ok: true };
+
+    case "unsnooze":
+      // Undo's own real inverse of `snooze` (#95) — an App Feature exactly
+      // like `snooze` itself, so the Thread row is the whole of it, no
+      // protocol write. A Thread that was never snoozed (Undo racing the
+      // wake sweep, say) is a harmless no-op, same tolerance `removeLabel`
+      // gives a name that was never applied.
+      await db
+        .update(threads)
+        .set({ inInbox: true, snoozeUntil: null })
+        .where(eq(threads.id, intent.threadId));
+      return { ok: true };
+
     case "applyLabel": {
       const name = normalizeLabelName(intent.name);
       if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
@@ -271,9 +302,10 @@ async function applyIntent(
 }
 
 /**
- * The four Gatekeeper intents (#55, poc-spec.md §Gatekeeper v1). Thin
- * dispatch over `gatekeeper/decisions.ts`, which owns what each decision
- * actually does to the held Threads and to the Verdict table.
+ * The Gatekeeper intents (#55, #102, poc-spec.md §Gatekeeper v1, plus #95's
+ * `unblockAndRestore`). Thin dispatch over `gatekeeper/decisions.ts`, which
+ * owns what each decision actually does to the held Threads and to the
+ * Verdict table.
  *
  * The only rejection any of them can produce is `barred_verdict_domain` — a
  * domain-scoped decision aimed at a public provider (`@mail/shared`'s
@@ -293,8 +325,12 @@ async function applyGatekeeperIntent(
       return denySender(db, mailAccountId, intent.sender);
     case "blockSender":
       return blockSender(db, mailAccountId, intent.sender);
+    case "spamSender":
+      return spamSender(db, mailAccountId, intent.sender);
     case "unblockSender":
       return unblockSender(db, mailAccountId, intent.sender);
+    case "unblockAndRestore":
+      return unblockAndRestore(db, mailAccountId, intent.sender, intent.threadIds);
   }
 }
 

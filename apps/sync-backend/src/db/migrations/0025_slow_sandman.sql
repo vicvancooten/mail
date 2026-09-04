@@ -1,0 +1,1 @@
+ALTER TABLE "gatekeeper_verdicts" ADD COLUMN "spam" boolean DEFAULT false NOT NULL;

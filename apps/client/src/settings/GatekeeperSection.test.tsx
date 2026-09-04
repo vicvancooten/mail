@@ -77,6 +77,7 @@ describe("GatekeeperSection", () => {
             scope: "address",
             value: "spammer@example.test",
             source: "screener",
+            spam: false,
             decidedAt: "2026-06-01T00:00:00.000Z",
           },
         ],
@@ -96,6 +97,26 @@ describe("GatekeeperSection", () => {
       type: "unblockSender",
       sender: { scope: "address", value: "spammer@example.test" },
     });
+  });
+
+  it("marks a Spam-blocked sender in the list (#102)", async () => {
+    vi.mocked(gatekeeperApi.fetchGatekeeperStatus).mockResolvedValue(
+      status({
+        gatekeeper: { enabled: true, cutoff: "2026-06-01T00:00:00.000Z" },
+        blocked: [
+          {
+            scope: "address",
+            value: "villain@example.test",
+            source: "screener",
+            spam: true,
+            decidedAt: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    render(<GatekeeperSection account={makeMailAccount("acct-1")} />);
+    expect(await screen.findByText(/Spam/)).toBeDefined();
   });
 
   it("Reset asks for confirmation before calling the API", async () => {

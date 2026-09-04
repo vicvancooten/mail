@@ -4,6 +4,7 @@ import {
   Archive,
   Clock,
   Inbox,
+  Layers,
   PanelLeft,
   Pencil,
   Pin,
@@ -51,6 +52,13 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * count ever render one, and only once there's something to act on — a
  * `0` renders no badge at all.
  *
+ * The Stream entry (#105, CONTEXT.md): started life in #96 as an interim
+ * Split/List toggle standing in for `mail/TopBar.tsx`'s old one; now a plain
+ * navigation to Stream's own full-screen route (`router/routes.tsx#streamRoute`)
+ * — entered deliberately, never switched into — so it deliberately isn't
+ * styled as a permanent rail entry (no icon in `FOLDER_ICONS`, no count),
+ * just a plain button beside Compose.
+ *
  * Collapses to an icon-only rail on desktop (#93's own acceptance box; #99's
  * "This device" page toggle is the other place that flips it) —
  * `SidebarMenuButton`'s own `tooltip` prop names each entry while
@@ -85,6 +93,8 @@ interface SidebarProps {
   onCompose: () => void;
   screenerCount: number;
   draftsCount: number;
+  /** Stream's own entry point (#105) — a plain navigation, run through the Action registry's `open-stream` (`MailSection.tsx`'s own `onOpenStream`). */
+  onOpenStream: () => void;
 }
 
 function RailContents({
@@ -96,6 +106,7 @@ function RailContents({
   onCompose,
   screenerCount,
   draftsCount,
+  onOpenStream,
   collapsed,
 }: SidebarProps & { collapsed: boolean }) {
   return (
@@ -109,6 +120,16 @@ function RailContents({
       >
         <Plus size={14} />
         {collapsed ? null : "Compose"}
+      </button>
+      <button
+        type="button"
+        className="nav-item stream-toggle"
+        onClick={onOpenStream}
+        aria-label="Open Stream"
+        title="Stream — process the Inbox one Thread at a time, full screen"
+      >
+        <Layers size={15} />
+        {collapsed ? null : <span className="nav-label">Stream</span>}
       </button>
       <SidebarMenu className="nav-list">
         {FOLDER_ORDER.map((key) => {

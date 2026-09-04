@@ -49,7 +49,35 @@
 .header-left {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-width: 0;
+}
+
+/* The home mark (#96): the mark + wordmark, a plain `Link` to `/mail`,
+   distinct from the App Switcher beside it. Hover reads the same as every
+   other header control — a soft fill, never an underline. */
+.home-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+  flex: none;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.home-link:hover {
+  background: var(--color-hover);
+}
+
+.wordmark {
+  font-weight: 650;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  white-space: nowrap;
 }
 
 .header-center {
@@ -112,11 +140,10 @@
   background: var(--color-hover);
 }
 
-/* The hub mark: the identity mark on a soft tile, carrying a badge for
-   whichever App is current — the shell's one piece of brand, and the only
-   rounded-square in a header otherwise made of pills. */
+/* The home mark (#96, `HomeLink.tsx`): the identity mark on a soft tile —
+   the shell's one piece of brand, and the only rounded-square in a header
+   otherwise made of pills. */
 .hub-mark {
-  position: relative;
   width: 38px;
   height: 38px;
   border-radius: var(--radius-panel);
@@ -128,26 +155,19 @@
   flex: none;
 }
 
-.app-badge {
-  position: absolute;
-  bottom: -4px;
-  right: -4px;
-  width: 19px;
-  height: 19px;
-  border-radius: 50%;
+/* The App Switcher's own compact tile (#96): the current App's icon, no
+   longer riding on the home mark as an absolute-positioned badge now that
+   the two are separate controls. */
+.app-tile {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
   background: var(--color-accent-soft);
   color: var(--color-accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Knocked out of the header ground rather than outlined, so the badge
-     reads as sitting on top of the mark instead of drawn onto it. */
-  box-shadow: 0 0 0 2.5px var(--color-surface-strong);
-  transition: box-shadow var(--dur-press) var(--ease);
-}
-
-.switcher-compact-btn:hover .app-badge {
-  box-shadow: 0 0 0 2.5px var(--color-hover);
+  flex: none;
 }
 
 .switcher-compact-btn .chev {
@@ -205,8 +225,10 @@
 /* ---------- the global search entry ---------- */
 
 /* A button, not an input: this raises the Command Palette (the direction
-   contract's signature interaction), and Mail's own text field lives in
-   Mail's toolbar. */
+   contract's signature interaction). Mail's own real text field
+   (`mail/search/SearchField.tsx`) lives in its own search bar below the Hub
+   (`mail/mail.css`'s `.mail-search-bar`, #96) — Client chrome stays a
+   trigger for every App, the way `CONTEXT.md`'s Hub entry describes it. */
 .global-search {
   width: 100%;
   max-width: 560px;
@@ -249,6 +271,85 @@
   background: var(--color-surface);
   border-radius: var(--radius-sm);
   padding: 2px 7px;
+}
+
+/* ---------- Account Scope (#73, moved into the Hub in #96) ---------- */
+
+/* Stacked round avatars that disclose a checkbox per Mail Account — the
+   multi-select the single `<select>` it replaced (`AccountSwitcher`, #40)
+   couldn't express. Was `mail/mail.css`'s own block until #96 moved the
+   control itself (`mail/AccountScope.tsx`) from `mail/TopBar.tsx` into
+   `header-right` — Client chrome per `CONTEXT.md`'s Hub entry, so its CSS
+   lives with the rest of the shell now too. */
+.account-scope {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.account-scope-toggle {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.account-scope-toggle:hover,
+.account-scope-toggle[aria-expanded="true"] {
+  background: var(--color-hover);
+}
+
+.account-scope-avatars {
+  display: flex;
+}
+
+/* Each tile is knocked out of the header's own ground, so a stack of them
+   reads as overlapping discs rather than as one blurred shape. */
+.account-scope-avatars .mail-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+  box-shadow: 0 0 0 2px var(--color-surface-strong);
+}
+
+.account-scope-avatars .mail-avatar-wrap + .mail-avatar-wrap {
+  margin-left: -8px;
+}
+
+.account-scope-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+}
+
+.account-scope-panel legend {
+  padding: 0 0 4px;
+  color: var(--color-ink-faint);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.account-scope-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-ink);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* ---------- header-right ---------- */
@@ -298,10 +399,11 @@
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
-/* Phone: the header keeps its shape — the switcher, the search entry and the
-   avatar are all the shell needs at any width, which is why there is no
-   bottom tab bar anywhere in this tree. Only the search entry's placeholder
-   text has to give way, so the ⌘K hint doesn't crowd the field. */
+/* Phone: the header keeps its shape — the home mark, the switcher, the
+   search entry and the avatar are all the shell needs at any width, which is
+   why there is no bottom tab bar anywhere in this tree. The wordmark and the
+   search entry's placeholder text give way, so the switcher and the ⌘K hint
+   don't crowd the row. */
 @media (max-width: 640px) {
   .app-header {
     height: 54px;
@@ -309,6 +411,10 @@
     padding: 0 10px;
     padding-left: calc(10px + env(safe-area-inset-left));
     padding-right: calc(10px + env(safe-area-inset-right));
+  }
+
+  .wordmark {
+    display: none;
   }
 
   .global-search {
@@ -350,11 +456,40 @@
    header height. Every route's own top-level element is a `height: 100%;
    min-height: 0` pane (`.mail-section`, `.settings-shell`,
    `.app-placeholder`), so this only needs to bound the space they render
-   into. */
+   into.
+
+   The App on a raised card (#96, grill Q20/Q26/Q35–Q37): the viewport takes
+   the Hub's own ground colour so the card reads as sitting *on* the Hub
+   rather than beside it, with `.app-card` supplying the corners/shadow/inset
+   at ≥701px and nothing at all on the phone — full-bleed, no inset, no
+   radius, no shadow, matching the phone rule everywhere else in this app
+   (`Sidebar.tsx`'s own 700px breakpoint doc comment). The route's own
+   element still paints its own `--color-bg` fill; `.app-card`'s
+   `overflow: hidden` is what clips that fill to the rounded corners rather
+   than every route needing its own radius. */
 .app-viewport {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  background: var(--color-surface-strong);
+}
+
+.app-card {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (min-width: 701px) {
+  .app-viewport {
+    padding: 12px;
+  }
+
+  .app-card {
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-card);
+  }
 }
 
 /* One of the three reserved Apps (#72) — finished chrome around an empty

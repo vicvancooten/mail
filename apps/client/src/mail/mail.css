@@ -67,174 +67,23 @@
 }
 
 /* ============================================================================
-   MAIL'S TOOLBAR — the App's own view controls (#86)
-   The comp's global header carries four things (App Switcher, one centred
-   search entry, appearance, avatar) and none of the controls below; see
-   `TopBar.tsx`'s own doc comment for why they live in a second, quieter bar
-   here instead. The control language is the comp's: `--radius-md` icon
-   buttons, transparent at rest, `--color-hover` under the pointer,
-   `--color-accent-soft` with accent ink when current. No compartments, no
-   dividers, no uppercase letterspaced plates.
+   MAIL'S SEARCH BAR (#96)
+   `mail/TopBar.tsx` is gone entirely — Account Scope moved into the Hub
+   (`router/shell.css`'s own Account Scope block), the label filter and
+   Screener chip were dropped as redundant with the Sidebar's Labels/Screener
+   entries, and Stream's toggle moved to the Sidebar (`.stream-toggle`
+   below). All that's left here is the search field itself
+   (`search/SearchField.tsx`), so this is a slim strip around one control,
+   not the row of view-mode toggles the ticket's acceptance box removes.
    ========================================================================= */
 
-.mail-toolbar {
+.mail-search-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 8px 14px;
   padding-left: calc(14px + env(safe-area-inset-left));
   padding-right: calc(14px + env(safe-area-inset-right));
   background: var(--color-bg);
-}
-
-.toolbar-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-
-.toolbar-btn:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.toolbar-btn.current {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-
-/* The label filter (#43): a field, not a routing slip — same fill as every
-   other control's rest state, and it only exists once the account has a
-   Label to filter by. */
-.toolbar-select {
-  height: 32px;
-  max-width: 180px;
-  padding: 0 8px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--color-field);
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.toolbar-select:hover {
-  background: var(--color-field-strong);
-}
-
-/* The Screener entry (#56): the one place `--color-warn` reaches the triage
-   screen, as a soft tinted chip — a count worth a click, not an alert. */
-.screener-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
-  height: 32px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: color-mix(in oklab, var(--color-warn) 15%, transparent);
-  color: var(--color-warn);
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 12.5px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.screener-chip:hover {
-  background: color-mix(in oklab, var(--color-warn) 24%, transparent);
-}
-
-.toolbar-spacer {
-  flex: 1;
-}
-
-/* Account Scope (#73): stacked round avatars that disclose a checkbox per
-   Mail Account — the multi-select the single `<select>` it replaced
-   (`AccountSwitcher`, #40) couldn't express. */
-.account-scope {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.account-scope-toggle {
-  display: flex;
-  align-items: center;
-  padding: 3px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  cursor: pointer;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.account-scope-toggle:hover,
-.account-scope-toggle[aria-expanded="true"] {
-  background: var(--color-hover);
-}
-
-.account-scope-avatars {
-  display: flex;
-}
-
-/* Each tile is knocked out of the bar's own ground, so a stack of them
-   reads as overlapping discs rather than as one blurred shape. */
-.account-scope-avatars .mail-avatar {
-  width: 24px;
-  height: 24px;
-  font-size: 9px;
-  box-shadow: 0 0 0 2px var(--color-bg);
-}
-
-.account-scope-avatars .mail-avatar-wrap + .mail-avatar-wrap {
-  margin-left: -8px;
-}
-
-.account-scope-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 220px;
-  margin: 0;
-  padding: 10px 12px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-overlay);
-}
-
-.account-scope-panel legend {
-  padding: 0 0 4px;
-  color: var(--color-ink-faint);
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.account-scope-panel label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-ink);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 /* ============================================================================
@@ -404,6 +253,14 @@
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* Stream's own entry point (#105, started as an interim Split/List toggle
+   in #96): same `.nav-item` control language, set slightly apart from the
+   folder list below it since it navigates to a different route rather than
+   selecting among these destinations. */
+.stream-toggle {
+  margin: 0 0 10px;
 }
 
 .nav-label {
@@ -2010,11 +1867,11 @@
    SEARCH (#51)
    ========================================================================= */
 
-/* Mail's own search field (#51): a real text input, unlike the header's
-   Palette entry beside it. Same fill language as the toolbar's other
-   controls — no outline at rest, `--color-field-strong` once it holds
-   focus, and a pill so it reads as a sibling of the header's own search
-   entry. */
+/* Mail's own search field (#51): a real text input, unlike the Hub's
+   Palette-trigger entry above it. No outline at rest, `--color-field-strong`
+   once it holds focus, and a pill so it reads as a sibling of the Hub's own
+   search entry despite living in a different bar (`.mail-search-bar`,
+   #96). */
 .mail-search-field {
   position: relative;
   display: flex;
@@ -2625,6 +2482,36 @@ button.search-chip-toggle.on {
   text-overflow: ellipsis;
 }
 
+/* View (#102): a quiet affordance to read a stranger's held mail before
+   deciding — same button geometry as Approve/Deny/Block so it sits in the
+   same row without its own bespoke sizing, but never filled or dangerous;
+   it's not a decision. */
+.screener-view {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-view:hover,
+.screener-view:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .screener-row-actions {
   display: flex;
   align-items: center;
@@ -2670,12 +2557,50 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
-.screener-row-actions button.screener-block {
+/* Block's split menu (#102): the split button reads as one piece — the
+   default action's own pill shape squares off on the side it meets the
+   chevron, which keeps its own pill shape and the same danger hover, so the
+   two halves never look like separate controls that happen to be adjacent. */
+.screener-block-split {
+  display: inline-flex;
+  align-items: center;
   margin-left: 10px;
+}
+
+.screener-block-split .screener-block {
+  margin-left: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .screener-row-actions button.screener-block:hover,
 .screener-row-actions button.screener-block:focus-visible {
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.screener-block-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-block-menu-trigger:hover,
+.screener-block-menu-trigger:focus-visible,
+.screener-block-menu-trigger[data-state="open"] {
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
 }
@@ -2710,7 +2635,8 @@ button.search-chip-toggle.on {
   color: var(--color-accent);
 }
 
-.screener-verdict[data-verdict="Blocked"] {
+.screener-verdict[data-verdict="Blocked"],
+.screener-verdict[data-verdict="Spam"] {
   color: var(--color-danger);
 }
 
@@ -2736,6 +2662,87 @@ button.search-chip-toggle.on {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ---------- the View dialog (#102) --------------------------------------
+ * "the decision actions on top, then a stack ... of that sender's held
+ * Threads" (the ticket's own words) — the dialog is a taller, wider Dialog
+ * than shadcn's own default so a real message body has room, and the
+ * Threads scroll inside it rather than the page growing without bound. */
+.screener-view-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 85vh;
+}
+
+.screener-view-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.screener-view-sender {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.screener-view-address {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.screener-view-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.screener-view-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: var(--hairline) solid var(--color-border);
+}
+
+.screener-view-thread:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.screener-view-message-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.screener-view-message-subject {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screener-view-message-date {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.screener-view-thread-loading,
+.screener-view-thread-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink-muted);
 }
 
 /* ---------- Gatekeeper settings live in the ordinary frame, not the bay --- */
@@ -2781,6 +2788,11 @@ button.search-chip-toggle.on {
 .gatekeeper-reset-confirm {
   color: var(--color-danger);
   font-size: 13px;
+}
+
+.gatekeeper-blocked-spam {
+  color: var(--color-ink-muted);
+  font-size: 12px;
 }
 
 /* ============================================================================
@@ -2935,7 +2947,7 @@ button.search-chip-toggle.on {
     flex-basis: 100%;
   }
 
-  .screener-row-actions button.screener-block {
+  .screener-block-split {
     margin-left: auto;
   }
 
@@ -2998,32 +3010,14 @@ button.search-chip-toggle.on {
 }
 
 /* ============================================================================
-   THE TOOLBAR AT PHONE WIDTH
-   Mail's toolbar is a run of controls and a phone cannot hold all of them on
-   one line. It wraps rather than scrolling sideways: a horizontal strip hid
-   the search field entirely off the right edge with no affordance saying so.
+   THE SEARCH BAR AT PHONE WIDTH
    ========================================================================= */
 
 @media (max-width: 700px) {
-  .mail-toolbar {
-    flex-wrap: wrap;
-    row-gap: 8px;
+  .mail-search-bar {
     /* Room for the folder-rail toggle, which is absolutely positioned into
        the same top-left corner at this width. */
     padding-left: calc(48px + env(safe-area-inset-left));
-  }
-
-  /* Search takes the second row whole — the toolbar is the most expensive
-     chrome on the surface that can least afford height, so nothing shares
-     it. */
-  .mail-search-field {
-    order: 10;
-    flex: 1 1 100%;
-    max-width: none;
-  }
-
-  .toolbar-spacer {
-    display: none;
   }
 }
 

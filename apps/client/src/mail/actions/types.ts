@@ -199,11 +199,14 @@ export function withDraft(ctx: ActionContext, target: DraftActionTarget): Action
   return { ...ctx, draft: target };
 }
 
+/** Undo's own no-op — what the archive/trash/snooze no-ops below return, since real ones return an Undo handle (#95, ADR-0019). */
+const NOOP_UNDO = () => {};
+
 /** Every `Triage` method as a no-op — for a surface that only reads an action's `label`, `icon`, `binding` and `section` and never runs one (the Shortcut Sheet), and for tests. */
 export const NOOP_TRIAGE: Triage = {
-  archive: () => {},
-  trash: () => {},
-  snooze: () => {},
+  archive: () => NOOP_UNDO,
+  trash: () => NOOP_UNDO,
+  snooze: () => NOOP_UNDO,
   toggleStar: () => {},
   toggleRead: () => {},
   togglePin: () => {},

@@ -21,7 +21,7 @@ import { useCallback, useState } from "react";
  * fixed was `CommandPalette.tsx` conflating the two by calling `open()`
  * (which set both) on the very first keystroke. `active`, below, stays the
  * public name for "the results view is showing" — every existing caller
- * (`MailSection.tsx`, `TopBar.tsx`) already treated it that way; `engaged`
+ * (`MailSection.tsx`, `search/SearchField.tsx`) already treated it that way; `engaged`
  * is the new, narrower flag only `useSearchState`'s own round trip and
  * `engage()`'s callers need to know about.
  */

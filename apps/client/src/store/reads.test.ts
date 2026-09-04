@@ -422,6 +422,75 @@ describe("readThreadWindow — Snooze (#76)", () => {
   });
 });
 
+describe("readThreadWindow — Undo (#95, ADR-0019)", () => {
+  it("reappears in the Inbox the instant restoreToInbox is queued, undoing an archive offline included", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { inInbox: false, folderRole: "archive" })] }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+
+    await enqueueMutation({ type: "restoreToInbox", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
+  });
+
+  it("reappears in the Inbox and drops out of Snoozed the instant unsnooze is queued", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { inInbox: false, snoozeUntil: "2026-06-02T08:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toHaveLength(1);
+
+    await enqueueMutation({ type: "unsnooze", threadId: "t1" }, "acct-1");
+
+    expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
+    expect((await readThreadWindow("acct-1", { view: "snoozed" })).threads).toEqual([]);
+  });
+
+  it("restores every Thread unblockAndRestore names to the Inbox — Undo of a Screener Deny/Block", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", {
+            inInbox: false,
+            folderRole: "trash",
+            heldSender: "stranger@example.test",
+          }),
+          makeThread("t2", "acct-1", {
+            inInbox: false,
+            folderRole: "trash",
+            heldSender: "stranger@example.test",
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+
+    await enqueueMutation(
+      {
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "stranger@example.test" },
+        threadIds: ["t1", "t2"],
+      },
+      "acct-1",
+    );
+
+    const restored = (await readThreadWindow("acct-1")).threads;
+    expect(restored.map((thread) => thread.id).sort()).toEqual(["t1", "t2"]);
+    expect(restored.every((thread) => thread.heldSender === null)).toBe(true);
+  });
+});
+
 describe("readLabels", () => {
   it("returns this Mail Account's Labels, name-ordered", async () => {
     await applyLabelDelta(

@@ -420,7 +420,7 @@ export function useSearchState(
       onFieldChange("");
       return;
     }
-    // The field blurs right behind this (`TopBar.tsx`'s own Escape
+    // The field blurs right behind this (`search/SearchField.tsx`'s own Escape
     // handler), which would otherwise re-commit the empty query and undo
     // the very `overlay.leave()` just made — `justLeftRef` is a ref rather
     // than state exactly so the very next synchronous call sees it, ahead
@@ -562,17 +562,17 @@ export function wrapSearchTriage(
     archive: (threadId) => {
       materialize(threadId);
       onActed(threadId);
-      triage.archive(threadId);
+      return triage.archive(threadId);
     },
     trash: (threadId) => {
       materialize(threadId);
       onActed(threadId);
-      triage.trash(threadId);
+      return triage.trash(threadId);
     },
     snooze: (threadId, until) => {
       materialize(threadId);
       onActed(threadId);
-      triage.snooze(threadId, until);
+      return triage.snooze(threadId, until);
     },
     toggleStar: (threadId) => {
       materialize(threadId);
