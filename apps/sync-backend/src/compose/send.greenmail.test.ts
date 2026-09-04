@@ -266,4 +266,26 @@ describe("the send path against GreenMail", () => {
     expect(await sourcesIn(o, "INBOX")).toHaveLength(1);
     await expect(o.status("Sent", { messages: true })).rejects.toThrow();
   });
+
+  it("skips the Sent APPEND on a Gmail account, but the send still completes (ADR-0020, #123)", async () => {
+    account = await createTestMailAccount(db, {
+      serverKind: "gmail",
+      emailAddress: `send-gmail-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@mail.test`,
+      imapHost: IMAP_HOST,
+      imapPort: IMAP_PORT,
+      smtpPort: SMTP_PORT,
+    });
+    const o = await connectOther();
+    await seedFolder(o, "Sent", "sent");
+    const id = await insertSend(0, "Gmail files its own Sent copy");
+
+    expect(await realSweep()).toMatchObject({ sent: 1 });
+
+    const [row] = await db.select().from(compositions).where(eq(compositions.id, id));
+    expect(row?.status).toBe("sent");
+    // Gmail files the SMTP-submitted mail into Sent itself; the Sync Backend
+    // never APPENDs a second copy.
+    expect(await sourcesIn(o, "Sent")).toHaveLength(0);
+    expect(await sourcesIn(o, "INBOX")).toHaveLength(1);
+  });
 });

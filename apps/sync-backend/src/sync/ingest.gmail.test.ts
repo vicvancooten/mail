@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { ComposeDocument } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FetchMessageObject } from "imapflow";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { folders, messages } from "../db/schema.js";
+import { compositions, correspondents, folders, messages } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
+import { recordCorrespondentActivity } from "./correspondents.js";
 import type { FolderRow } from "./folders.js";
 import { storeMessage } from "./ingest.js";
 
@@ -125,5 +127,47 @@ describe("storeMessage — Gmail Labels and Draft skip (#122)", () => {
 
     const stored = await storeMessage(db, drafts, 1, fetched, "", "gmail");
     expect(stored).not.toBeNull();
+  });
+
+  it("does not double-count Correspondent activity for a \\Sent All Mail message already recorded at send time (#123)", async () => {
+    const messageId = `<${randomUUID()}@mail.test>`;
+    const doc: ComposeDocument = { type: "doc", content: [{ type: "paragraph" }] };
+    await db.insert(compositions).values({
+      id: randomUUID(),
+      mailAccountId: account.id,
+      status: "sent",
+      subject: "Hi",
+      document: doc,
+      messageId: messageId.replace(/^<|>$/g, ""),
+      version: 1,
+    });
+    // The composition's send already recorded this recipient's activity
+    // (`compose/send-sweeper.ts#sweepOne`) — the ordinary poll ingesting the
+    // \Sent All Mail copy back must not count it a second time.
+    await recordCorrespondentActivity(db, account.id, [
+      { address: "bo@example.com", name: "Bo", direction: "sent", at: new Date() },
+    ]);
+
+    const allMail = await seedFolder("all", "[Gmail]/All Mail");
+    const fetched = fetchedMessage({
+      labels: new Set(["\\Sent"]),
+      envelope: {
+        subject: "Hi",
+        messageId,
+        to: [{ name: "Bo", address: "bo@example.com" }],
+      },
+    });
+
+    const stored = await storeMessage(db, allMail, 1, fetched, "me@example.com", "gmail");
+    expect(stored).not.toBeNull();
+
+    const rows = await db
+      .select()
+      .from(correspondents)
+      .where(eq(correspondents.mailAccountId, account.id));
+    // Exactly the one row `recordCorrespondentActivity` above created, with
+    // its sentCount untouched by the re-ingest.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sentCount: 1 });
   });
 });
