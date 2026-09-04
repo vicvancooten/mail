@@ -1,0 +1,437 @@
+/* ============================================================================
+   THE INSTRUMENT — the shell: global header, App Switcher, avatar menu and
+   the routed viewport underneath them (#71, #72, rebuilt against the comp in
+   #86). Tokens: `src/index.css` and `@mail/design-tokens`. Structure and
+   geometry: `docs/design/prototypes/the-instrument.html` — `.app-header`,
+   `.switcher-*`, `.tab-pill`, `.global-search`, `.header-*`.
+   ========================================================================= */
+
+/* The viewport-owning shell (#71): `height` (never `min-height`, never
+   `100vh`) plus `overflow: hidden` is what makes the document itself never
+   scroll, at any width — every routed pane underneath (`.app-viewport`'s
+   one child) is its own `height: 100%; min-height: 0` compartment that
+   scrolls on its own instead. This is the fix for both reported phone
+   layout bugs; see `.app-viewport` below for the chain it replaces. */
+.app-shell {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+/* ---------- the global header ---------- */
+
+/* Three columns, the outer two equal fractions: that is what centres the
+   search field on the *viewport* rather than on the space left over beside
+   the switcher, and it holds as the switcher expands into its tab row.
+   The header sits on `--color-surface-strong` (the comp's `--header-bg`) and
+   is separated from the ground by relief rather than a rule — the one
+   shadow-like treatment in this shell, and the comp's own. */
+.app-header {
+  height: 60px;
+  flex: none;
+  position: relative;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  padding-top: env(safe-area-inset-top);
+  padding-left: calc(20px + env(safe-area-inset-left));
+  padding-right: calc(20px + env(safe-area-inset-right));
+  box-sizing: content-box;
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-header);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.header-center {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+  min-width: 0;
+  flex: none;
+}
+
+/* ---------- App Switcher (#72): hub mark ⇄ tab row ---------- */
+
+/* Two grid cells trading a `0fr → 1fr` track: the tab row grows out of the
+   mark's own position in the header's flow, which a popover cannot do. The
+   inner `div` is what clips, so the tabs are never a half-drawn overflow
+   while the track animates. */
+.switcher-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.switcher-cell {
+  display: grid;
+  grid-template-columns: 0fr;
+  transition: grid-template-columns 280ms var(--ease);
+}
+
+.switcher-cell.open {
+  grid-template-columns: 1fr;
+}
+
+.switcher-cell > div {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.switcher-compact-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px 5px 5px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.switcher-compact-btn:hover {
+  background: var(--color-hover);
+}
+
+/* The hub mark: the identity mark on a soft tile, carrying a badge for
+   whichever App is current — the shell's one piece of brand, and the only
+   rounded-square in a header otherwise made of pills. */
+.hub-mark {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-panel);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.app-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Knocked out of the header ground rather than outlined, so the badge
+     reads as sitting on top of the mark instead of drawn onto it. */
+  box-shadow: 0 0 0 2.5px var(--color-surface-strong);
+  transition: box-shadow var(--dur-press) var(--ease);
+}
+
+.switcher-compact-btn:hover .app-badge {
+  box-shadow: 0 0 0 2.5px var(--color-hover);
+}
+
+.switcher-compact-btn .chev {
+  color: var(--color-ink-faint);
+  flex: none;
+}
+
+.tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+}
+
+.tab-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 999px;
+  color: var(--color-ink-muted);
+  font-size: 13.5px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.tab-pill:hover {
+  background: var(--color-hover);
+}
+
+.tab-pill.current {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* A reserved App is named and reachable, never hidden and never disabled
+   (`apps/apps.ts`) — SOON says what it is without taking it away. */
+.tab-pill .tp-soon {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--color-ink-faint);
+}
+
+.tab-pill.current .tp-soon {
+  color: var(--color-accent);
+  opacity: 0.7;
+}
+
+/* ---------- the global search entry ---------- */
+
+/* A button, not an input: this raises the Command Palette (the direction
+   contract's signature interaction), and Mail's own text field lives in
+   Mail's toolbar. */
+.global-search {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 10px 0 17px;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-field-strong);
+  color: var(--color-ink-muted);
+  /* Deliberate one-off, not a duplicate of --shadow-overlay/--shadow-header:
+     a two-frame rest → hover elevation cue on the search pill itself, too
+     small and too tightly paired with its own hover transition to share a
+     token with either. */
+  box-shadow: 0 1px 2px rgb(20 21 26 / 0.05);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    box-shadow var(--dur-press) var(--ease);
+}
+
+.global-search:hover {
+  background: color-mix(in oklab, var(--color-field-strong) 88%, var(--color-ink));
+  box-shadow: 0 3px 12px -6px rgb(20 21 26 / 0.18);
+}
+
+.global-search span {
+  flex: 1;
+  font-size: 14.5px;
+  text-align: left;
+  color: var(--color-ink-muted);
+}
+
+.global-search kbd {
+  font: inherit;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+}
+
+/* ---------- header-right ---------- */
+
+.header-icon-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.header-icon-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.avatar-menu-trigger {
+  appearance: none;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  line-height: 0;
+}
+
+/* The header's cut of the avatar is the smallest one in the app — see
+   `mail.css`'s `.mail-avatar` for the tile itself. */
+.avatar-menu-trigger .mail-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.avatar-menu-trigger:hover .mail-avatar,
+.avatar-menu-trigger[aria-expanded="true"] .mail-avatar {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+/* Phone: the header keeps its shape — the switcher, the search entry and the
+   avatar are all the shell needs at any width, which is why there is no
+   bottom tab bar anywhere in this tree. Only the search entry's placeholder
+   text has to give way, so the ⌘K hint doesn't crowd the field. */
+@media (max-width: 640px) {
+  .app-header {
+    height: 54px;
+    gap: 8px;
+    padding: 0 10px;
+    padding-left: calc(10px + env(safe-area-inset-left));
+    padding-right: calc(10px + env(safe-area-inset-right));
+  }
+
+  .global-search {
+    height: 38px;
+    padding-left: 13px;
+  }
+
+  .global-search span {
+    font-size: 13px;
+  }
+
+  .global-search kbd {
+    display: none;
+  }
+
+  .hub-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-panel);
+  }
+
+  .tab-pill {
+    height: 30px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+
+  .tab-pill span:not(.tp-soon) {
+    display: none;
+  }
+
+  .tab-pill .tp-soon {
+    display: none;
+  }
+}
+
+/* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`
+   rather than a hand-computed "header is 60px" calc, so it holds at any
+   header height. Every route's own top-level element is a `height: 100%;
+   min-height: 0` pane (`.mail-section`, `.settings-section`,
+   `.app-placeholder`), so this only needs to bound the space they render
+   into. */
+.app-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* One of the three reserved Apps (#72) — finished chrome around an empty
+   App, not a stub: a mark, a name, one line, and a flat "Not built yet". */
+.app-placeholder {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--color-bg);
+}
+
+.app-placeholder-card {
+  max-width: 320px;
+  text-align: center;
+}
+
+/* The comp's `.ph-icon` (`docs/design/prototypes/the-instrument.html`): a
+   rounded-square field tile carrying the same icon the App Switcher's tab
+   row already renders for this App, so a reserved App's placeholder isn't
+   two lines of bare text. */
+.app-placeholder-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  background: var(--color-field);
+  color: var(--color-ink-faint);
+}
+
+.app-placeholder-card h2 {
+  margin: 0 0 6px;
+  font-weight: 650;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+.app-placeholder-card p {
+  margin: 0;
+  color: var(--color-ink-faint);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.app-placeholder-status {
+  margin-top: 14px;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--color-ink-faint);
+}
+
+/* The avatar menu's identity block (#86): who the avatar in the header
+   belongs to, stated in words in the one place that has room for them. */
+.avatar-menu-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-menu-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.avatar-menu-role {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}

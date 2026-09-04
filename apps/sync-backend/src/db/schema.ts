@@ -72,14 +72,14 @@ export const users = pgTable("users", {
    */
   undoSendDelaySeconds: integer("undo_send_delay_seconds").notNull().default(10),
   /**
-   * The rest of `Preference` (#54, poc-spec.md §Preferences): theme and
-   * Auto-advance, User-scoped alongside `undoSendDelaySeconds` above. Same
-   * posture as that column — one row per User, no separate table, because a
-   * User has exactly one of each.
+   * The rest of `Preference` (#54, poc-spec.md §Preferences): Auto-advance,
+   * User-scoped alongside `undoSendDelaySeconds` above. Same posture as that
+   * column — one row per User, no separate table, because a User has exactly
+   * one of each.
+   *
+   * Theme lived here too until #72 (ADR-0011 amended): moved to a Device
+   * Preference, since Appearance means something different per device.
    */
-  theme: text("theme", { enum: ["system", "light", "dark"] })
-    .notNull()
-    .default("system"),
   autoAdvanceEnabled: boolean("auto_advance_enabled").notNull().default(true),
   autoAdvanceDirection: text("auto_advance_direction", { enum: ["older", "newer"] })
     .notNull()
@@ -414,6 +414,23 @@ export const threads = pgTable(
     // Optimistic Action's ack, and the folder move is the asynchronous
     // mirror of it (ADR-0006).
     inInbox: boolean("in_inbox").notNull().default(true),
+    // Sidebar folder destinations (#74): `folderRole` is `inInbox`'s own
+    // sibling, not a re-derivation of it — an App-owned field `sync/
+    // mutations.ts`'s `archive`/`trash` cases (and the Screener decisions
+    // and Bulk Triage's `done` action that share their effect) set directly,
+    // synchronously, the same "ack now, real IMAP MOVE follows async"
+    // reasoning `inInbox`'s own comment gives. Kept as a third state next to
+    // `inInbox` rather than derived from it (`inInbox: false` alone can't
+    // say which) because the Archive and Trash sidebar entries need to tell
+    // the two apart. `hasSentMessage` below is the opposite shape — a real
+    // rollup-computed signal, because Sent has no Optimistic Action of its
+    // own to flip a flag: a Thread lands there by actually containing a
+    // Message the Sync Backend ingested from the account's real `\Sent`
+    // folder, which the rollup already sees on every pass.
+    folderRole: text("folder_role", { enum: ["inbox", "archive", "trash"] })
+      .notNull()
+      .default("inbox"),
+    hasSentMessage: boolean("has_sent_message").notNull().default(false),
     // Pin (#43, CONTEXT.md): an App Feature, `sync/mutations.ts`'s own field
     // exactly like `inInbox` above — no rollup ever touches it, only a
     // `setPinned` intent does. Deliberately not the same thing as `starred`:
@@ -442,6 +459,13 @@ export const threads = pgTable(
     // `sync/mutations.ts` alone.
     heldSender: text("held_sender"),
     heldAt: timestamp("held_at", { withTimezone: true }),
+    // Snooze (#76, CONTEXT.md): the instant this Thread wakes, or null when
+    // it isn't snoozed. An App Feature, `sync/mutations.ts`'s own field
+    // exactly like `pinned`/`heldSender` above — no rollup ever touches it.
+    // `sync/snooze.ts`'s wake sweep is the only thing that ever clears it
+    // (there is no "un-snooze early" intent), the same one-directional shape
+    // `inInbox` itself already has for `archive`/`trash`.
+    snoozeUntil: timestamp("snooze_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // See `mailAccounts.syncRev`/`syncCreatedRev` above — same trigger, same
@@ -461,6 +485,13 @@ export const threads = pgTable(
     index("threads_held_sender_idx")
       .on(table.mailAccountId, table.heldSender)
       .where(sql`${table.heldSender} is not null`),
+    // The Snooze wake sweep's own query (#76, `sync/snooze.ts`): partial for
+    // the same reason `threads_held_sender_idx` above is — a snoozed Thread
+    // is a rounding error against an 80k-thread account, and the sweep only
+    // ever needs the rows this admits.
+    index("threads_snooze_until_idx")
+      .on(table.snoozeUntil)
+      .where(sql`${table.snoozeUntil} is not null`),
   ],
 );
 
@@ -848,6 +879,53 @@ export const appliedMutations = pgTable(
     index("applied_mutations_user_idx").on(table.userId),
   ],
 );
+
+/**
+ * The idempotency ledger for a Bulk Triage batch (#67, `routes/bulk-triage.ts`,
+ * `@mail/shared`'s `bulkTriageBatchRequestSchema`) — the same
+ * Client-generated-ULID-key pattern `appliedMutations` is, kept as its own
+ * table rather than widened into it: a batch's outcome carries a
+ * per-account breakdown and the exact set of Threads it touched, neither of
+ * which `MutationOutcome`'s `{status, reason}` shape has room for, and a
+ * batch is scoped to the requesting **User** (Account Scope can name several
+ * Mail Accounts in one request) rather than to one Mail Account the way
+ * every `appliedMutations` row is.
+ *
+ * `affectedThreadIds` is what makes Undo exact rather than a re-run of the
+ * original target set (`routes/bulk-triage.ts#undoBulkTriageAction`): the
+ * target set is evaluated at the *original* request's instant, and a Thread
+ * that has since moved back into range on its own must not be swept up by a
+ * later Undo. `accounts` is the full per-account outcome, so a retried
+ * request replays it verbatim rather than recomputing it — recomputing could
+ * legitimately disagree (an account that reached Needs Reauth in between).
+ */
+export const bulkTriageBatches = pgTable(
+  "bulk_triage_batches",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    action: text("action", { enum: ["done", "markRead"] }).notNull(),
+    affectedThreadIds: text("affected_thread_ids").array().notNull().default([]),
+    accounts: jsonb("accounts").$type<BulkTriageAccountOutcomeRow[]>().notNull(),
+    /** Set the instant `POST /bulk-triage/undo` reverses this batch — null while it is still undoable (or was never undone). */
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** `createdAt` + the Undo window (`@mail/shared`'s `BULK_TRIAGE_UNDO_WINDOW_SECONDS`) — past this, `POST /bulk-triage/undo` answers `expired`. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("bulk_triage_batches_user_idx").on(table.userId)],
+);
+export type BulkTriageBatchRow = typeof bulkTriageBatches.$inferSelect;
+
+/** One Mail Account's recorded share of a batch — `accounts`'s element type, mirroring `@mail/shared`'s `BulkTriageAccountOutcome`. */
+export interface BulkTriageAccountOutcomeRow {
+  mailAccountId: string;
+  status: "applied" | "rejected";
+  affectedCount: number;
+  reason?: string;
+}
 
 /**
  * The write-through outbox for the two Protocol Features (#42, ADR-0006):

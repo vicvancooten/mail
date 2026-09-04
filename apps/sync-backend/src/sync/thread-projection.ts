@@ -18,9 +18,12 @@ export function toWireThread(row: ThreadRow): Thread {
     starred: row.starred,
     hasAttachments: row.hasAttachments,
     inInbox: row.inInbox,
+    folderRole: row.folderRole,
+    hasSentMessage: row.hasSentMessage,
     pinned: row.pinned,
     labelIds: row.labelIds,
     heldSender: row.heldSender,
+    snoozeUntil: row.snoozeUntil?.toISOString() ?? null,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

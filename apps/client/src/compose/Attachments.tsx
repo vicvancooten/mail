@@ -1,5 +1,6 @@
 import type { AttachmentDisposition, AttachmentMeta } from "@mail/shared";
 import { encodedByteSize } from "@mail/shared";
+import { File, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AttachmentBudgetExceededError,
@@ -8,7 +9,6 @@ import {
   fetchComposeConfig,
   uploadAttachment,
 } from "../api/attachments.js";
-import { Pictogram } from "../brand/Pictogram.js";
 import { recordAttachmentRemoved, recordAttachmentUploaded } from "../store/index.js";
 import { checkAttachmentBudget } from "./attachment-budget.js";
 
@@ -227,7 +227,7 @@ export function AttachmentsPanel({
       )}
       {attachments.map((attachment) => (
         <div className="attachment-row" key={attachment.id}>
-          <Pictogram name="file" size={14} />
+          <File size={14} />
           <a
             className="attachment-row-name"
             href={attachmentUrl(compositionId, attachment.id)}
@@ -242,13 +242,13 @@ export function AttachmentsPanel({
             aria-label={`Remove ${attachment.filename}`}
             onClick={() => onRemove(attachment.id)}
           >
-            <Pictogram name="close" size={13} />
+            <X size={13} />
           </button>
         </div>
       ))}
       {uploads.map((upload) => (
         <div className="attachment-row attachment-row-uploading" key={upload.localId}>
-          <Pictogram name="file" size={14} />
+          <File size={14} />
           <span className="attachment-row-name">{upload.filename}</span>
           {upload.error ? (
             <>
@@ -258,7 +258,7 @@ export function AttachmentsPanel({
                 aria-label={`Retry ${upload.filename}`}
                 onClick={() => onRetry(upload.localId)}
               >
-                <Pictogram name="retry" size={13} />
+                <RotateCcw size={13} />
               </button>
             </>
           ) : (

@@ -416,7 +416,6 @@ describe("POST /sync", () => {
       const bootstrapped = bootstrap.json().user.Preference;
       expect(bootstrapped.created).toHaveLength(1);
       expect(bootstrapped.created[0]).toMatchObject({
-        theme: "system",
         autoAdvanceEnabled: true,
         autoAdvanceDirection: "older",
         undoSendDelaySeconds: 10,
@@ -430,7 +429,6 @@ describe("POST /sync", () => {
           user: {
             Preference: bootstrapped.newState,
             mutations: [
-              { id: "01THEME", intent: { type: "setTheme", theme: "dark" } },
               {
                 id: "01ADVANCE",
                 intent: { type: "setAutoAdvance", enabled: false, direction: "newer" },
@@ -445,12 +443,10 @@ describe("POST /sync", () => {
       });
       const editedBody = edited.json().user;
       expect(editedBody.mutations).toEqual([
-        { id: "01THEME", status: "applied" },
         { id: "01ADVANCE", status: "applied" },
         { id: "01DELAY", status: "applied" },
       ]);
       expect(editedBody.Preference.updated[0]).toMatchObject({
-        theme: "dark",
         autoAdvanceEnabled: false,
         autoAdvanceDirection: "newer",
         undoSendDelaySeconds: 30,
@@ -465,11 +461,16 @@ describe("POST /sync", () => {
         headers: { cookie },
         payload: {
           user: {
-            mutations: [{ id: "01THEME", intent: { type: "setTheme", theme: "dark" } }],
+            mutations: [
+              {
+                id: "01ADVANCE",
+                intent: { type: "setAutoAdvance", enabled: false, direction: "newer" },
+              },
+            ],
           },
         },
       });
-      expect(retried.json().user.mutations).toEqual([{ id: "01THEME", status: "applied" }]);
+      expect(retried.json().user.mutations).toEqual([{ id: "01ADVANCE", status: "applied" }]);
     });
 
     it("is not requested unless asked", async () => {

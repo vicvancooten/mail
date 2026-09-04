@@ -40,9 +40,12 @@ export function makeThread(
     starred: false,
     hasAttachments: false,
     inInbox: true,
+    folderRole: "inbox",
+    hasSentMessage: false,
     pinned: false,
     labelIds: [],
     heldSender: null,
+    snoozeUntil: null,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };

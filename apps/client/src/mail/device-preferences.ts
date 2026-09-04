@@ -21,7 +21,6 @@ export const DEFAULT_LIST_DENSITY: ListDensity = "comfortable";
 
 const VIEW_MODE_KEY = "mail.devicePref.viewMode";
 const STREAM_MODE_KEY = "mail.devicePref.streamMode";
-const LAST_ACCOUNT_KEY = "mail.devicePref.lastAccountId";
 const OPEN_COMPOSER_KEY = "mail.devicePref.openComposerId";
 const LIST_DENSITY_KEY = "mail.devicePref.listDensity";
 
@@ -67,12 +66,63 @@ export function writeStreamMode(enabled: boolean): void {
   writeStorage(STREAM_MODE_KEY, enabled ? "1" : "0");
 }
 
-export function readLastAccountId(): string | null {
-  return readStorage(LAST_ACCOUNT_KEY);
+/**
+ * Account Scope (#73, `mail#66` §"Account Scope in the Client's own chrome"):
+ * which of the User's Mail Accounts the Thread list draws from — Client-level
+ * chrome rather than Mail-level, "because narrowing to one account is a
+ * question every App answers". Device-local by the same reasoning as the
+ * rest of this file: which accounts you're looking at right now means
+ * something different on each device. Supersedes the single
+ * `mail.devicePref.lastAccountId` key this replaces — a device upgrading
+ * from that key simply falls back to "all accounts" once, the same default
+ * a first-ever device gets.
+ *
+ * Stored as an id array rather than a set — order carries no meaning of its
+ * own (`resolveAccountScope` below is what a caller reads back), but a plain
+ * JSON array is the simplest thing that survives `JSON.stringify`/`parse`.
+ */
+export type AccountScope = readonly string[];
+
+const ACCOUNT_SCOPE_KEY = "mail.devicePref.accountScope";
+
+/** The stored Scope verbatim, or `null` if never set or unreadable — callers resolve that against the live account list (`resolveAccountScope`), never render it directly. */
+export function readAccountScope(): AccountScope | null {
+  const stored = readStorage(ACCOUNT_SCOPE_KEY);
+  if (!stored) return null;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    return parsed.every((entry): entry is string => typeof entry === "string") ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-export function writeLastAccountId(id: string): void {
-  writeStorage(LAST_ACCOUNT_KEY, id);
+/** Scope "cannot be emptied" (#73's acceptance criteria) — a no-op guard here too, so a caller that skips the UI-level guard can't wipe a device's Scope preference by accident. */
+export function writeAccountScope(accountIds: AccountScope): void {
+  if (accountIds.length === 0) return;
+  writeStorage(ACCOUNT_SCOPE_KEY, JSON.stringify(accountIds));
+}
+
+/**
+ * The stored Scope narrowed to Mail Accounts that still exist, falling back
+ * to "every account" — the documented default — the moment that narrowing
+ * (or a never-set/corrupt read) would otherwise leave nothing selected.
+ * Order follows `accounts` (created-at, per `useMailAccounts`' own doc
+ * comment), not the stored array, so a scope read back after an account was
+ * removed and re-added doesn't strand it out of its usual place.
+ */
+export function resolveAccountScope(
+  stored: AccountScope | null,
+  accounts: readonly { id: string }[],
+): AccountScope {
+  const known = new Set(accounts.map((account) => account.id));
+  const narrowed = stored?.filter((id) => known.has(id)) ?? [];
+  if (narrowed.length > 0) {
+    const inScope = new Set(narrowed);
+    return accounts.filter((account) => inScope.has(account.id)).map((account) => account.id);
+  }
+  return accounts.map((account) => account.id);
 }
 
 /**
@@ -178,4 +228,33 @@ export function readScreenerSeenUntil(mailAccountId: string): string {
 
 export function writeScreenerViewed(mailAccountId: string): void {
   writeStorage(SCREENER_SEEN_KEY_PREFIX + mailAccountId, new Date().toISOString());
+}
+
+/**
+ * Collapsed group state (#78, `mail#66` §"Collapse available from the armed
+ * group cluster and on tap"): keyed by the group's own label ("Today", "This
+ * week", a named month, …), not an id — the ladder's labels are already the
+ * User-facing identity a group has (`time-groups.ts`), and what "keyed by
+ * group label" in the acceptance criteria names directly. Device-local by
+ * the same reasoning as the rest of this file: which groups you've folded
+ * away means something different on a phone than on a laptop, so this
+ * deliberately never syncs.
+ */
+const GROUP_COLLAPSED_KEY_PREFIX = "mail.devicePref.groupCollapsed.";
+
+export function readGroupCollapsed(label: string): boolean {
+  return readStorage(GROUP_COLLAPSED_KEY_PREFIX + label) === "1";
+}
+
+/** Un-collapsing removes the key rather than writing "0" — a label with no key and one written false both read back as "not collapsed", so there's no reason to keep growing storage past what's actually folded away. */
+export function writeGroupCollapsed(label: string, collapsed: boolean): void {
+  if (collapsed) {
+    writeStorage(GROUP_COLLAPSED_KEY_PREFIX + label, "1");
+    return;
+  }
+  try {
+    globalThis.localStorage?.removeItem(GROUP_COLLAPSED_KEY_PREFIX + label);
+  } catch {
+    // Best-effort; see module docstring.
+  }
 }

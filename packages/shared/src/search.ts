@@ -21,6 +21,18 @@ import { threadSchema } from "./sync.js";
  */
 export const searchRequestSchema = z.object({
   mailAccountId: z.string(),
+  /**
+   * The Account Scope (#68, ADR-0016 amendment) beyond `mailAccountId`: every
+   * id here is searched too, each contributing its own Candidate Window
+   * merged and re-ranked together with `mailAccountId`'s. Absent means
+   * today's single-account default — `mailAccountId` alone. `mailAccountId`
+   * stays required (rather than the Scope being one flat list) so every
+   * existing single-account caller needs no change; a Client searching N
+   * in-scope accounts sends one of them as `mailAccountId` and the rest
+   * here. Every id, in either field, must belong to the requesting User or
+   * the whole request is rejected.
+   */
+  additionalMailAccountIds: z.array(z.string()).optional(),
   /** The free-text remainder, already operator- and stopword-stripped by the Client. May be `""`. */
   text: z.string().default(""),
   /** `from:` — matches display name or address, per the Search Index's participant/address-part weights. */
@@ -51,7 +63,9 @@ export const searchRequestSchema = z.object({
    * The Candidate Window cursor from a previous response's `cursor` — "load
    * older" pages the window back, keyset on `sentAt` rather than score (a
    * score keyset is unstable under concurrent new mail). Absent for the
-   * first page.
+   * first page. Opaque: with an Account Scope wider than one account, this
+   * keys the boundary per account internally (`sync/search-query.ts`), since
+   * each account exhausts its own Candidate Window at a different page.
    */
   cursor: z.string().optional(),
 });
@@ -103,9 +117,17 @@ export type SearchResult = z.infer<typeof searchResultSchema>;
 
 export const searchResponseSchema = z.object({
   results: z.array(searchResultSchema),
-  /** Pass back as the next request's `cursor` for "load older"; `null` once the Candidate Window is exhausted. */
+  /** Pass back as the next request's `cursor` for "load older"; `null` once every in-scope account's Candidate Window is exhausted. */
   cursor: z.string().nullable(),
-  /** This Mail Account's Index Watermark — same shape `MailAccount.indexWatermark` carries. */
+  /**
+   * The Index Watermark for the whole Account Scope searched — same shape
+   * `MailAccount.indexWatermark` carries, but the **weakest** across every
+   * in-scope account (#68, ADR-0016 amendment): `complete` is true only once
+   * every account's own sweep is, and `coveredSince` is the most recent (i.e.
+   * least history covered) date among them, or `null` if any account's is —
+   * a `null` on one account never gets silently overstated by a comfortably
+   * old date from another.
+   */
   indexWatermark: indexWatermarkSchema,
 });
 export type SearchResponse = z.infer<typeof searchResponseSchema>;

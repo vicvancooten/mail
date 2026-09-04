@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  EMPTY_COMPOSE_CONTENT,
   listQueuedComposeSaves,
   resolveComposeSaveOutcomes,
   saveComposition,
@@ -55,6 +56,13 @@ const ACCOUNT: MailAccount = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
+/** A second Mail Account (#81 §From respects Account Scope) — same shape, a different address. */
+const ACCOUNT_2: MailAccount = {
+  ...ACCOUNT,
+  id: "acct-2",
+  emailAddress: "work@example.test",
+};
+
 let counter = 0;
 const names: string[] = [];
 
@@ -79,6 +87,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={onClose}
       />,
     );
@@ -101,6 +110,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={onClose}
       />,
     );
@@ -128,6 +138,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={onClose}
       />,
     );
@@ -144,6 +155,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={vi.fn()}
       />,
     );
@@ -168,6 +180,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={vi.fn()}
       />,
     );
@@ -183,6 +196,67 @@ describe("Composer", () => {
       expect((screen.getByRole("button", { name: /send/i }) as HTMLButtonElement).disabled).toBe(
         false,
       );
+    });
+  });
+
+  /**
+   * From respects Account Scope (#81, mail#66): the sending account a
+   * Composer opens with is whatever its own Local Cache row already carries
+   * — never `defaultMailAccountId` — so a reply/forward's row (seeded by
+   * `MailSection.tsx#openReply` against the arriving Message's own account,
+   * *before* this component ever mounts) is what wins, exactly the same way
+   * a reload picking an in-flight Draft back up already does.
+   */
+  it("reply defaults to the arriving account, not Account Scope's primary one", async () => {
+    // `openReply`'s own seed: `saveComposition(id, account.id, ..., {force: true})`
+    // against `acct-2`, ahead of `<Composer>` ever mounting — this stands in
+    // for that, so the assertion is only about what `Composer` does with a
+    // row that's already there.
+    await saveComposition("comp-1", "acct-2", EMPTY_COMPOSE_CONTENT, { force: true });
+
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT, ACCOUNT_2]}
+        // Account Scope's primary account — deliberately not `acct-2`, the
+        // Message's own arriving account the reply was actually seeded
+        // against.
+        defaultMailAccountId="acct-1"
+        fromChoices={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(ACCOUNT_2.emailAddress)).not.toBeNull();
+    expect(screen.queryByText(ACCOUNT.emailAddress)).toBeNull();
+  });
+
+  /**
+   * Several accounts in Scope, no reply context (#81's own acceptance line:
+   * "explicit choice required otherwise") — a brand-new compose renders a
+   * real, editable From picker rather than silently defaulting.
+   */
+  it("offers an explicit From picker when Account Scope holds several accounts and there is no reply context", async () => {
+    render(
+      <Composer
+        compositionId="comp-1"
+        mailAccounts={[ACCOUNT, ACCOUNT_2]}
+        defaultMailAccountId="acct-1"
+        fromChoices={[ACCOUNT, ACCOUNT_2]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const picker = screen.getByLabelText("From") as HTMLSelectElement;
+    expect(picker.value).toBe("acct-1");
+
+    fireEvent.change(picker, { target: { value: "acct-2" } });
+    expect(picker.value).toBe("acct-2");
+
+    fireEvent.change(screen.getByPlaceholderText("Subject"), { target: { value: "Chosen" } });
+    await waitFor(async () => {
+      const row = await localCache().compositions.get("comp-1");
+      expect(row?.mailAccountId).toBe("acct-2");
     });
   });
 
@@ -219,6 +293,7 @@ describe("Composer", () => {
           compositionId="comp-1"
           mailAccounts={[ACCOUNT]}
           defaultMailAccountId="acct-1"
+          fromChoices={null}
           onClose={vi.fn()}
         />,
       );
@@ -236,6 +311,7 @@ describe("Composer", () => {
           compositionId="comp-1"
           mailAccounts={[ACCOUNT]}
           defaultMailAccountId="acct-1"
+          fromChoices={null}
           onClose={vi.fn()}
         />,
       );
@@ -258,6 +334,7 @@ describe("Composer", () => {
           compositionId="comp-1"
           mailAccounts={[ACCOUNT]}
           defaultMailAccountId="acct-1"
+          fromChoices={null}
           onClose={vi.fn()}
         />,
       );
@@ -302,6 +379,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={onClose}
       />,
     );
@@ -337,6 +415,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={onClose}
       />,
     );
@@ -372,6 +451,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={vi.fn()}
       />,
     );
@@ -385,6 +465,7 @@ describe("Composer", () => {
         compositionId="comp-1"
         mailAccounts={[ACCOUNT]}
         defaultMailAccountId="acct-1"
+        fromChoices={null}
         onClose={vi.fn()}
       />,
     );
@@ -452,6 +533,7 @@ describe("Composer", () => {
           compositionId="comp-1"
           mailAccounts={[ACCOUNT]}
           defaultMailAccountId="acct-1"
+          fromChoices={null}
           onClose={vi.fn()}
         />,
       );
@@ -491,6 +573,7 @@ describe("Composer", () => {
           compositionId="comp-1"
           mailAccounts={[signed]}
           defaultMailAccountId="acct-1"
+          fromChoices={null}
           onClose={vi.fn()}
         />,
       );

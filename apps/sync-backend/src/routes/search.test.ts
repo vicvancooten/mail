@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import { folders, messages, threads } from "../db/schema.js";
+import { folders, mailAccounts, messages, threads } from "../db/schema.js";
 import { setVerdict } from "../gatekeeper/verdicts.js";
 import { reindexMessages } from "../sync/search-index.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
@@ -68,16 +68,20 @@ async function claimOwner(app: FastifyInstance): Promise<string> {
   return extractCookie(response.headers["set-cookie"]);
 }
 
-async function createOwnedMailAccount(app: FastifyInstance, cookie: string): Promise<string> {
+async function createOwnedMailAccount(
+  app: FastifyInstance,
+  cookie: string,
+  emailAddress = "vic@example.com",
+): Promise<string> {
   const response = await app.inject({
     method: "POST",
     url: "/mail-accounts",
     headers: { cookie },
     payload: {
-      emailAddress: "vic@example.com",
+      emailAddress,
       imap: { host: "imap.example.com", port: 993, security: "tls" },
       smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
-      username: "vic@example.com",
+      username: emailAddress,
       password: "correct-horse-battery-staple",
     },
   });
@@ -252,5 +256,81 @@ describe("POST /search", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ results: [], cursor: null });
+  });
+});
+
+describe("POST /search — Account Scope (#68, ADR-0016 amendment)", () => {
+  it("404s when an additionalMailAccountIds entry is not owned by this User", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const mailAccountId = await createOwnedMailAccount(app, cookie);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/search",
+      headers: { cookie },
+      payload: { mailAccountId, additionalMailAccountIds: ["not-mine"], text: "hello" },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("merges results from mailAccountId and every additionalMailAccountIds entry", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const first = await createOwnedMailAccount(app, cookie, "vic@example.com");
+    const second = await createOwnedMailAccount(app, cookie, "vic-work@example.com");
+    const { threadId: firstThreadId } = await seedInboxMessage(first, {
+      subject: "Quarterly roadmap",
+    });
+    const { threadId: secondThreadId } = await seedInboxMessage(second, {
+      subject: "Quarterly numbers",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/search",
+      headers: { cookie },
+      payload: { mailAccountId: first, additionalMailAccountIds: [second], text: "quarterly" },
+    });
+    expect(response.statusCode).toBe(200);
+    const threadIds = (response.json() as { results: { thread: { id: string } }[] }).results.map(
+      (row) => row.thread.id,
+    );
+    expect(new Set(threadIds)).toEqual(new Set([firstThreadId, secondThreadId]));
+  });
+
+  it("returns the weakest Index Watermark across the Account Scope", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const complete = await createOwnedMailAccount(app, cookie, "vic@example.com");
+    const partial = await createOwnedMailAccount(app, cookie, "vic-work@example.com");
+    await db
+      .update(mailAccounts)
+      .set({ bodyWatermark: new Date("2020-01-01T00:00:00Z"), bodySweepComplete: true })
+      .where(eq(mailAccounts.id, complete));
+    await db
+      .update(mailAccounts)
+      .set({ bodyWatermark: new Date("2024-06-01T00:00:00Z"), bodySweepComplete: false })
+      .where(eq(mailAccounts.id, partial));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/search",
+      headers: { cookie },
+      payload: { mailAccountId: complete, additionalMailAccountIds: [partial], text: "hello" },
+    });
+    expect(response.statusCode).toBe(200);
+    // `complete` alone would report `{ coveredSince: "2020-01-01...", complete: true }`
+    // (the pre-#68 single-account read) — merged with `partial`, the Scope
+    // is only as complete as its weakest account, and `coveredSince` is
+    // `partial`'s more recent (i.e. less history covered) date, never
+    // `complete`'s more comfortable one.
+    const body = response.json() as {
+      indexWatermark: { coveredSince: string | null; complete: boolean };
+    };
+    expect(body.indexWatermark).toEqual({
+      coveredSince: new Date("2024-06-01T00:00:00Z").toISOString(),
+      complete: false,
+    });
   });
 });

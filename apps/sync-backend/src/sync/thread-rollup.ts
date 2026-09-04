@@ -1,6 +1,6 @@
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { messages, type ThreadParticipant, threads } from "../db/schema.js";
+import { folders, messages, type ThreadParticipant, threads } from "../db/schema.js";
 
 /**
  * Recomputes the denormalized columns on `threads` (#34).
@@ -28,6 +28,10 @@ const ROLLUP_COLUMNS = {
   seen: messages.seen,
   flagged: messages.flagged,
   hasAttachments: messages.hasAttachments,
+  // Sent (#74): a real signal, not an app-owned flag like `folderRole` —
+  // whether *this* Message currently sits in the account's real `\Sent`
+  // folder, per its own `folderId`'s join to `folders.role`.
+  folderRole: folders.role,
 } as const;
 
 interface RollupRow {
@@ -39,6 +43,7 @@ interface RollupRow {
   unread_count: number;
   starred: boolean;
   has_attachments: boolean;
+  has_sent_message: boolean;
   first_message_at: string;
   last_message_at: string;
   last_message_id: string;
@@ -57,6 +62,7 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
   const rows = await db
     .select(ROLLUP_COLUMNS)
     .from(messages)
+    .innerJoin(folders, eq(folders.id, messages.folderId))
     .where(inArray(messages.threadId, ids));
   if (rows.length === 0) return;
 
@@ -92,6 +98,7 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       unread_count: ordered.filter((row) => !row.seen).length,
       starred: ordered.some((row) => row.flagged),
       has_attachments: ordered.some((row) => row.hasAttachments),
+      has_sent_message: ordered.some((row) => row.folderRole === "sent"),
       first_message_at: oldest.receivedAt.toISOString(),
       last_message_at: newest.receivedAt.toISOString(),
       last_message_id: newest.id,
@@ -112,6 +119,7 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       unread_count = v.unread_count,
       starred = v.starred,
       has_attachments = v.has_attachments,
+      has_sent_message = v.has_sent_message,
       updated_at = now()
     from jsonb_to_recordset(${JSON.stringify(payload)}::jsonb) as v(
       id text,
@@ -124,7 +132,8 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       message_count integer,
       unread_count integer,
       starred boolean,
-      has_attachments boolean
+      has_attachments boolean,
+      has_sent_message boolean
     )
     where t.id = v.id
   `);

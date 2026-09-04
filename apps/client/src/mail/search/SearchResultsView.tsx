@@ -1,6 +1,6 @@
 import type { MailAccount } from "@mail/shared";
+import { X } from "lucide-react";
 import { useState } from "react";
-import { Pictogram } from "../../brand/Pictogram.js";
 import { ReauthMailAccountForm } from "../../mail-accounts/ReauthMailAccountForm.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
@@ -8,19 +8,10 @@ import type { Triage } from "../useTriage.js";
 import type { RowExtra } from "../VirtualizedThreadList.js";
 import { VirtualizedThreadList } from "../VirtualizedThreadList.js";
 import { formatFolderLabel, seededScopeHint } from "./scope.js";
-import type { SearchState } from "./useSearchState.js";
+import { formatIndexWatermark, type SearchState } from "./useSearchState.js";
 
 function formatWatermark(state: SearchState): string | null {
-  const watermark = state.indexWatermark;
-  if (!watermark || watermark.complete) return null;
-  if (!watermark.coveredSince) {
-    return "Still indexing this account — older mail matches on sender and subject only.";
-  }
-  const date = new Date(watermark.coveredSince).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-  });
-  return `Bodies indexed back to ${date} — older mail matches on sender and subject only.`;
+  return formatIndexWatermark(state.indexWatermark);
 }
 
 /**
@@ -71,7 +62,7 @@ function ChipRow({
               else if (state.parsed.label) state.setOperator("label", null);
             }}
           >
-            <Pictogram name="close" size={11} />
+            <X size={11} />
           </button>
         ) : null}
       </span>
@@ -92,7 +83,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("from", null)}
           >
-            <Pictogram name="close" size={11} />
+            <X size={11} />
           </button>
         </span>
       ) : null}
@@ -104,7 +95,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("to", null)}
           >
-            <Pictogram name="close" size={11} />
+            <X size={11} />
           </button>
         </span>
       ) : null}
@@ -116,7 +107,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("has", null)}
           >
-            <Pictogram name="close" size={11} />
+            <X size={11} />
           </button>
         </span>
       ) : null}
@@ -128,7 +119,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("after", null)}
           >
-            <Pictogram name="close" size={11} />
+            <X size={11} />
           </button>
         </span>
       ) : null}
@@ -140,7 +131,7 @@ function ChipRow({
             className="search-chip-remove"
             onClick={() => state.setOperator("before", null)}
           >
-            <Pictogram name="close" size={11} />
+            <X size={11} />
           </button>
         </span>
       ) : null}
@@ -182,9 +173,11 @@ function EmptyState({ state }: { state: SearchState }) {
  * search all mail' with a reconnect button and no background retry loop").
  * Reuses `ReauthMailAccountForm` — the same re-enter-credentials flow
  * `MailAccountsSection` already surfaces in Settings — rather than growing a
- * second implementation of it; there is no router in this Client to
- * navigate to that screen, so the button reveals the same form inline
- * instead. `state.needsReauth` flips (and this banner disappears on its
+ * second implementation of it; navigating away to Settings would drop the
+ * User out of the results they were just looking at (#71's Settings route
+ * is a fine place to *reach* this flow from, a bad place to be *sent* to
+ * mid-search), so the button reveals the same form inline instead.
+ * `state.needsReauth` flips (and this banner disappears on its
  * own) once the Local Cache's own Mail Account row catches up, so there is
  * nothing else for `onResumed` to do beyond collapsing the form.
  */
@@ -221,6 +214,7 @@ export function SearchResultsView({
   onReply,
   accounts,
   mailAccountId,
+  accountScope,
 }: {
   viewMode: "split" | "list";
   state: SearchState;
@@ -228,13 +222,16 @@ export function SearchResultsView({
   onReply: OnReply;
   accounts: readonly MailAccount[];
   mailAccountId: string | null;
+  /** Search's own account badge (#80's "each row shows which account it came from where several are in Scope") — the row itself already carries its `mailAccountId` (`sync.ts#threadSchema`); this is only what decides whether the badge is worth showing at all. */
+  accountScope: readonly string[];
 }) {
   const selectedThread =
     state.results.find((thread) => thread.id === state.selectedThreadId) ?? null;
   const watermark = formatWatermark(state);
   const account = accounts.find((candidate) => candidate.id === mailAccountId) ?? null;
+  const showAccountBadge = accountScope.length > 1;
 
-  const getRowExtra = (thread: { id: string }): RowExtra | undefined => {
+  const getRowExtra = (thread: { id: string; mailAccountId: string }): RowExtra | undefined => {
     const display = state.displayById.get(thread.id);
     if (!display) return undefined;
     const overlaid = state.results.find((candidate) => candidate.id === thread.id);
@@ -247,6 +244,10 @@ export function SearchResultsView({
       actionBadge:
         state.actedOnThreadIds.has(thread.id) && overlaid && !overlaid.inInbox ? "Removed" : null,
       gatekeeperBadge: display.gatekeeper,
+      accountBadge: showAccountBadge
+        ? (accounts.find((candidate) => candidate.id === thread.mailAccountId)?.emailAddress ??
+          null)
+        : null,
     };
   };
 

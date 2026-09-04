@@ -174,10 +174,11 @@ Load-bearing points:
 The Client half — surface, query language, result list — is [`docs/search-ux-spec.md`](search-ux-spec.md)
 (from [Search UX](https://github.com/vicvancooten/mail/issues/29)):
 
-- Search is a **route** (`/search?q=`) that takes over the thread list **inside the current view
-  mode**, not an overlay — one list renderer, and triage-on-a-result needs no special case. Stream
-  is suppressed inside search. Live-debounced from 3 chars; `Esc` clears then leaves, and leaving
-  restores the origin view exactly.
+- Search is an **overlay** (revised by #71 —
+  [ADR-0017](adr/0017-search-has-no-route.md); it was a route, `/search?q=`, before the Client had a
+  router) that takes over the thread list **inside the current view mode** — one list renderer, and
+  triage-on-a-result needs no special case. Stream is suppressed inside search. Live-debounced from
+  3 chars; `Esc` clears then leaves, and leaving restores the origin view exactly.
 - **The raw query text is the source of truth**; the parser is a pure `string -> filter fields`
   function and chips edit the string. Closed operator set: `from:` `to:` `has:attachment` `in:`
   `before:`/`after:` `label:`, implicit AND, `-` on operators only, unknown `foo:` falls through to

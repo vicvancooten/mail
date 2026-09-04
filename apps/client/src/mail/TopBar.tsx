@@ -1,16 +1,34 @@
 import type { AutoAdvanceDirection, Label, MailAccount } from "@mail/shared";
+import {
+  ArrowDown,
+  ArrowUp,
+  Clock,
+  Columns2,
+  Layers,
+  Rows3,
+  Search,
+  ShieldAlert,
+  X,
+} from "lucide-react";
 import { type RefObject, useState } from "react";
-import { Pictogram } from "../brand/Pictogram.js";
-import { AccountSwitcher } from "./AccountSwitcher.js";
-import type { ListDensity, ViewMode } from "./device-preferences.js";
+import { AccountScope } from "./AccountScope.js";
+import type {
+  AccountScope as AccountScopeIds,
+  ListDensity,
+  ViewMode,
+} from "./device-preferences.js";
 
 /**
  * The search field's own props (#51, `docs/search-ux-spec.md` §The
- * surface): "A search field lives in the top bar, focused by `/` or
- * `⌘K`/`Ctrl-K`." Lives here rather than in `SearchResultsView` because the
- * field itself is visible (and keeps its text) whether or not the search
- * route is currently active — only the chip row and result list are
- * search-route-only.
+ * surface): "A search field lives in the top bar, focused by `/`." Lives
+ * here rather than in `SearchResultsView` because the field itself is
+ * visible (and keeps its text) whether or not the search route is currently
+ * active — only the chip row and result list are search-route-only.
+ *
+ * `onOpen` fires on focus (`/`, or a real click/tap) — `MailSection.tsx`
+ * decides what that means: the pre-#79 "just activate search" path for `/`,
+ * or opening the Command Palette for a click, its other entry point
+ * (#79, `command-palette/CommandPalette.tsx`).
  */
 export interface TopBarSearch {
   active: boolean;
@@ -32,7 +50,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
 
   return (
     <div className="mail-search-field">
-      <Pictogram name="search" size={14} className="mail-search-icon" />
+      <Search size={14} className="mail-search-icon" />
       <input
         ref={search.inputRef}
         type="text"
@@ -73,7 +91,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
           title="Clear"
           onClick={() => search.onChange("")}
         >
-          <Pictogram name="close" size={13} />
+          <X size={13} />
         </button>
       ) : null}
       {showRecent ? (
@@ -91,7 +109,7 @@ function SearchField({ search }: { search: TopBarSearch }) {
                 search.onRunRecent(query);
               }}
             >
-              <Pictogram name="snooze" size={12} /> {query}
+              <Clock size={12} /> {query}
             </button>
           ))}
           <button
@@ -111,21 +129,40 @@ function SearchField({ search }: { search: TopBarSearch }) {
 }
 
 /**
- * The top bar: the Split/List segmented control, the Stream mode opt-in
- * toggle, the auto-advance direction toggle (#42), the filter-by-label
- * picker (#43, hidden until the account has at least one Label — no point
- * showing an empty filter), the search field (#51), and the account
- * switcher. Icons are Wicket pictograms (`brand/Pictogram.tsx`), icon+label buttons in the shadcn
- * convention — the commitments `prototype/triage-loop-ui` settled on (its
- * README), adopted here without pulling in the full shadcn component
- * library the real app doesn't otherwise use.
+ * Mail's own toolbar — the view controls that belong to this App rather than
+ * to the Client's chrome: Split/List, the Stream mode opt-in, row density,
+ * the auto-advance direction (#42), the filter-by-label picker (#43, hidden
+ * until the account has at least one Label), Mail's search field (#51), the
+ * Screener entry (#56) and Account Scope (#73, `AccountScope.tsx`).
  *
- * Stream mode is deliberately not a third segmented option: it replaces
+ * Rebuilt in #86. The comp
+ * (`docs/design/prototypes/the-instrument.html`) puts only four things in
+ * the global header — App Switcher, one centred search entry, appearance,
+ * avatar — and renders none of the controls above, because its mock has one
+ * view mode and one account. So these live in a second, quieter bar under
+ * the header rather than jammed into the top rail, and they take the comp's
+ * *control* language rather than the old segmented-plate one: `--radius-md`
+ * icon buttons, transparent at rest, `--color-hover` under the pointer and
+ * `--color-accent-soft` with accent ink when they carry the current state.
+ * No inverted-ink compartments, no uppercase letterspaced plates, no
+ * hairline dividers between them — the bar reads as chrome, not as a run of
+ * joinery.
+ *
+ * Compose is not here: the comp's Compose is the accent pill at the top of
+ * the folder rail, and that is where `Sidebar.tsx` renders it. Nor is a
+ * folder legend — the rail's current entry already names the folder, and
+ * Account Scope's own avatars name the account.
+ *
+ * Every icon-only control keeps a text accessible name matching what it used
+ * to say in words ("List", "Stream mode", "Next: Older"), so it is still
+ * nameable by voice, by screen reader and by test.
+ *
+ * Stream mode is deliberately not a third view-mode option: it replaces
  * whichever of Split/List is showing, and that underlying choice stays
  * selectable (dimmed) so turning Stream off returns to it. Search suppresses
  * it the same way (search-ux-spec.md §The surface) — `MailSection` is what
- * enforces that, this component just keeps rendering the segmented control
- * as normal underneath.
+ * enforces that, this component just keeps rendering the pair as normal
+ * underneath.
  */
 export function TopBar({
   viewMode,
@@ -137,12 +174,11 @@ export function TopBar({
   direction,
   onDirection,
   accounts,
-  selectedAccountId,
-  onSelectAccount,
+  accountScope,
+  onAccountScopeChange,
   labels,
   labelFilter,
   onLabelFilter,
-  onCompose,
   screener,
   search,
 }: {
@@ -156,141 +192,102 @@ export function TopBar({
   direction: AutoAdvanceDirection;
   onDirection: (direction: AutoAdvanceDirection) => void;
   accounts: MailAccount[];
-  selectedAccountId: string | null;
-  onSelectAccount: (id: string) => void;
-  /** This account's Labels (#43) — the filter-by-label picker's data source. */
+  /** Account Scope (#73): which Mail Accounts the Thread list draws from. */
+  accountScope: AccountScopeIds;
+  onAccountScopeChange: (ids: AccountScopeIds) => void;
+  /** The primary in-scope account's Labels (#43) — the filter-by-label picker's data source. */
   labels: Label[];
   /** `null` is the ordinary Inbox; a Label id filters to Threads carrying it. */
   labelFilter: string | null;
   onLabelFilter: (labelId: string | null) => void;
-  /** Opens a new composer (#45; `c` is the same action's keyboard shortcut). */
-  onCompose: () => void;
   /** The Screener entry point (#56): hidden while there is nothing held, same "hidden until it has something to show" as the label picker above. */
   screener: { count: number; onOpen: () => void };
   search: TopBarSearch;
 }) {
-  const account = accounts.find((candidate) => candidate.id === selectedAccountId) ?? null;
-  const activeLabel = labelFilter ? labels.find((l) => l.id === labelFilter) : null;
-
   return (
-    <div className="mail-topbar">
-      {/* The tray label: a compartment says what is filed in it. Without this
-          nothing on the triage screen names the Folder or the Mail Account. */}
-      <p className="mail-legend">
-        <span className="mail-legend-folder">{activeLabel ? activeLabel.name : "Inbox"}</span>
-        {account ? <span className="mail-legend-account">{account.emailAddress}</span> : null}
-      </p>
-
-      <div className="divider" />
-
-      <div className={`segmented${streamMode || search.active ? " muted" : ""}`}>
+    <div className="mail-toolbar">
+      <div className={`toolbar-group${streamMode || search.active ? " muted" : ""}`}>
         <button
           type="button"
-          className={viewMode === "split" ? "active" : ""}
+          className={`toolbar-btn${viewMode === "split" ? " current" : ""}`}
           onClick={() => onViewMode("split")}
+          aria-label="Split"
           title="Split view"
         >
-          <Pictogram name="split" size={14} /> Split
+          <Columns2 size={15} />
         </button>
         <button
           type="button"
-          className={viewMode === "list" ? "active" : ""}
+          className={`toolbar-btn${viewMode === "list" ? " current" : ""}`}
           onClick={() => onViewMode("list")}
+          aria-label="List"
           title="List view"
         >
-          <Pictogram name="rows" size={14} /> List
+          <Rows3 size={15} />
         </button>
       </div>
 
-      <div className="divider" />
-
       <button
         type="button"
-        className={`toggle${streamMode ? " on" : ""}`}
+        className={`toolbar-btn${streamMode ? " current" : ""}`}
         onClick={() => onStreamMode(!streamMode)}
-        title="Opt-in: replaces Split/List with one-thread-at-a-time browsing"
+        aria-label="Stream mode"
+        title="Stream mode — replaces Split/List with one-thread-at-a-time browsing"
       >
-        <Pictogram name="stream" size={14} /> Stream mode
+        <Layers size={15} />
       </button>
 
-      <div className="divider" />
-
       <button
         type="button"
-        className={`toggle${density === "compact" ? " on" : ""}`}
+        className={`toolbar-btn${density === "compact" ? " current" : ""}`}
         onClick={() => onDensity(density === "compact" ? "comfortable" : "compact")}
+        aria-label={density === "compact" ? "Compact" : "Comfortable"}
         title="Thread list row density — this device only"
       >
-        <Pictogram name="rows" size={14} /> {density === "compact" ? "Compact" : "Comfortable"}
+        <Rows3 size={15} />
       </button>
-
-      <div className="divider" />
 
       <button
         type="button"
-        className="toggle"
+        className="toolbar-btn"
         onClick={() => onDirection(direction === "older" ? "newer" : "older")}
+        aria-label={`Next: ${direction === "older" ? "Older" : "Newer"}`}
         title="After archive/trash, which neighbor gets selected?"
       >
-        {direction === "older" ? (
-          <Pictogram name="arrow-down" size={14} />
-        ) : (
-          <Pictogram name="arrow-up" size={14} />
-        )}
-        Next: {direction === "older" ? "Older" : "Newer"}
+        {direction === "older" ? <ArrowDown size={15} /> : <ArrowUp size={15} />}
       </button>
 
       {labels.length > 0 ? (
-        <>
-          <div className="divider" />
-          <label className="label-filter" title="Filter by label (#43)">
-            <Pictogram name="label" size={14} />
-            <select
-              value={labelFilter ?? ""}
-              onChange={(event) => onLabelFilter(event.target.value || null)}
-              aria-label="Filter by label"
-            >
-              <option value="">All mail</option>
-              {labels.map((label) => (
-                <option key={label.id} value={label.id}>
-                  {label.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
+        <select
+          className="toolbar-select"
+          value={labelFilter ?? ""}
+          onChange={(event) => onLabelFilter(event.target.value || null)}
+          aria-label="Filter by label"
+          title="Filter by label"
+        >
+          <option value="">All mail</option>
+          {labels.map((label) => (
+            <option key={label.id} value={label.id}>
+              {label.name}
+            </option>
+          ))}
+        </select>
       ) : null}
 
       {screener.count > 0 ? (
-        <>
-          <div className="divider" />
-          {/* The held plate: `--w-fluor` is reserved for this one state, and
-              this is the only place it reaches the triage screen. */}
-          <button
-            type="button"
-            className="held-plate screener-entry"
-            data-count={screener.count}
-            onClick={screener.onOpen}
-          >
-            <Pictogram name="held" size={13} /> {screener.count} held
-          </button>
-        </>
+        /* The one place `--color-warn` reaches the triage screen: a soft
+           chip rather than an outlined plate, so it reads as a count worth
+           a click and not as an alert bar. */
+        <button type="button" className="screener-chip" onClick={screener.onOpen}>
+          <ShieldAlert size={14} />
+          {screener.count} held
+        </button>
       ) : null}
 
-      <div className="divider" />
+      <div className="toolbar-spacer" />
+
       <SearchField search={search} />
-
-      <div className="topbar-spacer" />
-
-      <button type="button" className="compose-button" onClick={onCompose} title="Compose (c)">
-        <Pictogram name="pen-square" size={14} /> Compose
-      </button>
-
-      <AccountSwitcher
-        accounts={accounts}
-        selectedId={selectedAccountId}
-        onSelect={onSelectAccount}
-      />
+      <AccountScope accounts={accounts} scope={accountScope} onChange={onAccountScopeChange} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { SearchResponse } from "@mail/shared";
+import type { SearchRequest, SearchResponse } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,16 +32,16 @@ const AUTH_RESPONSES: Record<string, () => Response> = {
 
 const never = () => new Promise<Response>(() => {});
 
-/** Serves the auth bootstrap normally, hands `/sync` to `never` (never resolves) and `POST /search` to `search`. */
-function stubFetch(search: () => Promise<Response>) {
+/** Serves the auth bootstrap normally, hands `/sync` to `never` (never resolves) and `POST /search` to `search` — handed the request's own `init` so a test can inspect the body it sent. */
+function stubFetch(search: (init?: RequestInit) => Promise<Response>) {
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: RequestInfo | URL) => {
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const auth = AUTH_RESPONSES[url];
       if (auth) return Promise.resolve(auth());
       if (url === "/sync") return never();
-      if (url === "/search") return search();
+      if (url === "/search") return search(init);
       throw new Error(`Unexpected fetch: ${url}`);
     }),
   );
@@ -57,9 +57,6 @@ beforeEach(async () => {
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
-  // jsdom's `history`/`location` persist across tests in one file — reset
-  // the route so a previous test's `/search?q=` doesn't leak into the next.
-  history.replaceState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -150,6 +147,10 @@ describe("search (#51)", () => {
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
 
     renderMail();
+    // No Thread to wait for (deliberately none seeded) — wait for the top
+    // bar itself to settle instead, or `/` can fire before `searchInputRef`
+    // is attached to anything and land on nothing.
+    await screen.findByRole("button", { name: "Compose" });
     fireEvent.keyDown(window, { key: "/" });
     const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
     fireEvent.change(field, { target: { value: "nothing matches this" } });
@@ -179,7 +180,7 @@ describe("search (#51)", () => {
     // same Thread — `.thread-detail` rather than the row text alone, since
     // the row also renders it.
     await waitFor(() => expect(document.querySelector(".search-chip-row")).toBeNull());
-    const detail = await screen.findByText("Origin thread", { selector: ".thread-detail-card h1" });
+    const detail = await screen.findByText("Origin thread", { selector: ".reading-subject" });
     expect(detail).toBeDefined();
   });
 
@@ -216,7 +217,13 @@ describe("search (#51)", () => {
     // leaving the results list (search-ux-spec.md §The surface) — its
     // Archive button is triage's real mouse affordance today.
     fireEvent.click(screen.getByText("Remote result"));
-    const archiveButton = await screen.findByRole("button", { name: /Archive/ });
+    // The reading pane's own Done control, named in full — the result rows
+    // behind it each carry a Done control too (`Mark "…" Done`), and the
+    // sidebar (#74) has an "Archive" nav entry, so only this accessible name
+    // picks out exactly one button.
+    const archiveButton = await screen.findByRole("button", {
+      name: "Done — archive this thread",
+    });
     fireEvent.click(archiveButton);
 
     // The row stays — still in the results list — but visibly changed.
@@ -275,5 +282,132 @@ describe("search (#51)", () => {
     const blockedRow = (await screen.findByText("Blocked result")).closest(".thread-row");
     expect(heldRow?.querySelector(".gatekeeper-badge-held")?.textContent).toBe("Held");
     expect(blockedRow?.querySelector(".gatekeeper-badge-blocked")?.textContent).toBe("Blocked");
+  });
+});
+
+/** #80's own acceptance boxes: search covers the whole Account Scope, not just the primary account. */
+describe("search across Account Scope (#80)", () => {
+  async function seedTwoAccounts(): Promise<void> {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1"), makeMailAccount("acct-2")] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Origin thread" })] }),
+      { replace: false },
+    );
+  }
+
+  function twoAccountSearchResponse(): SearchResponse {
+    return {
+      results: [
+        {
+          thread: makeThread("t-a1", "acct-1", { subject: "From account one" }),
+          matchedMessageId: "t-a1-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+        {
+          thread: makeThread("t-a2", "acct-2", { subject: "From account two" }),
+          matchedMessageId: "t-a2-msg",
+          headline: null,
+          folder: { id: "f2", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      // Weakest across the two: `acct-1`'s own watermark (`makeMailAccount`'s
+      // default) is already incomplete, and the response is the whole Scope's
+      // — the Client renders exactly what it's handed, not a re-derived min.
+      indexWatermark: { coveredSince: null, complete: false },
+    };
+  }
+
+  it("carries the whole Account Scope on the request; results from every account merge, each row named by its own account, weakest watermark shown", async () => {
+    await seedTwoAccounts();
+    const bodies: SearchRequest[] = [];
+    stubFetch((init) => {
+      if (init?.body) bodies.push(JSON.parse(init.body as string));
+      return Promise.resolve(jsonResponse(twoAccountSearchResponse()));
+    });
+
+    renderMail();
+    await screen.findByText("Origin thread");
+
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    fireEvent.change(field, { target: { value: "account" } });
+
+    await screen.findByText("From account one");
+    await screen.findByText("From account two");
+
+    const [request] = bodies;
+    expect(request?.mailAccountId).toBe("acct-1");
+    expect(request?.additionalMailAccountIds).toEqual(["acct-2"]);
+
+    const rowOne = screen.getByText("From account one").closest(".thread-row");
+    const rowTwo = screen.getByText("From account two").closest(".thread-row");
+    expect(rowOne?.querySelector(".account-badge")?.textContent).toBe("acct-1@example.test");
+    expect(rowTwo?.querySelector(".account-badge")?.textContent).toBe("acct-2@example.test");
+
+    expect(
+      await screen.findByText(
+        "Still indexing this account — older mail matches on sender and subject only.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("changing Scope while a search is active re-runs it", async () => {
+    await seedTwoAccounts();
+    const bodies: SearchRequest[] = [];
+    stubFetch((init) => {
+      if (init?.body) bodies.push(JSON.parse(init.body as string));
+      return Promise.resolve(jsonResponse(twoAccountSearchResponse()));
+    });
+
+    renderMail();
+    await screen.findByText("Origin thread");
+
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    fireEvent.change(field, { target: { value: "account" } });
+    await screen.findByText("From account one");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.additionalMailAccountIds).toEqual(["acct-2"]);
+
+    // Narrow Scope to just `acct-1` via the real control (`AccountScope.tsx`) — not by
+    // reaching into `useAccountScope` directly, so this exercises the same
+    // path a User's own click does.
+    fireEvent.click(screen.getByTitle("Account Scope"));
+    fireEvent.click(screen.getByLabelText(/acct-2@example\.test/));
+
+    await waitFor(() => expect(bodies.length).toBeGreaterThan(1));
+    const rerun = bodies.at(-1);
+    expect(rerun?.mailAccountId).toBe("acct-1");
+    expect(rerun?.additionalMailAccountIds).toBeUndefined();
+  });
+
+  it("triage from a cross-account result acts on the right Mail Account", async () => {
+    await seedTwoAccounts();
+    stubFetch(() => Promise.resolve(jsonResponse(twoAccountSearchResponse())));
+
+    renderMail();
+    await screen.findByText("Origin thread");
+
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    fireEvent.change(field, { target: { value: "account" } });
+    await screen.findByText("From account two");
+
+    fireEvent.click(screen.getByText("From account two"));
+    const archiveButton = await screen.findByRole("button", {
+      name: "Done — archive this thread",
+    });
+    fireEvent.click(archiveButton);
+
+    await waitFor(async () => expect(await listQueuedMutations("acct-2")).toHaveLength(1));
+    expect(await listQueuedMutations("acct-1")).toHaveLength(0);
   });
 });

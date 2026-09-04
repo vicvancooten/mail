@@ -60,6 +60,28 @@ export const threadSchema = z.object({
    */
   inInbox: z.boolean(),
   /**
+   * The sidebar folder destination this Thread currently sits in (#74),
+   * beyond the plain "in the Inbox or not" `inInbox` above: `"archive"` and
+   * `"trash"` are what tell the two apart, App-owned exactly like `inInbox`
+   * — set synchronously by `archive`/`trash` (and the Screener decisions and
+   * Bulk Triage's `done` action that share their effect), the real IMAP
+   * `MOVE` following asynchronously after. One-directional today, the same
+   * as `inInbox`: nothing sets a Thread back to `"inbox"` from `"archive"`
+   * (there is no unarchive yet) except Bulk Triage's own Undo.
+   */
+  folderRole: z.enum(["inbox", "archive", "trash"]),
+  /**
+   * Whether this Thread has at least one Message the Sync Backend ingested
+   * from the account's real `\Sent` folder (#74) — unlike `folderRole`
+   * above, a real signal recomputed by `sync/thread-rollup.ts` on every
+   * pass, never an Optimistic Action's own field, because there is no
+   * "queue this to become Sent" intent: a Thread lands here by actually
+   * containing a sent Message. Independent of `folderRole`/`inInbox` — a
+   * sent reply can still be sitting in the Inbox, or since archived — and
+   * belongs in the Sent sidebar view either way.
+   */
+  hasSentMessage: z.boolean(),
+  /**
    * Whether this Thread is Pinned (#43): an App Feature, deliberately
    * distinct from `starred` (CONTEXT.md — a Star says "this matters", a Pin
    * says "keep this in front of me"). The Client sorts Pinned Threads to the
@@ -96,6 +118,18 @@ export const threadSchema = z.object({
    * to restore.
    */
   heldSender: z.string().nullable(),
+  /**
+   * Snooze (#76, CONTEXT.md: "hiding a thread until a chosen time, after
+   * which it returns as new"): the instant this Thread wakes, or `null` when
+   * it isn't snoozed. An App Feature (ADR-0006) with zero IMAP-side trace —
+   * `inInbox` flips to `false` the same instant this is set (the same
+   * synchronous-ack shape `archive`/`trash` already use), and back to `true`
+   * once the Sync Backend's wake sweep clears this field, with nothing ever
+   * written to the mailbox either way. One-directional the same way
+   * `archive`/`trash` are: there is no "un-snooze early" intent yet, so the
+   * only way this clears is the wake sweep itself.
+   */
+  snoozeUntil: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime(),
 });
 export type Thread = z.infer<typeof threadSchema>;
@@ -152,11 +186,6 @@ export type ThreadDelta = z.infer<typeof threadDeltaSchema>;
 export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
 export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 
-/** How the Client renders chrome: `system` follows the OS/browser's own `prefers-color-scheme` (#54, poc-spec.md §Preferences). */
-export const themeSchema = z.enum(["system", "light", "dark"]);
-export type Theme = z.infer<typeof themeSchema>;
-export const DEFAULT_THEME: Theme = "system";
-
 /** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
 export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
 export type AutoAdvanceDirection = z.infer<typeof autoAdvanceDirectionSchema>;
@@ -165,17 +194,20 @@ export const DEFAULT_AUTO_ADVANCE_ENABLED = true;
 
 /**
  * `Preference` (#54, poc-spec.md §Preferences, ADR-0011): the User-scoped
- * synced preference collection — theme, Auto-advance on/off and direction,
- * and the Undo Send delay, "the same everywhere the User signs in"
- * (CONTEXT.md's Device Preference entry, by contrast). Exactly one row per
- * User, `id` is the owning User's id rather than a minted one — there is
- * never a second row to distinguish it from — which is what lets this ride
- * the ordinary `CollectionDelta` shape every other collection uses
+ * synced preference collection — Auto-advance on/off and direction, and the
+ * Undo Send delay, "the same everywhere the User signs in" (CONTEXT.md's
+ * Device Preference entry, by contrast). Exactly one row per User, `id` is
+ * the owning User's id rather than a minted one — there is never a second
+ * row to distinguish it from — which is what lets this ride the ordinary
+ * `CollectionDelta` shape every other collection uses
  * (`sync/collection-sync.ts`) with no windowing or pagination of its own.
+ *
+ * Theme lived here until #72 (ADR-0011 amended): a laptop and a phone in the
+ * same hour want different Appearances, so it moved to a Device Preference
+ * (`apps/client/src/theme/device-theme.ts`) — `localStorage`, never synced.
  */
 export const preferenceSchema = z.object({
   id: z.string(),
-  theme: themeSchema,
   autoAdvanceEnabled: z.boolean(),
   autoAdvanceDirection: autoAdvanceDirectionSchema,
   undoSendDelaySeconds: undoSendDelaySchema,
@@ -195,7 +227,6 @@ export type PreferenceDelta = z.infer<typeof preferenceDeltaSchema>;
  * state through and through.
  */
 export const userMutationIntentSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("setTheme"), theme: themeSchema }),
   z.object({
     type: z.literal("setAutoAdvance"),
     enabled: z.boolean(),
@@ -306,6 +337,13 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `false` and, asynchronously, moves whatever of its Messages sit in the
  * Inbox to the account's Archive/Trash folder over real IMAP (ADR-0006).
  *
+ * `snooze` (#76, CONTEXT.md's Snooze entry) is a third one-directional
+ * Thread-hiding intent, same shape as `archive`/`trash` and never
+ * coalescing with anything either — but, being an App Feature (ADR-0006), it
+ * never enqueues a protocol write: `until` only ever moves the Thread row's
+ * own `snoozeUntil`/`inInbox` fields, and the Sync Backend's own wake sweep
+ * (not a Client-sent intent) is what clears them again once `until` passes.
+ *
  * `setPinned` (#43) mirrors `setStarred`'s absolute-set shape exactly, but
  * — Pin being an App Feature (ADR-0006) — never enqueues a protocol write:
  * it touches only the Thread row, never a Message's flags.
@@ -371,6 +409,7 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setRead"), threadId: z.string(), read: z.boolean() }),
   z.object({ type: z.literal("archive"), threadId: z.string() }),
   z.object({ type: z.literal("trash"), threadId: z.string() }),
+  z.object({ type: z.literal("snooze"), threadId: z.string(), until: z.iso.datetime() }),
   z.object({ type: z.literal("setPinned"), threadId: z.string(), pinned: z.boolean() }),
   z.object({ type: z.literal("applyLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),

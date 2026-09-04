@@ -536,19 +536,27 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
 
 describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
   it("sends the User-scoped queue on the round's first request only", async () => {
-    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    const id = await enqueueUserMutation({
+      type: "setAutoAdvance",
+      enabled: false,
+      direction: "newer",
+    });
 
     const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {} }]);
     await runSyncRound(post);
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.user?.mutations).toEqual([
-      { id, intent: { type: "setTheme", theme: "dark" } },
+      { id, intent: { type: "setAutoAdvance", enabled: false, direction: "newer" } },
     ]);
   });
 
   it("dequeues on `applied`, and applies the Preference delta the same round trip", async () => {
-    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    const id = await enqueueUserMutation({
+      type: "setAutoAdvance",
+      enabled: false,
+      direction: "newer",
+    });
 
     await runSyncRound(
       scriptedSync([
@@ -559,9 +567,8 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
               created: [
                 {
                   id: "user-1",
-                  theme: "dark",
-                  autoAdvanceEnabled: true,
-                  autoAdvanceDirection: "older",
+                  autoAdvanceEnabled: false,
+                  autoAdvanceDirection: "newer",
                   undoSendDelaySeconds: 10,
                   updatedAt: "2026-01-01T00:00:00.000Z",
                 },
@@ -575,11 +582,15 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
     );
 
     expect(await listQueuedUserMutations()).toEqual([]);
-    expect(await readPreference()).toMatchObject({ theme: "dark" });
+    expect(await readPreference()).toMatchObject({ autoAdvanceEnabled: false });
   });
 
   it("survives offline: a request that never gets a response leaves the queue untouched", async () => {
-    const id = await enqueueUserMutation({ type: "setTheme", theme: "dark" });
+    const id = await enqueueUserMutation({
+      type: "setAutoAdvance",
+      enabled: false,
+      direction: "newer",
+    });
 
     const offline = () => Promise.reject(new Error("network error"));
     await expect(runSyncRound(offline)).rejects.toThrow("network error");

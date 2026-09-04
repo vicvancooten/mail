@@ -2,187 +2,84 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* The two faces, self-hosted from our own origin. `standard.css` (not
-   `index.css`) is the slice that carries the width axis as well as weight —
-   the whole type program is one family set at four widths, so the wdth axis
-   is not optional. A client whose promise is that you own your server has no
-   business fetching fonts from Google on every cold start. */
-@import "@fontsource-variable/archivo/standard.css";
+/* The two faces, self-hosted from our own origin. A client whose promise is
+   that you own your server has no business fetching fonts from Google on
+   every cold start. */
+@import "@fontsource-variable/inter/standard.css";
 @import "@fontsource-variable/martian-mono/standard.css";
+
+/* The Instrument's tokens: colour, type and geometry, declared once in
+   @mail/design-tokens and consumed here — never hand-duplicated. See that
+   package's README for the selector strategy (OS preference, guarded
+   `.light`, explicit `.dark`). */
+@import "@mail/design-tokens/css";
 
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================================
-   WICKET — the sorting office
-   Direction contract: .impeccable/surfaces/src-app-tsx.md (seed 8b0f0098).
-   Specification: docs/design/wicket-identity.html
-
-   Two stocks and four inks. The ground is the sorting *frame*, never paper:
-   kraft is the item, and the room it sits in is painted steel and hardwood.
-   Every colour below is declared here in the light block first, so nothing
-   depends on a media query having matched.
+   The interaction-motion constants every surface's transitions share — the
+   comp's own three curves and two durations
+   (`docs/design/prototypes/the-instrument.html`), the only local tokens with
+   no `@mail/design-tokens` equivalent. Everything else — colour, radius,
+   type, the avatar tile palette — comes straight from that package above;
+   nothing re-declares it here (#83, #86).
    ========================================================================= */
 :root {
-  color-scheme: light dark;
-
-  /* ---- stock: the day bench, institutional pale grey-green ---- */
-  --w-frame: #d5d8ce;
-  --w-panel: #e7e8e0;
-  --w-panel-2: #dddfd5;
-  --w-panel-sunk: #c9cdc1;
-  --w-rule: #bec2b5;
-  --w-rule-hard: #9aa093;
-
-  /* ---- ink on stock ---- */
-  --w-ink: #1f1d18;
-  --w-ink-2: #575349;
-  --w-ink-3: #65624f;
-
-  /* ---- the four role inks. Each appears only for its own job, so a row is
-         never ambiguous about what happened to it. ---- */
-  --w-aniline: #5b3e8c; /* brand ink: primary, focus, selection, the mark */
-  --w-aniline-flat: #5b3e8c; /* the same ink as a fill behind bone text */
-  --w-fluor: #9c3000; /* HELD, as a tint that reads on stock incl. sunk */
-  --w-fluor-flat: #ff5a0f; /* HELD, as the drenched ground of the Screener */
-  --w-postal: #b0231c; /* RETURNED, BLOCKED, failed — destructive only */
-  --w-phosphor: #256b42; /* ADMITTED, SENT, confirmed */
-  --w-bone: #f4f2e9; /* label stock: text on a flat ink */
-
-  /* ---- the strike: struck ink over the item, blended into its stock ---- */
-  --w-strike-blend: multiply;
-  --w-strike-wet: 0.4;
-  --w-strike-set: 0.84;
-
-  /* ---- geometry: rules, not gaps. Plates, not cards. ---- */
-  --w-hair: 1px;
-  --w-r-plate: 2px;
-  --w-r-band: 1px;
-  /* The one shadow in the system, for things that genuinely float above the
-     frame: popovers, dialogs, the label picker. Offset and soft blur. */
-  --w-lift: 0 10px 30px -10px rgb(31 29 24 / 0.38), 0 2px 4px -2px rgb(31 29 24 / 0.24);
-
-  /* ---- type: one family at four label stocks, plus a machine face ---- */
-  --w-sans: "Archivo Variable", "Helvetica Neue", Arial, sans-serif;
-  --w-mono: "Martian Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --w-wd-label: 78%; /* tray label, region legend, column head */
-  --w-wd-sender: 92%; /* the sender column */
-  --w-wd-text: 100%; /* running UI text */
-  --w-wd-display: 118%; /* bay sign, the wordmark */
-
-  /* ---- motion: one authored moment, and a hard floor under it ---- */
-  --w-ease: cubic-bezier(0.25, 1, 0.5, 1);
-  --w-ease-strike: cubic-bezier(0.16, 0.9, 0.12, 1);
-  --w-dur-press: 120ms;
-  --w-dur-fast: 150ms;
-  --w-dur-strike: 190ms;
-
-  /* ==========================================================
-     shadcn / Tailwind token surface, mapped onto the above.
-     shadcn primitives carry behaviour and accessibility; every
-     colour and corner they render comes from Wicket.
-     ========================================================== */
-  --background: var(--w-frame);
-  --foreground: var(--w-ink);
-  --card: var(--w-panel);
-  --card-foreground: var(--w-ink);
-  --popover: var(--w-panel);
-  --popover-foreground: var(--w-ink);
-  --primary: var(--w-aniline-flat);
-  --primary-foreground: var(--w-bone);
-  --secondary: var(--w-panel-sunk);
-  --secondary-foreground: var(--w-ink);
-  --muted: var(--w-panel-2);
-  --muted-foreground: var(--w-ink-3);
-  --accent: var(--w-panel-sunk);
-  --accent-foreground: var(--w-ink);
-  --destructive: var(--w-postal);
-  --border: var(--w-rule-hard);
-  --input: var(--w-rule-hard);
-  --ring: var(--w-aniline);
-  --chart-1: var(--w-aniline);
-  --chart-2: var(--w-phosphor);
-  --chart-3: var(--w-fluor);
-  --chart-4: var(--w-postal);
-  --chart-5: var(--w-ink-2);
-  --radius: 0.125rem; /* 2px: metal label holders have square corners */
-  --sidebar: var(--w-panel-sunk);
-  --sidebar-foreground: var(--w-ink);
-  --sidebar-primary: var(--w-aniline-flat);
-  --sidebar-primary-foreground: var(--w-bone);
-  --sidebar-accent: var(--w-panel-2);
-  --sidebar-accent-foreground: var(--w-ink);
-  --sidebar-border: var(--w-rule-hard);
-  --sidebar-ring: var(--w-aniline);
+  /* The default: a control answering a pointer. */
+  --ease: cubic-bezier(0.22, 0.8, 0.32, 1);
+  /* Something arriving or leaving — a toast, a panel, a row clearing. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Something growing into a target under the pointer: the row's Done
+     control, the group header's Done-all node. */
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-press: 120ms;
+  --dur-fast: 190ms;
 }
 
-/* The night frame: warm near-black aged hardwood, never blue graphite, and
-   text in warm bone — the colour of label stock, not white. Guarded so an
-   explicit `.light` beats a dark OS. */
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) {
-    --w-frame: #1a1611;
-    --w-panel: #221e18;
-    --w-panel-2: #2b2620;
-    --w-panel-sunk: #38312a;
-    --w-rule: #332d25;
-    --w-rule-hard: #4a4238;
-
-    --w-ink: #ede7da;
-    --w-ink-2: #a79c89;
-    --w-ink-3: #948a75;
-
-    --w-aniline: #a98cd9;
-    --w-aniline-flat: #6b4aaf;
-    --w-fluor: #ff7a3c;
-    --w-fluor-flat: #ff5a0f;
-    --w-postal: #f2685e;
-    --w-phosphor: #5cc98a;
-
-    --w-strike-blend: plus-lighter;
-    --w-strike-wet: 0.32;
-    --w-strike-set: 0.76;
-
-    --w-lift: 0 12px 34px -10px rgb(0 0 0 / 0.66), 0 2px 6px -2px rgb(0 0 0 / 0.5);
-  }
-}
-
-/* The same set again behind an explicit choice, so a toggle wins either way.
-   `.dark` is also what shadcn's own dark variant keys off. */
-:root.dark {
-  color-scheme: dark;
-  --w-frame: #1a1611;
-  --w-panel: #221e18;
-  --w-panel-2: #2b2620;
-  --w-panel-sunk: #38312a;
-  --w-rule: #332d25;
-  --w-rule-hard: #4a4238;
-
-  --w-ink: #ede7da;
-  --w-ink-2: #a79c89;
-  --w-ink-3: #948a75;
-
-  --w-aniline: #a98cd9;
-  --w-aniline-flat: #6b4aaf;
-  --w-fluor: #ff7a3c;
-  --w-fluor-flat: #ff5a0f;
-  --w-postal: #f2685e;
-  --w-phosphor: #5cc98a;
-
-  --w-strike-blend: plus-lighter;
-  --w-strike-wet: 0.32;
-  --w-strike-set: 0.76;
-
-  --w-lift: 0 12px 34px -10px rgb(0 0 0 / 0.66), 0 2px 6px -2px rgb(0 0 0 / 0.5);
-}
-
-:root.light {
-  color-scheme: light;
+/* ==========================================================
+   shadcn / Tailwind token surface. shadcn primitives carry
+   behaviour and accessibility; every colour and corner they
+   render comes from @mail/design-tokens.
+   ========================================================== */
+:root {
+  --background: var(--color-bg);
+  --foreground: var(--color-ink);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-accent-foreground);
+  --secondary: var(--color-field);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-surface-strong);
+  --muted-foreground: var(--color-ink-muted);
+  --accent: var(--color-accent-soft);
+  --accent-foreground: var(--color-ink);
+  --destructive: var(--color-danger);
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-accent);
+  --chart-1: var(--color-accent);
+  --chart-2: var(--color-success);
+  --chart-3: var(--color-warn);
+  --chart-4: var(--color-danger);
+  --chart-5: var(--color-ink-muted);
+  --radius: var(--radius-md);
+  --sidebar: var(--color-field);
+  --sidebar-foreground: var(--color-ink);
+  --sidebar-primary: var(--color-accent);
+  --sidebar-primary-foreground: var(--color-accent-foreground);
+  --sidebar-accent: var(--color-surface-strong);
+  --sidebar-accent-foreground: var(--color-ink);
+  --sidebar-border: var(--color-border);
+  --sidebar-ring: var(--color-accent);
 }
 
 @theme inline {
-  --font-sans: var(--w-sans);
-  --font-mono: var(--w-mono);
-  --font-heading: var(--w-sans);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -214,19 +111,19 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  /* Wicket's own inks, so a utility can reach them by name */
-  --color-aniline: var(--w-aniline);
-  --color-fluor: var(--w-fluor);
-  --color-postal: var(--w-postal);
-  --color-phosphor: var(--w-phosphor);
-  --color-bone: var(--w-bone);
-  --radius-sm: var(--w-r-band);
-  --radius-md: var(--w-r-plate);
-  --radius-lg: var(--w-r-plate);
-  --radius-xl: var(--w-r-plate);
-  --radius-2xl: var(--w-r-plate);
-  --radius-3xl: var(--w-r-plate);
-  --radius-4xl: var(--w-r-plate);
+  /* The Instrument's own inks, so a utility can reach them by name */
+  --color-aniline: var(--color-accent);
+  --color-fluor: var(--color-warn);
+  --color-postal: var(--color-danger);
+  --color-phosphor: var(--color-success);
+  --color-bone: var(--color-accent-foreground);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-md);
+  --radius-xl: var(--radius-md);
+  --radius-2xl: var(--radius-md);
+  --radius-3xl: var(--radius-md);
+  --radius-4xl: var(--radius-md);
 }
 
 @layer base {
@@ -234,34 +131,47 @@
     @apply border-border;
   }
 
+  /* The document itself never scrolls, at any width (#71) — every
+     scrollable region is a bounded pane inside `.app-shell` instead
+     (`router/shell.css`'s own doc comment on `.app-shell`). `height: 100%`
+     down through `html`/`body`/`#root` is what gives `.app-shell`'s
+     `100dvh` somewhere definite to sit rather than a taller, auto-height
+     ancestor `overflow: hidden` here would just clip. */
   html {
-    font-family: var(--w-sans);
+    height: 100%;
+    font-family: var(--font-sans);
   }
 
   body {
+    height: 100%;
     margin: 0;
-    background: var(--w-frame);
-    color: var(--w-ink);
-    font-family: var(--w-sans);
-    font-stretch: var(--w-wd-text);
+    overflow: hidden;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-stretch: 100%;
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
 
+  #root {
+    height: 100%;
+  }
+
   /* --- browser surfaces belong to the design system too --- */
   ::selection {
-    background: var(--w-aniline);
-    color: var(--w-bone);
+    background: var(--color-accent);
+    color: var(--color-accent-foreground);
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--w-rule-hard) transparent;
+    scrollbar-color: var(--color-border) transparent;
   }
 
   :focus-visible {
-    outline: 2px solid var(--w-aniline);
+    outline: 2px solid var(--color-accent);
     outline-offset: 1px;
   }
 
@@ -270,7 +180,7 @@
   select,
   button {
     font-family: inherit;
-    caret-color: var(--w-aniline);
+    caret-color: var(--color-accent);
   }
 
   /* Digits that sit in a column line up. Times, counts, sizes, watermarks. */
@@ -278,78 +188,18 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
-}
 
-/* ============================================================================
-   THE STRIKE
-   State struck across the item, never badged beside it. Scoped by contract to
-   things that *persist* in a changed state — a search row you acted on, a
-   Screener slip, a held or blocked sender, a failed send, the rollback toast.
-   Never on a triage keystroke: `store/reads.ts` removes an archived Thread
-   from the list the instant the mutation is queued, and holding that row open
-   to show ink would tax the one thing that must stay snap-instant.
-   ========================================================================= */
-.strike {
-  position: relative;
-}
-
-.strike::after {
-  content: attr(data-strike);
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  translate: -50% -50%;
-  rotate: var(--strike-tilt, -5deg);
-  pointer-events: none;
-  mix-blend-mode: var(--w-strike-blend);
-  opacity: var(--w-strike-set);
-  color: var(--strike-ink, var(--w-aniline));
-  font-family: var(--w-sans);
-  font-stretch: 70%;
-  font-weight: 800;
-  font-size: 21px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  padding: 1px 10px;
-  border: 2.5px solid currentColor;
-  border-radius: var(--w-r-plate);
-}
-
-/* Wet: the Sync Backend has not answered yet. It sets when the action is
-   confirmed, and lifts on rollback. */
-.strike[data-wet="true"]::after {
-  opacity: var(--w-strike-wet);
-}
-
-/* An inline overprint, for a badge-sized statement inside a row. */
-.overprint {
-  display: inline-block;
-  font-stretch: 74%;
-  font-weight: 750;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 1.5px 6px;
-  border-radius: var(--w-r-plate);
-  border: 1.5px solid currentColor;
-  rotate: var(--strike-tilt, -3deg);
-  color: var(--strike-ink, var(--w-ink-2));
-  white-space: nowrap;
-}
-
-.overprint--held {
-  --strike-ink: var(--w-fluor);
-}
-.overprint--blocked,
-.overprint--failed {
-  --strike-ink: var(--w-postal);
-}
-.overprint--done {
-  --strike-ink: var(--w-aniline);
-}
-.overprint--admitted {
-  --strike-ink: var(--w-phosphor);
+  /* Every icon in the app is a Lucide stroke glyph (#86 — the hand-authored
+     solid pictogram set is gone). Lucide's own default is 2px, which reads
+     heavy beside this type at the 13-16px the chrome uses them at; the comp
+     draws its whole icon language at 1.6 (`docs/design/prototypes/the-
+     instrument.html`, `.icon`), and setting it here rather than per call
+     site is what keeps one weight across every surface. A CSS declaration
+     beats the presentation attribute the component renders, so an icon that
+     genuinely needs another weight can still ask for it in its own rule. */
+  .lucide {
+    stroke-width: 1.6;
+  }
 }
 
 /* ============================================================================
@@ -364,9 +214,9 @@
   gap: 12px;
   padding: 7px 16px;
   padding-top: calc(7px + env(safe-area-inset-top));
-  background: var(--w-aniline-flat);
-  color: var(--w-bone);
-  font-stretch: var(--w-wd-label);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-stretch: 100%;
   font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.09em;
@@ -375,17 +225,17 @@
 
 .pwa-update-banner button {
   border: 1.5px solid rgb(244 242 233 / 0.55);
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   padding: 3px 10px;
-  font-stretch: var(--w-wd-label);
+  font-stretch: 100%;
   font-weight: 650;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background var(--w-dur-press) linear;
+  transition: background var(--dur-press) linear;
 }
 
 .pwa-update-banner button:hover {

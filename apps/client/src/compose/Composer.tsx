@@ -2,10 +2,10 @@ import type { ComposeDocument, MailAccount, Recipient } from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { ChevronDown, ChevronUp, TriangleAlert, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl } from "../api/attachments.js";
-import { Pictogram } from "../brand/Pictogram.js";
 import { clearOpenComposerId, writeOpenComposerId } from "../mail/device-preferences.js";
 import {
   type CachedComposition,
@@ -33,6 +33,21 @@ export interface ComposerProps {
   compositionId: string;
   mailAccounts: MailAccount[];
   defaultMailAccountId: string;
+  /**
+   * The From resolution chain (#81, mail#66 "From respects Account Scope"):
+   * `null` means the account is already settled — a reply/forward (the
+   * arriving Message's own account, never a choice) or Account Scope
+   * narrowed to exactly one account — and the header renders the static
+   * label it always has. A list of two or more Mail Accounts means Scope
+   * left it ambiguous for a brand-new compose: `defaultMailAccountId` above
+   * is still the User-level default the picker opens on (Scope's primary
+   * account), but it renders as a real `<select>` rather than a locked
+   * label, so the From address is always the User's own explicit choice
+   * rather than a silent guess. `MailSection.tsx`'s `openCompose`/
+   * `openReply`/`reopenCompose` are the only three places that decide which
+   * of these this composer gets.
+   */
+  fromChoices: MailAccount[] | null;
   onClose: () => void;
 }
 
@@ -47,17 +62,26 @@ export interface ComposerProps {
  * lives on as a Pending Send, and its countdown belongs to `PendingSendBar`,
  * which renders outside any composer precisely because the send survives this
  * component (and this device) being gone. The sending-Mail-Account switcher
- * and the explicit Discard button are still out of scope (#47, #48).
+ * (#81, `fromChoices` below) is now in scope; the explicit Discard button
+ * still isn't (#48).
  */
 export function Composer({
   compositionId,
   mailAccounts,
   defaultMailAccountId,
+  fromChoices,
   onClose,
 }: ComposerProps) {
   const existing = useComposition(compositionId);
   const hydratedRef = useRef(false);
-  const [mailAccountId] = useState(defaultMailAccountId);
+  // Real, changeable state now (#81) — not just an initial value: a
+  // reopened Composition (a reply/forward's own row, a reopened Draft, a
+  // cancelled send) must adopt *its own* `mailAccountId` once it hydrates
+  // below, since that can differ from `defaultMailAccountId` (the primary
+  // Account Scope account) whenever the row was seeded against some other
+  // account — a reply is exactly that case. Explicit From choice (the
+  // `fromChoices` picker below) is the other way this ever changes.
+  const [mailAccountId, setMailAccountId] = useState(defaultMailAccountId);
   const [subject, setSubject] = useState("");
   const [to, setTo] = useState<Recipient[]>([]);
   const [cc, setCc] = useState<Recipient[]>([]);
@@ -101,8 +125,9 @@ export function Composer({
     writeOpenComposerId(compositionId);
   }, [compositionId]);
 
-  /** Shared by the initial hydration below and the "Use theirs" conflict resolution further down — same six fields, same editor write. */
+  /** Shared by the initial hydration below and the "Use theirs" conflict resolution further down — same seven fields, same editor write. `mailAccountId` (#81) is the row's own, not `defaultMailAccountId`: a reply/forward's row was seeded against the Message's arriving account, which may not be Account Scope's primary one. */
   const hydrateFrom = useCallback((row: CachedComposition, targetEditor: Editor) => {
+    setMailAccountId(row.mailAccountId);
     setSubject(row.subject);
     setTo(row.to);
     setCc(row.cc);
@@ -403,30 +428,46 @@ export function Composer({
       onDrop={handleDrop}
     >
       <div className="composer-header">
-        <span className="composer-from" title={fromAddress}>
-          {fromAddress}
-        </span>
+        {/* #81: several accounts in Scope, no reply context — the User
+            chooses explicitly rather than silently sending from whichever
+            one happens to be primary. A reply/forward or a single-account
+            Scope never reaches this branch (`fromChoices` is `null`), so
+            the arriving/settled account keeps its plain, locked label. */}
+        {fromChoices && fromChoices.length > 1 ? (
+          <select
+            className="composer-from composer-from-select"
+            aria-label="From"
+            value={mailAccountId}
+            onChange={(event) => setMailAccountId(event.target.value)}
+          >
+            {fromChoices.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.emailAddress}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="composer-from" title={fromAddress}>
+            {fromAddress}
+          </span>
+        )}
         <div className="composer-header-actions">
           <button
             type="button"
             aria-label={expanded ? "Collapse" : "Expand"}
             onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? (
-              <Pictogram name="collapse" size={14} />
-            ) : (
-              <Pictogram name="expand" size={14} />
-            )}
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
           <button type="button" aria-label="Close" onClick={flushAndClose}>
-            <Pictogram name="close" size={14} />
+            <X size={14} />
           </button>
         </div>
       </div>
 
       {conflictVersion !== null && (
         <div className="composer-conflict-banner" role="alert">
-          <Pictogram name="warning" size={14} />
+          <TriangleAlert size={14} />
           <span>This draft changed on another device.</span>
           <div className="composer-conflict-actions">
             <button type="button" onClick={keepMine}>

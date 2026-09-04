@@ -13,6 +13,12 @@ import {
   threadSchema,
 } from "./sync.js";
 
+const VALID_SNOOZE_INTENT = {
+  type: "snooze" as const,
+  threadId: "thread-1",
+  until: "2026-06-01T08:00:00.000Z",
+};
+
 const VALID_THREAD = {
   id: "thread-1",
   mailAccountId: "account-1",
@@ -27,9 +33,12 @@ const VALID_THREAD = {
   starred: false,
   hasAttachments: false,
   inInbox: true,
+  folderRole: "inbox",
+  hasSentMessage: false,
   pinned: false,
   labelIds: ["account-1:Work"],
   heldSender: null,
+  snoozeUntil: null,
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
 
@@ -72,6 +81,14 @@ describe("threadSchema", () => {
 
   it("accepts an empty labelIds array", () => {
     expect(threadSchema.safeParse({ ...VALID_THREAD, labelIds: [] }).success).toBe(true);
+  });
+
+  it("requires snoozeUntil, and takes an ISO datetime for a snoozed Thread (#76)", () => {
+    const { snoozeUntil, ...withoutSnoozeUntil } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutSnoozeUntil).success).toBe(false);
+    expect(
+      threadSchema.safeParse({ ...VALID_THREAD, snoozeUntil: "2026-06-01T08:00:00.000Z" }).success,
+    ).toBe(true);
   });
 });
 
@@ -288,6 +305,15 @@ describe("mutationIntentSchema", () => {
     expect(
       mutationIntentSchema.safeParse({ type: "removeLabel", threadId: "t1", name: "Work" }).success,
     ).toBe(true);
+  });
+
+  it("accepts snooze, with an ISO `until` (#76)", () => {
+    expect(mutationIntentSchema.safeParse(VALID_SNOOZE_INTENT).success).toBe(true);
+  });
+
+  it("rejects snooze with a non-ISO `until`", () => {
+    const result = mutationIntentSchema.safeParse({ ...VALID_SNOOZE_INTENT, until: "tomorrow" });
+    expect(result.success).toBe(false);
   });
 });
 

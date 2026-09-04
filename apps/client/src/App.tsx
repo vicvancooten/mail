@@ -8,9 +8,9 @@ import { UpdateBanner } from "./pwa/UpdateBanner.js";
 // as relevant on the login screen as it is mid-triage.
 //
 // The `<h1>` lives inside `AuthGate`'s branches rather than here: signed
-// out it belongs to the plate (`brand/AuthPlate.tsx`), signed in it belongs
-// to the header rail (`auth/AppShell.tsx`), and there is exactly one of it
-// either way.
+// out it belongs to the pre-session card (`auth/AuthCard.tsx`), signed in
+// it belongs to the header rail (`auth/AppShell.tsx`), and there is exactly
+// one of it either way.
 function App() {
   return (
     <AuthProvider>

@@ -25,6 +25,8 @@ function describeIntent(intent: MutationIntent): string | null {
       return "Couldn't archive — restored to the list.";
     case "trash":
       return "Couldn't move to trash — restored to the list.";
+    case "snooze":
+      return "Couldn't snooze — restored to the list.";
     case "setStarred":
       return intent.starred ? "Couldn't star — undone." : "Couldn't unstar — undone.";
     case "setRead":

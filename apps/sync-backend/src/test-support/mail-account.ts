@@ -11,6 +11,8 @@ export interface TestMailAccountInput {
   imapHost?: string;
   imapPort?: number;
   smtpPort?: number;
+  /** Adds this Mail Account to an existing User instead of creating a new one — an Account Scope (#68) test's second, same-User account. */
+  userId?: string;
 }
 
 /**
@@ -27,13 +29,15 @@ export async function createTestMailAccount(
   const password = input.password ?? "greenmail-accepts-anything";
   const host = input.imapHost ?? "localhost";
 
-  const userId = randomUUID();
-  await db.insert(users).values({
-    id: userId,
-    username: `user-${userId.slice(0, 8)}`,
-    passwordHash: "not-a-real-hash",
-    role: "owner",
-  });
+  const userId = input.userId ?? randomUUID();
+  if (!input.userId) {
+    await db.insert(users).values({
+      id: userId,
+      username: `user-${userId.slice(0, 8)}`,
+      passwordHash: "not-a-real-hash",
+      role: "owner",
+    });
+  }
 
   const id = randomUUID();
   const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);

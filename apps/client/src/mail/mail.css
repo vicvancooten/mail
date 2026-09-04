@@ -1,24 +1,40 @@
 /* ============================================================================
-   WICKET — the mail frame.
-   Direction: The Sorting Office. Tokens live in `src/index.css`; the full
-   specification is `docs/design/wicket-identity.html`.
+   WICKET — the Mail App's own surface.
+   Direction: The Instrument. Tokens live in `@mail/design-tokens` (consumed
+   through `src/index.css`); the approved comp is
+   `docs/design/prototypes/the-instrument.html`, and #86 (chrome) and #87
+   (list, reading pane, composer, Screener, Palette) rebuilt this file's
+   markup and rules against it rather than only renaming its colours.
 
-   Three rules govern everything below.
-   1. Compartments divide on hairline rules that meet at the corners. No
-      cards, no gaps between them, no shadows — a frame is joinery. The one
-      shadow in the system (`--w-lift`) is for things that genuinely float:
-      the label picker, the search history, toasts.
-   2. Rank is inversion, never brightness. The selected row inverts its
-      stock; controls take no ink colour, only relief and rule.
-   3. State is struck across the item, and only where a state *persists* —
-      a search row already acted on, a held or blocked sender, a failed
-      send. A triage keystroke strikes nothing: `store/reads.ts` drops an
-      archived Thread from the list the moment the mutation is queued, and
-      holding that row open to show ink would tax the one thing that has to
-      stay snap-instant.
+   The five rules everything here follows:
+   1. Regions are separated by ground and gap, not by joinery. There is no
+      hairline box around a control, no plate behind a row, and no rule under
+      a list item — the list floats on `--color-bg` and a row is a rounded
+      rectangle that only appears when the pointer or the selection reaches
+      it. `--shadow-overlay` is the one shadow, and only for things that
+      genuinely float: the Palette, popovers, toasts, the composer.
+   2. Rank is the accent, softly. A current or selected thing is
+      `--color-accent-soft` with accent ink; a hovered one is
+      `--color-hover`; everything at rest is transparent. Nothing inverts to
+      solid ink — the old system's "the selected row takes the ink" is gone
+      from every surface.
+   3. Corners come from the token ladder: `--radius-md` for a control,
+      `--radius-row` for a list row or menu item, `--radius-panel` for
+      anything that floats, `--radius-pill` for the primary actions.
+   4. Actions live in reserved whitespace, revealed rather than inserted.
+      A row's Done control, a group header's bulk actions and a row's
+      Snooze/Pin all occupy a fixed slot whether armed or not, so arming
+      one never reflows anything beside it. Armed is real component state
+      (`data-armed`), never a bare `:hover`.
+   5. Type carries rank by size and weight, not by uppercase letterspaced
+      plates. The one machine-face exception is measurement — timestamps,
+      counts, sizes — set in `--font-mono` with tabular figures.
 
-   Row geometry is load-bearing: 60 / 40 / 32px match `ROW_HEIGHT`,
-   `COMPACT_ROW_HEIGHT` and `HEADER_HEIGHT` in `VirtualizedThreadList.tsx`.
+   Row and header geometry is load-bearing, but not declared here (#75):
+   every taper tier's row/header height lives once in `taper.ts` and arrives
+   as an inline style, so the virtualizer and the rendered box are always the
+   same number — this file only styles *within* whatever height that gave a
+   row or header (`[data-tier]` below).
    ========================================================================= */
 
 .mail-section {
@@ -27,8 +43,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  color: var(--w-ink);
-  background: var(--w-frame);
+  color: var(--color-ink);
+  background: var(--color-bg);
 }
 
 /* ---------- mobile layout / safe area (#44) ----------
@@ -36,11 +52,6 @@
  * standalone app clear of a notch/home-indicator, so these are
  * unconditionally safe additions rather than a `display-mode: standalone`
  * media query around every one of them. */
-.mail-topbar {
-  padding-left: calc(12px + env(safe-area-inset-left));
-  padding-right: calc(12px + env(safe-area-inset-right));
-}
-
 .thread-list,
 .stream-view {
   padding-bottom: env(safe-area-inset-bottom);
@@ -49,7 +60,7 @@
 /* A control that is pressed gives something back. Kept from the incumbent
    build: a physical control that answers nothing feels broken. */
 .mail-section button {
-  transition: transform var(--w-dur-press) var(--w-ease-strike);
+  transition: transform var(--dur-press) var(--ease-out);
 }
 
 .mail-section button:active {
@@ -57,196 +68,389 @@
 }
 
 /* ============================================================================
-   THE TRAY LABEL — the frame's head
+   MAIL'S TOOLBAR — the App's own view controls (#86)
+   The comp's global header carries four things (App Switcher, one centred
+   search entry, appearance, avatar) and none of the controls below; see
+   `TopBar.tsx`'s own doc comment for why they live in a second, quieter bar
+   here instead. The control language is the comp's: `--radius-md` icon
+   buttons, transparent at rest, `--color-hover` under the pointer,
+   `--color-accent-soft` with accent ink when current. No compartments, no
+   dividers, no uppercase letterspaced plates.
    ========================================================================= */
 
-.mail-topbar {
+.mail-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  background: var(--w-panel-sunk);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  gap: 4px;
+  padding: 8px 14px;
+  padding-left: calc(14px + env(safe-area-inset-left));
+  padding-right: calc(14px + env(safe-area-inset-right));
+  background: var(--color-bg);
 }
 
-/* The segmented control is a run of compartments, divided rather than
-   spaced, and the active one inverts. */
-.mail-topbar .segmented {
-  display: flex;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  overflow: hidden;
-  transition: opacity var(--w-dur-fast) var(--w-ease);
-}
-
-.mail-topbar .segmented.muted {
-  opacity: 0.5;
-}
-
-.mail-topbar .segmented button {
+/* Split/List: two buttons that sit together as one choice, spaced rather
+   than divided — the gap between groups is what separates them from the
+   toggles beside them. */
+.toolbar-group {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border: none;
-  border-right: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel);
-  color: var(--w-ink-3);
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
+  gap: 2px;
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
-.mail-topbar .segmented button:not(.active) {
-  color: var(--w-ink-2);
+/* Stream mode or search has taken the view over; the underlying Split/List
+   choice stays visible and selectable, just no longer in charge. */
+.toolbar-group.muted {
+  opacity: 0.45;
 }
 
-.mail-topbar .segmented button:last-child {
-  border-right: none;
-}
-
-.mail-topbar .segmented button.active {
-  background: var(--w-ink);
-  color: var(--w-frame);
-}
-
-.mail-topbar .divider {
-  width: var(--w-hair);
-  align-self: stretch;
-  margin: 2px 2px;
-  background: var(--w-rule-hard);
-}
-
-.mail-topbar .toggle {
+.toolbar-btn {
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink-3);
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.mail-topbar .toggle {
-  color: var(--w-ink-2);
-}
-
-.mail-topbar .toggle:hover {
-  color: var(--w-ink);
-}
-
-.mail-topbar .toggle.on {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
-}
-
-.topbar-spacer {
-  flex: 1;
-}
-
-/* The tray label: what is filed in this compartment. Set on the narrowest
-   label stock the type program has, the way a real one is. */
-.mail-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding-right: 2px;
+  justify-content: center;
   flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
-.mail-legend-folder {
-  font-stretch: var(--w-wd-label);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--w-ink);
+.toolbar-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 
-.mail-legend-account {
-  font-family: var(--w-mono);
-  font-size: 9px;
-  /* Sunk stock is a step darker than the panel, and `--w-ink-3` measures
-     3.8:1 against it. Anything sitting on the head takes ink-2. */
-  color: var(--w-ink-2);
+.toolbar-btn.current {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
-/* The held plate: the only place `--w-fluor` reaches the triage screen, and
-   the reason the Screener is worth opening. */
-.held-plate {
+/* The label filter (#43): a field, not a routing slip — same fill as every
+   other control's rest state, and it only exists once the account has a
+   Label to filter by. */
+.toolbar-select {
+  height: 32px;
+  max-width: 180px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.toolbar-select:hover {
+  background: var(--color-field-strong);
+}
+
+/* The Screener entry (#56): the one place `--color-warn` reaches the triage
+   screen, as a soft tinted chip — a count worth a click, not an alert. */
+.screener-chip {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
-  padding: 5px 10px;
-  border: 1.5px solid var(--w-fluor);
-  border-radius: var(--w-r-plate);
-  background: transparent;
-  color: var(--w-fluor);
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--color-warn) 15%, transparent);
+  color: var(--color-warn);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 720;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--dur-press) var(--ease);
 }
 
-.held-plate:hover {
-  background: color-mix(in oklab, var(--w-fluor-flat) 16%, transparent);
+.screener-chip:hover {
+  background: color-mix(in oklab, var(--color-warn) 24%, transparent);
 }
 
-/* The account and label selects are routing slips: label above, value in a
-   recessed plate. */
-.account-switcher,
-.label-filter {
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* Account Scope (#73): stacked round avatars that disclose a checkbox per
+   Mail Account — the multi-select the single `<select>` it replaced
+   (`AccountSwitcher`, #40) couldn't express. */
+.account-scope {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.account-scope-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  padding: 3px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
 }
 
-.account-switcher select,
-.label-filter select {
-  background: var(--w-panel);
-  color: var(--w-ink);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  padding: 4px 6px;
-  font-family: var(--w-mono);
-  font-size: 10px;
-  letter-spacing: 0;
-  text-transform: none;
+.account-scope-toggle:hover,
+.account-scope-toggle[aria-expanded="true"] {
+  background: var(--color-hover);
+}
+
+.account-scope-avatars {
+  display: flex;
+}
+
+/* Each tile is knocked out of the bar's own ground, so a stack of them
+   reads as overlapping discs rather than as one blurred shape. */
+.account-scope-avatars .mail-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+  box-shadow: 0 0 0 2px var(--color-bg);
+}
+
+.account-scope-avatars .mail-avatar-wrap + .mail-avatar-wrap {
+  margin-left: -8px;
+}
+
+.account-scope-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+}
+
+.account-scope-panel legend {
+  padding: 0 0 4px;
+  color: var(--color-ink-faint);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.account-scope-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-ink);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* ============================================================================
    BODY / VIEW LAYOUTS
    ========================================================================= */
 
-.mail-body {
+/* ============================================================================
+   THE FOLDER RAIL (#74, rebuilt against the comp in #86)
+   The comp's `.side-nav`: a Compose pill and a run of transparent rounded
+   rows on the page ground. No compartment head, no rule down its edge, no
+   inverted selection — the current entry is an `--color-accent-soft` tint
+   with accent ink, and every other row is quiet until hovered.
+   ========================================================================= */
+
+.mail-frame {
+  display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.side-nav-toggle {
+  display: none;
+}
+
+.side-nav-scrim {
+  display: none;
+}
+
+.side-nav {
+  flex: 0 0 auto;
+  width: 216px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 14px 16px;
+  overflow-y: auto;
+  min-height: 0;
+  background: var(--color-bg);
+}
+
+/* Compose is the one filled control in the App, so it is the one control
+   that never has to compete: an accent pill at the head of the rail. The
+   plus rotates a quarter turn on hover — the comp's own answer to "this
+   opens something new". */
+.compose-btn {
+  height: 40px;
+  margin: 0 2px 18px;
+  padding: 0 17px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: none;
+  cursor: pointer;
+  transition:
+    filter var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+
+.compose-btn:hover {
+  filter: brightness(1.08);
+}
+
+.compose-btn svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.compose-btn:hover svg {
+  transform: rotate(90deg);
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-heading {
+  margin: 18px 10px 6px;
+  color: var(--color-ink-faint);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.nav-item svg {
+  flex: none;
+}
+
+.nav-item:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.nav-item.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A count is a call to action, never decoration (#74) — only Screener and
+   Drafts render one, and only when there is something to act on. */
+.nav-count {
+  font-size: 11.5px;
+  color: var(--color-ink-faint);
+}
+
+.nav-item.active .nav-count {
+  color: var(--color-accent);
+}
+
+.mail-body {
+  flex: 1;
+  /* Both axes: a wide child (the Screener's slips, a long subject) must
+     compress inside the frame rather than push the whole App sideways —
+     a flex item's default `min-width: auto` is what would let it. */
+  min-width: 0;
+  min-height: 0;
   position: relative;
+}
+
+/* Drafts (#74) and any other folder with nothing to show it. */
+.mail-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-ink-faint);
+  font-size: 13px;
+}
+
+.draft-list {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.draft-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  /* Intentional exception to Ground-and-gap (unlike `.thread-row`, which
+     dropped its hairline): this row has no inset margin, no radius and no
+     hover fill of its own, so with the hairline gone it would sit flush
+     against its neighbour on the same background with nothing to read the
+     boundary by. Keep the hairline until drafts get the same
+     margin/radius/hover treatment as `.thread-row`. */
+  border-bottom: var(--hairline) solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.draft-row .subject {
+  font-weight: 560;
+  font-size: 13px;
+}
+
+.draft-row .sender {
+  color: var(--color-ink-muted);
+  font-size: 12px;
 }
 
 .split-view {
@@ -256,13 +460,13 @@
 }
 
 .split-list {
-  /* Wide enough at desktop for the single-line timetable the direction
-     contract describes: the row folds only under 520px, so a list pinned at
-     380px would never render the intended form at any viewport. */
+  /* Wide enough at desktop for the comp's single-line row: it folds to two
+     lines only under 520px, so a list pinned at 380px would never render the
+     intended form at any viewport. The list and the pane are separated by
+     ground, not by a rule down the seam — the comp has no divider here. */
   width: clamp(360px, 36%, 620px);
   min-width: 280px;
   max-width: 52%;
-  border-right: var(--w-hair) solid var(--w-rule-hard);
   height: 100%;
   min-height: 0;
 }
@@ -272,12 +476,11 @@
   min-width: 0;
   height: 100%;
   overflow-y: auto;
-  background: var(--w-panel);
+  background: var(--color-bg);
 }
 
-/* Past 1100px the list has to clear the 520px fold, or the single-line
-   timetable the direction contract describes never renders in the default
-   view at any viewport. */
+/* Past 1100px the list has to clear the 520px fold, or the comp's
+   single-line row never renders in the default view at any viewport. */
 @media (min-width: 1100px) {
   .split-list {
     width: clamp(548px, 41%, 680px);
@@ -286,250 +489,728 @@
 
 .mail-empty {
   padding: 28px 22px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-size: 13px;
   max-width: 52ch;
 }
 
 /* ============================================================================
-   THE TIMETABLE — the thread list
+   THE THREAD LIST (#40, #66, #75, #77, #78 — rebuilt on the comp in #87)
+   The comp's `.thread-scroll`: no plate, no rules, no compartments. The list
+   is the page ground, and every row is a rounded rectangle that only takes a
+   fill when the pointer, the keyboard or the selection reaches it.
    ========================================================================= */
 
 .thread-list {
   height: 100%;
   overflow-y: auto;
-  background: var(--w-panel);
+  padding: 2px 10px 24px;
+  background: var(--color-bg);
 }
 
-/* A day divider is a facing band: the slip that faces a bundle one way. */
+/* ---------- the group header --------------------------------------------
+ * The comp separates one day-group from the last with a generous lead rather
+ * than a band across the list. A virtualized row cannot carry a margin the
+ * virtualizer never measured, so `taper.ts` bakes that lead into the item's
+ * own height and it is drawn here as padding — the header's ground paints
+ * the whole box, so a row scrolling past never shows through the gap. */
 .group-header {
   display: flex;
-  align-items: center;
-  height: 32px; /* HEADER_HEIGHT in VirtualizedThreadList.tsx */
+  align-items: flex-end;
   box-sizing: border-box;
-  padding: 0 14px;
-  font-stretch: var(--w-wd-label);
-  font-weight: 640;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--w-ink-2);
-  background: var(--w-panel-sunk);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  padding: 0 14px 0 6px;
+  color: var(--color-ink);
+  background: var(--color-bg);
+  user-select: none;
 }
+
+/* ---------- the taper (#66, #75): reverse-chronological rank as scale ----
+ * T1 (Pinned/Today) is the loudest header on screen; T4 (the two named
+ * months, Older, Undated) is the quietest. Height is set by
+ * `VirtualizedThreadList` from `taper.ts`, so only size/weight/ink live
+ * here — never a second height. */
+.group-header[data-tier="1"] {
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.group-header[data-tier="2"] {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+.group-header[data-tier="3"] {
+  font-size: 11.5px;
+  color: var(--color-ink-muted);
+}
+
+.group-header[data-tier="4"] {
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+/* ---------- the group header cluster (#66, #67, #77, #78) --------------- */
+
+.group-header-cluster {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+}
+
+.group-header-label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-header-count {
+  margin-left: 7px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86em;
+  font-weight: 500;
+  color: var(--color-ink-faint);
+}
+
+.gh-spacer {
+  flex: 1;
+}
+
+/* The group's own rail: the same 26px gutter every row below reserves, so
+   the header's Done-all node lands exactly above the column of row Done
+   controls, and the timeline spine it previews runs straight down. */
+.gh-rail {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 100%;
+}
+
+.gh-rail::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* Done all: a small accent node at rest, growing into a real target — and
+   into a checkmark — the moment the header is armed. */
+.gh-node {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: transparent;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    width var(--dur-fast) var(--ease),
+    height var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.gh-node svg {
+  width: 0;
+  height: 0;
+  transition:
+    width var(--dur-fast) var(--ease),
+    height var(--dur-fast) var(--ease);
+}
+
+/* Armed is real component state (`GroupHeaderCluster`'s `data-armed`),
+   driven by hover, focus or tap alike — never a bare `:hover` rule, the
+   same posture `ThreadRow`'s own armed row insists on (#75, #66). */
+.group-header-cluster[data-armed="true"] .gh-node,
+.gh-node:focus-visible {
+  width: 24px;
+  height: 24px;
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--color-accent-foreground);
+}
+
+.group-header-cluster[data-armed="true"] .gh-node svg,
+.gh-node:focus-visible svg {
+  width: 12px;
+  height: 12px;
+}
+
+.gh-node:hover {
+  filter: brightness(1.12);
+}
+
+/* The header's other actions slide in from the trailing edge — reserved
+   room, so revealing them never moves the label or the count. */
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.group-header-cluster[data-armed="true"] .bulk-actions,
+.group-header-cluster:focus-within .bulk-actions {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.bulk-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.bulk-actions button:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+/* ---------- the staggered collapse (#66): "the first ~8 rows stagger out,
+ * then the group collapses as one" ---------------------------------------
+ * `--group-clear-index` is set inline per row (`VirtualizedThreadList`),
+ * capped at the same 8-row stagger — this only ever reads that one number,
+ * never re-derives it. Reduced motion is handled globally (`index.css`'s
+ * `prefers-reduced-motion` rule collapses every duration to 1ms), not
+ * re-implemented here. */
+.thread-list [data-clearing="true"] {
+  animation: group-row-leave 220ms var(--ease) both;
+  animation-delay: calc(var(--group-clear-index, 0) * 45ms);
+}
+
+@keyframes group-row-leave {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+/* ---------- the row ------------------------------------------------------ */
 
 .thread-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  height: 60px; /* ROW_HEIGHT in VirtualizedThreadList.tsx */
+  gap: 8px;
+  width: calc(100% - 12px);
+  margin: 0 6px;
   box-sizing: border-box;
-  padding: 0 14px;
+  padding: 0 8px;
   border: none;
-  border-bottom: var(--w-hair) solid var(--w-rule);
-  background: var(--w-panel);
-  color: var(--w-ink);
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--color-ink);
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   /* No entrance animation and no stagger: a list that reflows hundreds of
      times a session must never animate its own arrival. */
-  transition: background var(--w-dur-press) linear;
+  transition: background var(--dur-press) var(--ease);
   /* #44: the pointer handlers live on this element (`useSwipeToTriage.ts`),
      so this is where `touch-action` needs to be set for the browser's own
      gesture recognition to honor it, not just on `.thread-row-swipe`. */
   touch-action: pan-y;
 }
 
-/* Compact list density (#54, Device Preference — never synced, CONTEXT.md).
-   `VirtualizedThreadList` sizes the row to match via `rowHeight`. */
-.thread-list--compact .thread-row {
-  height: 40px; /* COMPACT_ROW_HEIGHT */
-  padding: 0 12px;
-  gap: 8px;
-  font-size: 12px;
-}
-
 .thread-row:hover {
-  background: var(--w-panel-2);
+  background: var(--color-hover);
 }
 
-/* Rank by inversion, not brightness: the selected row takes the ink. */
+/* Rank is the accent, softly (#87): the selected row is a tint, not an
+   inversion. Nothing in this system goes to solid ink. */
 .thread-row.selected {
-  background: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-accent-soft);
 }
 
-.thread-row.selected .snippet,
-.thread-row.selected .time,
-.thread-row.selected .sender {
-  color: color-mix(in oklab, var(--w-frame) 72%, var(--w-ink));
-}
-
-/* Rank by inversion, never by weight or by a badge beside the item: an
-   unread Thread has not been cancelled yet, so its plate is still inked.
-   A read row steps back in tonal value instead of the unread row stepping
-   forward in weight. */
-.thread-row:not(.unread) .sender,
-.thread-row:not(.unread) .subject {
-  color: var(--w-ink-3);
-}
-
-.thread-row:not(.unread).selected .sender,
-.thread-row:not(.unread).selected .subject {
-  color: color-mix(in oklab, var(--w-frame) 62%, var(--w-ink));
-}
-
-.mail-avatar.unread {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
-}
-
-.thread-row.selected .mail-avatar.unread {
-  background: var(--w-frame);
-  border-color: var(--w-frame);
-  color: var(--w-ink);
-}
-
-/* A pinned Thread is grommeted to the frame: the item sits proud of the
-   stock rather than being tinted. */
-.thread-row.pinned {
-  background: var(--w-panel-2);
-  box-shadow: inset 3px 0 0 -1px var(--w-rule-hard);
-}
-
-.thread-row.pinned.selected {
-  background: var(--w-ink);
-}
-
-/* The kraft initial plate on the stile. Square, not a circle: the product
-   blocks remote images until a sender is Approved, so a correspondent's
-   mark is drawn from their address and never fetched. */
-.mail-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--w-r-plate);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--w-panel-sunk);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  color: var(--w-ink-2);
-  font-stretch: 84%;
-  font-size: 10px;
-  font-weight: 680;
-  letter-spacing: 0.02em;
-}
-
-.thread-list--compact .mail-avatar {
-  width: 20px;
-  height: 20px;
-  font-size: 9px;
-}
-
-.thread-row.selected .mail-avatar {
-  background: transparent;
-  border-color: color-mix(in oklab, var(--w-frame) 45%, transparent);
-  color: var(--w-frame);
-}
-
-.thread-row .sender {
-  width: 148px;
-  flex-shrink: 0;
+/* Unread is weight and ink on the correspondent, plus the tile's own accent
+   dot — never a badge beside the row, and never a plate behind it. A read
+   row steps back in tonal value rather than the unread row stepping
+   forward in size. */
+.thread-row .row-sender {
+  flex: none;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-stretch: var(--w-wd-sender);
-  font-weight: 600;
+  color: var(--color-ink-muted);
 }
 
-.thread-row .subject-line {
+.thread-row .row-subject {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--color-ink-faint);
+}
+
+.thread-row.unread .row-sender {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.thread-row.unread .row-subject {
+  color: var(--color-ink-muted);
+}
+
+.thread-row .row-line {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
 }
 
 .thread-row .snippet {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   margin-left: 7px;
 }
 
-.thread-row .star {
-  color: var(--w-ink);
+/* Pinned is the comp's small warn glyph beside the correspondent — the row
+   itself keeps the same ground as every other, because a pin is a mark on
+   the item, not a different kind of item. */
+.thread-row .row-pin {
+  flex: none;
+  margin-left: -3px;
+  color: var(--color-warn);
+}
+
+.thread-row .row-star {
+  flex: none;
+  margin-left: -3px;
+  color: var(--color-ink-muted);
+}
+
+/* The taper's type scale (#75) — T1 is the loudest row on screen, T4 steps
+   back to something closer to a tick mark. */
+.thread-row[data-tier="2"] {
+  font-size: 13px;
+}
+
+.thread-row[data-tier="3"] {
+  font-size: 12.5px;
+}
+
+.thread-row[data-tier="4"] {
+  font-size: 11.5px;
+}
+
+.thread-row[data-tier="4"]:not(.unread) .row-sender,
+.thread-row[data-tier="4"]:not(.unread) .row-subject {
+  color: var(--color-ink-faint);
+}
+
+.thread-list--compact .thread-row {
+  gap: 7px;
+  font-size: 13px;
+}
+
+/* ---------- the reserved gutter: Done, and the timeline spine ------------
+ * Whitespace to the left of the tile, holding the row's own Done action and
+ * its segment of the group's spine, invisible at rest. It never touches or
+ * overlays the tile, because the checkmark is an action ("archive this"),
+ * not a selection state, and a fixed slot means arming the row shifts
+ * nothing else in it. */
+.thread-row .row-check {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 100%;
+}
+
+.thread-row .row-check::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.thread-row .done-btn {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.5);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+/* Armed is real component state (`ThreadRow`'s `data-armed`) driven by
+   hover, focus, or arriving on the row with j/k (#66, #75) — never a bare
+   `:hover` rule, so the same "what's armed" question has one answer for a
+   future native Client's touch/keyboard model too. */
+.thread-row[data-armed="true"] .done-btn,
+.thread-row .done-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.thread-row .done-btn:hover {
+  filter: brightness(1.1);
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+/* The spine preview (#66: "hovering the header checkmark previews the whole
+   group's timeline spine and every row's Done action"): one accent line
+   drawn down the gutter of every row in the previewed group — the "spine"
+   is that line, not a novel widget. `ThreadRow`'s `previewArmed` is what
+   sets both this and the row's own armed state. */
+.thread-row[data-group-preview="true"] .row-check::before,
+.group-header-cluster[data-armed="true"] .gh-rail::before {
+  opacity: 1;
+}
+
+/* The taper's tile scale (#75, the comp's own per-group tile sizes). */
+.thread-row[data-tier="1"] .mail-avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 11.5px;
+}
+
+.thread-row[data-tier="2"] .mail-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+}
+
+.thread-row[data-tier="3"] .mail-avatar {
+  width: 21px;
+  height: 21px;
+  font-size: 8.5px;
+}
+
+.thread-row[data-tier="4"] .mail-avatar {
+  width: 19px;
+  height: 19px;
+  font-size: 8px;
+}
+
+/* ---------- the meta column: the time, and the row's hover actions -------
+ * One fixed-width box holding both, stacked in the same space — so
+ * revealing the actions never widens the row or nudges the subject line. */
+.thread-row .row-meta {
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 100%;
+  font-size: 0.85em;
+}
+
+.thread-row .row-time {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.thread-row .row-actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.thread-row[data-armed="true"] .row-time {
+  opacity: 0;
+}
+
+.thread-row[data-armed="true"] .row-actions,
+.thread-row .row-actions:focus-within {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.thread-row .row-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.thread-row .row-actions button:hover {
+  background: var(--color-field-strong);
+  color: var(--color-ink);
+}
+
+.thread-row .row-actions button.on {
+  color: var(--color-warn);
+}
+
+/* ---------- the meta column: the time, and the row's hover actions -------
+ * One fixed-width box holding both, stacked in the same space — so
+ * revealing the actions never widens the row or nudges the subject line. */
+.thread-row .row-meta {
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 100%;
+  font-size: 0.85em;
+}
+
+.thread-row .row-time {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.thread-row .row-actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.thread-row[data-armed="true"] .row-time {
+  opacity: 0;
+}
+
+.thread-row[data-armed="true"] .row-actions,
+.thread-row .row-actions:focus-within {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.thread-row .row-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.thread-row .row-actions button:hover {
+  background: var(--color-field-strong);
+  color: var(--color-ink);
+}
+
+.thread-row .row-actions button.on {
+  color: var(--color-warn);
+}
+
+/* ---------- the correspondent's tile ------------------------------------
+ * The comp's `.row-tile` (#86): a round disc of initials in one of five
+ * tinted fill/ink pairs, picked off the address in `Avatar.tsx` so the same
+ * correspondent keeps the same tile forever. The product blocks remote
+ * images until a sender is Approved, so this mark is always drawn and never
+ * fetched. The wrapper positions the unread dot; the tile carries the
+ * diameter, so every surface can size it by targeting `.mail-avatar`. */
+.mail-avatar-wrap {
+  position: relative;
+  display: inline-flex;
   flex-shrink: 0;
 }
 
-.thread-row .pin {
-  color: var(--w-ink-2);
+.mail-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  background: var(--tile-a-bg);
+  color: var(--tile-a-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.thread-row.selected .star,
-.thread-row.selected .pin {
-  color: var(--w-frame);
+.mail-avatar[data-tile="b"] {
+  background: var(--tile-b-bg);
+  color: var(--tile-b-ink);
 }
 
-/* A Label is a bundle band: its colour is the tint of the stock it is
-   printed on, the whole way round. Never a stripe down one edge. */
+.mail-avatar[data-tile="c"] {
+  background: var(--tile-c-bg);
+  color: var(--tile-c-ink);
+}
+
+.mail-avatar[data-tile="d"] {
+  background: var(--tile-d-bg);
+  color: var(--tile-d-ink);
+}
+
+.mail-avatar[data-tile="e"] {
+  background: var(--tile-e-bg);
+  color: var(--tile-e-ink);
+}
+
+/* Unread is a dot pinned to the tile's corner, knocked out of the ground
+   behind it — the tile's own colour stays the correspondent's identity
+   rather than doubling as a read state. */
+.mail-avatar-unread {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-bg);
+}
+
+.thread-row.selected .mail-avatar-unread {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+.thread-list--compact .mail-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+}
+
+/* ---------- a Label on a row -------------------------------------------
+ * Quiet chips after the subject, in the same fill language as every other
+ * resting control — not a tinted band round the row, and not a plate. */
 .row-labels {
   display: inline-flex;
+  flex: none;
   gap: 4px;
-  margin-left: 7px;
 }
 
 .label-chip {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 6px;
-  border-radius: var(--w-r-band);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel-sunk);
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
-  font-weight: 640;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  line-height: 1.7;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
   white-space: nowrap;
 }
 
 .label-chip.overflow {
-  color: var(--w-ink-3);
-}
-
-.thread-row.selected .label-chip {
-  background: transparent;
-  border-color: color-mix(in oklab, var(--w-frame) 40%, transparent);
-  color: var(--w-frame);
-}
-
-.thread-row .time {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+  color: var(--color-ink-faint);
 }
 
 .mail-list-footer {
-  padding: 12px 14px;
-  color: var(--w-ink-3);
+  padding: 14px 16px;
+  color: var(--color-ink-faint);
   font-size: 12px;
-  border-bottom: var(--w-hair) solid var(--w-rule);
 }
 
 /* ============================================================================
-   SWIPE-TO-TRIAGE (#44, touch only)
+   SWIPE-TO-TRIAGE (#44, #76, touch only)
    The reveal is the tray the item is being dropped into.
    ========================================================================= */
+
+/* The positioning context `.snooze-menu` floats against (below): a sibling
+   of `.thread-row-swipe`, never a descendant of it — that wrapper's own
+   `overflow: hidden` (needed to clip the swipe drag to the row's bounds)
+   would clip a floated popover just as it clips an over-dragged row. */
+.thread-row-outer {
+  position: relative;
+}
 
 .thread-row-swipe {
   position: relative;
@@ -549,404 +1230,523 @@
   pointer-events: none;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  font-stretch: var(--w-wd-label);
-  font-size: 11px;
-  font-weight: 680;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--w-bone);
+  margin: 0 6px;
+  padding: 0 16px;
+  border-radius: var(--radius-row);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent-foreground);
 }
 
 .swipe-reveal.archive {
-  background: var(--w-aniline-flat);
+  background: var(--color-accent);
   justify-content: flex-start;
 }
 
-.swipe-reveal.trash {
-  background: var(--w-postal);
+/* #76: swipe left snoozes (#66's "swipe right marks Done, swipe left
+   snoozes"). Snooze is not destructive, so its tray is a warn *tint* with
+   warn ink rather than a saturated warn ground — the one treatment that
+   holds its contrast in both themes, where a flat `--color-warn` fill does
+   not. */
+.swipe-reveal.snooze {
+  background: color-mix(in oklab, var(--color-warn) 20%, var(--color-bg));
+  color: var(--color-warn);
   justify-content: flex-end;
 }
 
 .swipe-reveal-archive,
-.swipe-reveal-trash {
+.swipe-reveal-snooze {
   display: inline-flex;
   align-items: center;
   gap: 7px;
 }
 
-/* ============================================================================
-   THREAD DETAIL
-   ========================================================================= */
+/* ---------- the two small popovers: Snooze (#76) and Label (#43) --------
+ * Both float, so both take the one shadow — panels on `--color-surface` with
+ * the panel radius and no hairline round them, holding rows in the same
+ * `--radius-row` menu-item language the Command Palette uses. */
 
-.thread-detail {
-  height: 100%;
-  overflow-y: auto;
-  padding: 16px 22px;
-  padding-bottom: max(16px, env(safe-area-inset-bottom)); /* #44: home-indicator clearance */
-  background: var(--w-panel);
-}
-
-.thread-detail-nav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-}
-
-.back-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  padding: 6px 11px;
-  background: var(--w-panel-2);
-  color: var(--w-ink);
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.back-pill:hover {
-  background: var(--w-panel-sunk);
-}
-
-.chevrons {
-  display: flex;
-  gap: 4px;
-}
-
-.chevrons button {
-  display: flex;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink-2);
-  padding: 5px;
-  cursor: pointer;
-}
-
-.chevrons button:hover:not(:disabled) {
-  color: var(--w-ink);
-  background: var(--w-panel-sunk);
-}
-
-.chevrons button:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.thread-detail-card {
-  max-width: 720px;
-}
-
-.group-label {
-  font-stretch: var(--w-wd-label);
-  font-size: 10px;
-  font-weight: 640;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--w-ink-3);
-  margin-bottom: 6px;
-}
-
-.thread-detail-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--w-ink-3);
-}
-
-.thread-detail-header .star {
-  color: var(--w-ink);
-}
-
-.thread-detail-header .pin {
-  color: var(--w-ink-2);
-}
-
-.thread-detail-card h1 {
-  font-stretch: 96%;
-  font-size: 21px;
-  font-weight: 700;
-  letter-spacing: -0.012em;
-  margin: 5px 0 8px;
-  text-wrap: balance;
-}
-
-.thread-detail-meta {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
-  font-size: 10px;
-  margin: 0 0 14px;
-}
-
-.thread-detail-labels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0 0 14px;
-}
-
-.thread-detail-snippet {
-  color: var(--w-ink);
-  line-height: 1.6;
-  max-width: 70ch;
-}
-
-.thread-detail-snippet.placeholder {
-  color: var(--w-ink-3);
-  font-style: italic;
-}
-
-.thread-detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.thread-detail-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 11px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink-2);
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.thread-detail-actions button:hover {
-  color: var(--w-ink);
-  background: var(--w-panel-sunk);
-}
-
-.thread-detail-actions button.on {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
-}
-
-/* Trash gets deliberate distance and stays outline until it is reached for:
-   in a triage app it is one keystroke away, so the design owes it room. */
-.thread-detail-actions button.destructive {
-  margin-left: 22px;
-  background: transparent;
-  color: var(--w-postal);
-}
-
-.thread-detail-actions button.destructive:hover,
-.thread-detail-actions button.destructive:focus-visible {
-  border-color: var(--w-postal);
-  background: color-mix(in oklab, var(--w-postal) 12%, transparent);
-  color: var(--w-postal);
-}
-
-/* ---------- label picker: floats, so it takes the one shadow ---------- */
-
+/* `ThreadDetailPane`'s own anchor (#79's `h` binding) — `ThreadRow`'s row
+   actions anchor the same popover off `.thread-row-outer` instead (above). */
+.snooze-menu-anchor,
 .label-picker-anchor {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+}
+
+.snooze-menu,
+.label-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 30;
+  padding: 6px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+}
+
+.snooze-menu {
+  left: 14px;
+  min-width: 200px;
 }
 
 .label-picker {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  z-index: 10;
-  min-width: 210px;
-  padding: 7px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  box-shadow: var(--w-lift);
+  right: 0;
+  min-width: 220px;
 }
 
+.snooze-menu-list,
 .label-picker-list {
   list-style: none;
-  margin: 0 0 6px;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 200px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
-.label-picker-empty {
-  color: var(--w-ink-3);
-  font-size: 12px;
-  margin: 0 0 6px;
-}
-
+.snooze-menu-list button,
 .label-toggle {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   width: 100%;
-  padding: 5px 7px;
+  padding: 8px 10px;
   border: none;
-  border-radius: var(--w-r-plate);
+  border-radius: var(--radius-row);
   background: transparent;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
+.snooze-menu-list button:hover,
 .label-toggle:hover {
-  background: var(--w-panel-2);
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 
 .label-toggle.on {
-  color: var(--w-ink);
-  font-weight: 640;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
-.label-picker-new {
-  display: flex;
-  gap: 6px;
-  border-top: var(--w-hair) solid var(--w-rule);
-  padding-top: 7px;
-}
-
-.label-picker-new input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 7px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-frame);
-  color: var(--w-ink);
-  font-family: inherit;
+.label-picker-empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--color-ink-faint);
   font-size: 13px;
 }
 
-.label-picker-new button {
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink);
-  padding: 4px 10px;
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  cursor: pointer;
+/* The one form inside each popover, separated by a gap rather than a rule. */
+.snooze-menu-custom,
+.label-picker-new {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 0;
 }
 
+.snooze-menu-custom input,
+.label-picker-new input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.snooze-menu-custom input:focus,
+.label-picker-new input:focus {
+  background: var(--color-field-strong);
+}
+
+.snooze-menu-custom button,
+.label-picker-new button {
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: filter var(--dur-press) var(--ease);
+}
+
+.snooze-menu-custom button:hover:not(:disabled),
+.label-picker-new button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.snooze-menu-custom button:disabled,
 .label-picker-new button:disabled {
-  opacity: 0.4;
+  background: var(--color-field);
+  color: var(--color-ink-faint);
   cursor: default;
 }
 
 /* ============================================================================
-   READING PANE: message bodies & attachments (#41)
+   THE READING PANE (#40, #41, #42, #43, #81 — rebuilt on the comp in #87)
+   The comp's `.reading-pane`: generous margins on the page ground, a subject
+   that leads, one run of quiet icon actions to its right, one meta line
+   naming the correspondent, and a reply bar resting at the foot. No card, no
+   compartment, no plate — the reading pane is the ground with the mail set
+   on it.
+   ========================================================================= */
+
+.thread-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg);
+}
+
+.reading-header {
+  flex: none;
+  padding: 28px 34px 0;
+}
+
+.reading-topline {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.reading-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.reading-eyebrow {
+  margin-bottom: 4px;
+  color: var(--color-ink-faint);
+  font-size: 12px;
+}
+
+.reading-subject {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.017em;
+  line-height: 1.28;
+  text-wrap: balance;
+}
+
+/* Back exists only where the list is not already on screen: at desktop
+   widths Split shows both panes at once, so the rule below hides it there
+   and the narrow breakpoint brings it back. */
+.reading-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.reading-back:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.split-pane .reading-back {
+  display: none;
+}
+
+.reading-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+}
+
+.reading-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.reading-actions button:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.reading-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* A toggle that is currently on (Pin, Star, an open popover) reads as
+   "current" the same way every other control in the system does. */
+.reading-actions button.on {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* Done is the App's primary verb, so it is the one glyph in the run that
+   takes the accent when it is reached for. */
+.reading-actions button[data-act="done"]:hover {
+  color: var(--color-accent);
+}
+
+/* Trash keeps its distance and stays quiet until reached for: in a triage
+   app it is one keystroke away, so the design owes it room rather than a
+   red button standing in the run. */
+.reading-actions button.destructive:hover {
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.reading-actions-gap {
+  width: 12px;
+  flex: none;
+}
+
+.reading-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-bottom: 22px;
+}
+
+.reading-meta .mail-avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+
+.reading-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reading-from {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reading-addr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+
+.reading-labels {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.reading-time {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+
+.reading-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 34px 32px;
+}
+
+.reading-snippet {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--color-ink);
+}
+
+.reading-snippet.placeholder {
+  color: var(--color-ink-faint);
+}
+
+/* The reply composer at rest (the comp's `.reply-hint`): a filled bar across
+   the foot of the pane naming who it would answer, rather than an empty
+   editor holding the page open. */
+.reply-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  width: calc(100% - 68px);
+  margin: 0 34px 30px;
+  margin-bottom: max(30px, env(safe-area-inset-bottom));
+  padding: 14px 17px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+
+.reply-hint:hover {
+  background: var(--color-field-strong);
+  transform: translateY(-1px);
+}
+
+.reply-hint svg {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+
+/* ============================================================================
+   THE MESSAGES IN A THREAD (#41, #47, #48)
    The message body is third-party HTML in a sandboxed iframe. The design
    system stops at that boundary — it may not restyle what a sender wrote.
+   Around it, one Message is separated from the next by ground and a gap, not
+   by a rule: the same rule the rest of the surface follows.
    ========================================================================= */
 
 .message-list {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin-top: 14px;
+  gap: 14px;
+  max-width: 74ch;
 }
 
 .message-item {
-  border-top: var(--w-hair) solid var(--w-rule);
-  padding-top: 13px;
+  padding: 16px 18px;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
 }
 
 .message-item-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 7px;
+  gap: 10px;
+  margin-bottom: 10px;
   font-size: 13px;
 }
 
 .message-item-sender {
-  font-stretch: var(--w-wd-sender);
-  font-weight: 660;
-  color: var(--w-ink);
+  font-weight: 600;
+  color: var(--color-ink);
 }
 
 .message-item-date {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
-  font-size: 10px;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
   white-space: nowrap;
 }
 
-/* #47: per-Message Reply / Reply All / Forward. */
+/* #47: per-Message Reply / Reply All / Forward — the quiet control
+   language, transparent at rest and filled under the pointer. */
 .message-item-reply-actions {
   display: flex;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 2px;
+  margin-top: 12px;
 }
 
 .message-item-reply-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: var(--w-panel-2);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  padding: 4px 9px;
-  color: var(--w-ink-2);
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
 .message-item-reply-actions button:hover {
-  background: var(--w-panel-sunk);
-  color: var(--w-ink);
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 
 .message-body {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 10px;
+  font-size: 14.5px;
+  line-height: 1.7;
 }
 
 .message-body-load-images {
   align-self: flex-start;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink-2);
-  padding: 6px 11px;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
 .message-body-load-images:hover {
-  background: var(--w-panel-sunk);
-  color: var(--w-ink);
+  background: var(--color-field-strong);
+  color: var(--color-ink);
 }
 
 /* The sender's own ground, not ours: a white frame under a dark app is
@@ -954,8 +1754,8 @@
 .message-body-frame {
   display: block;
   width: 100%;
-  border: var(--w-hair) solid var(--w-rule);
-  border-radius: var(--w-r-plate);
+  border: none;
+  border-radius: var(--radius-md);
   background: #ffffff;
   /* No transition on `height`: the iframe is measured once as the sanitized
      body lays out, so animating it buys a layout-thrashing reflow for a
@@ -972,45 +1772,45 @@
 .attachment-item {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  width: 140px;
-  padding: 8px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
+  gap: 6px;
+  width: 148px;
+  padding: 9px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-field);
 }
 
 .attachment-preview-image {
   width: 100%;
   height: 90px;
   object-fit: cover;
-  border-radius: var(--w-r-band);
-  background: var(--w-frame);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
 }
 
 .attachment-pdf-preview {
   width: 100%;
   max-height: 160px;
-  border: var(--w-hair) solid var(--w-rule);
-  border-radius: var(--w-r-band);
+  border: none;
+  border-radius: var(--radius-md);
   background: #ffffff;
 }
 
 .attachment-pdf-fallback {
   display: block;
   font-size: 12px;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .attachment-meta {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .attachment-filename {
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1018,18 +1818,16 @@
 }
 
 .attachment-size {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
-  font-size: 10px;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
 }
 
 .attachment-download {
-  color: var(--w-aniline);
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  color: var(--color-accent);
+  font-weight: 600;
+  font-size: 12px;
 }
 
 /* ============================================================================
@@ -1040,110 +1838,111 @@
   height: 100%;
   overflow-y: auto;
   position: relative;
-  background: var(--w-panel);
+  background: var(--color-bg);
 }
 
 .queue-peek {
   display: flex;
-  gap: 5px;
-  padding: 10px 14px 0;
+  gap: 4px;
+  padding: 14px 34px 0;
   overflow-x: auto;
 }
 
 .queue-peek .chip {
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  padding: 4px 9px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 11px;
-  background: var(--w-panel-2);
-  color: var(--w-ink-3);
+  font-size: 12px;
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.queue-peek .chip:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 
 .queue-peek .chip.current {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .queue-peek .chip.pinned {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-}
-
-/* Split's "Back to list" pill only exists for the narrow layout below —
-   at desktop widths both panes are already on screen. */
-.split-pane .back-pill {
-  display: none;
+  gap: 5px;
 }
 
 /* ============================================================================
    TOASTS — the only things that float, so the only things with a shadow
+   A toast is a panel on the app's own surface, not an inverted slab: the
+   product never goes to solid ink, and a message that has to be read in a
+   glance is easier to read in the ink it is already reading in.
    ========================================================================= */
 
 .rollback-toast,
-.notification-offer-banner {
+.notification-offer-banner,
+.group-bulk-toast {
   position: absolute;
   left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(20px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
-  padding: 9px 15px;
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
-  font-size: 13px;
-  box-shadow: var(--w-lift);
-  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
-  z-index: 20;
-}
-
-/* Rollback is where the ink *lifts*: the Sync Backend refused, so the strike
-   comes off and the item comes back. */
-.rollback-toast {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-left: none;
-}
-
-.rollback-toast::before {
-  content: "Lifted";
-  font-stretch: 72%;
-  font-weight: 780;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--w-postal);
-  border: 1.5px solid currentColor;
-  border-radius: var(--w-r-plate);
-  padding: 1px 6px;
-  rotate: -4deg;
-}
-
-.notification-offer-banner {
   display: flex;
   align-items: center;
   gap: 12px;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 13.5px;
+  box-shadow: var(--shadow-overlay);
+  animation: toast-enter var(--dur-fast) var(--ease-out);
+  z-index: 20;
+}
+
+/* A rollback is the one toast that reports a failure, so it carries the
+   danger signal as one dot of ink rather than as a whole red box. */
+.rollback-toast::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger);
 }
 
 .notification-offer-banner button,
-.rollback-toast button {
-  padding: 4px 10px;
-  border: 1.5px solid color-mix(in oklab, var(--w-frame) 45%, transparent);
-  border-radius: var(--w-r-plate);
-  background: transparent;
-  color: inherit;
+.rollback-toast button,
+.group-bulk-toast-undo {
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 640;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 12.5px;
   cursor: pointer;
+  transition: filter var(--dur-press) var(--ease);
+}
+
+.notification-offer-banner button:hover,
+.rollback-toast button:hover,
+.group-bulk-toast-undo:hover {
+  filter: brightness(1.08);
 }
 
 @keyframes toast-enter {
@@ -1163,7 +1962,7 @@
   right: 14px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
   z-index: 20;
   max-width: 320px;
 }
@@ -1171,28 +1970,32 @@
 .new-mail-toast {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 13px;
+  gap: 3px;
+  padding: 12px 15px;
   border: none;
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  color: var(--color-ink);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   text-align: left;
   cursor: pointer;
-  box-shadow: var(--w-lift);
-  animation: toast-enter var(--w-dur-fast) var(--w-ease-strike);
+  box-shadow: var(--shadow-overlay);
+  animation: toast-enter var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-press) var(--ease);
+}
+
+.new-mail-toast:hover {
+  background: var(--color-hover);
 }
 
 .new-mail-toast strong {
-  font-stretch: var(--w-wd-sender);
-  font-weight: 660;
-  font-size: 13px;
+  font-weight: 600;
+  font-size: 13.5px;
 }
 
 .new-mail-toast span {
-  opacity: 0.8;
+  color: var(--color-ink-muted);
   white-space: pre-line;
 }
 
@@ -1204,23 +2007,29 @@
    SEARCH (#51)
    ========================================================================= */
 
+/* Mail's own search field (#51): a real text input, unlike the header's
+   Palette entry beside it. Same fill language as the toolbar's other
+   controls — no outline at rest, `--color-field-strong` once it holds
+   focus, and a pill so it reads as a sibling of the header's own search
+   entry. */
 .mail-search-field {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
-  flex: 1;
-  min-width: 120px;
-  max-width: 360px;
-  padding: 5px 9px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink-3);
+  gap: 8px;
+  flex: 0 1 260px;
+  min-width: 150px;
+  height: 32px;
+  padding: 0 11px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-faint);
+  transition: background var(--dur-press) var(--ease);
 }
 
 .mail-search-field:focus-within {
-  border-color: var(--w-aniline);
+  background: var(--color-field-strong);
 }
 
 .mail-search-field input {
@@ -1228,41 +2037,42 @@
   min-width: 0;
   border: none;
   background: transparent;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   outline: none;
 }
 
 .mail-search-field input::placeholder {
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .mail-search-clear {
   display: flex;
   border: none;
   background: transparent;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   cursor: pointer;
   padding: 0;
 }
 
 .mail-search-clear:hover {
-  color: var(--w-ink);
+  color: var(--color-ink);
 }
 
 .mail-search-recent {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  background: var(--w-panel);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  box-shadow: var(--w-lift);
+  padding: 6px;
+  background: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-overlay);
   overflow: hidden;
 }
 
@@ -1273,35 +2083,40 @@
   padding: 8px 10px;
   border: none;
   background: transparent;
-  color: var(--w-ink);
+  color: var(--color-ink);
   font-family: inherit;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
+.mail-search-recent-item {
+  border-radius: var(--radius-row);
+}
+
 .mail-search-recent-item:hover {
-  background: var(--w-panel-2);
+  background: var(--color-hover);
 }
 
 .mail-search-recent-clear {
-  padding: 7px 10px;
+  margin-top: 3px;
+  padding: 8px 10px;
   border: none;
-  border-top: var(--w-hair) solid var(--w-rule);
+  border-radius: var(--radius-row);
   background: transparent;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 
 .mail-search-recent-clear:hover {
-  color: var(--w-ink);
+  background: var(--color-hover);
+}
+
+.mail-search-recent-clear:hover {
+  color: var(--color-ink);
 }
 
 .search-results-view.split-view .split-list {
@@ -1321,30 +2136,26 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
-  background: var(--w-panel-2);
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
+  padding: 10px 16px;
+  background: var(--color-bg);
 }
 
 .search-chip {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: var(--w-r-band);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel);
-  color: var(--w-ink-2);
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .search-chip-scope.seeded {
-  border-style: dashed;
-  color: var(--w-ink-3);
+  color: var(--color-ink-faint);
 }
 
 .search-chip-remove {
@@ -1362,109 +2173,106 @@ button.search-chip-toggle {
 }
 
 button.search-chip-toggle.on {
-  background: var(--w-ink);
-  border-color: var(--w-ink);
-  color: var(--w-frame);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .thread-row .folder-pill {
-  padding: 1.5px 6px;
-  border-radius: var(--w-r-band);
-  background: var(--w-panel-sunk);
-  border: var(--w-hair) solid var(--w-rule-hard);
-  color: var(--w-ink-3);
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  border: none;
+  color: var(--color-ink-faint);
+  font-size: 11px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
-/* THE STRIKE, in the one list place it belongs: a search result you have
-   already acted on stays in place, visibly changed
-   (docs/search-ux-spec.md §Acting on a result). */
-.thread-row .action-badge {
-  display: inline-block;
-  padding: 1.5px 6px;
-  border-radius: var(--w-r-plate);
-  border: 1.5px solid var(--w-aniline);
-  color: var(--w-aniline);
+/* Which Mail Account a cross-account search result came from (#80) — the
+   same pill shape as `.folder-pill` (the two answer sibling questions,
+   "which account" and "which folder"), one step quieter so it never reads
+   as the folder pill at a glance. */
+.thread-row .account-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
   background: transparent;
-  font-stretch: 74%;
-  font-weight: 750;
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  rotate: -3.5deg;
+  border: none;
+  color: var(--color-ink-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* A search result already acted on stays in place, visibly changed
+   (docs/search-ux-spec.md §Acting on a result) — a soft accent tint saying
+   what happened, in the same chip language as everything else on the row.
+   The old system overprinted it as tilted ink; nothing in The Instrument
+   tilts. */
+.thread-row .action-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .thread-row .gatekeeper-badge {
-  display: inline-block;
-  padding: 1.5px 6px;
-  border-radius: var(--w-r-plate);
-  border: 1.5px solid currentColor;
-  background: transparent;
-  font-stretch: 74%;
-  font-weight: 750;
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  rotate: -3deg;
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: color-mix(in oklab, currentColor 14%, transparent);
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .gatekeeper-badge-held {
-  color: var(--w-fluor);
+  color: var(--color-warn);
 }
 
 .gatekeeper-badge-blocked {
-  color: var(--w-postal);
-}
-
-.thread-row.selected .action-badge,
-.thread-row.selected .gatekeeper-badge,
-.thread-row.selected .folder-pill {
-  color: var(--w-frame);
-  border-color: color-mix(in oklab, var(--w-frame) 55%, transparent);
-  background: transparent;
+  color: var(--color-danger);
 }
 
 .snippet.headline mark {
-  background: color-mix(in oklab, var(--w-fluor-flat) 34%, transparent);
-  color: var(--w-ink);
-  border-radius: var(--w-r-band);
+  background: color-mix(in oklab, var(--color-warn) 30%, transparent);
+  color: var(--color-ink);
+  border-radius: var(--radius-sm);
   padding: 0 2px;
 }
 
-.thread-row.selected .snippet.headline mark {
-  color: var(--w-ink);
-}
-
 .search-foot {
-  padding: 10px 12px;
-  border-top: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-panel-2);
+  padding: 12px 16px;
+  background: var(--color-bg);
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
 .search-load-older {
   align-self: flex-start;
-  padding: 6px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink);
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.search-load-older:hover:not(:disabled) {
+  background: var(--color-field-strong);
 }
 
 .search-load-older:disabled {
@@ -1475,26 +2283,27 @@ button.search-chip-toggle.on {
 /* The Index Watermark states its own partial coverage rather than silently
    returning too few results — so it is set in the machine face. */
 .search-watermark {
-  color: var(--w-ink-3);
-  font-family: var(--w-mono);
-  font-size: 10px;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
   margin: 0;
 }
 
 .search-watermark.promoted {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 11px;
 }
 
 .search-offline-banner,
 .search-reauth-banner {
   margin: 0;
-  padding: 7px 10px;
-  border-radius: var(--w-r-plate);
-  font-size: 12px;
-  background: color-mix(in oklab, var(--w-fluor-flat) 14%, var(--w-panel));
-  border: var(--w-hair) solid color-mix(in oklab, var(--w-fluor-flat) 40%, var(--w-rule-hard));
-  color: var(--w-ink-2);
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-panel);
+  font-size: 12.5px;
+  background: color-mix(in oklab, var(--color-warn) 14%, var(--color-surface));
+  color: var(--color-ink-muted);
 }
 
 .search-reauth-banner {
@@ -1509,17 +2318,15 @@ button.search-chip-toggle.on {
 }
 
 .search-reauth-button {
-  padding: 6px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel);
-  color: var(--w-ink);
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
@@ -1534,44 +2341,54 @@ button.search-chip-toggle.on {
   align-items: flex-start;
   gap: 10px;
   padding: 26px 16px;
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 13px;
 }
 
 .search-empty button {
-  padding: 6px 12px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink);
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 620;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
 }
 
+.search-empty button:hover {
+  background: var(--color-field-strong);
+}
+
 /* ============================================================================
-   GATEKEEPER (#56) — the held bay, the one drenched room
-   You are in the Screener for fifteen seconds a day, which is exactly why it
-   can afford to be the only saturated surface in the product.
+   THE SCREENER (#56, #82 — rebuilt on the comp in #87)
+   The old system drenched this whole screen in one saturated colour. The
+   Instrument has no room for a second palette: the Screener is the same
+   ground, the same tiles and the same control language as the Inbox, and
+   what marks it out is that each stranger's mail sits on its own raised
+   panel with three verdicts attached to it. The verdict itself carries the
+   only colour — accent for Approve, ink for Return, danger for Block.
    ========================================================================= */
 
+/* The Inbox's own banner: a tint, not a bar of signal colour. */
 .gatekeeper-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
-  border-bottom: var(--w-hair) solid var(--w-rule-hard);
-  background: var(--w-fluor-flat);
-  color: #1f1d18;
-  font-stretch: var(--w-wd-label);
-  font-weight: 640;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  margin: 0 16px 8px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.gatekeeper-banner svg {
+  flex: none;
 }
 
 .gatekeeper-banner span {
@@ -1583,23 +2400,23 @@ button.search-chip-toggle.on {
 }
 
 .gatekeeper-banner button {
-  padding: 5px 12px;
-  border: 1.5px solid #1f1d18;
-  border-radius: var(--w-r-plate);
-  background: #1f1d18;
-  color: var(--w-bone);
+  flex: none;
+  height: 28px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 680;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
+  transition: filter var(--dur-press) var(--ease);
 }
 
-.gatekeeper-banner :focus-visible {
-  outline-color: #1f1d18;
+.gatekeeper-banner button:hover {
+  filter: brightness(1.08);
 }
 
 .screener {
@@ -1608,113 +2425,171 @@ button.search-chip-toggle.on {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: var(--w-fluor-flat);
-  color: #1f1d18;
+  padding: 0 20px 28px;
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
 
 .screener-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 11px 16px;
-  border-bottom: 1.5px solid rgb(31 29 24 / 0.34);
+  flex: none;
+  padding: 26px 8px 18px;
 }
 
 .screener-header h2 {
   margin: 0;
-  font-stretch: var(--w-wd-label);
-  font-weight: 720;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.017em;
+}
+
+.screener-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  color: var(--color-ink-faint);
 }
 
 .screener-close {
-  padding: 6px 12px;
-  border: 1.5px solid rgb(31 29 24 / 0.5);
-  border-radius: var(--w-r-plate);
-  background: transparent;
-  color: #1f1d18;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 660;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
 }
 
 .screener-close:hover {
-  background: rgb(31 29 24 / 0.1);
+  background: var(--color-field-strong);
+  color: var(--color-ink);
 }
 
 .screener-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-/* One facing slip per stranger: the Screener lists Unscreened Senders, not
+/* Each account's cluster (#82) is its own `<li>` in the outer list — no
+   panel of its own, it's the header + the slips within that carry any. */
+.screener-group {
+  list-style: none;
+}
+
+.screener-group-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Which Mail Account these slips belong to — only rendered once Scope holds
+   more than one account (`Screener.tsx`). */
+.screener-group-header {
+  padding: 10px 8px 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+}
+
+/* One panel per stranger: the Screener lists Unscreened Senders, not
    messages — one decision per stranger, never one per message. */
 .screener-row {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 13px 16px;
-  border-bottom: 1px solid rgb(31 29 24 / 0.24);
+  padding: 14px 16px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  transition:
+    background var(--dur-press) var(--ease),
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .screener-row.selected {
-  background: rgb(31 29 24 / 0.1);
+  background: var(--color-accent-soft);
+}
+
+.screener-row .mail-avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 13px;
 }
 
 .screener-row-sender {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   width: 210px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .screener-row-name {
-  font-stretch: var(--w-wd-sender);
-  font-weight: 720;
-  font-size: 16px;
-  color: #1f1d18;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .screener-row-address {
-  font-family: var(--w-mono);
-  font-size: 10px;
-  color: rgb(31 29 24 / 0.94);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .screener-row-count {
-  font-family: var(--w-mono);
-  font-size: 10px;
-  color: rgb(31 29 24 / 0.94);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--color-ink-faint);
 }
 
 .screener-row-peek {
   flex: 1;
   min-width: 0;
   display: flex;
+  align-items: baseline;
   gap: 8px;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .screener-row-subject {
-  color: #1f1d18;
-  font-weight: 620;
+  color: var(--color-ink);
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .screener-row-snippet {
-  color: rgb(31 29 24 / 0.94);
+  color: var(--color-ink-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1722,53 +2597,109 @@ button.search-chip-toggle.on {
 
 .screener-row-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
 }
 
 .screener-row-actions button {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1.5px solid rgb(31 29 24 / 0.5);
-  border-radius: var(--w-r-plate);
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-pill);
   background: transparent;
-  color: #1f1d18;
+  color: var(--color-ink-muted);
   font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 13px;
   cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease),
+    filter var(--dur-press) var(--ease);
 }
 
-/* Admit is the primary and inverts the slip. Return and Block stay outline —
-   and Block, which routes a sender's future mail to Trash on arrival, keeps
-   its distance. */
-.screener-approve {
-  background: #1f1d18;
-  border-color: #1f1d18;
-  color: var(--w-bone);
+/* Approve is the primary and the only filled control on the screen. Return
+   and Block stay quiet until reached for, and Block — which routes a
+   sender's future mail to Trash on arrival — keeps its distance and answers
+   in danger rather than sitting there in it. */
+.screener-row-actions button.screener-approve {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
 }
 
-.screener-deny:hover {
-  background: rgb(31 29 24 / 0.1);
+.screener-row-actions button.screener-approve:hover {
+  filter: brightness(1.08);
 }
 
-.screener-block {
-  margin-left: 14px;
+.screener-row-actions button.screener-deny:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
 }
 
-.screener-block:hover,
-.screener-block:focus-visible {
-  background: rgb(31 29 24 / 0.1);
-  border-color: #1f1d18;
+.screener-row-actions button.screener-block {
+  margin-left: 10px;
 }
 
-.screener :focus-visible {
-  outline-color: #1f1d18;
+.screener-row-actions button.screener-block:hover,
+.screener-row-actions button.screener-block:focus-visible {
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+/* ---------- a decided slip ---------------------------------------------
+ * The write is already queued when this renders; the panel is held on screen
+ * only long enough for the verdict to be legible on the item it applies to,
+ * then leaves the way a cleared row leaves the Inbox. No overprint, no ink
+ * struck across the slip — the verdict is a word in its own colour, which is
+ * the whole of what the old strike was ever saying. */
+.screener-row.decided {
+  pointer-events: none;
+  animation: slip-clear var(--dur-fast) var(--ease-out) 700ms forwards;
+}
+
+.screener-row.decided > *:not(.screener-verdict) {
+  opacity: 0.4;
+}
+
+.screener-verdict {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink-muted);
+}
+
+.screener-verdict[data-verdict="Approved"] {
+  color: var(--color-accent);
+}
+
+.screener-verdict[data-verdict="Blocked"] {
+  color: var(--color-danger);
+}
+
+@keyframes slip-clear {
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+/* The bay states its own rule at the foot: a Verdict is scoped to one Mail
+   Account and decides a sender, not a message (CONTEXT.md). */
+.screener-rule {
+  margin: 18px 8px 0;
+  padding: 0;
+  max-width: 74ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-ink-faint);
 }
 
 .screener-entry {
@@ -1785,25 +2716,22 @@ button.search-chip-toggle.on {
 
 .gatekeeper-settings h4,
 .gatekeeper-settings h5 {
-  margin: 10px 0 4px;
-  font-stretch: var(--w-wd-label);
-  font-weight: 660;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--w-ink);
+  margin: 12px 0 4px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-ink);
 }
 
 .gatekeeper-settings-description {
-  color: var(--w-ink-2);
+  color: var(--color-ink-muted);
   font-size: 13px;
   margin: 0 0 10px;
 }
 
 .gatekeeper-cutoff {
-  font-family: var(--w-mono);
-  font-size: 10px;
-  color: var(--w-ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ink-faint);
 }
 
 .gatekeeper-blocked ul {
@@ -1821,7 +2749,7 @@ button.search-chip-toggle.on {
 }
 
 .gatekeeper-reset-confirm {
-  color: var(--w-postal);
+  color: var(--color-danger);
   font-size: 13px;
 }
 
@@ -1830,6 +2758,56 @@ button.search-chip-toggle.on {
    ========================================================================= */
 
 @media (max-width: 700px) {
+  /* The folder rail (#74): a permanent rail has no room on a phone, so it
+     becomes a bottom sheet instead, opened from its own toggle. `open`
+     slides it up from the bottom edge; the scrim behind it is what makes a
+     tap outside dismiss it, same as `LabelPicker`'s own popover. */
+  .side-nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--color-field);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+  }
+
+  .side-nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgb(0 0 0 / 34%);
+    backdrop-filter: blur(3px);
+  }
+
+  .side-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 21;
+    width: auto;
+    max-height: 70vh;
+    padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+    transform: translateY(100%);
+    transition: transform var(--dur-fast) var(--ease);
+  }
+
+  .side-nav.open {
+    transform: translateY(0);
+  }
+
   /* Split collapses to List's own "one pane at a time" behavior: there's
      no room for list + reading pane side by side on a phone. `has-selection`
      (set in `SplitView.tsx`) is the same signal List already gets for free
@@ -1856,17 +2834,65 @@ button.search-chip-toggle.on {
     display: none;
   }
 
-  .split-pane .back-pill {
+  .split-pane .reading-back {
     display: flex;
   }
 
-  .thread-row .sender {
-    width: 104px;
+  /* Phone: the row's Done, Snooze and Pin controls are persistent rather
+     than hover-gated (#66 user story 47, #75, #76) — there is no hover on
+     touch, so the primary actions have to be reachable without one. Swipe
+     still commits the same actions (`useSwipeToTriage.ts`); these are the
+     tap-targets for them. */
+  .thread-row .done-btn {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
   }
 
-  .thread-detail {
-    padding: 14px 16px;
-    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  /* With the actions permanently on, the time cannot share their box the
+     way it does at desktop — so the meta column stacks instead of layering,
+     and the row keeps both. The two quiet tiers have no room for both at
+     their height: there the actions step aside and swipe (plus the group
+     header's own bulk Done) is what reaches them, which is what those rows
+     are triaged with anyway. */
+  .thread-row .row-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1px;
+  }
+
+  .thread-row .row-time,
+  .thread-row .row-actions {
+    position: static;
+    inset: auto;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  .thread-row[data-tier="3"] .row-actions,
+  .thread-row[data-tier="4"] .row-actions {
+    display: none;
+  }
+
+  .reading-header {
+    padding: 16px 16px 0;
+  }
+
+  .reading-body {
+    padding: 0 16px 24px;
+  }
+
+  .reply-hint {
+    width: calc(100% - 32px);
+    margin: 0 16px 16px;
+    margin-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .screener {
+    padding: 0 12px 24px;
   }
 
   .screener-row {
@@ -1875,14 +2901,18 @@ button.search-chip-toggle.on {
   }
 
   .screener-row-sender {
-    width: 100%;
+    width: calc(100% - 54px);
   }
 
   .screener-row-peek {
     flex-basis: 100%;
   }
 
-  .screener-block {
+  .screener-row-actions {
+    flex-basis: 100%;
+  }
+
+  .screener-row-actions button.screener-block {
     margin-left: auto;
   }
 
@@ -1892,39 +2922,13 @@ button.search-chip-toggle.on {
   }
 }
 
-/* ---------- the circular date stamp, where there is room for it ---------- */
-
-.mail-cds {
-  display: inline-flex;
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  color: var(--w-ink-2);
-}
-
-.mail-cds svg {
-  width: 100%;
-  height: 100%;
-}
-
-.mail-cds-text {
-  font-family: var(--w-sans);
-  font-stretch: 88%;
-  font-weight: 700;
-  font-size: 21px;
-}
-
-.screener .mail-cds {
-  color: #1f1d18;
-}
-
 /* ============================================================================
    THE ROW AT NARROW WIDTHS
-   The split list is 380px and a phone is 390px: a single-line timetable row
-   cannot hold a 148px sender column *and* a legible subject, so below ~520px
-   the row folds to two lines and finally uses the 60px it already occupied.
-   A container query, not a media query — the same list is narrow inside the
-   split and wide in List view at the same viewport.
+   The split list is ~380px and a phone is 390px: one line cannot hold a
+   correspondent, a subject and a timestamp legibly at that width, so below
+   ~520px the row folds to two lines within the height the taper already gave
+   it. A container query, not a media query — the same list is narrow inside
+   the split and wide in List view at the same viewport.
    ========================================================================= */
 
 .thread-list {
@@ -1932,83 +2936,30 @@ button.search-chip-toggle.on {
 }
 
 @container (max-width: 520px) {
-  .thread-list:not(.thread-list--compact) .thread-row {
-    display: grid;
-    grid-template-columns: 26px minmax(0, 1fr) auto;
-    grid-template-rows: auto auto;
-    align-items: center;
-    column-gap: 9px;
-    row-gap: 1px;
+  /* One line becomes two inside the same box: the correspondent (with its
+     pin/star marks) leads, the subject wraps under it. Nothing else about
+     the row changes — the gutter, the tile and the meta column keep their
+     places, so a folded row is still the same row. */
+  .thread-list .thread-row .row-line {
+    flex-wrap: wrap;
+    align-items: baseline;
+    row-gap: 0;
   }
 
-  /* The plate spans both lines: it is the row's registration to the stile. */
-  .thread-list:not(.thread-list--compact) .mail-avatar {
-    grid-row: 1 / span 2;
+  .thread-list .thread-row .row-subject {
+    flex: 1 0 100%;
+    font-size: 0.92em;
   }
 
-  .thread-list:not(.thread-list--compact) .sender {
-    grid-column: 2;
-    grid-row: 1;
-    width: auto;
-    font-size: 12px;
-  }
-
-  .thread-list:not(.thread-list--compact) .time {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .thread-list:not(.thread-list--compact) .subject-line {
-    grid-column: 2 / span 2;
-    grid-row: 2;
-  }
-
-  .thread-list:not(.thread-list--compact) .folder-pill,
-  .thread-list:not(.thread-list--compact) .action-badge,
-  .thread-list:not(.thread-list--compact) .gatekeeper-badge,
-  .thread-list:not(.thread-list--compact) .pin,
-  .thread-list:not(.thread-list--compact) .star {
-    grid-row: 1;
-    grid-column: 3;
+  .thread-list .thread-row .row-sender {
+    max-width: none;
   }
 }
 
 /* ============================================================================
-   COMPOSE — a plate on the frame, never a floating button
-   ========================================================================= */
-
-/* Compose is the primary, so it inverts the stock. It takes no ink colour:
-   aniline is reserved for the mark, focus, selection and links, and a filled
-   violet button is the one thing here that would read as a generic inbox. */
-.compose-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border: 1.5px solid var(--w-ink);
-  border-radius: var(--w-r-plate);
-  background: var(--w-ink);
-  color: var(--w-frame);
-  font-family: inherit;
-  font-stretch: var(--w-wd-label);
-  font-weight: 680;
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.compose-button:hover {
-  background: var(--w-ink-2);
-  border-color: var(--w-ink-2);
-}
-
-/* ============================================================================
-   THE EMPTY READING PANE
-   A compartment with nothing filed in it yet. Quiet, and centred on the
-   frame's own axis rather than stranded in the top-left corner.
+   THE SPLIT PANE WITH NOTHING SELECTED
+   Quiet, and centred on the frame's own axis rather than stranded in the
+   top-left corner.
    ========================================================================= */
 
 .split-pane > .mail-empty {
@@ -2019,144 +2970,46 @@ button.search-chip-toggle.on {
   margin: 0;
   padding: 24px;
   text-align: center;
-  font-stretch: var(--w-wd-label);
-  font-weight: 550;
-  font-size: 10px;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--w-ink-3);
+  font-size: 13.5px;
+  color: var(--color-ink-faint);
   max-width: none;
 }
 
 /* ============================================================================
-   THE TRAY LABEL AT PHONE WIDTH
-   The head is a run of controls, and a phone cannot hold all of them. It
-   scrolls sideways as one strip rather than wrapping into a second rail that
-   would eat the list's height.
+   THE TOOLBAR AT PHONE WIDTH
+   Mail's toolbar is a run of controls and a phone cannot hold all of them on
+   one line. It wraps rather than scrolling sideways: a horizontal strip hid
+   the search field entirely off the right edge with no affordance saying so.
    ========================================================================= */
 
 @media (max-width: 700px) {
-  /* Wrapping, not scrolling: a horizontal strip hid Compose and the search
-     field entirely off the right edge with no affordance saying so. */
-  .mail-topbar {
+  .mail-toolbar {
     flex-wrap: wrap;
-    gap: 7px;
     row-gap: 8px;
+    /* Room for the folder-rail toggle, which is absolutely positioned into
+       the same top-left corner at this width. */
+    padding-left: calc(48px + env(safe-area-inset-left));
   }
 
-  .mail-topbar .divider {
-    display: none;
-  }
-
-  .mail-legend {
-    flex: 1 1 auto;
-  }
-
-  /* Labels go, pictograms stay: `font-size: 0` collapses the bare text
-     nodes these buttons carry beside their glyph without asking five
-     components for a mobile-only span. */
-  .mail-topbar .segmented button,
-  .mail-topbar .toggle,
-  .mail-topbar .held-plate,
-  .mail-topbar .compose-button {
-    font-size: 0;
-    gap: 0;
-    padding: 7px 9px;
-  }
-
-  .mail-topbar .held-plate::after {
-    content: attr(data-count);
-    font-size: 10px;
-    font-stretch: var(--w-wd-label);
-    font-weight: 720;
-    letter-spacing: 0.06em;
-    margin-left: 5px;
-  }
-
-  /* Search and Compose share the second row: a full-width search field
-     pushed Compose onto a third, and the head is already the most expensive
-     chrome on the surface that can least afford it. */
+  /* Search takes the second row whole — the toolbar is the most expensive
+     chrome on the surface that can least afford height, so nothing shares
+     it. */
   .mail-search-field {
     order: 10;
-    flex: 1 1 180px;
+    flex: 1 1 100%;
     max-width: none;
   }
 
-  .mail-topbar .compose-button {
-    order: 11;
-    flex: none;
-  }
-
-  .topbar-spacer {
+  .toolbar-spacer {
     display: none;
   }
 }
 
-/* The bay's own closing statement, so the drenched room ends on the rule it
-   enforces rather than on empty ground. */
-.screener-rule {
-  margin: 0;
-  padding: 16px;
-  max-width: 74ch;
-  font-size: 12px;
-  line-height: 1.55;
-  color: rgb(31 29 24 / 0.94);
-  border-top: 1px solid rgb(31 29 24 / 0.24);
-}
-
-/* Rank by inversion: Approve is the primary and takes the ink. Written at
-   the same specificity as `.screener-row-actions button`, which otherwise
-   wins on the cascade and leaves all three verdicts looking identical. */
-.screener-row-actions button.screener-approve {
-  background: #1f1d18;
-  border-color: #1f1d18;
-  color: var(--w-bone);
-}
-
-.screener-row-actions button.screener-block {
-  margin-left: 14px;
-}
-
 /* ============================================================================
-   THE STRIKE, ON A SCREENER VERDICT
-   The one place in the daily flow where a decision is slow enough to watch:
-   a Verdict is a few actions a day, not the hot triage loop, so the ink has
-   room to land. The write is already queued when this renders — the slip is
-   held on screen purely so the decision is legible as ink on the item.
-   ========================================================================= */
-
-.screener-row.is-struck {
-  pointer-events: none;
-  animation: slip-clear var(--w-dur-strike) var(--w-ease-strike) 700ms forwards;
-}
-
-.screener-row.is-struck::after {
-  /* On the drenched orange the ink is the bay's own near-black, not a role
-     colour: the verdict word carries the meaning, and multiply would muddy. */
-  mix-blend-mode: normal;
-  color: #1f1d18;
-  opacity: 0.92;
-  font-size: 27px;
-  rotate: -4deg;
-}
-
-.screener-row.is-struck > * {
-  opacity: 0.35;
-}
-
-@keyframes slip-clear {
-  to {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-}
-
-/* ============================================================================
-   THE EMPTY COMPARTMENT
-   A reading pane with nothing filed in it says so, and spends the room
-   teaching the keyboard the product is built around rather than sitting
-   blank. Calm by default, expert underneath: this is where the second half
-   of that shows up.
+   THE EMPTY READING PANE (the comp's `.caught-up`)
+   A pane with nothing open in it says so, centred on the frame's own axis,
+   and spends the room teaching the keyboard the product is built around
+   rather than sitting blank. Calm by default, expert underneath.
    ========================================================================= */
 
 .pane-empty {
@@ -2165,53 +3018,396 @@ button.search-chip-toggle.on {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 6px;
   padding: 32px;
-  color: var(--w-ink-3);
+  text-align: center;
+  color: var(--color-ink-faint);
 }
 
-.pane-empty > svg {
-  color: var(--w-rule-hard);
+.pane-empty-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.pane-empty h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--color-ink);
 }
 
 .pane-empty > p {
   margin: 0;
-  font-stretch: var(--w-wd-label);
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--w-ink-2);
+  font-size: 13.5px;
+  color: var(--color-ink-faint);
 }
 
 .pane-keys {
   display: grid;
   grid-template-columns: auto auto;
-  gap: 7px 11px;
+  gap: 8px 12px;
   align-items: center;
-  margin: 6px 0 0;
-  padding: 15px 20px 16px;
-  border-top: var(--w-hair) solid var(--w-rule);
-  border-bottom: var(--w-hair) solid var(--w-rule);
+  margin: 22px 0 0;
+  padding: 0;
 }
 
 .pane-keys dt {
   justify-self: end;
-  min-width: 21px;
-  padding: 2px 6px;
-  border: var(--w-hair) solid var(--w-rule-hard);
-  border-bottom-width: 2px;
-  border-radius: var(--w-r-plate);
-  background: var(--w-panel-2);
-  color: var(--w-ink-2);
-  font-family: var(--w-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-align: center;
 }
 
 .pane-keys dd {
+  justify-self: start;
   margin: 0;
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+}
+
+/* One keycap treatment, shared by the empty pane, the Palette and the
+   Shortcut Sheet — the comp's own `kbd`. */
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 7px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ============================================================================
+   COMMAND PALETTE & SHORTCUT SHEET (#79 — rebuilt on the comp in #87)
+   The comp's `.palette-scrim` / `.palette`: a blurred scrim over the whole
+   viewport and one panel dropped from above it — the panel radius, the one
+   shadow, no hairline anywhere, and rows in the same `--radius-row` menu-item
+   language the two small popovers use. `⌘K` and the header's search entry
+   both raise it; `?` raises the cheat-sheet variant on the same shell.
+   ========================================================================= */
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgb(10 10 14 / 0.34);
+  backdrop-filter: blur(7px);
+  animation: palette-scrim-in var(--dur-press) var(--ease);
+}
+
+@keyframes palette-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.command-palette,
+.shortcut-sheet {
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  animation: palette-in var(--dur-fast) var(--ease-out);
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.command-palette {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(480px, 70vh);
+}
+
+.command-palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 15px 17px;
+}
+
+.command-palette-icon {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+
+.command-palette-input-row input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.command-palette-input-row input::placeholder {
+  color: var(--color-ink-faint);
+}
+
+.command-palette-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.command-palette-close:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.command-palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.command-palette-empty {
+  padding: 16px 12px;
+  margin: 0;
+  color: var(--color-ink-faint);
+  font-size: 13.5px;
+}
+
+.command-palette-section + .command-palette-section {
+  margin-top: 10px;
+}
+
+.command-palette-section-label {
+  margin: 6px 10px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.command-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+/* The active row is where Enter would land, so it ranks the way every other
+   current thing in the system ranks: an accent-soft tint, never an
+   inversion. */
+.command-palette-row.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.command-palette-row.disabled {
+  color: var(--color-ink-faint);
+  cursor: default;
+}
+
+.command-palette-row-section {
+  flex: none;
+  min-width: 70px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
+}
+
+.command-palette-row.active .command-palette-row-section {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.command-palette-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-unbound {
+  flex: none;
+  color: var(--color-ink-faint);
+  font-size: 11px;
+}
+
+.command-palette-hit-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+
+.command-palette-row.active .command-palette-hit-subject {
+  color: inherit;
+}
+
+.command-palette-hit-from {
+  flex: none;
+  color: var(--color-ink-faint);
   font-size: 12px;
-  color: var(--w-ink-3);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-hit-badge {
+  flex: none;
+  color: var(--color-warn);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Which Mail Account a cross-account hit came from (#80) — same quiet
+   treatment as `.command-palette-hit-from`, just distinct enough not to
+   read as the sender. */
+.command-palette-hit-account {
+  flex: none;
+  color: var(--color-ink-faint);
+  font-size: 11px;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-see-all {
+  justify-content: center;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.command-palette-watermark {
+  margin: 6px 10px 2px;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ---------- the Shortcut Sheet (`?`): same shell, a static cheat sheet --- */
+
+.shortcut-sheet {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(560px, 70vh);
+}
+
+.shortcut-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 15px 17px 10px;
+}
+
+.shortcut-sheet-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.shortcut-sheet-body {
+  overflow-y: auto;
+  padding: 6px 17px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.shortcut-sheet-section-label {
+  margin: 0 0 8px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.shortcut-sheet-section dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.shortcut-sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shortcut-sheet-row dt {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+
+.shortcut-sheet-row dd {
+  margin: 0;
+}
+
+/* Phone (#79's own acceptance box: "a search icon opens it full-screen") —
+   the same overlay as desktop, just edge to edge: at this width there is
+   nowhere else for a modal dialog to sit that wouldn't clip against the
+   keyboard. */
+@media (max-width: 700px) {
+  .command-palette-backdrop {
+    padding: 0;
+  }
+
+  .command-palette,
+  .shortcut-sheet {
+    width: 100vw;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
 }

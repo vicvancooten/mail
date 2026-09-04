@@ -295,16 +295,18 @@ async function handleSubscriptionChange(event: PushSubscriptionChangeEvent): Pro
 
 /**
  * "A click always lands where the next decision is" (ADR-0015): every kind
- * focuses (or opens) the one window this Client stacks every section into
- * (`AppShell` has no router) — `new_mail`, `failed_send`, and `needs_reauth`
- * additionally post what to land on (a Thread, a Composition, a Mail
- * Account) via `notification-router.ts` on the main thread. Opening a fresh
- * window (nothing was already open) lands on the app's default view rather
- * than deep-linking into a specific target — a known simplification: there
- * is no `postMessage` recipient to hand the target to until that window has
- * loaded and subscribed, and this repo has no addressable route to open
- * straight into instead (`MailSection`'s own doc comment — routing is plain
- * React state, not a URL).
+ * focuses (or opens) the one window this Client runs — `new_mail`,
+ * `failed_send`, and `needs_reauth` additionally post what to land on (a
+ * Thread, a Composition, a Mail Account) via `notification-router.ts` on
+ * the main thread. Opening a fresh window (nothing was already open) lands
+ * on the app's default route (`/`, which redirects to `/mail`) rather than
+ * deep-linking straight into the target's own URL: there is no
+ * `postMessage` recipient to hand the target to until that window has
+ * loaded and subscribed, and the target names a Thread/Composition/Mail
+ * Account id, not a URL — building one here would duplicate
+ * `router/routes.tsx`'s own shape in the Service Worker for a path this
+ * ticket didn't need. A real gap, left for a follow-up: routes exist now
+ * (#71) where they didn't when this was first written.
  */
 async function focusOrOpenClient(payload: PushPayload | null): Promise<void> {
   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });

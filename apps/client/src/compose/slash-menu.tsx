@@ -2,8 +2,9 @@ import type { Editor, Range } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import { exitSuggestion, Suggestion, type SuggestionKeyDownProps } from "@tiptap/suggestion";
+import type { LucideIcon } from "lucide-react";
+import { Heading, List, ListOrdered, Quote } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
-import { Pictogram, type PictogramName } from "../brand/Pictogram.js";
 
 /**
  * The Notion-style slash menu (compose-spec §Editor, "Notion-style
@@ -23,7 +24,7 @@ import { Pictogram, type PictogramName } from "../brand/Pictogram.js";
 
 export interface SlashMenuItem {
   title: string;
-  icon: PictogramName;
+  icon: LucideIcon;
   run: (editor: Editor, range: Range) => void;
 }
 
@@ -31,23 +32,23 @@ export interface SlashMenuItem {
 export const SLASH_MENU_ITEMS: SlashMenuItem[] = [
   {
     title: "Heading",
-    icon: "heading",
+    icon: Heading,
     run: (editor, range) =>
       editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run(),
   },
   {
     title: "Bulleted list",
-    icon: "list",
+    icon: List,
     run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBulletList().run(),
   },
   {
     title: "Numbered list",
-    icon: "list-ordered",
+    icon: ListOrdered,
     run: (editor, range) => editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
   },
   {
     title: "Blockquote",
-    icon: "quote",
+    icon: Quote,
     run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
   },
 ];
@@ -131,7 +132,7 @@ export const SlashMenuList = forwardRef<SlashMenuListHandle, SlashMenuListProps>
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => command(item)}
           >
-            <Pictogram name={item.icon} size={14} />
+            <item.icon size={14} />
             {item.title}
           </button>
         ))}

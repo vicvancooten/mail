@@ -24,10 +24,29 @@ import {
   toggleTrashJunkOperator,
 } from "./query-parser.js";
 import { type SeededScope, seedScopeFromOrigin, type ViewOrigin } from "./scope.js";
-import { useSearchRoute } from "./useSearchRoute.js";
+import { useSearchOverlay } from "./useSearchOverlay.js";
 
 /** How long after typing stops before `POST /search` fires (search-ux-spec.md §When a search runs). */
 const SERVER_DEBOUNCE_MS = 200;
+
+/**
+ * The Index Watermark line (search-ux-spec.md §Degraded states, #79's
+ * acceptance box: "shown when bodies are still being indexed") — shared
+ * between `SearchResultsView`'s own foot and the Command Palette's inline
+ * hits (`CommandPalette.tsx`), so the two surfaces read the same watermark
+ * the same way rather than growing their own phrasing.
+ */
+export function formatIndexWatermark(watermark: IndexWatermark | null): string | null {
+  if (!watermark || watermark.complete) return null;
+  if (!watermark.coveredSince) {
+    return "Still indexing this account — older mail matches on sender and subject only.";
+  }
+  const date = new Date(watermark.coveredSince).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+  });
+  return `Bodies indexed back to ${date} — older mail matches on sender and subject only.`;
+}
 
 export interface DisplayResult {
   threadId: string;
@@ -50,6 +69,18 @@ function buildFilters(parsed: ParsedSearchQuery, folder?: string, label?: string
     after: parsed.after,
     before: parsed.before,
   };
+}
+
+/**
+ * The Account Scope beyond the primary account (#80, #68's
+ * `additionalMailAccountIds`) — `undefined` rather than `[]` when Scope is
+ * narrowed to one account, matching the wire contract's own "absent means
+ * today's single-account default" so a single-account request looks exactly
+ * like it did before Scope existed.
+ */
+function additionalScopeIds(accountScope: readonly string[]): string[] | undefined {
+  const rest = accountScope.slice(1);
+  return rest.length > 0 ? rest : undefined;
 }
 
 export interface SearchState {
@@ -90,11 +121,21 @@ export interface SearchState {
   markActedOn: (threadId: string) => void;
 }
 
+/**
+ * `accountScope` (#80, `useAccountScope.ts`): every in-scope account is
+ * searched, merged as the Sync Backend returns them (ADR-0016 amendment,
+ * #68). `accountScope[0]` stays the primary — same "the *primary* in-scope
+ * account" role it already plays everywhere else in `MailSection` — with
+ * every other entry riding along as `additionalMailAccountIds` on the wire.
+ * Widening or narrowing Scope while a search is active re-runs it: the
+ * search effect below keys on the whole Scope, not just the primary.
+ */
 export function useSearchState(
-  mailAccountId: string | null,
+  accountScope: readonly string[],
   mailAccounts: readonly MailAccount[],
 ): SearchState {
-  const route = useSearchRoute();
+  const overlay = useSearchOverlay();
+  const mailAccountId = accountScope[0] ?? null;
   const [seed, setSeed] = useState<SeededScope>(null);
   const [seedPopped, setSeedPopped] = useState(false);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -108,7 +149,7 @@ export function useSearchState(
   /** Set synchronously by `onEsc` right before it leaves — see that comment. */
   const justLeftRef = useRef(false);
 
-  const parsed = useMemo(() => parseSearchQuery(route.query), [route.query]);
+  const parsed = useMemo(() => parseSearchQuery(overlay.query), [overlay.query]);
   const seedLive = !seedPopped && parsed.folder === undefined && parsed.label === undefined;
   const effectiveFolder =
     parsed.folder ?? (seedLive && seed?.kind === "folder" ? seed.folder : undefined);
@@ -133,13 +174,13 @@ export function useSearchState(
     [parsed, effectiveFolder, effectiveLabel],
   );
   const prefilterThreads =
-    useSearchPrefilter(route.active && meetsFloor ? mailAccountId : null, prefilterFilters) ?? [];
+    useSearchPrefilter(overlay.active && meetsFloor ? mailAccountId : null, prefilterFilters) ?? [];
 
   // The server round trip (search-ux-spec.md §When a search runs): live,
   // debounced ~200ms after typing stops, from the 3-character floor. Enter
   // (`onCommit`) skips the wait — `immediateRef` is that seam.
   useEffect(() => {
-    if (!route.active || !mailAccountId || !meetsFloor) {
+    if (!overlay.active || !mailAccountId || !meetsFloor) {
       setServerResponse(null);
       return;
     }
@@ -152,7 +193,11 @@ export function useSearchState(
     immediateRef.current = false;
     const timer = setTimeout(() => {
       setServerLoading(true);
-      runServerSearch({ mailAccountId, ...buildFilters(parsed, effectiveFolder, effectiveLabel) })
+      runServerSearch({
+        mailAccountId,
+        additionalMailAccountIds: additionalScopeIds(accountScope),
+        ...buildFilters(parsed, effectiveFolder, effectiveLabel),
+      })
         .then((response) => {
           if (cancelled) return;
           setServerResponse(response);
@@ -169,10 +214,21 @@ export function useSearchState(
       cancelled = true;
       clearTimeout(timer);
     };
-    // `parsed` is a `useMemo` keyed on `route.query` (above), so its
+    // `parsed` is a `useMemo` keyed on `overlay.query` (above), so its
     // identity is already stable across unrelated renders — listing it
     // directly here is exactly as narrow as comparing its fields would be.
-  }, [route.active, mailAccountId, meetsFloor, effectiveFolder, effectiveLabel, parsed]);
+    // `accountScope` (#80): widening or narrowing it re-runs the current
+    // search — a fresh array identity every render (`useAccountScope`'s own
+    // doc comment) is exactly the re-run trigger this effect wants.
+  }, [
+    overlay.active,
+    mailAccountId,
+    meetsFloor,
+    effectiveFolder,
+    effectiveLabel,
+    parsed,
+    accountScope,
+  ]);
 
   const usingServerResults = serverResponse !== null;
   const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
@@ -230,16 +286,16 @@ export function useSearchState(
       setSeedPopped(false);
       setSelectedThreadId(null);
       setRecentSearches(readRecentSearches());
-      route.open();
+      overlay.open();
     },
-    [route],
+    [overlay],
   );
 
   const onFieldChange = useCallback(
     (text: string) => {
-      route.updateQuery(text);
+      overlay.updateQuery(text);
     },
-    [route],
+    [overlay],
   );
 
   const onCommit = useCallback(
@@ -249,26 +305,26 @@ export function useSearchState(
         return;
       }
       immediateRef.current = true;
-      route.commitQuery(text);
+      overlay.commitQuery(text);
       addRecentSearch(text);
       setRecentSearches(readRecentSearches());
     },
-    [route],
+    [overlay],
   );
 
   const onEsc = useCallback(() => {
-    if (route.query.length > 0) {
+    if (overlay.query.length > 0) {
       onFieldChange("");
       return;
     }
     // The field blurs right behind this (`TopBar.tsx`'s own Escape
     // handler), which would otherwise re-commit the empty query and undo
-    // the very navigation `route.leave()` just made — `justLeftRef` is a
-    // ref rather than state exactly so the very next synchronous call sees
-    // it, ahead of any render.
+    // the very `overlay.leave()` just made — `justLeftRef` is a ref rather
+    // than state exactly so the very next synchronous call sees it, ahead
+    // of any render.
     justLeftRef.current = true;
-    route.leave();
-  }, [route, onFieldChange]);
+    overlay.leave();
+  }, [overlay, onFieldChange]);
 
   const popSeed = useCallback(() => setSeedPopped(true), []);
   const onBackspaceEmpty = useCallback(() => popSeed(), [popSeed]);
@@ -276,21 +332,22 @@ export function useSearchState(
   const setOperator = useCallback(
     (key: string, value: string | null) => {
       if (key === "in" || key === "label") popSeed();
-      onFieldChange(setQueryOperator(route.query, key, value));
+      onFieldChange(setQueryOperator(overlay.query, key, value));
     },
-    [route.query, onFieldChange, popSeed],
+    [overlay.query, onFieldChange, popSeed],
   );
 
   const toggleTrashJunk = useCallback(() => {
     popSeed();
-    onFieldChange(toggleTrashJunkOperator(route.query));
-  }, [route.query, onFieldChange, popSeed]);
+    onFieldChange(toggleTrashJunkOperator(overlay.query));
+  }, [overlay.query, onFieldChange, popSeed]);
 
   const loadOlder = useCallback(() => {
     if (!mailAccountId || !serverResponse?.cursor) return;
     setLoadingOlder(true);
     runServerSearch({
       mailAccountId,
+      additionalMailAccountIds: additionalScopeIds(accountScope),
       ...buildFilters(parsed, effectiveFolder, effectiveLabel),
       cursor: serverResponse.cursor,
     })
@@ -308,7 +365,14 @@ export function useSearchState(
       })
       .catch(() => setOffline(true))
       .finally(() => setLoadingOlder(false));
-  }, [mailAccountId, serverResponse?.cursor, parsed, effectiveFolder, effectiveLabel]);
+  }, [
+    mailAccountId,
+    accountScope,
+    serverResponse?.cursor,
+    parsed,
+    effectiveFolder,
+    effectiveLabel,
+  ]);
 
   const clearRecent = useCallback(() => {
     clearRecentSearches();
@@ -327,8 +391,8 @@ export function useSearchState(
   }, []);
 
   return {
-    active: route.active,
-    queryText: route.query,
+    active: overlay.active,
+    queryText: overlay.query,
     parsed,
     meetsFloor,
     seed,
@@ -368,9 +432,9 @@ export function useSearchState(
  * `Triage` method so the row it targets has a base row in the Local Cache
  * before the mutation is queued against it — "a result row can be pinned
  * into the Local Cache unchanged" (ADR-0016 §Wire shape) is the promise
- * this keeps. `archive`/`trash` additionally call `onActed`, which is what
- * lets a search result show "the row stays in place, visibly changed"
- * (search-ux-spec.md §Acting on a result) rather than being
+ * this keeps. `archive`/`trash`/`snooze` additionally call `onActed`, which
+ * is what lets a search result show "the row stays in place, visibly
+ * changed" (search-ux-spec.md §Acting on a result) rather than being
  * indistinguishable from a still-in-Inbox match.
  */
 export function wrapSearchTriage(
@@ -393,6 +457,11 @@ export function wrapSearchTriage(
       materialize(threadId);
       onActed(threadId);
       triage.trash(threadId);
+    },
+    snooze: (threadId, until) => {
+      materialize(threadId);
+      onActed(threadId);
+      triage.snooze(threadId, until);
     },
     toggleStar: (threadId) => {
       materialize(threadId);

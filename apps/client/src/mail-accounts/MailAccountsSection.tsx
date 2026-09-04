@@ -6,12 +6,12 @@ import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
 
 /**
  * The DOM anchor a `needs_reauth` notification click scrolls to (#53,
- * ADR-0015: "that Mail Account's settings ... for Needs Reauth"). There is
- * no router here (`AppShell`'s own doc comment), so "navigate to this Mail
- * Account's settings" means scrolling this always-rendered section's
- * matching row into view rather than changing a URL — see
- * `scrollToMailAccountSettings` below, called from `MailSection.tsx`'s
- * notification-target effect.
+ * ADR-0015: "that Mail Account's settings ... for Needs Reauth"). Settings
+ * is a route now (#71, `router/routes.ts#settingsRoute`), which gets the
+ * click to the right *screen*; this is still what gets it to the right
+ * *row* within it, once this section has rendered — see
+ * `scrollToMailAccountSettings` below, called from `router/RootLayout.tsx`'s
+ * notification-target effect after it navigates there.
  */
 export function mailAccountSettingsAnchorId(mailAccountId: string): string {
   return `mail-account-${mailAccountId}`;
@@ -30,6 +30,12 @@ export function scrollToMailAccountSettings(mailAccountId: string): void {
  * re-enter-credentials form inline, and the add-a-Mail-Account flow. No
  * credential ever appears here — the wire type has no field for one
  * (ADR-0003).
+ *
+ * Its own `fetchMailAccounts` call, entirely independent of Account Scope
+ * (#73's own doc comment) — this is what "Settings lists every Mail Account
+ * regardless of Scope, with Needs Reauth shown per account" (#73's
+ * acceptance criteria) already means: a User who has filtered an account out
+ * of Scope can still reach it here to fix it.
  */
 export function MailAccountsSection() {
   const [accounts, setAccounts] = useState<MailAccount[] | null>(null);

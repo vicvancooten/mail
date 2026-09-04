@@ -1,4 +1,4 @@
-import type { AutoAdvanceDirection, Theme, UndoSendDelaySeconds } from "@mail/shared";
+import type { AutoAdvanceDirection, UndoSendDelaySeconds } from "@mail/shared";
 import { UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
 import { useCallback } from "react";
 import { AuthMethodsSection } from "../auth/AuthMethodsSection.js";
@@ -10,20 +10,25 @@ import {
   useMailAccounts,
   usePreference,
 } from "../store/index.js";
+import { type Theme, useAppearance } from "../theme/device-theme.js";
 import { GatekeeperSection } from "./GatekeeperSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
+import "./settings.css";
 
 /**
  * The settings screen (#54, poc-spec.md §Preferences): "wiring all of it
- * together" per the ticket — the User-scoped `Preference` controls (theme,
- * Auto-advance, Undo Send delay) and the Mail-Account-scoped ones
+ * together" per the ticket — the User-scoped `Preference` controls
+ * (Auto-advance, Undo Send delay) and the Mail-Account-scoped ones
  * (signature, notifications) alongside the auth-methods section (#32) and
  * Mail Account management (#33), which already lived here as their own
- * always-visible sections. There is no router in this Client (`AppShell`
- * stacks every section unconditionally), so "a settings screen" means one
- * more such section rather than a navigated-to route — nothing here changes
- * that shape, it just gives Preferences a home instead of the ad hoc inline
- * forms #46/#47's own tickets stood in with.
+ * always-visible sections. Appearance is a Device Preference now (#72), not
+ * one of these — see the section below.
+ *
+ * Its own routed view now (#71, `router/routes.tsx#settingsRoute`) rather
+ * than a compartment scrolled to below the mail pane — this component
+ * itself didn't have to change shape for that, only its CSS (`.settings-
+ * section` is a bounded, independently-scrolling pane now, not a run of
+ * `<section>`s the document scrolled through).
  *
  * Every control writes through the Optimistic Action queue
  * (`enqueueUserMutation`/`enqueueMutation`) and reads back through the Local
@@ -35,10 +40,7 @@ import { PushNotificationsSection } from "./PushNotificationsSection.js";
 export function SettingsSection() {
   const preference = usePreference();
   const mailAccounts = useMailAccounts() ?? [];
-
-  const changeTheme = useCallback((theme: Theme) => {
-    void enqueueUserMutation({ type: "setTheme", theme });
-  }, []);
+  const [theme, setTheme] = useAppearance();
 
   const changeAutoAdvanceEnabled = useCallback(
     (enabled: boolean) => {
@@ -72,6 +74,23 @@ export function SettingsSection() {
     <section className="settings-section">
       <h2>Settings</h2>
 
+      {/* Appearance is a Device Preference (#72, ADR-0011 amended) — read and
+          written through `localStorage`, never gated on the synced
+          `Preference` row loading, unlike the section below. The same
+          control (`useAppearance`) also lives in the header's avatar menu;
+          both write the one value. */}
+      <section>
+        <h3>Appearance</h3>
+        <label>
+          Appearance
+          <select value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </section>
+
       {/* `preference` is `undefined` only for the first frame or two before
           `usePreference()`'s live query resolves (`store/reads.ts`'s own doc
           comment) — everything below this point (auth methods, Mail Account
@@ -80,18 +99,6 @@ export function SettingsSection() {
       {preference && (
         <section>
           <h3>Preferences</h3>
-
-          <label>
-            Theme
-            <select
-              value={preference.theme}
-              onChange={(event) => changeTheme(event.target.value as Theme)}
-            >
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
 
           <label>
             <input

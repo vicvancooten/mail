@@ -9,7 +9,6 @@ import type {
 import {
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
-  DEFAULT_THEME,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   labelId,
   normalizeSenderAddress,
@@ -118,7 +117,6 @@ async function overlayMailAccountMutations(
 function defaultPreference(): Preference {
   return {
     id: "",
-    theme: DEFAULT_THEME,
     autoAdvanceEnabled: DEFAULT_AUTO_ADVANCE_ENABLED,
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
@@ -149,9 +147,6 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
   let overlaid = base;
   for (const { intent } of mutations) {
     switch (intent.type) {
-      case "setTheme":
-        overlaid = { ...overlaid, theme: intent.theme };
-        break;
       case "setAutoAdvance":
         overlaid = {
           ...overlaid,
@@ -213,6 +208,8 @@ export async function readCorrespondents(mailAccountId: string): Promise<Corresp
  * Screen is.
  */
 export interface ScreenerSenderGroup {
+  /** The Mail Account holding this sender — every decision (#82) targets this account, never the whole Scope. */
+  mailAccountId: string;
   /** The normalized `From` address holding these Threads — what an Approve/Deny/Block decision targets. */
   address: string;
   /** The best display name across the held Threads, or `null` if none carried one. */
@@ -258,7 +255,9 @@ async function decidedSenders(db: LocalCache, mailAccountId: string): Promise<Ga
   );
 }
 
-export async function readScreenerSenders(mailAccountId: string): Promise<ScreenerSenderGroup[]> {
+async function readScreenerSendersForAccount(
+  mailAccountId: string,
+): Promise<ScreenerSenderGroup[]> {
   const db = localCache();
   const held = await db.threads
     .where("mailAccountId")
@@ -296,6 +295,7 @@ export async function readScreenerSenders(mailAccountId: string): Promise<Screen
       peek.lastMessageAt ?? "",
     );
     groups.push({
+      mailAccountId,
       address,
       name,
       threadIds: threads.map((thread) => thread.id),
@@ -311,13 +311,51 @@ export async function readScreenerSenders(mailAccountId: string): Promise<Screen
   return groups.sort((left, right) => left.heldSince.localeCompare(right.heldSince));
 }
 
-export function useScreenerSenders(
-  mailAccountId: string | null,
-): ScreenerSenderGroup[] | undefined {
-  return useLiveQuery(
-    () => (mailAccountId === null ? Promise.resolve([]) : readScreenerSenders(mailAccountId)),
-    [mailAccountId],
+/**
+ * One Mail Account's cluster of held senders (#82): "with several Mail
+ * Accounts in Scope, held mail is grouped by account, so the User knows
+ * whose stranger they are admitting". `accountEmail` is what a group header
+ * names — `readScreenerSenders` below only ever includes an account here
+ * once it actually has a hold, so a quiet account in Scope contributes no
+ * empty section.
+ */
+export interface ScreenerAccountGroup {
+  mailAccountId: string;
+  accountEmail: string;
+  senders: ScreenerSenderGroup[];
+}
+
+/**
+ * The Screener's read across Account Scope (#73, #82), in Scope order —
+ * Scope's own primary-first ordering is what decides which account's cluster
+ * leads. Per-account grouping, not a merged/re-sorted queue: a decision is
+ * already scoped to one Mail Account (`ScreenerSenderGroup.mailAccountId`),
+ * and interleaving strangers from different accounts by `heldSince` alone
+ * would make "whose stranger is this" a second read instead of the section
+ * it is already standing in.
+ */
+export async function readScreenerSenders(
+  accountScope: readonly string[],
+): Promise<ScreenerAccountGroup[]> {
+  if (accountScope.length === 0) return [];
+  const accounts = await readMailAccounts();
+  const emailById = new Map(accounts.map((account) => [account.id, account.emailAddress]));
+
+  const groups = await Promise.all(
+    accountScope.map(async (mailAccountId) => ({
+      mailAccountId,
+      accountEmail: emailById.get(mailAccountId) ?? mailAccountId,
+      senders: await readScreenerSendersForAccount(mailAccountId),
+    })),
   );
+  return groups.filter((group) => group.senders.length > 0);
+}
+
+export function useScreenerSenders(
+  accountScope: readonly string[],
+): ScreenerAccountGroup[] | undefined {
+  const key = accountScope.join(",");
+  return useLiveQuery(() => readScreenerSenders(accountScope), [key]);
 }
 
 export interface ThreadWindowPage {
@@ -336,55 +374,136 @@ export interface ThreadWindowOptions {
   limit?: number;
 }
 
+/**
+ * `mailAccountId` is Account Scope (#73) as much as a single account: an
+ * array merges every named account's Threads into one newest-first list
+ * (`readThreadWindow`'s own doc comment). The dependency list keys off a
+ * joined string rather than the array reference itself, so a caller handing
+ * in a fresh-identity-but-same-contents array on every render (a Scope
+ * recomputed from `MailAccount[]`, say) doesn't requery every frame.
+ */
 export function useThreadWindow(
-  mailAccountId: string | null,
+  mailAccountId: string | readonly string[] | null,
   { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
 ): ThreadWindowPage | undefined {
+  const ids: readonly string[] =
+    mailAccountId === null ? [] : Array.isArray(mailAccountId) ? mailAccountId : [mailAccountId];
+  const key = ids.join(",");
   return useLiveQuery(
     () =>
-      mailAccountId === null
+      ids.length === 0
         ? Promise.resolve({ threads: [], complete: true })
-        : readThreadWindow(mailAccountId, { view, limit }),
-    [mailAccountId, view, limit],
+        : readThreadWindow(ids, { view, limit }),
+    [key, view, limit],
   );
 }
 
 /**
- * The top `limit` Threads of one (Mail Account, view), newest first — Pinned
- * Threads (#43) sorted ahead of the rest regardless of their own date,
- * within that. A label `view` (`db.ts#ViewKey`) is a filter *over* the
- * `all` window's already-loaded contents rather than a second server-synced
- * window, so it fetches `all`'s full held range (not just `limit`) before
- * filtering — the `[mailAccountId+sortKey]` index still gives the order,
- * filtering by `labelIds` just thins what passes through.
+ * A `view`'s membership test over `all`'s already-overlaid contents (#74).
+ * `inInbox` (#42) is the Inbox's whole filter, applied here so an
+ * archive/trash still queued hides its Thread at the same instant as one the
+ * Sync Backend already confirmed — no flicker between "optimistically
+ * hidden" and "actually gone" as the mutation dequeues. A Screening Hold
+ * (#56, ADR-0008) filters the same way: held mail keeps `inInbox: true` (it
+ * hasn't been archived or trashed, just not shown yet) so it must be
+ * excluded here explicitly — the Screener is where it renders instead.
+ *
+ * Archive/Trash read `folderRole` rather than `inInbox` — the one field that
+ * tells the two apart (`@mail/shared`'s `threadSchema` doc comment); Sent
+ * and Pinned are cross-folder by design (poc-spec.md: the sidebar's Pinned
+ * view "shows pinned Threads from every folder") and each excludes Trash,
+ * the same "Trash overrides everything else" convention ordinary mail
+ * clients use, so a trashed Thread doesn't linger in either. Snoozed (#76)
+ * reads `snoozeUntil` rather than `inInbox`, the same "one field says which"
+ * shape `folderRole` gives Archive/Trash — `inInbox` alone can't tell a
+ * snoozed Thread apart from an archived or trashed one, all three being
+ * `false` — and excludes Trash the same way Sent/Pinned do.
  */
-export async function readThreadWindow(
+function filterByView(threads: CachedThread[], view: ViewKey): CachedThread[] {
+  if (typeof view !== "string") {
+    return threads.filter(
+      (thread) => thread.inInbox && !thread.heldSender && thread.labelIds.includes(view.labelId),
+    );
+  }
+  switch (view) {
+    case "all":
+      return threads.filter((thread) => thread.inInbox && !thread.heldSender);
+    case "archive":
+      return threads.filter((thread) => thread.folderRole === "archive");
+    case "trash":
+      return threads.filter((thread) => thread.folderRole === "trash");
+    case "sent":
+      return threads.filter((thread) => thread.hasSentMessage && thread.folderRole !== "trash");
+    case "pinned":
+      return threads.filter((thread) => thread.pinned && thread.folderRole !== "trash");
+    case "snoozed":
+      return threads.filter(
+        (thread) => thread.snoozeUntil !== null && thread.folderRole !== "trash",
+      );
+  }
+}
+
+/** One (Mail Account, view)'s filtered, pinned-first-partitioned Threads, unsliced — `readThreadWindow`'s per-account building block, merged across Account Scope (#73) before the `limit` slice is taken. */
+interface AccountWindowParts {
+  pinned: CachedThread[];
+  rest: CachedThread[];
+  /** `true` when this Mail Account has no window at all (never synced) — trivially "complete", same as `readThreadWindow`'s own no-window case. */
+  complete: boolean;
+}
+
+async function readAccountWindowParts(
+  db: LocalCache,
   mailAccountId: string,
-  { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
-): Promise<ThreadWindowPage> {
-  const db = localCache();
+  view: ViewKey,
+): Promise<AccountWindowParts> {
   const window = await db.listWindows.get(listWindowKey(mailAccountId, "all"));
-  if (!window) return { threads: [], complete: true };
+  if (!window) return { pinned: [], rest: [], complete: true };
 
   const held = await threadsInWindow(db, window).reverse().toArray();
   const overlaid = await overlayPendingMutations(db, held);
-  // `inInbox` (#42) is this Client's one list's whole filter, applied after
-  // the overlay so an archive/trash still queued hides its Thread at the
-  // same instant as one the Sync Backend already confirmed — no flicker
-  // between "optimistically hidden" and "actually gone" as the mutation
-  // dequeues. A Screening Hold (#56, ADR-0008) filters the same way: held
-  // mail keeps `inInbox: true` (it hasn't been archived or trashed, just not
-  // shown yet) so it must be excluded here explicitly — the Screener is
-  // where it renders instead.
-  const inInbox = overlaid.filter((thread) => thread.inInbox && !thread.heldSender);
-  const filtered =
-    view === "all" ? inInbox : inInbox.filter((t) => t.labelIds.includes(view.labelId));
+  const filtered = filterByView(overlaid, view);
 
-  // Pinned-first (#43, CONTEXT.md: "keep this in front of me"), stable
-  // within each partition — `held` above is already newest-first, so this
-  // is a partition, not a re-sort.
-  const pinned = filtered.filter((t) => t.pinned);
-  const rest = filtered.filter((t) => !t.pinned);
+  return {
+    pinned: filtered.filter((t) => t.pinned),
+    rest: filtered.filter((t) => !t.pinned),
+    complete: window.complete,
+  };
+}
+
+/** Newest-first by the same `sortKey` the `[mailAccountId+sortKey]` index orders by — the merge step Account Scope (#73) needs once a partition spans more than one Mail Account's already-sorted array. */
+function bySortKeyDescending(left: CachedThread, right: CachedThread): number {
+  return right.sortKey.localeCompare(left.sortKey);
+}
+
+/**
+ * The top `limit` Threads across one or several Mail Accounts (Account
+ * Scope, #73) for one view, newest first — Pinned Threads (#43) sorted
+ * ahead of the rest regardless of their own date, within that. A label
+ * `view` (`db.ts#ViewKey`) is a filter *over* the `all` window's
+ * already-loaded contents rather than a second server-synced window, so it
+ * fetches `all`'s full held range (not just `limit`) before filtering — the
+ * `[mailAccountId+sortKey]` index still gives the order, filtering by
+ * `labelIds` just thins what passes through.
+ *
+ * Scoped to several Mail Accounts, each account's window is read and
+ * partitioned independently, then the pinned and unpinned partitions are
+ * each merged by `sortKey` — a single global newest-first order rather than
+ * one account's Threads run before another's. `complete` is the AND of every
+ * scoped account's own window: the list can claim "nothing older to load"
+ * only once every account in Scope agrees.
+ */
+export async function readThreadWindow(
+  mailAccountId: string | readonly string[],
+  { view = DEFAULT_VIEW, limit = THREAD_PAGE_SIZE }: ThreadWindowOptions = {},
+): Promise<ThreadWindowPage> {
+  const ids = Array.isArray(mailAccountId) ? mailAccountId : [mailAccountId as string];
+  if (ids.length === 0) return { threads: [], complete: true };
+
+  const db = localCache();
+  const parts = await Promise.all(ids.map((id) => readAccountWindowParts(db, id, view)));
+
+  const pinned = parts.flatMap((part) => part.pinned).sort(bySortKeyDescending);
+  const rest = parts.flatMap((part) => part.rest).sort(bySortKeyDescending);
   const ordered = [...pinned, ...rest];
 
   // A page can come back short of `limit` when the window holds Threads
@@ -392,7 +511,7 @@ export async function readThreadWindow(
   // still works, it just may need an extra round to fill the visible page —
   // acceptable at PoC scope, and the window-admission side of this
   // (`server-writes.ts`) is a reasonable follow-up if it ever isn't.
-  return { threads: ordered.slice(0, limit), complete: window.complete };
+  return { threads: ordered.slice(0, limit), complete: parts.every((part) => part.complete) };
 }
 
 /**
@@ -456,8 +575,18 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
       case "trash":
         // The Thread's fate is sealed the instant the action is queued —
         // `readThreadWindow` drops anything with `inInbox: false` from the
-        // page, offline included, before any server round trip.
-        overlaid = { ...overlaid, inInbox: false };
+        // page, offline included, before any server round trip. Also clears
+        // `snoozeUntil` (#76), mirroring `sync/mutations.ts`'s own archive/
+        // trash case: archiving/trashing a still-snoozed Thread overrides
+        // Snooze, so it must drop out of the Snoozed view the same instant
+        // too, not just the Inbox.
+        overlaid = { ...overlaid, inInbox: false, snoozeUntil: null };
+        break;
+      case "snooze":
+        // Same immediate-hide shape as archive/trash above, plus the field
+        // that makes the Snoozed view's own filter (`filterByView`) admit it
+        // the instant it's queued, offline included.
+        overlaid = { ...overlaid, inInbox: false, snoozeUntil: mutation.intent.until };
         break;
       case "setPinned":
         overlaid = { ...overlaid, pinned: mutation.intent.pinned };

@@ -7,6 +7,7 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
+import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
   applyLabelDelta,
   applyMailAccountDelta,
@@ -205,7 +206,7 @@ describe("MailSection", () => {
     // owns the real body) appears instantly — `stubFetch(never)` means
     // nothing here can have come from a network round trip. Scoped to
     // `.thread-detail` because the row itself also shows the Snippet.
-    const detail = await screen.findByText("Last state", { selector: ".thread-detail-card h1" });
+    const detail = await screen.findByText("Last state", { selector: ".reading-subject" });
     expect(detail.closest(".thread-detail")?.textContent).toContain("Snippet t1");
   });
 
@@ -225,8 +226,8 @@ describe("MailSection", () => {
     // List view: opening a Thread swaps the list for a full-screen detail,
     // with a way back rather than sitting beside it.
     fireEvent.click(screen.getByText("Last state"));
-    expect(await screen.findByText("Back to list")).toBeDefined();
-    fireEvent.click(screen.getByText("Back to list"));
+    expect(await screen.findByRole("button", { name: "Back to list" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
     expect(await screen.findByText("Last state")).toBeDefined();
 
     unmount();
@@ -252,7 +253,7 @@ describe("MailSection", () => {
     expect(await screen.findByText("Snippet t1")).toBeDefined();
   });
 
-  it("switching accounts switches inboxes", async () => {
+  it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {
     await applyMailAccountDelta(
       delta({
         created: [
@@ -276,18 +277,49 @@ describe("MailSection", () => {
 
     renderMail();
 
+    // Nothing narrowed yet — both accounts' Threads are in Scope.
     expect(await screen.findByText("Account one thread")).toBeDefined();
-    expect(screen.queryByText("Account two thread")).toBeNull();
-
-    fireEvent.change(screen.getByLabelText("Mail account"), {
-      target: { value: "acct-2" },
-    });
-
     expect(await screen.findByText("Account two thread")).toBeDefined();
-    expect(screen.queryByText("Account one thread")).toBeNull();
+
+    // Opens the Account Scope control and unchecks acct-1 — narrows the
+    // Thread list to only the Mail Account still checked.
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope: All accounts/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-1@example.test" }));
+
+    await waitFor(() => expect(screen.queryByText("Account one thread")).toBeNull());
+    expect(screen.getByText("Account two thread")).toBeDefined();
   });
 
-  it("a notification click on another account's Thread switches accounts and opens it (#53)", async () => {
+  it("Account Scope cannot be narrowed to nothing (#73)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    // Account Scope resolves (defaulting to all) a render or two after the
+    // Mail Account list itself does — wait for that resolved accessible
+    // name rather than the (already-present) search field, or the click
+    // below can land while Scope still reads empty.
+    const scopeButton = await screen.findByRole("button", { name: /Account Scope: All accounts/ });
+    fireEvent.click(scopeButton);
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-1@example.test" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-2@example.test" }));
+
+    // The second uncheck would empty Scope — it stays checked.
+    expect(screen.getByRole("checkbox", { name: "acct-2@example.test" })).toHaveProperty(
+      "checked",
+      true,
+    );
+  });
+
+  it("a notification click on another account's Thread narrows Scope to it and opens it (#53, #73)", async () => {
     await applyMailAccountDelta(
       delta({
         created: [
@@ -317,12 +349,23 @@ describe("MailSection", () => {
     });
 
     expect(
-      await screen.findByText("Account two thread", { selector: ".thread-detail-card h1" }),
+      await screen.findByText("Account two thread", { selector: ".reading-subject" }),
     ).toBeDefined();
-    expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
+
+    // The primary account (compose/Screener/search's own single-account
+    // context) follows the notification: Scope narrows to just the target.
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope/ }));
+    expect(screen.getByRole("checkbox", { name: "acct-2@example.test" })).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "acct-1@example.test" })).toHaveProperty(
+      "checked",
+      false,
+    );
   });
 
-  it("a notification click on a failed send switches accounts and reopens its Composition (#53)", async () => {
+  it("a notification click on a failed send narrows Scope to it and reopens its Composition (#53, #73)", async () => {
     await applyMailAccountDelta(
       delta({
         created: [
@@ -341,7 +384,8 @@ describe("MailSection", () => {
     stubFetch(never);
 
     renderMail();
-    await waitFor(() => expect(screen.getByLabelText("Mail account")).toBeDefined());
+    // Same "wait for Scope itself to resolve" reasoning as the test above.
+    await screen.findByRole("button", { name: /Account Scope: All accounts/ });
 
     act(() => {
       publishNotificationTarget({
@@ -353,7 +397,16 @@ describe("MailSection", () => {
 
     const subject = (await screen.findByPlaceholderText("Subject")) as HTMLInputElement;
     await waitFor(() => expect(subject.value).toBe("Re: quarterly numbers"));
-    expect((screen.getByLabelText("Mail account") as HTMLSelectElement).value).toBe("acct-2");
+
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope/ }));
+    expect(screen.getByRole("checkbox", { name: "acct-2@example.test" })).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(screen.getByRole("checkbox", { name: "acct-1@example.test" })).toHaveProperty(
+      "checked",
+      false,
+    );
   });
 
   it("a full keyboard-only pass: navigate, archive, star, and auto-advance (#42)", async () => {
@@ -393,7 +446,47 @@ describe("MailSection", () => {
     ).toBe("true");
   });
 
-  it("selecting an unread Thread marks it read; u toggles it back to unread (#42)", async () => {
+  it("the row's Done control marks it Done from the pointer, without selecting the row (#75)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Mark "Newer thread" Done/ }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(screen.getByText("Older thread")).toBeDefined();
+    // Never opened into the reading pane — Done is an action, not a selection.
+    expect(document.querySelector(".thread-detail")).toBeNull();
+  });
+
+  it("a rollback returns the row Done put down, and raises a toast naming the failure (#75)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Mark "Newer thread" Done/ }));
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+
+    // Simulate the Sync Backend rejecting the queued archive — the same
+    // seam `RollbackToast.test.tsx` drives directly.
+    const queued = await listQueuedMutations("acct-1");
+    await act(async () => {
+      await resolveMutationOutcomes(
+        "acct-1",
+        queued,
+        queued.map((mutation) => ({ id: mutation.id, status: "rejected", reason: "server_error" })),
+      );
+    });
+
+    expect(await screen.findByText("Newer thread")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Couldn't archive — restored to the list.");
+  });
+
+  it("selecting an unread Thread marks it read; the Mark unread button toggles it back (#42)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -407,13 +500,32 @@ describe("MailSection", () => {
         "unread",
       );
     });
-    expect(await screen.findByRole("button", { name: "Mark unread" })).toBeDefined();
+    const markUnread = await screen.findByRole("button", { name: "Mark unread" });
 
-    fireEvent.keyDown(window, { key: "u" });
+    // `u` no longer toggles read/unread (#79 rebinds it to "back to list") —
+    // the mouse affordance is still the way to reach it, plus the Command
+    // Palette now (`command-palette.test.tsx`).
+    fireEvent.click(markUnread);
     expect(await screen.findByRole("button", { name: "Mark read" })).toBeDefined();
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /Newer thread/ }).className).toContain("unread");
     });
+  });
+
+  it("u (#79, rebound from mark-unread) sends the reading pane back to the list", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+    fireEvent.click(row);
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    fireEvent.keyDown(window, { key: "u" });
+
+    // Split view: "back to list" clears the selection — the reading pane's
+    // own empty state, not a route change.
+    await waitFor(() => expect(screen.getByText("Nothing open")).toBeDefined());
   });
 
   it("the auto-advance direction toggle in the top bar flips trash's neighbor choice", async () => {
@@ -455,9 +567,128 @@ describe("MailSection", () => {
       expect.stringContaining("Older thread"),
       expect.stringContaining("Newer thread"),
     ]);
-    expect(screen.getByText("Pinned")).toBeDefined(); // the synthetic group header
+    // Scoped to the list itself (#74's own sidebar has a "Pinned" nav entry too).
+    expect(within(screen.getByRole("listbox")).getByText("Pinned")).toBeDefined(); // the synthetic group header
   });
 
+  it("snoozing a Thread from the row cluster removes it from the Inbox instantly and it appears in Snoozed (#76)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Snooze "Newer thread"/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Later today" }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(screen.getByText("Older thread")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Snoozed" }));
+    expect(await screen.findByText("Newer thread")).toBeDefined();
+  });
+
+  it("a rollback returns the row Snooze put down, and raises a toast naming the failure (#76)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: /Snooze "Newer thread"/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Later today" }));
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+
+    const queued = await listQueuedMutations("acct-1");
+    await act(async () => {
+      await resolveMutationOutcomes(
+        "acct-1",
+        queued,
+        queued.map((mutation) => ({ id: mutation.id, status: "rejected", reason: "server_error" })),
+      );
+    });
+
+    expect(await screen.findByText("Newer thread")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Couldn't snooze — restored to the list.");
+  });
+});
+
+describe("Sidebar (#74)", () => {
+  it("Archive shows only Threads real archived Threads, hiding the ordinary Inbox", async () => {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-inbox", "acct-1", { subject: "Inbox thread" }),
+          makeThread("t-archived", "acct-1", {
+            subject: "Archived thread",
+            inInbox: false,
+            folderRole: "archive",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Inbox thread");
+    expect(screen.queryByText("Archived thread")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByText("Archived thread")).toBeDefined();
+    expect(screen.queryByText("Inbox thread")).toBeNull();
+  });
+
+  it("Snoozed lists what is waiting, hiding the ordinary Inbox (#76)", async () => {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-inbox", "acct-1", { subject: "Inbox thread" }),
+          makeThread("t-snoozed", "acct-1", {
+            subject: "Snoozed thread",
+            inInbox: false,
+            snoozeUntil: "2026-07-01T08:00:00.000Z",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Inbox thread");
+    expect(screen.queryByText("Snoozed thread")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Snoozed" }));
+
+    expect(await screen.findByText("Snoozed thread")).toBeDefined();
+    expect(screen.queryByText("Inbox thread")).toBeNull();
+  });
+
+  it("Screener opens from its sidebar entry, same as the Gatekeeper banner's own button", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: "Screener" }));
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(screen.queryByText("Newer thread")).toBeNull();
+  });
+});
+
+describe("MailSection", () => {
   it("lists a synced Label in the filter-by-label picker, hidden entirely when there are none", async () => {
     await seedTwoThreads();
     stubFetch(never);
@@ -534,7 +765,7 @@ describe("MailSection", () => {
     stubFetch(never);
     renderMail();
 
-    const composeButton = await screen.findByTitle("Compose (c)");
+    const composeButton = await screen.findByRole("button", { name: "Compose" });
     fireEvent.click(composeButton);
 
     const subject = await screen.findByPlaceholderText("Subject");
@@ -545,5 +776,207 @@ describe("MailSection", () => {
     const stillOpen = await screen.findByPlaceholderText("Subject");
     expect(stillOpen).toBe(subject); // the same input — the composer was never unmounted
     expect((stillOpen as HTMLInputElement).value).toBe("Do not lose this");
+  });
+});
+
+describe("MailSection — the group header cluster (#66, #67, #77)", () => {
+  /** An hour ago, real wall-clock, but never earlier than midnight — so the
+   * Thread lands in the "Today" group regardless of when this suite runs. A
+   * bare "now minus an hour" put it in *Yesterday* between 00:00 and 01:00
+   * local, which made these tests fail for one hour a day. */
+  function earlierToday(): string {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    return new Date(Math.max(Date.now() - 60 * 60 * 1000, midnight.getTime())).toISOString();
+  }
+
+  async function seedTodayThreads(): Promise<void> {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-a", "acct-1", { subject: "Thread A", lastMessageAt: earlierToday() }),
+          makeThread("t-b", "acct-1", { subject: "Thread B", lastMessageAt: earlierToday() }),
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  /** `stubFetch`'s auth/sync routing, plus the three `/bulk-triage/*` endpoints (#67). */
+  function stubFetchWithBulkTriage(options: {
+    sync?: () => Promise<Response>;
+    batch?: (body: Record<string, unknown>) => Response;
+    count?: () => Response;
+    undo?: (body: Record<string, unknown>) => Response;
+  }) {
+    const calls: { url: string; body?: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const body = init?.body
+          ? (JSON.parse(init.body as string) as Record<string, unknown>)
+          : undefined;
+        calls.push({ url, body });
+        const auth = AUTH_RESPONSES[url];
+        if (auth) return Promise.resolve(auth());
+        if (url === "/sync") return (options.sync ?? never)();
+        if (url === "/bulk-triage/count") {
+          return Promise.resolve((options.count ?? (() => jsonResponse({ count: 0 })))());
+        }
+        if (url === "/bulk-triage/batch") {
+          const respond =
+            options.batch ??
+            (() => jsonResponse({ batchId: "batch-1", affectedCount: 0, accounts: [] }));
+          return Promise.resolve(respond(body ?? {}));
+        }
+        if (url === "/bulk-triage/undo") {
+          const respond =
+            options.undo ?? (() => jsonResponse({ status: "undone", affectedCount: 0 }));
+          return Promise.resolve(respond(body ?? {}));
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+    return calls;
+  }
+
+  it("Done all sends a date-range/folder/Scope target with no thread-id list, and true-count-carrying, ~10s Undo toast", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          // The true total (5) exceeds what's loaded (2) — #67's "a group can
+          // hold thousands the Client never loaded" made concrete.
+          affectedCount: 5,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 5 }],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+
+    await waitFor(() => {
+      const batchCall = calls.find((call) => call.url === "/bulk-triage/batch");
+      expect(batchCall).toBeDefined();
+      const body = batchCall?.body as { action: string; target: Record<string, unknown> };
+      expect(body.action).toBe("done");
+      expect(body.target).toEqual({
+        accountScope: ["acct-1"],
+        folderRole: "inbox",
+        since: expect.any(String),
+        until: null, // Today is open-ended — a Thread arriving after the request still lands in it (#67).
+      });
+      expect(body.target.threadIds).toBeUndefined();
+    });
+
+    // Both loaded Threads leave the list once their stagger/collapse finishes.
+    await waitFor(() => expect(screen.queryByText("Thread A")).toBeNull(), { timeout: 2000 });
+    expect(screen.queryByText("Thread B")).toBeNull();
+
+    // The toast names the true total, not the two that were actually loaded.
+    expect(await screen.findByText(/Done: 5 in Today\./)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("Undo restores the group and re-syncs", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      // Resolves immediately (rather than the default never-resolving stub)
+      // so a later `requestSyncNow()` round can actually fire a second
+      // `/sync` call instead of piling up behind a permanently in-flight one.
+      sync: () => Promise.resolve(jsonResponse({ user: {}, mailAccounts: {} })),
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+      undo: () => jsonResponse({ status: "undone", affectedCount: 2 }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+    await waitFor(() => expect(screen.queryByText("Thread A")).toBeNull(), { timeout: 2000 });
+
+    const syncCallsBeforeUndo = calls.filter((call) => call.url === "/sync").length;
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(screen.getByText("Thread A")).toBeDefined());
+    expect(screen.getByText("Thread B")).toBeDefined();
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url === "/sync").length).toBeGreaterThan(
+        syncCallsBeforeUndo,
+      ),
+    );
+    expect(calls.some((call) => call.url === "/bulk-triage/undo")).toBe(true);
+  });
+
+  it("Mark all read sends the markRead action and never hides a Thread", async () => {
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Mark Today read" }));
+
+    await waitFor(() => {
+      const batchCall = calls.find((call) => call.url === "/bulk-triage/batch");
+      expect((batchCall?.body as { action: string })?.action).toBe("markRead");
+    });
+    // Marking read never removes a row from the list.
+    expect(screen.getByText("Thread A")).toBeDefined();
+    expect(screen.getByText("Thread B")).toBeDefined();
+  });
+
+  it("names the failed account and reason on a partial failure", async () => {
+    await seedTodayThreads();
+    stubFetchWithBulkTriage({
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [
+            {
+              mailAccountId: "acct-1",
+              status: "rejected",
+              affectedCount: 0,
+              reason: "needs_reauth",
+            },
+          ],
+        }),
+    });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+
+    expect(await screen.findByText(/acct-1@example\.test needs reauth/)).toBeDefined();
+  });
+
+  it("shows the group's true total from the count endpoint, not the loaded count", async () => {
+    await seedTodayThreads();
+    stubFetchWithBulkTriage({ count: () => jsonResponse({ count: 4200 }) });
+
+    renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
+
+    expect(await screen.findByText("4200")).toBeDefined();
   });
 });

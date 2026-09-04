@@ -9,6 +9,7 @@ import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
 import { noopSyncHintBroker, type SyncHintBroker } from "./realtime/sync-hints.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
+import { bulkTriageRoutes } from "./routes/bulk-triage.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
 import { eventsRoutes } from "./routes/events.js";
@@ -112,6 +113,7 @@ export function buildApp({
     syncManager,
   });
   app.register(syncRoutes, { db });
+  app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
   app.register(pushRoutes, { db, vapidPublicKey });
   app.register(correspondentRoutes, { db });

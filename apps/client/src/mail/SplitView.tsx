@@ -1,10 +1,11 @@
 import { Mark } from "../brand/Mark.js";
 import type { CachedThread } from "../store/index.js";
+import type { ListDensity } from "./device-preferences.js";
 import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { neighborId } from "./thread-navigation.js";
 import type { Triage } from "./useTriage.js";
-import { VirtualizedThreadList } from "./VirtualizedThreadList.js";
+import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 /**
  * Split view (default, `?variant=A` on the prototype branch): list and
@@ -27,7 +28,8 @@ export function SplitView({
   triage,
   onReply,
   initialScrollThreadId,
-  rowHeight,
+  density,
+  groupBulk,
 }: {
   threads: readonly CachedThread[];
   ids: readonly string[];
@@ -40,8 +42,10 @@ export function SplitView({
   onReply: OnReply;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
-  /** Passed straight through to `VirtualizedThreadList` — the `compact` list density (#54). */
-  rowHeight?: number;
+  /** Passed straight through to `VirtualizedThreadList` — the `compact` List Density Device Preference (#54, #75). */
+  density?: ListDensity;
+  /** Passed straight through to `VirtualizedThreadList` — the group header cluster (#66, #77). */
+  groupBulk?: GroupBulkController;
 }) {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const prevId = neighborId(ids, selectedThreadId, -1);
@@ -62,7 +66,8 @@ export function SplitView({
           onLoadMore={onLoadMore}
           triage={triage}
           initialScrollThreadId={initialScrollThreadId}
-          rowHeight={rowHeight}
+          density={density}
+          groupBulk={groupBulk}
         />
       </div>
       <div className="split-pane">
@@ -77,21 +82,40 @@ export function SplitView({
             onReply={onReply}
           />
         ) : (
+          // The comp's `.caught-up`: an accent-soft disc, one line saying
+          // where you are, and — the product's own addition, since the comp
+          // has no keyboard to teach — the six bindings the triage loop is
+          // actually built around.
           <div className="pane-empty">
-            <Mark size={34} />
-            <p>Nothing open</p>
+            <span className="pane-empty-mark">
+              <Mark size={24} />
+            </span>
+            <h2>Nothing open</h2>
+            <p>Pick a thread, or clear the day from the keyboard.</p>
             <dl className="pane-keys">
-              <dt>J</dt>
+              <dt>
+                <kbd className="keycap">J</kbd>
+              </dt>
               <dd>next thread</dd>
-              <dt>K</dt>
+              <dt>
+                <kbd className="keycap">K</kbd>
+              </dt>
               <dd>previous</dd>
-              <dt>E</dt>
-              <dd>archive</dd>
-              <dt>S</dt>
+              <dt>
+                <kbd className="keycap">E</kbd>
+              </dt>
+              <dd>done</dd>
+              <dt>
+                <kbd className="keycap">S</kbd>
+              </dt>
               <dd>star</dd>
-              <dt>L</dt>
+              <dt>
+                <kbd className="keycap">L</kbd>
+              </dt>
               <dd>label</dd>
-              <dt>C</dt>
+              <dt>
+                <kbd className="keycap">C</kbd>
+              </dt>
               <dd>compose</dd>
             </dl>
           </div>
