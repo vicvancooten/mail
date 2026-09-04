@@ -19,13 +19,7 @@ import { findFolderByRole } from "./folders.js";
  * Message moves back the same way `moveBatch` already moves it out. `junk`
  * (#102) is Spam's move, handled by `moveBatch` like `archive`/`trash`.
  */
-export type ProtocolWriteKind =
-  | "seen"
-  | "flagged"
-  | "archive"
-  | "trash"
-  | "inbox"
-  | "junk";
+export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash" | "inbox" | "junk";
 
 /** `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty list. */
 export async function enqueueProtocolWrites(

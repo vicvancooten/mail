@@ -125,8 +125,7 @@ export function Screener({
       // Bound once so Undo (#95) reverses the *same* target the decision
       // used — #102's Block domain passes `{scope:"domain"}`, everything
       // else names the row's own address.
-      const decidedSender: GatekeeperSender =
-        sender ?? { scope: "address", value: group.address };
+      const decidedSender: GatekeeperSender = sender ?? { scope: "address", value: group.address };
       void enqueueMutation({ type, sender: decidedSender }, group.mailAccountId);
       const verdict =
         type === "approveSender"
