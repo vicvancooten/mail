@@ -161,7 +161,7 @@ describe("POST /mail-accounts", () => {
   });
 
   it("saves on a successful verify and never returns the credential", async () => {
-    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const app = buildTestApp({ verify: async () => ({ ok: true, serverKind: "generic" }) });
     const cookie = await claimOwner(app);
 
     const create = await app.inject({
@@ -187,7 +187,7 @@ describe("POST /mail-accounts", () => {
   });
 
   it("scopes the list to the requesting User (ADR-0004)", async () => {
-    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const app = buildTestApp({ verify: async () => ({ ok: true, serverKind: "generic" }) });
     const ownerCookie = await claimOwner(app);
     await app.inject({
       method: "POST",
@@ -216,7 +216,7 @@ describe("POST /mail-accounts/:id/reauth", () => {
   }
 
   it("404s for another User's Mail Account rather than leaking existence", async () => {
-    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const app = buildTestApp({ verify: async () => ({ ok: true, serverKind: "generic" }) });
     const cookie = await claimOwner(app);
     const id = await createAccount(app, cookie);
 
@@ -233,7 +233,9 @@ describe("POST /mail-accounts/:id/reauth", () => {
     let verifyOk = true;
     const app = buildTestApp({
       verify: async () =>
-        verifyOk ? { ok: true } : { ok: false, reason: "credentials_rejected", detail: "nope" },
+        verifyOk
+          ? { ok: true, serverKind: "generic" }
+          : { ok: false, reason: "credentials_rejected", detail: "nope" },
     });
     const cookie = await claimOwner(app);
     const id = await createAccount(app, cookie);
@@ -295,7 +297,7 @@ describe("PATCH /mail-accounts/:id/signature (#47)", () => {
   }
 
   it("is null until set, then rides the wire projection", async () => {
-    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const app = buildTestApp({ verify: async () => ({ ok: true, serverKind: "generic" }) });
     const cookie = await claimOwner(app);
     const id = await createAccount(app, cookie);
 
@@ -316,7 +318,7 @@ describe("PATCH /mail-accounts/:id/signature (#47)", () => {
   });
 
   it("clears back to null", async () => {
-    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const app = buildTestApp({ verify: async () => ({ ok: true, serverKind: "generic" }) });
     const cookie = await claimOwner(app);
     const id = await createAccount(app, cookie);
 
@@ -336,7 +338,7 @@ describe("PATCH /mail-accounts/:id/signature (#47)", () => {
   });
 
   it("404s for another User's Mail Account rather than leaking existence", async () => {
-    const app = buildTestApp({ verify: async () => ({ ok: true }) });
+    const app = buildTestApp({ verify: async () => ({ ok: true, serverKind: "generic" }) });
     const cookie = await claimOwner(app);
     const id = await createAccount(app, cookie);
 
@@ -353,7 +355,10 @@ describe("PATCH /mail-accounts/:id/signature (#47)", () => {
 describe("SyncManager wiring (#35)", () => {
   it("starts a session for a newly created Mail Account", async () => {
     const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };
-    const app = buildTestApp({ verify: async () => ({ ok: true }), syncManager });
+    const app = buildTestApp({
+      verify: async () => ({ ok: true, serverKind: "generic" }),
+      syncManager,
+    });
     const cookie = await claimOwner(app);
 
     const create = await app.inject({
@@ -371,7 +376,10 @@ describe("SyncManager wiring (#35)", () => {
 
   it("restarts the session on a successful reauth", async () => {
     const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };
-    const app = buildTestApp({ verify: async () => ({ ok: true }), syncManager });
+    const app = buildTestApp({
+      verify: async () => ({ ok: true, serverKind: "generic" }),
+      syncManager,
+    });
     const cookie = await claimOwner(app);
     const create = await app.inject({
       method: "POST",

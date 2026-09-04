@@ -348,6 +348,7 @@ export async function oauthSignInRoutes(
       // login to ask for — signing in is the only way this row is created.
       username: emailAddress,
       credential: sealGrant(grant, provider, id),
+      serverKind: result.serverKind,
     });
     // "back to the Mail Accounts settings page with the new Gmail account
     // already syncing" (#116): the same call `POST /mail-accounts` makes.
@@ -416,6 +417,7 @@ export async function oauthSignInRoutes(
       account.id,
       input.emailAddress,
       sealGrant(input.grant, input.provider, account.id),
+      result.serverKind,
     );
     // Resumes syncing (#35), the same hook the password reauth route uses —
     // a Needs-Reauth account's session has already stopped itself for good,

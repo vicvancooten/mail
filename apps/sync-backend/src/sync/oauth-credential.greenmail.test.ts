@@ -83,7 +83,8 @@ describe("an oauth-variant Mail Account against GreenMail", () => {
       username: emailAddress,
       credential: { kind: "oauth", accessToken: "the-grant-access-token" },
     });
-    expect(verifyResult).toEqual({ ok: true });
+    // GreenMail doesn't advertise Gmail's `X-GM-EXT-1` capability (#121, ADR-0020).
+    expect(verifyResult).toEqual({ ok: true, serverKind: "generic" });
 
     const result = await syncMailAccount(db, account, {
       mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,

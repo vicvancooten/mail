@@ -3,10 +3,12 @@ import type { Db } from "../db/client.js";
 import { toImapAuth, unsealMailAccountSecret } from "../mail-accounts/credential-auth.js";
 import { needsGrantRefresh, refreshMailAccountGrant } from "../mail-accounts/grant-refresh.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
+import { detectServerKind } from "../mail-accounts/server-kind.js";
 import {
   getMailAccountById,
   type MailAccountRow,
   markNeedsReauth,
+  updateMailAccountServerKind,
 } from "../mail-accounts/store.js";
 import { recordNeedsReauthNotification } from "../notifier/record.js";
 
@@ -176,6 +178,16 @@ async function attemptConnect(
     const transitioned = await markNeedsReauth(db, account.id);
     if (transitioned) await recordNeedsReauthNotification(db, transitioned);
     throw new MailAccountNeedsReauthError(account.id, err.message);
+  }
+
+  // The "on connect" half of #121 (ADR-0020): an account added before
+  // `serverKind` existed, or whose server kind was never yet recorded,
+  // catches up here — every sync-engine connection to an existing Mail
+  // Account goes through this function, so this is the one place that needs
+  // to run the detection for the accounts `verify.ts` didn't already cover.
+  const serverKind = detectServerKind(client);
+  if (serverKind !== account.serverKind) {
+    await updateMailAccountServerKind(db, account.id, serverKind);
   }
 
   return client;

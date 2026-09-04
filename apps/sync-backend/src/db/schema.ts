@@ -248,6 +248,16 @@ export const mailAccounts = pgTable(
     status: text("status", { enum: ["active", "needs_reauth"] })
       .notNull()
       .default("active"),
+    // Whether this Mail Account's server speaks Gmail's IMAP extension
+    // (`X-GM-EXT-1`), detected by `mail-accounts/server-kind.ts` — ADR-0020:
+    // "selection by server capability, not credential kind", so an
+    // app-password Gmail account gets the same kind as one added by Google
+    // sign-in. Set at verification for a new account (`mail-accounts/verify.ts`)
+    // and on every connect for an existing one (`sync/imap-connection.ts`),
+    // so a Mail Account added before this column existed picks it up on its
+    // next sync rather than needing a migration backfill. Null until then —
+    // the write paths this unblocks (label ops vs. moves) don't exist yet.
+    serverKind: text("server_kind", { enum: ["gmail", "generic"] }),
     /** The plain-text signature (#47, compose-spec §Signature) — null until the User sets one. */
     signature: text("signature"),
     /** The notification on/off toggle (#54, poc-spec.md §Preferences) — the Mail-Account-scoped half of Preferences, alongside `signature`. */
