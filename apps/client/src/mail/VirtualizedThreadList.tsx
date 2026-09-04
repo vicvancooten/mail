@@ -17,13 +17,18 @@ import {
   SheetTitle,
 } from "../components/ui/sheet.js";
 import type { CachedThread } from "../store/index.js";
+import { ActionMenu } from "./actions/ActionMenu.js";
+import { useActions } from "./actions/ActionsProvider.js";
+import { actionById, surfaceActions } from "./actions/registry.js";
+import { publishListHandle } from "./actions/surface-handles.js";
+import { type ActionContext, actionLabel, withGroup, withThread } from "./actions/types.js";
 import {
   DEFAULT_LIST_DENSITY,
   type ListDensity,
   readGroupCollapsed,
   writeGroupCollapsed,
 } from "./device-preferences.js";
-import { ThreadRow } from "./ThreadRow.js";
+import { type RowHoverAction, ThreadRow } from "./ThreadRow.js";
 import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
 import { groupThreadsByTime, PINNED_GROUP_LABEL, type TimeGroupTier } from "./time-groups.js";
 import type { Triage } from "./useTriage.js";
@@ -136,7 +141,7 @@ export function VirtualizedThreadList({
   footer?: ReactNode;
   /** Per-row decorations (headline, folder pill, action badge) — search-only; every other caller leaves this unset. */
   getRowExtra?: (thread: CachedThread) => RowExtra | undefined;
-  /** Skips this list's own `j`/`k` keydown listener — for a copy of the list left mounted-but-hidden behind another surface (#51's search route swap) so it doesn't fight that surface's own keyboard handling. */
+  /** Keeps this list from publishing its selection mover (#94) — for a copy of the list left mounted-but-hidden behind another surface (#51's search route swap), which must not be what `j`/`k` moves through. */
   keyboardDisabled?: boolean;
   /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. */
   initialScrollThreadId?: string | null;
@@ -207,6 +212,39 @@ export function VirtualizedThreadList({
   // leak across a boundary the User can plainly read.
   const [previewGroupLabel, setPreviewGroupLabel] = useState<string | null>(null);
 
+  // Every control this list draws that isn't structure comes from the
+  // Action registry (#94): the row's Done check, its hover cluster, its
+  // right-click menu, and the Time Group header's own menu. Without a
+  // provider above it (a unit test rendering this list on its own) the
+  // rows fall back to the `triage` prop, unchanged.
+  const actions = useActions();
+
+  /** This row's hover cluster: every `"row-hover"` action the registry has available for it, minus Done — which has reserved whitespace of its own on the left rather than a place in the cluster. */
+  const rowHoverActions = useCallback(
+    (rowCtx: ActionContext, thread: CachedThread): RowHoverAction[] =>
+      surfaceActions(rowCtx, "row-hover")
+        .filter((action) => action.id !== "done")
+        .map((action) => {
+          const subject = thread.subject || "(no subject)";
+          const label = `${actionLabel(action, rowCtx)} "${subject}"`;
+          const keycap = action.binding ? ` (${action.binding.display.toLowerCase()})` : "";
+          return {
+            id: action.id,
+            label,
+            title: `${actionLabel(action, rowCtx)}${keycap}`,
+            icon: action.icon,
+            on: action.id === "pin" ? thread.pinned : undefined,
+            picker: action.id === "snooze" ? ("snooze" as const) : undefined,
+            run: () => action.run(rowCtx),
+            onPick:
+              action.id === "snooze"
+                ? (until: string) => rowCtx.triage.snooze(thread.id, until)
+                : undefined,
+          };
+        }),
+    [],
+  );
+
   const itemHeight = useCallback(
     (item: ListItem | undefined): number => {
       if (!item) return ungroupedRowHeight(density);
@@ -267,24 +305,16 @@ export function VirtualizedThreadList({
     [threadIds, selectedThreadId, onSelect, items, virtualizer],
   );
 
+  // This list's own mover, published for the Action registry's single
+  // `keydown` listener to call (#94). It used to be reached by a second
+  // `keydown` listener right here, which fought `useTriage`'s for `j`/`k`
+  // — both fired, and only this one knew to skip a collapsed group's rows
+  // (#78) and to scroll the arrived-at row into view. Now the registry's
+  // `next-thread`/`prev-thread` entries call it, and nothing else binds
+  // those keys.
   useEffect(() => {
     if (keyboardDisabled) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (typing) return;
-      if (event.key === "j" || event.key === "ArrowDown") {
-        event.preventDefault();
-        moveSelection(1);
-      } else if (event.key === "k" || event.key === "ArrowUp") {
-        event.preventDefault();
-        moveSelection(-1);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return publishListHandle({ move: moveSelection });
   }, [moveSelection, keyboardDisabled]);
 
   // Each clearing Thread's position within its own group's clearing set,
@@ -310,6 +340,8 @@ export function VirtualizedThreadList({
     return map;
   }, [items, groupBulk?.clearingThreadIds]);
 
+  const doneAction = actionById("done");
+
   if (threads.length === 0) {
     return <p className="mail-empty">No mail cached for this account yet.</p>;
   }
@@ -326,6 +358,11 @@ export function VirtualizedThreadList({
           const item = items[virtualItem.index];
           if (!item) return null;
           const extra = item.kind === "thread" ? getRowExtra?.(item.thread) : undefined;
+          // The registry, narrowed to this row's own Thread — what its Done
+          // check, its hover cluster and its right-click menu all read, so
+          // right-clicking a row nobody has opened acts on *that* row.
+          const rowCtx =
+            actions && item.kind === "thread" ? withThread(actions, item.thread) : null;
           const clearIndex =
             item.kind === "thread" ? clearIndexById.get(item.thread.id) : undefined;
           return (
@@ -358,37 +395,79 @@ export function VirtualizedThreadList({
                 // The header's own height is the taper's — `itemHeight` above
                 // and this inline style are the same number, never a second
                 // one guessed in `mail.css` (#75).
-                <div
-                  className="group-header"
-                  data-tier={item.tier}
-                  style={{ height: itemHeight(item) }}
+                <ActionMenu
+                  ctx={
+                    actions
+                      ? withGroup(actions, {
+                          label: item.label,
+                          collapsed: item.collapsed,
+                          onToggleCollapsed: () => toggleCollapsed(item.label),
+                          onDoneAll: () => groupBulk?.onDoneAll(item.label),
+                          onMarkAllRead: () => groupBulk?.onMarkAllRead(item.label),
+                          bulkAvailable: Boolean(
+                            groupBulk &&
+                              item.label !== PINNED_GROUP_LABEL &&
+                              item.label !== "Undated",
+                          ),
+                        })
+                      : null
+                  }
+                  asChild
+                  label={`Actions for ${item.label}`}
                 >
-                  <GroupHeaderCluster
-                    label={item.label}
-                    loadedCount={item.loadedCount}
-                    trueCount={groupBulk?.countFor(item.label) ?? null}
-                    collapsed={item.collapsed}
-                    onToggleCollapsed={() => toggleCollapsed(item.label)}
-                    bulk={
-                      groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
-                        ? {
-                            onArm: () => groupBulk.requestCount(item.label),
-                            onDoneAll: () => groupBulk.onDoneAll(item.label),
-                            onMarkAllRead: () => groupBulk.onMarkAllRead(item.label),
-                            onPreview: (active) => setPreviewGroupLabel(active ? item.label : null),
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
+                  <div
+                    className="group-header"
+                    data-tier={item.tier}
+                    style={{ height: itemHeight(item) }}
+                  >
+                    <GroupHeaderCluster
+                      label={item.label}
+                      loadedCount={item.loadedCount}
+                      trueCount={groupBulk?.countFor(item.label) ?? null}
+                      collapsed={item.collapsed}
+                      onToggleCollapsed={() => toggleCollapsed(item.label)}
+                      bulk={
+                        groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
+                          ? {
+                              onArm: () => groupBulk.requestCount(item.label),
+                              onDoneAll: () => groupBulk.onDoneAll(item.label),
+                              onMarkAllRead: () => groupBulk.onMarkAllRead(item.label),
+                              onPreview: (active) =>
+                                setPreviewGroupLabel(active ? item.label : null),
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                </ActionMenu>
               ) : (
                 <ThreadRow
                   thread={item.thread}
                   selected={item.thread.id === selectedThreadId}
                   onSelect={() => onSelect(item.thread.id)}
-                  onArchive={triage ? () => triage.archive(item.thread.id) : undefined}
+                  onArchive={
+                    rowCtx && doneAction?.availability(rowCtx).available
+                      ? () => doneAction.run(rowCtx)
+                      : triage
+                        ? () => triage.archive(item.thread.id)
+                        : undefined
+                  }
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
+                  hoverActions={rowCtx ? rowHoverActions(rowCtx, item.thread) : undefined}
+                  contextMenu={
+                    rowCtx
+                      ? (row) => (
+                          <ActionMenu
+                            ctx={rowCtx}
+                            asChild
+                            label={`Actions for "${item.thread.subject || "(no subject)"}"`}
+                          >
+                            {row}
+                          </ActionMenu>
+                        )
+                      : undefined
+                  }
                   headline={extra?.headline}
                   folderPill={extra?.folderPill}
                   actionBadge={extra?.actionBadge}

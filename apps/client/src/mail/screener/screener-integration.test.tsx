@@ -141,6 +141,26 @@ describe("Gatekeeper banner and Screener (#56)", () => {
     expect(await screen.findByText("Please read")).toBeDefined();
   });
 
+  it("right-clicking a held sender's row offers the same three Verdicts, with their keycaps (#94)", async () => {
+    await seedHeldSenders();
+    renderMail();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    const row = await screen.findByText("A Stranger");
+
+    fireEvent.contextMenu(row);
+
+    const approve = await screen.findByRole("menuitem", { name: /Approve sender/ });
+    expect(approve.textContent).toContain("A");
+    expect(screen.getByRole("menuitem", { name: /Deny sender/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Block sender/ })).toBeDefined();
+
+    fireEvent.click(approve);
+    await waitFor(() => expect(screen.queryByText("A Stranger")).toBeNull());
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent.type)).toContain("approveSender");
+  });
+
   it("a keyboard-only pass through the Screener: j/k navigate, a approves, Escape closes", async () => {
     await applyMailAccountDelta(
       delta({
