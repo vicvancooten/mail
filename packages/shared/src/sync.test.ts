@@ -315,6 +315,31 @@ describe("mutationIntentSchema", () => {
     const result = mutationIntentSchema.safeParse({ ...VALID_SNOOZE_INTENT, until: "tomorrow" });
     expect(result.success).toBe(false);
   });
+
+  it("accepts restoreToInbox and unsnooze — Undo's own real inverses (#95, ADR-0019)", () => {
+    expect(mutationIntentSchema.safeParse({ type: "restoreToInbox", threadId: "t1" }).success).toBe(
+      true,
+    );
+    expect(mutationIntentSchema.safeParse({ type: "unsnooze", threadId: "t1" }).success).toBe(true);
+  });
+
+  it("accepts unblockAndRestore, keyed to a sender plus the exact Threads it restores (#95)", () => {
+    expect(
+      mutationIntentSchema.safeParse({
+        type: "unblockAndRestore",
+        sender: { scope: "address", value: "stranger@example.test" },
+        threadIds: ["t1", "t2"],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unblockAndRestore with no threadIds array", () => {
+    const result = mutationIntentSchema.safeParse({
+      type: "unblockAndRestore",
+      sender: { scope: "address", value: "stranger@example.test" },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("queuedMutationSchema", () => {

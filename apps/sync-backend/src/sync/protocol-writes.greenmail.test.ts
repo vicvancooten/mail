@@ -203,6 +203,71 @@ describe("drainProtocolWrites against GreenMail", () => {
     ).toHaveLength(0);
   });
 
+  it("moves the message back from Trash to Inbox over a real IMAP MOVE — Undo's own inverse (#95, ADR-0019)", async () => {
+    const other = await connectOtherClient();
+    const inboxFolderId = await seedFolderRole("inbox", "INBOX");
+    const trashFolderId = await seedFolderRole("trash", "Trash");
+    await other.mailboxCreate("Trash");
+    await other.append(
+      "Trash",
+      buildTestMessage({
+        from: "Alice Anderson <alice@example.test>",
+        to: account.emailAddress,
+        subject: "Restore me",
+        date: new Date("2026-01-01T09:00:00Z"),
+        messageId: "restore-me@example.test",
+        text: "Hello.",
+      }),
+      [],
+      new Date("2026-01-01T09:00:00Z"),
+    );
+    const threadId = await resolveThread(db, {
+      mailAccountId: account.id,
+      threadingIds: ["restore-me@example.test"],
+      subject: "Restore me",
+      receivedAt: new Date("2026-01-01T09:00:00Z"),
+    });
+    const messageId = randomUUID();
+    await db.insert(messages).values({
+      id: messageId,
+      mailAccountId: account.id,
+      threadId,
+      folderId: trashFolderId,
+      uid: 1, // GreenMail's first message in a fresh Trash mailbox.
+      messageIdHeader: "restore-me@example.test",
+      subject: "Restore me",
+      sentAt: new Date("2026-01-01T09:00:00Z"),
+      receivedAt: new Date("2026-01-01T09:00:00Z"),
+    });
+    await db
+      .update(threads)
+      .set({ inInbox: false, folderRole: "trash" })
+      .where(eq(threads.id, threadId));
+    await enqueueProtocolWrites(db, account.id, [messageId], "inbox");
+
+    const client = await connectMailAccount(db, account, {
+      credentialKey: deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY),
+    });
+    try {
+      const applied = await drainProtocolWrites(db, client, account.id);
+      expect(applied).toBe(1);
+    } finally {
+      await client.logout().catch(() => undefined);
+      client.close();
+    }
+
+    // The real mailbox: gone from Trash, present in INBOX — restored, not just marked so.
+    expect(await mailboxCount(other, "Trash")).toBe(0);
+    expect(await mailboxCount(other, "INBOX")).toBe(1);
+
+    const updated = await messageRow(messageId);
+    expect(updated.folderId).toBe(inboxFolderId);
+
+    expect(
+      await db.select().from(protocolWrites).where(eq(protocolWrites.mailAccountId, account.id)),
+    ).toHaveLength(0);
+  });
+
   it("leaves the row queued when there is no matching Archive/Trash folder to move into", async () => {
     const other = await connectOtherClient();
     const { messageId } = await seedInboxMessage(other);

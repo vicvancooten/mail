@@ -589,6 +589,20 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         // the instant it's queued, offline included.
         overlaid = { ...overlaid, inInbox: false, snoozeUntil: mutation.intent.until };
         break;
+      case "restoreToInbox":
+      case "unblockAndRestore":
+        // Undo's own real inverse (#95, ADR-0019): reappears in the Inbox
+        // the instant it's queued, offline included, exactly mirroring
+        // archive/trash/snooze's own immediate-hide above but in reverse.
+        // Also clears `heldSender` — `restoreToInbox` is what a Screener
+        // Approve already does to a held Thread, and `unblockAndRestore`
+        // (Undo's own inverse of Deny/Block) restores to the Inbox the same
+        // way, never back into the Screener's hold.
+        overlaid = { ...overlaid, inInbox: true, snoozeUntil: null, heldSender: null };
+        break;
+      case "unsnooze":
+        overlaid = { ...overlaid, inInbox: true, snoozeUntil: null };
+        break;
       case "setPinned":
         overlaid = { ...overlaid, pinned: mutation.intent.pinned };
         break;

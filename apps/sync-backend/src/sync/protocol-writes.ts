@@ -14,7 +14,8 @@ import { findFolderByRole } from "./folders.js";
  * captured at enqueue time.
  */
 
-export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash";
+/** `inbox` (#95, ADR-0019) is Undo's own real inverse of `archive`/`trash` — a Message moves back the same way `moveBatch` already moves it out. */
+export type ProtocolWriteKind = "seen" | "flagged" | "archive" | "trash" | "inbox";
 
 /** `sync/mutations.ts`'s only way to add to the outbox. A no-op on an empty list. */
 export async function enqueueProtocolWrites(
@@ -98,7 +99,10 @@ export async function drainProtocolWrites(
       done.add(row.id);
       continue;
     }
-    if ((row.kind === "archive" || row.kind === "trash") && msg.folderRole === row.kind) {
+    if (
+      (row.kind === "archive" || row.kind === "trash" || row.kind === "inbox") &&
+      msg.folderRole === row.kind
+    ) {
       // Already there: a prior drain applied it, or another IMAP client
       // (or the User, from another device) moved it there first.
       done.add(row.id);
@@ -142,6 +146,7 @@ async function drainFolder(
   const flaggedOff: OutboxRow[] = [];
   const archiveRows: OutboxRow[] = [];
   const trashRows: OutboxRow[] = [];
+  const inboxRows: OutboxRow[] = [];
 
   for (const row of folderRows) {
     const msg = byMessageId.get(row.messageId);
@@ -159,6 +164,9 @@ async function drainFolder(
       case "trash":
         trashRows.push(row);
         break;
+      case "inbox":
+        inboxRows.push(row);
+        break;
     }
   }
 
@@ -168,6 +176,9 @@ async function drainFolder(
   await flagBatch(client, byMessageId, flaggedOff, "\\Flagged", false, done);
   await moveBatch(db, client, mailAccountId, "archive", archiveRows, byMessageId, done);
   await moveBatch(db, client, mailAccountId, "trash", trashRows, byMessageId, done);
+  // Undo's own real inverse (#95, ADR-0019): moves a Message back to the
+  // Inbox the same way `archive`/`trash` move it out.
+  await moveBatch(db, client, mailAccountId, "inbox", inboxRows, byMessageId, done);
 }
 
 async function flagBatch(
@@ -193,7 +204,7 @@ async function moveBatch(
   db: Db,
   client: ImapFlow,
   mailAccountId: string,
-  role: "archive" | "trash",
+  role: "archive" | "trash" | "inbox",
   rows: OutboxRow[],
   byMessageId: Map<string, CurrentMessage>,
   done: Set<string>,

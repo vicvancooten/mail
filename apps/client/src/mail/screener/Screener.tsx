@@ -9,6 +9,7 @@ import { Avatar } from "../Avatar.js";
 import { ActionMenu } from "../actions/ActionMenu.js";
 import { useActions } from "../actions/ActionsProvider.js";
 import { withScreenerSender } from "../actions/types.js";
+import { announceUndoableAction } from "../undo-toast.js";
 
 /**
  * The Screener screen (#56, poc-spec.md §Gatekeeper v1): "lists held
@@ -94,10 +95,8 @@ export function Screener({
 
   const decide = useCallback(
     (type: "approveSender" | "denySender" | "blockSender", group: ScreenerSenderGroup) => {
-      void enqueueMutation(
-        { type, sender: { scope: "address", value: group.address } },
-        group.mailAccountId,
-      );
+      const sender = { scope: "address" as const, value: group.address };
+      void enqueueMutation({ type, sender }, group.mailAccountId);
       const verdict =
         type === "approveSender" ? "Approved" : type === "blockSender" ? "Blocked" : "Returned";
       setDecided((current) => [...current, { group, verdict }]);
@@ -106,6 +105,23 @@ export function Screener({
         () => setDecided((current) => current.filter((row) => rowKey(row.group) !== key)),
         VERDICT_HOLD_MS,
       );
+
+      // Undo (#95, ADR-0019): Deny and Block are the two undoable Screener
+      // decisions — Approve isn't (CONTEXT.md's Undo entry doesn't list it,
+      // and releasing a stranger's mail needs no second thoughts the way
+      // trashing it does). `group.threadIds` is exactly what this sender is
+      // holding *right now*, captured before the decision so Undo still
+      // names the right Threads however long the toast's window runs — by
+      // the time it fires this sender may be holding a fresh stranger's
+      // mail again.
+      if (type === "denySender" || type === "blockSender") {
+        announceUndoableAction(type === "blockSender" ? "block" : "deny", () => {
+          void enqueueMutation(
+            { type: "unblockAndRestore", sender, threadIds: group.threadIds },
+            group.mailAccountId,
+          );
+        });
+      }
     },
     [],
   );

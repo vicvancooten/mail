@@ -562,17 +562,17 @@ export function wrapSearchTriage(
     archive: (threadId) => {
       materialize(threadId);
       onActed(threadId);
-      triage.archive(threadId);
+      return triage.archive(threadId);
     },
     trash: (threadId) => {
       materialize(threadId);
       onActed(threadId);
-      triage.trash(threadId);
+      return triage.trash(threadId);
     },
     snooze: (threadId, until) => {
       materialize(threadId);
       onActed(threadId);
-      triage.snooze(threadId, until);
+      return triage.snooze(threadId, until);
     },
     toggleStar: (threadId) => {
       materialize(threadId);

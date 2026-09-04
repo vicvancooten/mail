@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { notifyTriageSucceeded } from "../pwa/notification-offer.js";
 import type { CachedThread } from "../store/index.js";
 import { enqueueMutation } from "../store/index.js";
+import { announceUndoableAction } from "./undo-toast.js";
 
 /**
  * The one triage hook every view mode calls (#42, poc-spec.md §Triage &
@@ -14,6 +15,13 @@ import { enqueueMutation } from "../store/index.js";
  *   `toggleRead` — each a single `enqueueMutation` call (ADR-0010's overlay
  *   does the rest: `store/reads.ts` is what a Thread disappearing or its
  *   star flipping actually renders from, not anything returned here).
+ *   `archive`/`trash`/`snooze` are also the three undoable actions this hook
+ *   owns (#95, ADR-0019 — Block/Deny are the other two, undone from
+ *   `screener/Screener.tsx` instead): each returns its own Undo handle — a
+ *   thunk that enqueues the exact inverse intent (`restoreToInbox`/
+ *   `unsnooze`) — and hands it to `undo-toast.ts#announceUndoableAction`,
+ *   which raises or coalesces the toast. Star/Pin/Read/Label already toggle,
+ *   so they raise no toast and keep returning `void`.
  * - Auto-advance: archiving/trashing/snoozing the *currently selected*
  *   Thread moves the selection to its neighbor first — computed from `ids`
  *   before the Thread vanishes from it, never after — per `direction`.
@@ -45,10 +53,17 @@ import { enqueueMutation } from "../store/index.js";
  */
 
 export interface Triage {
-  archive(threadId: string): void;
-  trash(threadId: string): void;
-  /** Snooze (#76): `until` is an ISO datetime, computed by the caller (`snooze-presets.ts`'s presets, or a custom pick) — this hook makes no time decisions of its own. */
-  snooze(threadId: string, until: string): void;
+  /** Returns the Undo handle (#95, ADR-0019): calling it enqueues `restoreToInbox`, the exact inverse. */
+  archive(threadId: string): () => void;
+  /** Returns the Undo handle, same shape as `archive` — also `restoreToInbox`, Trash and Done sharing one inverse. */
+  trash(threadId: string): () => void;
+  /**
+   * Snooze (#76): `until` is an ISO datetime, computed by the caller
+   * (`snooze-presets.ts`'s presets, or a custom pick) — this hook makes no
+   * time decisions of its own. Returns the Undo handle (#95): calling it
+   * enqueues `unsnooze`.
+   */
+  snooze(threadId: string, until: string): () => void;
   toggleStar(threadId: string): void;
   toggleRead(threadId: string): void;
   togglePin(threadId: string): void;
@@ -127,37 +142,57 @@ export function useTriage({
     [ids, selectedThreadId, direction, autoAdvanceEnabled, onSelect],
   );
 
+  /** A handle with nothing to undo — the "couldn't even resolve an account" branch below, which never enqueued the forward action either. */
+  const noopUndo = useCallback(() => {}, []);
+
   const archive = useCallback(
-    (threadId: string) => {
+    (threadId: string): (() => void) => {
       advanceSelection(threadId); // before the enqueue: `ids` here still includes `threadId`
       const accountForThread = resolveMailAccountId(threadId);
-      if (!accountForThread) return;
+      if (!accountForThread) return noopUndo;
       void enqueueMutation({ type: "archive", threadId }, accountForThread);
       notifyTriageSucceeded();
+      // Undo (#95, ADR-0019): the real inverse, not a queue cancellation —
+      // works whether or not the archive above has already flushed.
+      const undo = () => {
+        void enqueueMutation({ type: "restoreToInbox", threadId }, accountForThread);
+      };
+      announceUndoableAction("done", undo);
+      return undo;
     },
-    [advanceSelection, resolveMailAccountId],
+    [advanceSelection, resolveMailAccountId, noopUndo],
   );
 
   const trash = useCallback(
-    (threadId: string) => {
+    (threadId: string): (() => void) => {
       advanceSelection(threadId);
       const accountForThread = resolveMailAccountId(threadId);
-      if (!accountForThread) return;
+      if (!accountForThread) return noopUndo;
       void enqueueMutation({ type: "trash", threadId }, accountForThread);
       notifyTriageSucceeded();
+      const undo = () => {
+        void enqueueMutation({ type: "restoreToInbox", threadId }, accountForThread);
+      };
+      announceUndoableAction("trash", undo);
+      return undo;
     },
-    [advanceSelection, resolveMailAccountId],
+    [advanceSelection, resolveMailAccountId, noopUndo],
   );
 
   const snooze = useCallback(
-    (threadId: string, until: string) => {
+    (threadId: string, until: string): (() => void) => {
       advanceSelection(threadId); // same "leaves the Inbox" reasoning archive/trash's own comment gives
       const accountForThread = resolveMailAccountId(threadId);
-      if (!accountForThread) return;
+      if (!accountForThread) return noopUndo;
       void enqueueMutation({ type: "snooze", threadId, until }, accountForThread);
       notifyTriageSucceeded();
+      const undo = () => {
+        void enqueueMutation({ type: "unsnooze", threadId }, accountForThread);
+      };
+      announceUndoableAction("snooze", undo);
+      return undo;
     },
-    [advanceSelection, resolveMailAccountId],
+    [advanceSelection, resolveMailAccountId, noopUndo],
   );
 
   const toggleStar = useCallback(

@@ -403,6 +403,23 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * `BARRED_VERDICT_DOMAINS`) is `rejected` rather than silently downgraded to
  * an address — the Client should never have offered the button, and a
  * rejection says so.
+ *
+ * `restoreToInbox`/`unsnooze`/`unblockAndRestore` (#95, ADR-0019) are Undo's
+ * own real inverses, never a queue cancellation — an enqueued inverse is
+ * exactly what the Undo toast sends, whether or not the original it reverses
+ * has already been flushed. `restoreToInbox` undoes `archive` *or* `trash`
+ * (an IMAP move back out of Archive/Trash) and is also what a Screener
+ * Approve already does to a held Thread — `sync/mutations.ts` reuses that
+ * same restore step. `unsnooze` undoes `snooze` the same App-Feature way
+ * Pin's own toggle works: no protocol write, just the Thread row. Both name
+ * one Thread, exactly like the actions they reverse, which is what lets
+ * `store/mutation-queue.ts`'s coalescer cancel a still-queued original for
+ * free. `unblockAndRestore` undoes Deny *or* Block: `sender` is who the
+ * Verdict-clear targets (a no-op for Deny, which left none), and
+ * `threadIds` — captured by the Client at decision time, the same way
+ * `ScreenerSenderGroup.threadIds` already is — names exactly the Threads
+ * that decision trashed, since by the time Undo fires the sender may be
+ * holding a fresh, unrelated stranger's mail again.
  */
 export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setStarred"), threadId: z.string(), starred: z.boolean() }),
@@ -410,6 +427,8 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive"), threadId: z.string() }),
   z.object({ type: z.literal("trash"), threadId: z.string() }),
   z.object({ type: z.literal("snooze"), threadId: z.string(), until: z.iso.datetime() }),
+  z.object({ type: z.literal("restoreToInbox"), threadId: z.string() }),
+  z.object({ type: z.literal("unsnooze"), threadId: z.string() }),
   z.object({ type: z.literal("setPinned"), threadId: z.string(), pinned: z.boolean() }),
   z.object({ type: z.literal("applyLabel"), threadId: z.string(), name: z.string() }),
   z.object({ type: z.literal("removeLabel"), threadId: z.string(), name: z.string() }),
@@ -421,6 +440,11 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("unblockSender"), sender: gatekeeperSenderSchema }),
+  z.object({
+    type: z.literal("unblockAndRestore"),
+    sender: gatekeeperSenderSchema,
+    threadIds: z.array(z.string()),
+  }),
 ]);
 export type MutationIntent = z.infer<typeof mutationIntentSchema>;
 
