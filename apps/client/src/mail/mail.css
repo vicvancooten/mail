@@ -260,10 +260,6 @@
   display: none;
 }
 
-.side-nav-scrim {
-  display: none;
-}
-
 .side-nav {
   flex: 0 0 auto;
   width: 216px;
@@ -275,6 +271,55 @@
   min-height: 0;
   background: var(--color-bg);
   transition: width var(--dur-fast) var(--ease);
+}
+
+/* The icon-rail collapse (#93, shadcn's `Sidebar` with `collapsible="icon"`):
+   the rail narrows to just its icons — every label, the "Labels" heading and
+   each entry's count hide, and `SidebarMenuButton`'s own `tooltip` prop
+   names the entry instead while it's collapsed. */
+.side-nav[data-collapsed="true"] {
+  width: 60px;
+  padding: 0 8px 16px;
+}
+
+.side-nav[data-collapsed="true"] .nav-label,
+.side-nav[data-collapsed="true"] .nav-heading,
+.side-nav[data-collapsed="true"] .nav-count,
+.side-nav[data-collapsed="true"] .compose-btn span {
+  display: none;
+}
+
+.side-nav[data-collapsed="true"] .compose-btn {
+  width: 40px;
+  padding: 0;
+}
+
+.side-nav-collapse-toggle {
+  align-self: flex-end;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 10px 2px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.side-nav-collapse-toggle:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.side-nav[data-collapsed="true"] .side-nav-collapse-toggle {
+  align-self: center;
 }
 
 /* Compose is the one filled control in the App, so it is the one control
@@ -379,30 +424,6 @@
 
 .nav-item.active .nav-count {
   color: var(--color-accent);
-}
-
-/* Icons-only (#99, Settings' "This device" page): the rail narrows to just
-   room for the icon column, and every label collapses out — each entry
-   keeps its `title` as a tooltip and accessible name, so nothing here loses
-   its name, only its visible width. */
-.side-nav.collapsed {
-  width: 60px;
-}
-
-.side-nav.collapsed .nav-label,
-.side-nav.collapsed .nav-count,
-.side-nav.collapsed .nav-heading {
-  display: none;
-}
-
-.side-nav.collapsed .compose-btn {
-  width: 40px;
-  padding: 0;
-}
-
-.side-nav.collapsed .nav-item {
-  justify-content: center;
-  padding: 0;
 }
 
 .mail-body {
@@ -1271,39 +1292,11 @@
 }
 
 /* ---------- the two small popovers: Snooze (#76) and Label (#43) --------
- * Both float, so both take the one shadow — panels on `--color-surface` with
- * the panel radius and no hairline round them, holding rows in the same
- * `--radius-row` menu-item language the Command Palette uses. */
-
-/* `ThreadDetailPane`'s own anchor (#79's `h` binding) — `ThreadRow`'s row
-   actions anchor the same popover off `.thread-row-outer` instead (above). */
-.snooze-menu-anchor,
-.label-picker-anchor {
-  position: relative;
-  display: inline-flex;
-}
-
-.snooze-menu,
-.label-picker {
-  position: absolute;
-  top: calc(100% + 6px);
-  z-index: 30;
-  padding: 6px;
-  border: none;
-  border-radius: var(--radius-panel);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-overlay);
-}
-
-.snooze-menu {
-  left: 14px;
-  min-width: 200px;
-}
-
-.label-picker {
-  right: 0;
-  min-width: 220px;
-}
+ * Both are shadcn `Popover` content (#93) — a real portal fixes the
+ * clipping a virtualized, transformed row and its `overflow` scroller used
+ * to cause, and the panel chrome (radius, `--shadow-overlay`, `--color-surface`
+ * ground) comes from `PopoverContent` itself rather than from these rules.
+ * What's left here is just the two popovers' shared list/form layout. */
 
 .snooze-menu-list,
 .label-picker-list {
@@ -1921,9 +1914,7 @@
    glance is easier to read in the ink it is already reading in.
    ========================================================================= */
 
-.rollback-toast,
-.notification-offer-banner,
-.group-bulk-toast {
+.notification-offer-banner {
   position: absolute;
   left: 50%;
   bottom: calc(20px + env(safe-area-inset-bottom));
@@ -1943,20 +1934,7 @@
   z-index: 20;
 }
 
-/* A rollback is the one toast that reports a failure, so it carries the
-   danger signal as one dot of ink rather than as a whole red box. */
-.rollback-toast::before {
-  content: "";
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-danger);
-}
-
-.notification-offer-banner button,
-.rollback-toast button,
-.group-bulk-toast-undo {
+.notification-offer-banner button {
   flex: none;
   height: 30px;
   padding: 0 14px;
@@ -1971,9 +1949,7 @@
   transition: filter var(--dur-press) var(--ease);
 }
 
-.notification-offer-banner button:hover,
-.rollback-toast button:hover,
-.group-bulk-toast-undo:hover {
+.notification-offer-banner button:hover {
   filter: brightness(1.08);
 }
 
@@ -1988,18 +1964,8 @@
   }
 }
 
-.new-mail-toast-stack {
-  position: absolute;
-  top: calc(14px + env(safe-area-inset-top));
-  right: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 20;
-  max-width: 320px;
-}
-
 .new-mail-toast {
+  max-width: 320px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -2013,7 +1979,6 @@
   text-align: left;
   cursor: pointer;
   box-shadow: var(--shadow-overlay);
-  animation: toast-enter var(--dur-fast) var(--ease-out);
   transition: background var(--dur-press) var(--ease);
 }
 
@@ -2029,10 +1994,6 @@
 .new-mail-toast span {
   color: var(--color-ink-muted);
   white-space: pre-line;
-}
-
-.new-mail-toast-collapsed {
-  cursor: default;
 }
 
 /* ============================================================================
@@ -2818,9 +2779,13 @@ button.search-chip-toggle.on {
 
 @media (max-width: 700px) {
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
-     becomes a bottom sheet instead, opened from its own toggle. `open`
-     slides it up from the bottom edge; the scrim behind it is what makes a
-     tap outside dismiss it, same as `LabelPicker`'s own popover. */
+     becomes a `Sheet` bottom sheet instead (#93), opened from its own
+     toggle — the sheet's own overlay and slide-up chrome replace the
+     hand-rolled scrim/transform this used to be. */
+  .side-nav-desktop {
+    display: none;
+  }
+
   .side-nav-toggle {
     display: flex;
     align-items: center;
@@ -2838,57 +2803,21 @@ button.search-chip-toggle.on {
     cursor: pointer;
   }
 
-  .side-nav-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    background: rgb(0 0 0 / 34%);
-    backdrop-filter: blur(3px);
-  }
-
-  .side-nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 21;
-    width: auto;
+  .side-nav-sheet {
     max-height: 70vh;
     padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
-    background: var(--color-surface);
-    box-shadow: var(--shadow-overlay);
-    transform: translateY(100%);
-    transition: transform var(--dur-fast) var(--ease);
   }
 
-  .side-nav.open {
-    transform: translateY(0);
-  }
-
-  /* The collapsed rail is a desktop-width convenience (#99): the phone
-     sheet ignores it and always shows full labels — there's no icon-rail
-     read of a bottom sheet's own width to reclaim. */
-  .side-nav.collapsed {
+  .side-nav-sheet .side-nav {
     width: auto;
+    padding: 0;
+    background: transparent;
   }
 
-  .side-nav.collapsed .nav-label,
-  .side-nav.collapsed .nav-count,
-  .side-nav.collapsed .nav-heading {
-    display: revert;
-  }
-
-  .side-nav.collapsed .compose-btn {
-    width: auto;
-    padding: 0 17px;
-  }
-
-  .side-nav.collapsed .nav-item {
-    justify-content: flex-start;
-    padding: 0 10px;
-  }
+  /* The collapsed rail is a desktop-width convenience (#93, #99): the
+     phone sheet always renders `RailContents` with `collapsed={false}`
+     regardless of the Device Preference — there's no icon-rail read of a
+     bottom sheet's own width to reclaim. */
 
   /* Split collapses to List's own "one pane at a time" behavior: there's
      no room for list + reading pane side by side on a phone. `has-selection`
@@ -2998,8 +2927,7 @@ button.search-chip-toggle.on {
     margin-left: auto;
   }
 
-  .new-mail-toast-stack {
-    left: 14px;
+  .new-mail-toast {
     max-width: none;
   }
 }
@@ -3323,12 +3251,12 @@ button.search-chip-toggle.on {
 /* The active row is where Enter would land, so it ranks the way every other
    current thing in the system ranks: an accent-soft tint, never an
    inversion. */
-.command-palette-row.active {
+.command-palette-row[aria-selected="true"] {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
 
-.command-palette-row.disabled {
+.command-palette-row[aria-disabled="true"] {
   color: var(--color-ink-faint);
   cursor: default;
 }
@@ -3340,7 +3268,7 @@ button.search-chip-toggle.on {
   font-size: 11.5px;
 }
 
-.command-palette-row.active .command-palette-row-section {
+.command-palette-row[aria-selected="true"] .command-palette-row-section {
   color: inherit;
   opacity: 0.75;
 }
@@ -3368,7 +3296,7 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
-.command-palette-row.active .command-palette-hit-subject {
+.command-palette-row[aria-selected="true"] .command-palette-hit-subject {
   color: inherit;
 }
 

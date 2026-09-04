@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { ReplyMode } from "../compose/reply.js";
 import type { CachedThread } from "../store/index.js";
 import { useLabels } from "../store/index.js";
@@ -206,19 +207,18 @@ export function ThreadDetailPane({
             >
               <CheckCircle2 size={15} />
             </button>
-            <span className="snooze-menu-anchor">
-              <button
-                type="button"
-                className={snoozeMenuOpen ? "on" : ""}
-                aria-haspopup="menu"
-                aria-expanded={snoozeMenuOpen}
-                aria-label="Snooze"
-                onClick={() => setSnoozeMenuOpen((open) => !open)}
-                title="Snooze (h)"
-              >
-                <Clock size={15} />
-              </button>
-              {snoozeMenuOpen ? (
+            <Popover open={snoozeMenuOpen} onOpenChange={setSnoozeMenuOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={snoozeMenuOpen ? "on" : ""}
+                  aria-label="Snooze"
+                  title="Snooze (h)"
+                >
+                  <Clock size={15} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto min-w-[200px] p-1.5">
                 <SnoozeMenu
                   thread={thread}
                   onSnooze={(until) => {
@@ -227,27 +227,28 @@ export function ThreadDetailPane({
                   }}
                   onClose={() => setSnoozeMenuOpen(false)}
                 />
-              ) : null}
-            </span>
-            <span className="label-picker-anchor">
-              <button
-                type="button"
-                className={pickerOpen ? "on" : ""}
-                onClick={() => setPickerOpen((open) => !open)}
-                aria-label="Apply or remove a label"
-                title="Label (L)"
-              >
-                <Tag size={15} />
-              </button>
-              {pickerOpen ? (
+              </PopoverContent>
+            </Popover>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={pickerOpen ? "on" : ""}
+                  aria-label="Apply or remove a label"
+                  title="Label (L)"
+                >
+                  <Tag size={15} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto min-w-[220px] p-1.5">
                 <LabelPicker
                   thread={thread}
                   labels={labels}
                   triage={triage}
                   onClose={() => setPickerOpen(false)}
                 />
-              ) : null}
-            </span>
+              </PopoverContent>
+            </Popover>
             <button
               type="button"
               className={thread.pinned ? "on" : ""}

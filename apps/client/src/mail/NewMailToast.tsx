@@ -1,5 +1,6 @@
 import type { PushPayload } from "@mail/shared";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { buildNotificationContent, notificationClickTarget } from "../pwa/push-decisions.js";
 
@@ -12,6 +13,12 @@ import { buildNotificationContent, notificationClickTarget } from "../pwa/push-d
  * `postMessage` — this component never sees a real `push` event, only that
  * relay, which is what makes it renderable/testable without one.
  *
+ * Raised through Sonner (#93) via `toast.custom`, which keeps the click
+ * target a real `<button>` the way the hand-rolled stack did — each arrival
+ * gets its own toast id (`new-mail-toast-N`) so up to 3 can be visible at
+ * once; the 4th dismisses all of them and raises one collapsed toast under
+ * a fixed id instead, matching the "stacking capped at 3" rule exactly.
+ *
  * Mounted once in `MailSection`, like `RollbackToast` — a push can arrive
  * with no Thread selected, no view in particular open.
  */
@@ -19,13 +26,7 @@ import { buildNotificationContent, notificationClickTarget } from "../pwa/push-d
 const AUTO_DISMISS_MS = 6_000;
 /** "Stacking capped at 3 and then collapsing" — the fourth arrival within the same dismiss window replaces the stack with one collapsed toast. */
 const STACK_CAP = 3;
-
-interface ToastEntry {
-  id: string;
-  title: string;
-  body: string;
-  payload: PushPayload;
-}
+const COLLAPSED_TOAST_ID = "new-mail-toast-collapsed";
 
 interface NewMailToastMessage {
   type: "new-mail-toast";
@@ -57,47 +58,12 @@ export function NewMailToast({
   container = globalThis.navigator?.serviceWorker,
   autoDismissMs = AUTO_DISMISS_MS,
 }: NewMailToastProps = {}) {
-  const [entries, setEntries] = useState<ToastEntry[]>([]);
-  const [collapsedCount, setCollapsedCount] = useState<number | null>(null);
+  // Which per-entry toast ids are currently up — tracked in a ref rather
+  // than state, since nothing here ever needs to re-render: every visible
+  // effect happens through `toast`/`toast.dismiss` directly.
+  const liveIds = useRef<string[]>([]);
 
-  useEffect(() => {
-    if (!container) return;
-
-    const onMessage = (event: MessageEvent) => {
-      if (!isNewMailToastMessage(event.data)) return;
-      const { payload } = event.data;
-      const content = buildNotificationContent(payload);
-      setEntries((current) => {
-        const next = [
-          ...current,
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            title: content.title,
-            body: content.body,
-            payload,
-          },
-        ];
-        if (next.length > STACK_CAP) {
-          setCollapsedCount(next.length);
-          return [];
-        }
-        return next;
-      });
-    };
-    container.addEventListener("message", onMessage);
-    return () => container.removeEventListener("message", onMessage);
-  }, [container]);
-
-  useEffect(() => {
-    if (entries.length === 0 && collapsedCount === null) return;
-    const timer = setTimeout(() => {
-      setEntries([]);
-      setCollapsedCount(null);
-    }, autoDismissMs);
-    return () => clearTimeout(timer);
-  }, [entries, collapsedCount, autoDismissMs]);
-
-  function openThread(payload: PushPayload): void {
+  const openThread = useCallback((payload: PushPayload) => {
     const target = notificationClickTarget(payload);
     // A collapsed-burst/digest toast has nowhere narrower to land than the
     // window it's already showing in — same as a real notification click on
@@ -106,32 +72,51 @@ export function NewMailToast({
     if (target.kind !== "focus-only") {
       publishNotificationTarget(target);
     }
-    setEntries([]);
-    setCollapsedCount(null);
-  }
+    for (const id of liveIds.current) toast.dismiss(id);
+    liveIds.current = [];
+    toast.dismiss(COLLAPSED_TOAST_ID);
+  }, []);
 
-  if (collapsedCount !== null) {
-    return (
-      <div className="new-mail-toast-stack" role="status">
-        <div className="new-mail-toast new-mail-toast-collapsed">{collapsedCount} new messages</div>
-      </div>
-    );
-  }
-  if (entries.length === 0) return null;
+  useEffect(() => {
+    if (!container) return;
 
-  return (
-    <div className="new-mail-toast-stack" role="status">
-      {entries.map((entry) => (
-        <button
-          key={entry.id}
-          type="button"
-          className="new-mail-toast"
-          onClick={() => openThread(entry.payload)}
-        >
-          <strong>{entry.title}</strong>
-          <span>{entry.body}</span>
-        </button>
-      ))}
-    </div>
-  );
+    const onMessage = (event: MessageEvent) => {
+      if (!isNewMailToastMessage(event.data)) return;
+      const { payload } = event.data;
+
+      if (liveIds.current.length >= STACK_CAP) {
+        for (const id of liveIds.current) toast.dismiss(id);
+        const collapsedCount = liveIds.current.length + 1;
+        liveIds.current = [];
+        toast(`${collapsedCount} new messages`, {
+          id: COLLAPSED_TOAST_ID,
+          duration: autoDismissMs,
+        });
+        return;
+      }
+
+      const content = buildNotificationContent(payload);
+      const id = `new-mail-toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      liveIds.current = [...liveIds.current, id];
+      toast.custom(
+        () => (
+          <button type="button" className="new-mail-toast" onClick={() => openThread(payload)}>
+            <strong>{content.title}</strong>
+            <span>{content.body}</span>
+          </button>
+        ),
+        {
+          id,
+          duration: autoDismissMs,
+          onDismiss: () => {
+            liveIds.current = liveIds.current.filter((entry) => entry !== id);
+          },
+        },
+      );
+    };
+    container.addEventListener("message", onMessage);
+    return () => container.removeEventListener("message", onMessage);
+  }, [container, autoDismissMs, openThread]);
+
+  return null;
 }

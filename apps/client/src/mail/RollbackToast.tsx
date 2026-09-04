@@ -1,5 +1,6 @@
 import type { MutationIntent } from "@mail/shared";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { toast } from "sonner";
 import { subscribeMutationRejections } from "../store/index.js";
 
 /**
@@ -12,12 +13,20 @@ import { subscribeMutationRejections } from "../store/index.js";
  * (its own doc comment) landing: one line, auto-dismissing, naming what
  * failed rather than just that something did.
  *
+ * Raised through Sonner (#93) — mounted once as `<Toaster />` in
+ * `RootLayout`, so a rollback is visible from any route, not just Mail.
+ * Renders no DOM of its own; a fixed `id` means a second rejection arriving
+ * before the first toast dismisses replaces it in place rather than
+ * stacking, the same "one message at a time" posture the hand-rolled
+ * version had.
+ *
  * Mounted once in `MailSection` — not per-row — since a rejection can
  * arrive well after the row that triggered it has scrolled out of view or
  * been unmounted entirely.
  */
 
 const DEFAULT_AUTO_DISMISS_MS = 5_000;
+const TOAST_ID = "mail-rollback-toast";
 
 function describeIntent(intent: MutationIntent): string | null {
   switch (intent.type) {
@@ -67,31 +76,19 @@ function describeIntent(intent: MutationIntent): string | null {
 export function RollbackToast({
   autoDismissMs = DEFAULT_AUTO_DISMISS_MS,
 }: {
-  /** Test seam — real timers throughout keeps this simple to drive against the real IndexedDB-backed queue. */
+  /** Test seam — same knob the hand-rolled version had, now Sonner's own `duration`. */
   autoDismissMs?: number;
-}) {
-  const [message, setMessage] = useState<string | null>(null);
-
+} = {}) {
   useEffect(() => {
     return subscribeMutationRejections((rejection) => {
       // An intent with nothing to say here (the Composition ones) must not
       // clear a toast a real rollback is still showing.
       const described = describeIntent(rejection.intent);
-      if (described) setMessage(described);
+      if (described) {
+        toast(described, { id: TOAST_ID, duration: autoDismissMs });
+      }
     });
-  }, []);
+  }, [autoDismissMs]);
 
-  useEffect(() => {
-    if (!message) return;
-    const timer = setTimeout(() => setMessage(null), autoDismissMs);
-    return () => clearTimeout(timer);
-  }, [message, autoDismissMs]);
-
-  if (!message) return null;
-
-  return (
-    <div className="rollback-toast" role="status">
-      {message}
-    </div>
-  );
+  return null;
 }

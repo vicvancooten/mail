@@ -103,10 +103,13 @@ export function useListDensity(): [ListDensity, (density: ListDensity) => void] 
 }
 
 /**
- * Whether the folder rail (`mail/Sidebar.tsx`) is collapsed to icons-only
- * (#99): a Device Preference — a phone and a widescreen monitor want
- * different answers — set from `settings/ThisDeviceSection.tsx` and read
- * reactively by `Sidebar` itself, same shape as view mode/density above.
+ * Whether the folder rail (`mail/Sidebar.tsx`, shadcn's `Sidebar` with
+ * `collapsible="icon"` since #93) is collapsed to icons-only (#99): a
+ * Device Preference — a phone and a widescreen monitor want different
+ * answers — set from `settings/ThisDeviceSection.tsx` *or* the rail's own
+ * collapse toggle, and read reactively by every mounted `SidebarProvider`
+ * the instant either writes, same shape as view mode/density above (and
+ * Appearance's `theme/device-theme.ts`).
  */
 const SIDEBAR_COLLAPSED_KEY = "mail.devicePref.sidebarCollapsed";
 
