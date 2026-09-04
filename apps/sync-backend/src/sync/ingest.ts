@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import type { FetchMessageObject, ImapFlow, MessageAddressObject } from "imapflow";
+import type {
+  FetchMessageObject,
+  FetchQueryObject,
+  ImapFlow,
+  MessageAddressObject,
+} from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, messages } from "../db/schema.js";
 import { resolveRecipientAlias } from "../gatekeeper/alias.js";
+import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import { bumpThreadsEpoch, getMailAccountById } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { hasRealAttachments, readBodyParts } from "./body-structure.js";
@@ -30,6 +36,31 @@ import { deleteEmptyThreads, resolveThread } from "./threading.js";
  * three can never drift on what a message needs to resolve its Alias.
  */
 export const INGEST_HEADERS = ["references", "delivered-to", "x-original-to"] as const;
+
+/**
+ * The one FETCH shape every ingest path asks for (`ingest.ts`, `delta.ts`,
+ * `qresync-catchup.ts`) — headers/envelope/bodystructure as above, plus
+ * Gmail Labels (`X-GM-LABELS`) when and only when this folder is Gmail's All
+ * Mail (#122, ADR-0020): that is the one Folder a Gmail message's Labels are
+ * ever read from, and asking elsewhere would either come back empty (Spam,
+ * Trash, Drafts never carry a second copy to label) or be meaningless (a
+ * non-Gmail server doesn't have `X-GM-EXT-1` to answer it at all).
+ */
+export function buildIngestFetchQuery(
+  folder: FolderRow,
+  serverKind: MailAccountServerKind | null,
+): FetchQueryObject {
+  return {
+    uid: true,
+    flags: true,
+    envelope: true,
+    internalDate: true,
+    size: true,
+    bodyStructure: true,
+    headers: [...INGEST_HEADERS],
+    ...(folder.role === "all" && serverKind === "gmail" ? { labels: true } : {}),
+  };
+}
 
 /**
  * Header ingest for one folder (#34), newest first.
@@ -150,6 +181,7 @@ export async function ingestFolder(
           uidValidity,
           { low, high, fetchBodies: options.fetchBodies },
           account?.emailAddress ?? "",
+          account?.serverKind ?? null,
         );
         result.ingested += batch.length;
         result.created += batch.filter((message) => message.created).length;
@@ -191,6 +223,10 @@ export async function ingestFolder(
  * (`gatekeeper/alias.ts#resolveRecipientAlias` returns `null` for an address
  * with no parseable domain), so a caller that can't find the account row
  * degrades to "no Alias resolved" rather than failing the whole batch.
+ * `mailAccountServerKind` (#122) is what decides whether this FETCH also
+ * asks for Gmail Labels (`buildIngestFetchQuery`) and whether `storeMessage`
+ * skips a `\Draft` row on All Mail — `null` degrades to "generic", the
+ * pre-#122 behavior.
  */
 export async function fetchAndStoreSequenceBatch(
   db: Db,
@@ -199,27 +235,27 @@ export async function fetchAndStoreSequenceBatch(
   uidValidity: number,
   range: { low: number; high: number; fetchBodies?: boolean },
   mailAccountEmailAddress: string,
+  mailAccountServerKind: MailAccountServerKind | null = null,
 ): Promise<IngestedMessage[]> {
-  const fetched = await client.fetchAll(`${range.low}:${range.high}`, {
-    uid: true,
-    flags: true,
-    envelope: true,
-    internalDate: true,
-    size: true,
-    bodyStructure: true,
-    // The envelope carries `In-Reply-To` but not `References`, and threading
-    // needs the whole chain (`message-ids.ts`); the other two are #103's
-    // Alias headers — see `INGEST_HEADERS`'s own doc comment.
-    headers: [...INGEST_HEADERS],
-  });
+  const fetched = await client.fetchAll(
+    `${range.low}:${range.high}`,
+    buildIngestFetchQuery(folder, mailAccountServerKind),
+  );
 
   // `fetchAll` answers in ascending sequence order; the newest message in
   // the batch is the last one, and newest-first is the contract.
   const newestFirst = fetched.reverse();
   const batch: IngestedMessage[] = [];
   for (const message of newestFirst) {
-    const stored = await storeMessage(db, folder, uidValidity, message, mailAccountEmailAddress);
-    batch.push(stored);
+    const stored = await storeMessage(
+      db,
+      folder,
+      uidValidity,
+      message,
+      mailAccountEmailAddress,
+      mailAccountServerKind,
+    );
+    if (stored) batch.push(stored);
   }
 
   if (range.fetchBodies) {
@@ -278,6 +314,15 @@ export async function applyUidValidity(
  * Mail Account's own address (or `""` when it can't be found, which resolves
  * no Alias rather than failing the store) so `resolveRecipientAlias` can tell
  * an Alias of this mailbox's own domain apart from an ordinary co-recipient.
+ *
+ * `mailAccountServerKind` (#122) is `null` by default (every pre-#122 caller
+ * — a generic account's ingest is unchanged). On Gmail's All Mail it does
+ * two things: stores whatever Gmail Labels the FETCH carried
+ * (`buildIngestFetchQuery`), and skips the row entirely when it is `\Draft`
+ * — ADR-0020: the Drafts Folder syncs that message in its own right, and the
+ * draft-push loop already owns it, so a second All Mail copy would be a
+ * message with nothing to thread against and no Optimistic Action of its
+ * own. Returns `null` for a skipped row rather than a stored one.
  */
 export async function storeMessage(
   db: Db,
@@ -285,7 +330,13 @@ export async function storeMessage(
   uidValidity: number,
   fetched: FetchMessageObject,
   mailAccountEmailAddress: string,
-): Promise<IngestedMessage> {
+  mailAccountServerKind: MailAccountServerKind | null = null,
+): Promise<IngestedMessage | null> {
+  const flags = [...(fetched.flags ?? [])];
+  if (folder.role === "all" && mailAccountServerKind === "gmail" && flags.includes("\\Draft")) {
+    return null;
+  }
+
   const envelope = fetched.envelope ?? {};
   const receivedAt = toDate(fetched.internalDate) ?? toDate(envelope.date) ?? new Date();
   const sentAt = toDate(envelope.date) ?? receivedAt;
@@ -294,7 +345,6 @@ export async function storeMessage(
   const inReplyTo = normalizeMessageId(envelope.inReplyTo);
   const references = extractReferencesHeader(fetched.headers);
 
-  const flags = [...(fetched.flags ?? [])];
   const parts = readBodyParts(fetched.bodyStructure);
   const from = toAddresses(envelope.from)[0] ?? null;
   const to = toAddresses(envelope.to);
@@ -338,6 +388,12 @@ export async function storeMessage(
     answered: flags.includes("\\Answered"),
     draft: flags.includes("\\Draft"),
     flags,
+    // Gmail Labels (#122): present only when `buildIngestFetchQuery` asked
+    // for them (All Mail, on a Gmail account) and the server answered —
+    // `null` everywhere else, never an empty array, so a message that
+    // simply isn't on Gmail stays distinguishable from one Gmail said
+    // carries no labels at all.
+    gmailLabels: fetched.labels ? [...fetched.labels] : null,
     sizeBytes: fetched.size ?? null,
     hasAttachments: hasRealAttachments(parts.attachments),
     attachments: parts.attachments,

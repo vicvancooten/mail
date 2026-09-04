@@ -2,9 +2,11 @@ import { eq } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders } from "../db/schema.js";
+import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
-import { type FolderRow, listSelectableFolders } from "./folders.js";
+import type { FolderRow } from "./folders.js";
 import { applyUidValidity, fetchAndStoreSequenceBatch } from "./ingest.js";
+import { listSyncPlanFolders } from "./sync-plan.js";
 
 /**
  * Full-history header backfill (#36): the resident sync loop's background
@@ -101,8 +103,9 @@ export interface BackfillBatchResult {
  * no argument telling it where it left off, because that's exactly what
  * `folder.backfillCursorSeq` is for.
  *
- * `mailAccountEmailAddress` (#103) rides straight through to
- * `fetchAndStoreSequenceBatch` — see that function's own doc comment.
+ * `mailAccountEmailAddress` (#103) and `mailAccountServerKind` (#122) ride
+ * straight through to `fetchAndStoreSequenceBatch` — see that function's own
+ * doc comment.
  */
 export async function runBackfillBatch(
   db: Db,
@@ -110,6 +113,7 @@ export async function runBackfillBatch(
   folder: FolderRow,
   batchSize = DEFAULT_BATCH_SIZE,
   mailAccountEmailAddress = "",
+  mailAccountServerKind: MailAccountServerKind | null = null,
 ): Promise<BackfillBatchResult> {
   if (
     folder.backfillComplete ||
@@ -183,6 +187,7 @@ export async function runBackfillBatch(
       uidValidity,
       { low, high },
       mailAccountEmailAddress,
+      mailAccountServerKind,
     );
 
     const done = low <= 1;
@@ -221,19 +226,21 @@ export interface AccountBackfillOptions {
 }
 
 /**
- * Walks every selectable folder's backfill to completion, one bounded batch
- * at a time, folder-priority order (Inbox first — `folders.ts`'s
- * `ROLE_PRIORITY`) — the account-wide loop `sync/live-session.ts` runs
- * alongside IDLE and polling. Re-reads folder state from the database on
- * every iteration rather than holding it in memory, so a restart mid-account
- * resumes each folder exactly where its own cursor left off, and a folder
- * created after this call started (a poll discovering a new mailbox) is
- * picked up without a separate signal.
+ * Walks every Folder the sync plan covers (#122 — every selectable Folder on
+ * a generic account, only All Mail/Spam/Trash/Drafts on Gmail) to completion,
+ * one bounded batch at a time, folder-priority order (Inbox first —
+ * `folders.ts`'s `ROLE_PRIORITY`) — the account-wide loop
+ * `sync/live-session.ts` runs alongside IDLE and polling. Re-reads folder
+ * state from the database on every iteration rather than holding it in
+ * memory, so a restart mid-account resumes each folder exactly where its own
+ * cursor left off, and a folder created after this call started (a poll
+ * discovering a new mailbox) is picked up without a separate signal.
  *
- * Reads the account's own `emailAddress` once, up front (#103) — not on
- * every batch — and hands it to every `runBackfillBatch` call for the Alias
- * resolution `fetchAndStoreSequenceBatch` does per message; the address
- * never changes mid-run, so one lookup for the whole walk is enough.
+ * Reads the account's own `emailAddress`/`serverKind` once, up front (#103,
+ * #122) — not on every batch — and hands them to every `runBackfillBatch`
+ * call for the Alias resolution and Gmail Labels fetch
+ * `fetchAndStoreSequenceBatch` does per message; neither changes mid-run, so
+ * one lookup for the whole walk is enough.
  */
 export async function runAccountBackfill(
   db: Db,
@@ -246,11 +253,18 @@ export async function runAccountBackfill(
   const account = await getMailAccountById(db, mailAccountId);
 
   while (!options.isStopped()) {
-    const live = await listSelectableFolders(db, mailAccountId);
+    const live = await listSyncPlanFolders(db, mailAccountId, account?.serverKind ?? null);
     const target = live.find((folder) => !folder.backfillComplete);
-    if (!target) return; // every folder's history is in — this account's backfill is done
+    if (!target) return; // every plan folder's history is in — this account's backfill is done
 
-    await runBackfillBatch(db, client, target, batchSize, account?.emailAddress ?? "");
+    await runBackfillBatch(
+      db,
+      client,
+      target,
+      batchSize,
+      account?.emailAddress ?? "",
+      account?.serverKind ?? null,
+    );
     if (options.isStopped()) return;
     await sleep(pauseMs, options.stopSignal);
   }
