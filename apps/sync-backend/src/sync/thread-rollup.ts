@@ -2,6 +2,7 @@ import { gmailLabelId } from "@mail/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages, type ThreadParticipant, threads } from "../db/schema.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { isBrowsableGmailLabelName } from "./gmail-labels.js";
 import { isSentMessage, projectGmailThreadStatus } from "./inbox.js";
 
@@ -139,7 +140,7 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
     // The Thread projection on Gmail (#122, ADR-0020): resolved off the
     // newest message still in the Thread, the same "most representative of
     // where this conversation stands now" choice the Snippet above makes.
-    if (serverKindByAccount.get(newest.mailAccountId) === "gmail") {
+    if (isGmailAccount(serverKindByAccount.get(newest.mailAccountId))) {
       const status = projectGmailThreadStatus(newest.folderRole, newest.gmailLabels);
       // Gmail Labels (#126, ADR-0020): unlike folderRole/inInbox, membership
       // is the *union* across every Message still in the Thread, not just the

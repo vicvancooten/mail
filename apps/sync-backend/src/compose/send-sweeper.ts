@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/client.js";
 import { type CompositionRow, compositions } from "../db/schema.js";
 import { approveSendRecipients } from "../gatekeeper/verdicts.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
 import { activityForSentComposition, recordCorrespondentActivity } from "../sync/correspondents.js";
@@ -206,7 +207,7 @@ export async function sweepOne(
 export function imapSentWriter(db: Db, credentialKey: Buffer): AppendToSent {
   return async ({ account, row, mime }) => {
     await withMailAccountConnection(db, account, { credentialKey }, async (client) => {
-      if (account.serverKind !== "gmail") {
+      if (!isGmailAccount(account.serverKind)) {
         const sent = await findFolderByRole(db, account.id, "sent");
         if (sent) {
           const lock = await client.getMailboxLock(sent.path);

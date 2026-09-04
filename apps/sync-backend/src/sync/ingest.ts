@@ -9,7 +9,7 @@ import type {
 import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, messages } from "../db/schema.js";
 import { resolveRecipientAlias } from "../gatekeeper/alias.js";
-import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import { bumpThreadsEpoch, getMailAccountById } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { hasRealAttachments, readBodyParts } from "./body-structure.js";
@@ -49,7 +49,7 @@ export const INGEST_HEADERS = ["references", "delivered-to", "x-original-to"] as
  */
 export function buildIngestFetchQuery(
   folder: FolderRow,
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
 ): FetchQueryObject {
   return {
     uid: true,
@@ -59,7 +59,7 @@ export function buildIngestFetchQuery(
     size: true,
     bodyStructure: true,
     headers: [...INGEST_HEADERS],
-    ...(folder.role === "all" && serverKind === "gmail" ? { labels: true } : {}),
+    ...(folder.role === "all" && isGmailAccount(serverKind) ? { labels: true } : {}),
   };
 }
 
@@ -236,7 +236,7 @@ export async function fetchAndStoreSequenceBatch(
   uidValidity: number,
   range: { low: number; high: number; fetchBodies?: boolean },
   mailAccountEmailAddress: string,
-  mailAccountServerKind: MailAccountServerKind | null = null,
+  mailAccountServerKind: MailAccountServerKind = null,
 ): Promise<IngestedMessage[]> {
   const fetched = await client.fetchAll(
     `${range.low}:${range.high}`,
@@ -331,10 +331,10 @@ export async function storeMessage(
   uidValidity: number,
   fetched: FetchMessageObject,
   mailAccountEmailAddress: string,
-  mailAccountServerKind: MailAccountServerKind | null = null,
+  mailAccountServerKind: MailAccountServerKind = null,
 ): Promise<IngestedMessage | null> {
   const flags = [...(fetched.flags ?? [])];
-  if (folder.role === "all" && mailAccountServerKind === "gmail" && flags.includes("\\Draft")) {
+  if (folder.role === "all" && isGmailAccount(mailAccountServerKind) && flags.includes("\\Draft")) {
     return null;
   }
 

@@ -2,7 +2,7 @@ import type { MailAccountConnection } from "@mail/shared";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { type MailAccountSecret, toImapAuth, toSmtpAuth } from "./credential-auth.js";
-import { detectServerKind, type MailAccountServerKind } from "./server-kind.js";
+import { type DetectedMailAccountServerKind, detectServerKind } from "./server-kind.js";
 
 /** A few seconds per docs/research/0004 §4's "short, fixed timeout, move on" guidance. */
 const VERIFY_TIMEOUT_MS = 8000;
@@ -22,7 +22,7 @@ export interface VerifyMailAccountInput {
 }
 
 export type VerifyMailAccountResult =
-  | { ok: true; serverKind: MailAccountServerKind }
+  | { ok: true; serverKind: DetectedMailAccountServerKind }
   | { ok: false; reason: "credentials_rejected" | "connection_failed"; detail: string };
 
 /**

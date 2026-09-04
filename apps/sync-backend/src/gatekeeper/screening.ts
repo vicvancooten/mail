@@ -1,10 +1,10 @@
 import { normalizeSenderAddress } from "@mail/shared";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { folders, messages, threads } from "../db/schema.js";
+import { messages, threads } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import type { FolderRow } from "../sync/folders.js";
-import { isInInbox } from "../sync/inbox.js";
+import { isInInbox, selectInboxResidentMessageIds } from "../sync/inbox.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
 import { resolveBlockedAliases, resolveVerdicts, verdictFor } from "./verdicts.js";
 
@@ -274,8 +274,9 @@ export async function screenArrivals(
  * Inbox: a Blocked or Spam sender replying into a conversation the User is
  * having with other people moves their message, not the conversation.
  *
- * "Still in the Inbox" is read through `sync/inbox.ts#isInInbox`, not a join
- * on `folders.role === "inbox"` (#125, ADR-0020) — on Gmail the rest of the
+ * "Still in the Inbox" is read through
+ * `sync/inbox.ts#selectInboxResidentMessageIds`, not a join on
+ * `folders.role === "inbox"` (#125, ADR-0020) — on Gmail the rest of the
  * Thread lives in All Mail same as the arrival just moved, so residency turns
  * on each remaining message's own `gmailLabels`, the same reasoning
  * `decisions.ts#trashHeldThreads` gives for its own resident check.
@@ -289,17 +290,11 @@ async function moveOnArrival(
 ): Promise<void> {
   await enqueueProtocolWrites(db, mailAccountId, messageIds, target);
 
-  const rest = await db
-    .select({
-      id: messages.id,
-      folderRole: folders.role,
-      gmailLabels: messages.gmailLabels,
-    })
-    .from(messages)
-    .innerJoin(folders, eq(messages.folderId, folders.id))
-    .where(and(eq(messages.threadId, threadId), notInArray(messages.id, messageIds)));
-  const stillInInbox = rest.some((row) => isInInbox(row.folderRole, row.gmailLabels));
-  if (stillInInbox) return;
+  const stillResidentIds = await selectInboxResidentMessageIds(
+    db,
+    and(eq(messages.threadId, threadId), notInArray(messages.id, messageIds)),
+  );
+  if (stillResidentIds.length > 0) return;
 
   await db
     .update(threads)

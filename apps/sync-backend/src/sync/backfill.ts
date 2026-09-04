@@ -113,7 +113,7 @@ export async function runBackfillBatch(
   folder: FolderRow,
   batchSize = DEFAULT_BATCH_SIZE,
   mailAccountEmailAddress = "",
-  mailAccountServerKind: MailAccountServerKind | null = null,
+  mailAccountServerKind: MailAccountServerKind = null,
 ): Promise<BackfillBatchResult> {
   if (
     folder.backfillComplete ||

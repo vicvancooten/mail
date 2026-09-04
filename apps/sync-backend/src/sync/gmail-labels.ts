@@ -2,8 +2,10 @@ import { gmailLabelId } from "@mail/shared";
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { gmailLabels } from "../db/schema.js";
-import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { FolderRole } from "./folders.js";
+import { GMAIL_INBOX_LABEL, GMAIL_SENT_LABEL } from "./inbox.js";
+import { GMAIL_SYNCED_ROLES } from "./sync-plan.js";
 import { recordTombstones } from "./tombstones.js";
 
 /**
@@ -28,7 +30,8 @@ import { recordTombstones } from "./tombstones.js";
  * Folder roles that mean "this mailbox is a real synced Folder or a
  * housekeeping mailbox with a recognized special-use flag", never a
  * browsable Gmail Label: `all`/`junk`/`trash`/`drafts` are the four Gmail
- * Folders themselves (`sync/sync-plan.ts#GMAIL_SYNCED_ROLES`); `inbox`/
+ * Folders themselves — imported off `sync/sync-plan.ts#GMAIL_SYNCED_ROLES`
+ * rather than re-typed here, so the two lists can never drift; `inbox`/
  * `sent`/`flagged` are Inbox, Sent and Starred, each already a Wicket concept
  * of its own (CONTEXT.md) and explicitly out of scope as a listed Gmail
  * Label (#91 story 40). `archive` is included defensively — Gmail never
@@ -39,10 +42,7 @@ const NEVER_A_GMAIL_LABEL_ROLE: ReadonlySet<FolderRole> = new Set([
   "inbox",
   "sent",
   "flagged",
-  "all",
-  "junk",
-  "trash",
-  "drafts",
+  ...GMAIL_SYNCED_ROLES,
   "archive",
 ]);
 
@@ -86,14 +86,15 @@ export function isBrowsableGmailLabel(folder: ListedMailbox): boolean {
 /**
  * Gmail's system pseudo-labels as `X-GM-LABELS` actually reports them on a
  * message (`messages.gmailLabels`, #122) — a different string space from a
- * mailbox's `role`/`name` above, matched literally rather than by role:
- * `sync/inbox.ts` already reads `\Inbox`/`\Sent` this same literal way. The
- * `\Category*` prefix is the same defensive Category guess
+ * mailbox's `role`/`name` above, matched literally rather than by role: the
+ * Inbox/Sent pair rides `sync/inbox.ts`'s own constants rather than being
+ * re-typed here, since that file already reads `\Inbox`/`\Sent` this same
+ * literal way. The `\Category*` prefix is the same defensive Category guess
  * `isHousekeepingName` makes for a listed mailbox.
  */
 const SYSTEM_GMAIL_LABEL_NAMES: ReadonlySet<string> = new Set([
-  "\\Inbox",
-  "\\Sent",
+  GMAIL_INBOX_LABEL,
+  GMAIL_SENT_LABEL,
   "\\Draft",
   "\\Starred",
   "\\Important",
@@ -134,10 +135,10 @@ export function isBrowsableGmailLabelName(name: string): boolean {
 export async function persistGmailLabels(
   db: Db,
   mailAccountId: string,
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   liveFolders: ListedMailbox[],
 ): Promise<void> {
-  const wanted = serverKind === "gmail" ? liveFolders.filter(isBrowsableGmailLabel) : [];
+  const wanted = isGmailAccount(serverKind) ? liveFolders.filter(isBrowsableGmailLabel) : [];
 
   const existing = await db
     .select()

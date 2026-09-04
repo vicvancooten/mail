@@ -1,9 +1,10 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { folders, mailAccounts, messages, protocolWrites, threads } from "../db/schema.js";
-import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { folders, messages, protocolWrites, threads } from "../db/schema.js";
+import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
+import { getMailAccountServerKind } from "../mail-accounts/store.js";
 import type { FolderRole } from "./folders.js";
-import { isInInbox } from "./inbox.js";
+import { projectGmailThreadStatus } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 
 /**
@@ -90,18 +91,14 @@ export async function restoreThreadsToInbox(
     // need exactly the same "back to Inbox" treatment the other two do.
     //
     // On Gmail (#124, ADR-0020) a Done archive never moved anything, so
-    // `isRestoreCandidate` reads through `sync/inbox.ts#isInInbox` instead of
-    // a bare Folder-role check: a Message still sitting in All Mail without
-    // `\Inbox` is exactly as much "needs restoring" as one a generic
-    // account's `archive` intent actually moved. Both land the same "inbox"
-    // outbox kind either way — `protocol-writes.ts`'s own drain is what
-    // reads a fresh `folderRole` and picks a label-add or a real move back.
-    const [accountRow] = await tx
-      .select({ serverKind: mailAccounts.serverKind })
-      .from(mailAccounts)
-      .where(eq(mailAccounts.id, mailAccountId))
-      .limit(1);
-    const serverKind: MailAccountServerKind | null = accountRow?.serverKind ?? null;
+    // `isRestoreCandidate` reads through `sync/inbox.ts#projectGmailThreadStatus`
+    // instead of a bare Folder-role check: a Message still sitting in All
+    // Mail without `\Inbox` is exactly as much "needs restoring" as one a
+    // generic account's `archive` intent actually moved. Both land the same
+    // "inbox" outbox kind either way — `protocol-writes.ts`'s own drain is
+    // what reads a fresh `folderRole` and picks a label-add or a real move
+    // back.
+    const serverKind = await getMailAccountServerKind(tx, mailAccountId);
 
     const candidates = await tx
       .select({ id: messages.id, folderRole: folders.role, gmailLabels: messages.gmailLabels })
@@ -135,16 +132,26 @@ export async function restoreThreadsToInbox(
  * Mirrors `protocol-writes.ts#isAlreadyApplied`'s own precedence: Trash/Junk
  * role wins outright, on every server — Gmail keeps labels on a
  * trashed/spammed message (`sync/inbox.ts`'s own doc comment), so a stale
- * `\Inbox` label must never read as "nothing to restore" there. Everywhere
- * else is judged by `isInInbox`: a generic account's real Archive Folder, or
- * a Gmail All Mail copy the Done label removal left without `\Inbox`.
+ * `\Inbox` label must never read as "nothing to restore" there. On Gmail,
+ * everywhere else defers to `projectGmailThreadStatus`'s own precedence
+ * (label vs. archive) rather than re-deriving it — scoped to the one Folder
+ * role (`all`) that precedence is ever meaningful for on Gmail, since a
+ * Draft copy or a Trash/Junk message (already handled above) reaching here
+ * is never a restore candidate just because it isn't labelled `\Inbox`. On a
+ * generic account there is no label to consult at all: only the real Archive
+ * Folder is judged.
  */
 function isRestoreCandidate(
-  serverKind: MailAccountServerKind | null,
+  serverKind: MailAccountServerKind,
   folderRole: FolderRole | null,
   gmailLabels: readonly string[] | null,
 ): boolean {
   if (folderRole === "trash" || folderRole === "junk") return true;
-  if (serverKind === "gmail") return folderRole === "all" && !isInInbox(folderRole, gmailLabels);
+  if (isGmailAccount(serverKind)) {
+    return (
+      folderRole === "all" &&
+      projectGmailThreadStatus(folderRole, gmailLabels).folderRole !== "inbox"
+    );
+  }
   return folderRole === "archive";
 }

@@ -1,9 +1,9 @@
 import type { MailAccount, MailAccountConnection } from "@mail/shared";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
-import type { Db } from "../db/client.js";
+import type { Db, Tx } from "../db/client.js";
 import { mailAccounts } from "../db/schema.js";
 import type { MailAccountCredential } from "./credential-crypto.js";
-import type { MailAccountServerKind } from "./server-kind.js";
+import type { DetectedMailAccountServerKind, MailAccountServerKind } from "./server-kind.js";
 
 export type MailAccountRow = typeof mailAccounts.$inferSelect;
 
@@ -55,7 +55,7 @@ export interface InsertMailAccountInput {
   username: string;
   credential: MailAccountCredential;
   /** Detected by `mail-accounts/verify.ts` in the same live check that authorized this insert (#121). */
-  serverKind: MailAccountServerKind;
+  serverKind: DetectedMailAccountServerKind;
 }
 
 export async function insertMailAccount(
@@ -156,6 +156,27 @@ export async function getMailAccountById(db: Db, id: string): Promise<MailAccoun
 /** Every Mail Account on the instance — what boot uses to start a sync loop per account (#35). */
 export async function listAllMailAccounts(db: Db): Promise<MailAccountRow[]> {
   return db.select().from(mailAccounts);
+}
+
+/**
+ * One Mail Account's `serverKind` alone, without the rest of the row — the
+ * plain `select serverKind ... limit 1` that `sync/mutations.ts`,
+ * `sync/protocol-writes.ts` and `sync/restore-to-inbox.ts` each hand-copied
+ * (#124) before this was pulled out. Takes `Db | Tx` so a caller already
+ * inside a transaction (`restore-to-inbox.ts`) reads the same, uncommitted
+ * row rather than opening a second connection. `null` for an unknown id,
+ * same as every other single-row lookup here.
+ */
+export async function getMailAccountServerKind(
+  db: Db | Tx,
+  id: string,
+): Promise<MailAccountServerKind> {
+  const [row] = await db
+    .select({ serverKind: mailAccounts.serverKind })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.id, id))
+    .limit(1);
+  return row?.serverKind ?? null;
 }
 
 /**
@@ -261,7 +282,7 @@ export async function replaceMailAccountCredential(
   id: string,
   username: string,
   credential: MailAccountCredential,
-  serverKind: MailAccountServerKind,
+  serverKind: DetectedMailAccountServerKind,
 ): Promise<void> {
   await db
     .update(mailAccounts)
@@ -314,7 +335,7 @@ export async function listActiveOAuthMailAccounts(db: Db): Promise<MailAccountRo
 export async function updateMailAccountServerKind(
   db: Db,
   id: string,
-  serverKind: MailAccountServerKind,
+  serverKind: DetectedMailAccountServerKind,
 ): Promise<void> {
   await db
     .update(mailAccounts)
