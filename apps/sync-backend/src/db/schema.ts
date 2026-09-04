@@ -699,9 +699,11 @@ export interface MessageAddress {
  * `(folderId, uid)` — IMAP's own identity for a message — so re-ingesting a
  * folder updates rows instead of duplicating them ("zero lost or duplicated
  * messages", `docs/poc-scope.md`). A message that genuinely exists in two
- * folders (a Sent self-copy, a Gmail label) is two rows with the same
+ * folders (a Sent self-copy on a non-Gmail server) is two rows with the same
  * `messageIdHeader`, because that is two IMAP messages; threading pulls them
- * into one Thread.
+ * into one Thread. On Gmail this no longer includes a Gmail Label
+ * (ADR-0020): a Gmail Label is read off the one All Mail copy as
+ * `gmailLabels`, never a second synced Folder.
  *
  * `seen`/`flagged` are the two **Protocol Features** (ADR-0006): read state
  * and Star, mirrored from `\Seen`/`\Flagged` so a User's existing stars are
@@ -709,6 +711,12 @@ export interface MessageAddress {
  * `flags` keeps the raw set alongside them so nothing is lost in the
  * mapping. Pin, Label and Gatekeeper state are App Features and get their
  * own tables in their own tickets — never a column here.
+ *
+ * `gmailLabels` (#122, ADR-0020) is null on a non-Gmail server and on every
+ * Gmail Folder except All Mail — Spam/Trash/Drafts messages are never
+ * labelled per message, only the row that actually needs it (a Gmail Label
+ * is read through All Mail) gets one. `sync/ingest.ts#storeMessage` is the
+ * only writer; `sync/inbox.ts#isInInbox` is the one seam that reads it back.
  *
  * `bodyText`/`bodyHtml`/`snippet` are null until the body is fetched:
  * ADR-0005's backfill is headers-first with lazy bodies, and #36's sweep
@@ -765,6 +773,8 @@ export const messages = pgTable(
     answered: boolean("answered").notNull().default(false),
     draft: boolean("draft").notNull().default(false),
     flags: text("flags").array().notNull().default([]),
+    /** This message's Gmail Labels (`X-GM-LABELS`), fetched per message on All Mail only — see the table doc comment. */
+    gmailLabels: text("gmail_labels").array(),
 
     sizeBytes: integer("size_bytes"),
     hasAttachments: boolean("has_attachments").notNull().default(false),

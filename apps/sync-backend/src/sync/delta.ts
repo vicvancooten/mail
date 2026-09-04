@@ -5,7 +5,7 @@ import { folders, messages } from "../db/schema.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
 import { handleNewArrivals } from "./arrivals.js";
 import type { FolderRow } from "./folders.js";
-import { applyUidValidity, INGEST_HEADERS, ingestFolder, storeMessage } from "./ingest.js";
+import { applyUidValidity, buildIngestFetchQuery, ingestFolder, storeMessage } from "./ingest.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { deleteEmptyThreads } from "./threading.js";
 
@@ -146,15 +146,7 @@ export async function applyFolderDelta(
     const account = await getMailAccountById(db, folder.mailAccountId);
     const fetched = await client.fetchAll(
       newUids,
-      {
-        uid: true,
-        flags: true,
-        envelope: true,
-        internalDate: true,
-        size: true,
-        bodyStructure: true,
-        headers: [...INGEST_HEADERS],
-      },
+      buildIngestFetchQuery(folder, account?.serverKind ?? null),
       { uid: true },
     );
     const byUid = new Map<number, FetchMessageObject>(
@@ -170,7 +162,9 @@ export async function applyFolderDelta(
         uidValidity,
         message,
         account?.emailAddress ?? "",
+        account?.serverKind ?? null,
       );
+      if (!newlyStored) continue; // a `\Draft` row on Gmail's All Mail (#122) — never stored
       affectedThreadIds.add(newlyStored.threadId);
       createdMessageIds.push(newlyStored.id);
       created += 1;

@@ -1,9 +1,11 @@
 import type { Db } from "../db/client.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
+import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { discoverFolders, type FolderRole, type FolderRow, persistFolders } from "./folders.js";
 import { withMailAccountConnection } from "./imap-connection.js";
 import { type IngestFolderResult, ingestFolder } from "./ingest.js";
+import { resolveSyncPlan } from "./sync-plan.js";
 
 /**
  * The sync engine's original entry point (#34): connect one Mail Account,
@@ -30,7 +32,7 @@ import { type IngestFolderResult, ingestFolder } from "./ingest.js";
 export interface SyncMailAccountOptions {
   /** `env.MAIL_CREDENTIAL_KEY`, raw — hashed here so callers never hold a key buffer. */
   mailCredentialKey: string;
-  /** Restrict the pass to these folder roles. Omit to sync every selectable folder. */
+  /** Restrict the pass to these folder roles. Omit to sync the account's whole plan (#122: every selectable Folder on a generic account, only All Mail/Spam/Trash/Drafts on Gmail). */
   roles?: FolderRole[];
   /** Newest N messages per folder. Omit for the whole folder (#36 owns making that resumable). */
   limitPerFolder?: number;
@@ -65,7 +67,7 @@ export async function syncMailAccount(
 
   return withMailAccountConnection(db, account, { credentialKey }, async (client) => {
     const live = await persistFolders(db, account.id, await discoverFolders(client));
-    const targets = selectFolders(live, options.roles);
+    const targets = selectFolders(live, account.serverKind, options.roles);
 
     const ingest: IngestFolderResult[] = [];
     for (const folder of targets) {
@@ -84,12 +86,17 @@ export async function syncMailAccount(
 
 /**
  * `persistFolders` already returns folders in sync priority (Inbox first);
- * this only drops the ones that cannot hold messages and, when asked,
- * narrows to specific roles.
+ * `resolveSyncPlan` (#122) narrows that to the sync plan — every selectable
+ * Folder on a generic account, only All Mail/Spam/Trash/Drafts on Gmail —
+ * and an explicit `roles` narrows further still, the way a QRESYNC test
+ * asking for just `["inbox"]` already relied on before this ticket.
  */
-function selectFolders(live: FolderRow[], roles: FolderRole[] | undefined): FolderRow[] {
+function selectFolders(
+  live: FolderRow[],
+  serverKind: MailAccountServerKind | null,
+  roles: FolderRole[] | undefined,
+): FolderRow[] {
+  const plan = resolveSyncPlan(serverKind, live);
   const wanted = roles ? new Set(roles) : null;
-  return live.filter(
-    (folder) => folder.selectable && (!wanted || (folder.role !== null && wanted.has(folder.role))),
-  );
+  return plan.filter((folder) => !wanted || (folder.role !== null && wanted.has(folder.role)));
 }

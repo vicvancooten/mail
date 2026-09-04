@@ -1,6 +1,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { folders, messages, type ThreadParticipant, threads } from "../db/schema.js";
+import { folders, mailAccounts, messages, type ThreadParticipant, threads } from "../db/schema.js";
+import { projectGmailThreadStatus } from "./inbox.js";
 
 /**
  * Recomputes the denormalized columns on `threads` (#34).
@@ -12,13 +13,20 @@ import { folders, messages, type ThreadParticipant, threads } from "../db/schema
  * is the only writer, and every path that changes a message calls it.
  *
  * Two round trips per batch, not per Thread: one read of every affected
- * Thread's messages, one bulk write back through `jsonb_to_recordset`.
+ * Thread's messages, one bulk write back through `jsonb_to_recordset`. On a
+ * Gmail account (#122, ADR-0020) a third, smaller write follows: `folderRole`
+ * and `inInbox` there are not `sync/mutations.ts`'s own field the way they
+ * are on a generic account (its own doc comment on `threads.folderRole`
+ * still applies there, unchanged) — they are read straight off
+ * `sync/inbox.ts#projectGmailThreadStatus`, applied to the *newest* message
+ * still in the Thread, every time this runs.
  */
 
 /** The message columns a Thread rollup reads. Deliberately excludes bodies — they are wide and toasted. */
 const ROLLUP_COLUMNS = {
   id: messages.id,
   threadId: messages.threadId,
+  mailAccountId: messages.mailAccountId,
   subject: messages.subject,
   snippet: messages.snippet,
   fromName: messages.fromName,
@@ -32,6 +40,9 @@ const ROLLUP_COLUMNS = {
   // whether *this* Message currently sits in the account's real `\Sent`
   // folder, per its own `folderId`'s join to `folders.role`.
   folderRole: folders.role,
+  // Gmail Labels (#122) — null on every non-Gmail message, and on every
+  // Gmail message outside All Mail (`db/schema.ts`'s own doc comment).
+  gmailLabels: messages.gmailLabels,
 } as const;
 
 interface RollupRow {
@@ -66,6 +77,17 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
     .where(inArray(messages.threadId, ids));
   if (rows.length === 0) return;
 
+  // One lookup for the whole batch, not per Thread: which of the accounts
+  // these Threads belong to are Gmail decides whether `gmailProjection`
+  // below applies at all — a generic account's `folderRole`/`inInbox` stay
+  // exactly what they were, `sync/mutations.ts`'s own field.
+  const accountIds = [...new Set(rows.map((row) => row.mailAccountId))];
+  const accountRows = await db
+    .select({ id: mailAccounts.id, serverKind: mailAccounts.serverKind })
+    .from(mailAccounts)
+    .where(inArray(mailAccounts.id, accountIds));
+  const serverKindByAccount = new Map(accountRows.map((row) => [row.id, row.serverKind]));
+
   const byThread = new Map<string, (typeof rows)[number][]>();
   for (const row of rows) {
     const bucket = byThread.get(row.threadId);
@@ -74,6 +96,7 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
   }
 
   const payload: RollupRow[] = [];
+  const gmailProjection: { id: string; folder_role: string; in_inbox: boolean }[] = [];
   for (const [threadId, threadMessages] of byThread) {
     // Oldest first, UID as the tie-break so two messages sharing an
     // INTERNALDATE (a bulk import, a corpus load) still order stably.
@@ -103,6 +126,18 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       last_message_at: newest.receivedAt.toISOString(),
       last_message_id: newest.id,
     });
+
+    // The Thread projection on Gmail (#122, ADR-0020): resolved off the
+    // newest message still in the Thread, the same "most representative of
+    // where this conversation stands now" choice the Snippet above makes.
+    if (serverKindByAccount.get(newest.mailAccountId) === "gmail") {
+      const status = projectGmailThreadStatus(newest.folderRole, newest.gmailLabels);
+      gmailProjection.push({
+        id: threadId,
+        folder_role: status.folderRole,
+        in_inbox: status.inInbox,
+      });
+    }
   }
 
   if (payload.length === 0) return;
@@ -137,6 +172,21 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
     )
     where t.id = v.id
   `);
+
+  if (gmailProjection.length > 0) {
+    await db.execute(sql`
+      update ${threads} as t set
+        folder_role = v.folder_role,
+        in_inbox = v.in_inbox,
+        updated_at = now()
+      from jsonb_to_recordset(${JSON.stringify(gmailProjection)}::jsonb) as v(
+        id text,
+        folder_role text,
+        in_inbox boolean
+      )
+      where t.id = v.id
+    `);
+  }
 }
 
 /**
