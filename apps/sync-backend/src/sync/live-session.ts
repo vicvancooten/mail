@@ -7,6 +7,7 @@ import { establishFolderBaseline, runAccountBackfill } from "./backfill.js";
 import { runBodySweep } from "./body-sweep.js";
 import { applyFolderDelta, getFolderById } from "./delta.js";
 import { discoverFolders, type FolderRow, persistFolders } from "./folders.js";
+import { persistGmailLabels } from "./gmail-labels.js";
 import { connectMailAccount, MailAccountNeedsReauthError } from "./imap-connection.js";
 import { attemptQresyncCatchup } from "./qresync-catchup.js";
 import { listSyncPlanFolders, resolveSyncPlan, resolveWatchFolder } from "./sync-plan.js";
@@ -220,6 +221,7 @@ async function runSession(db: Db, accountId: string, ctx: RunSessionContext): Pr
   try {
     await setSyncStatus(db, accountId, { state: "syncing" });
     const live = await persistFolders(db, accountId, await discoverFolders(client));
+    await persistGmailLabels(db, accountId, account.serverKind, live);
     const plan = resolveSyncPlan(account.serverKind, live);
     const watchFolder = resolveWatchFolder(account.serverKind, plan);
     if (!watchFolder) {

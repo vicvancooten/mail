@@ -44,6 +44,21 @@ export const mailAccountSyncStateSchema = z.enum([
 ]);
 export type MailAccountSyncState = z.infer<typeof mailAccountSyncStateSchema>;
 
+/**
+ * Which sync model a Mail Account's server gets (#122, ADR-0020): `gmail`
+ * when the IMAP server advertised `X-GM-EXT-1` at verification, `generic`
+ * otherwise, `null` on an account added before server-kind detection existed
+ * and not yet reconnected. Selection is by server capability, never by
+ * credential kind — an app-password Gmail account added through Other gets
+ * `gmail` exactly like one added by signing in with Google. This is the one
+ * field the Client needs to decide whether to show the Gmail Labels sidebar
+ * section (#126) at all; everything else Gmail-specific (the sync plan, the
+ * Inbox projection, `X-GM-LABELS`) is the Sync Backend's own business and
+ * never rides the wire.
+ */
+export const mailAccountServerKindSchema = z.enum(["gmail", "generic"]).nullable();
+export type MailAccountServerKind = z.infer<typeof mailAccountServerKindSchema>;
+
 export const mailAccountSyncSchema = z.object({
   state: mailAccountSyncStateSchema,
   /** Stamped on every IDLE keepalive or completed poll — null before the first one. */
@@ -94,6 +109,7 @@ export const mailAccountSchema = z.object({
   smtp: mailAccountConnectionSchema,
   status: mailAccountStatusSchema,
   authKind: mailAccountAuthKindSchema,
+  serverKind: mailAccountServerKindSchema,
   sync: mailAccountSyncSchema,
   indexWatermark: indexWatermarkSchema,
   /**

@@ -76,7 +76,13 @@ describe("runSyncRound", () => {
     expect(requests[1]).toEqual({
       user: { MailAccount: "ma-1", Preference: null },
       mailAccounts: {
-        "acct-1": { Thread: null, Label: null, Composition: null, Correspondent: null },
+        "acct-1": {
+          Thread: null,
+          Label: null,
+          GmailLabel: null,
+          Composition: null,
+          Correspondent: null,
+        },
       },
     });
     expect(result.pages).toBe(2);
@@ -119,6 +125,7 @@ describe("runSyncRound", () => {
     expect(requests[2]?.mailAccounts?.["acct-1"]).toEqual({
       Thread: "th-1",
       Label: null,
+      GmailLabel: null,
       Composition: null,
       Correspondent: null,
     });
@@ -223,6 +230,7 @@ describe("runSyncRound", () => {
     expect(resync.requests[1]?.mailAccounts?.["acct-1"]).toEqual({
       Thread: null,
       Label: null,
+      GmailLabel: null,
       Composition: null,
       Correspondent: null,
     });

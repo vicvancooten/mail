@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   correspondentSchema,
   correspondentSearchResponseSchema,
+  gmailLabelDeltaSchema,
+  gmailLabelSchema,
   labelDeltaSchema,
   labelSchema,
   mailAccountDeltaSchema,
@@ -37,6 +39,7 @@ const VALID_THREAD = {
   hasSentMessage: false,
   pinned: false,
   labelIds: ["account-1:Work"],
+  gmailLabelIds: [],
   heldSender: null,
   heldRecipientAlias: null,
   snoozeUntil: null,
@@ -47,6 +50,14 @@ const VALID_LABEL = {
   id: "account-1:Work",
   mailAccountId: "account-1",
   name: "Work",
+  updatedAt: "2026-01-02T00:00:00.000Z",
+};
+
+const VALID_GMAIL_LABEL = {
+  id: "account-1:Family/Kids",
+  mailAccountId: "account-1",
+  name: "Kids",
+  path: "Family/Kids",
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
 
@@ -70,6 +81,14 @@ describe("threadSchema", () => {
     expect(threadSchema.safeParse(withoutPinned).success).toBe(false);
     const { labelIds, ...withoutLabelIds } = VALID_THREAD;
     expect(threadSchema.safeParse(withoutLabelIds).success).toBe(false);
+  });
+
+  it("requires gmailLabelIds, alongside but never merged into labelIds (#126, ADR-0020)", () => {
+    const { gmailLabelIds, ...withoutGmailLabelIds } = VALID_THREAD;
+    expect(threadSchema.safeParse(withoutGmailLabelIds).success).toBe(false);
+    expect(
+      threadSchema.safeParse({ ...VALID_THREAD, gmailLabelIds: ["account-1:Family/Kids"] }).success,
+    ).toBe(true);
   });
 
   it("requires heldSender, and takes an address for a Screening Hold (#55)", () => {
@@ -110,6 +129,17 @@ describe("labelSchema", () => {
   it("rejects a Label missing a name", () => {
     const { name, ...withoutName } = VALID_LABEL;
     expect(labelSchema.safeParse(withoutName).success).toBe(false);
+  });
+});
+
+describe("gmailLabelSchema", () => {
+  it("accepts a well-formed Gmail Label (#126, ADR-0020)", () => {
+    expect(gmailLabelSchema.safeParse(VALID_GMAIL_LABEL).success).toBe(true);
+  });
+
+  it("rejects a Gmail Label missing a path", () => {
+    const { path, ...withoutPath } = VALID_GMAIL_LABEL;
+    expect(gmailLabelSchema.safeParse(withoutPath).success).toBe(false);
   });
 });
 
@@ -208,6 +238,17 @@ describe("collectionDeltaSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts a GmailLabel delta (#126) the same shape as any other collection", () => {
+    const result = gmailLabelDeltaSchema.safeParse({
+      created: [VALID_GMAIL_LABEL],
+      updated: [],
+      destroyed: [],
+      newState: "opaque-token",
+      hasMore: false,
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("syncRequestSchema", () => {
@@ -226,6 +267,14 @@ describe("syncRequestSchema", () => {
     });
     expect(result.success).toBe(true);
     expect(result.data?.mailAccounts?.["account-1"]?.Label).toBeNull();
+  });
+
+  it("accepts a GmailLabel token alongside Thread (#126)", () => {
+    const result = syncRequestSchema.safeParse({
+      mailAccounts: { "account-1": { Thread: "th-token", GmailLabel: null } },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.mailAccounts?.["account-1"]?.GmailLabel).toBeNull();
   });
 
   it("accepts an empty request — a Client asking about nothing yet", () => {

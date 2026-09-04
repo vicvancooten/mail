@@ -3,6 +3,7 @@ export * from "./bulk-triage.js";
 export * from "./compose.js";
 export * from "./correspondents.js";
 export * from "./gatekeeper.js";
+export * from "./gmail-labels.js";
 export * from "./health.js";
 export * from "./instance.js";
 export * from "./labels.js";

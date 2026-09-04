@@ -1,8 +1,9 @@
-import type { Label } from "@mail/shared";
+import type { GmailLabel, Label } from "@mail/shared";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   Clock,
+  FolderOpen,
   Inbox,
   Layers,
   PanelLeft,
@@ -90,6 +91,10 @@ interface SidebarProps {
   labels: Label[];
   labelFilter: string | null;
   onSelectLabel: (labelId: string) => void;
+  /** A Gmail Mail Account's own Labels (#126, ADR-0020) — empty for every other account, which is what makes the section below hide itself the same way the Labels one already does. */
+  gmailLabels: GmailLabel[];
+  gmailLabelFilter: string | null;
+  onSelectGmailLabel: (labelId: string) => void;
   onCompose: () => void;
   screenerCount: number;
   draftsCount: number;
@@ -103,6 +108,9 @@ function RailContents({
   labels,
   labelFilter,
   onSelectLabel,
+  gmailLabels,
+  gmailLabelFilter,
+  onSelectGmailLabel,
   onCompose,
   screenerCount,
   draftsCount,
@@ -172,6 +180,26 @@ function RailContents({
           </SidebarMenu>
         </>
       ) : null}
+      {gmailLabels.length > 0 ? (
+        <>
+          <p className="nav-heading">Gmail labels</p>
+          <SidebarMenu className="nav-list">
+            {gmailLabels.map((label) => (
+              <SidebarMenuItem key={label.id}>
+                <SidebarMenuButton
+                  className={`nav-item${gmailLabelFilter === label.id ? " active" : ""}`}
+                  isActive={gmailLabelFilter === label.id}
+                  tooltip={label.name}
+                  onClick={() => onSelectGmailLabel(label.id)}
+                >
+                  <FolderOpen size={15} />
+                  <span className="nav-label">{label.name}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </>
+      ) : null}
     </>
   );
 }
@@ -208,6 +236,11 @@ function MobileSheet(props: SidebarProps) {
     setOpenMobile(false);
   }
 
+  function selectGmailLabel(labelId: string) {
+    props.onSelectGmailLabel(labelId);
+    setOpenMobile(false);
+  }
+
   return (
     <>
       <button
@@ -230,6 +263,7 @@ function MobileSheet(props: SidebarProps) {
               {...props}
               onSelectFolder={selectFolder}
               onSelectLabel={selectLabel}
+              onSelectGmailLabel={selectGmailLabel}
               collapsed={false}
             />
           </nav>

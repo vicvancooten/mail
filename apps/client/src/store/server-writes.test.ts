@@ -4,6 +4,7 @@ import { closeStaleThreadNotification } from "../pwa/close-stale-notifications.j
 import {
   delta,
   makeComposition,
+  makeGmailLabel,
   makeLabel,
   makeMailAccount,
   makeThread,
@@ -13,15 +14,17 @@ import { pinThreadIntoCache } from "./cache-pins.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition, sendComposition } from "./compositions.js";
 import { listWindowKey } from "./db.js";
 import { localCache, openLocalCache } from "./local-cache.js";
-import { readLabels, readThreadWindow } from "./reads.js";
+import { readGmailLabels, readLabels, readThreadWindow } from "./reads.js";
 import {
   applyCompositionDelta,
+  applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
   compositionTokenKey,
   flushScheduledWindowTrims,
   getSyncToken,
+  gmailLabelTokenKey,
   labelTokenKey,
   listCachedMailAccountIds,
   MAIL_ACCOUNT_TOKEN_KEY,
@@ -319,10 +322,13 @@ describe("applyMailAccountDelta", () => {
     expect(await getSyncToken(MAIL_ACCOUNT_TOKEN_KEY)).toBe("state-1");
   });
 
-  it("cascades a destroyed Mail Account to its Threads, Labels, window, pins and tokens", async () => {
+  it("cascades a destroyed Mail Account to its Threads, Labels, Gmail Labels, window, pins and tokens", async () => {
     await applyMailAccountDelta(delta({ created: [makeMailAccount(ACCOUNT)] }), { replace: false });
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(3) }), { replace: false });
     await applyLabelDelta(ACCOUNT, delta({ created: [makeLabel("l1", ACCOUNT)] }), {
+      replace: false,
+    });
+    await applyGmailLabelDelta(ACCOUNT, delta({ created: [makeGmailLabel("g1", ACCOUNT)] }), {
       replace: false,
     });
     await pinThreadIntoCache("t000000");
@@ -331,10 +337,12 @@ describe("applyMailAccountDelta", () => {
 
     expect(await localCache().threads.count()).toBe(0);
     expect(await localCache().labels.count()).toBe(0);
+    expect(await localCache().gmailLabels.count()).toBe(0);
     expect(await localCache().cachePins.count()).toBe(0);
     expect(await windowRow()).toBeUndefined();
     expect(await getSyncToken(threadTokenKey(ACCOUNT))).toBeNull();
     expect(await getSyncToken(labelTokenKey(ACCOUNT))).toBeNull();
+    expect(await getSyncToken(gmailLabelTokenKey(ACCOUNT))).toBeNull();
   });
 });
 
@@ -370,6 +378,46 @@ describe("applyLabelDelta (#43)", () => {
     await applyLabelDelta(ACCOUNT, delta({ destroyed: ["l1"] }), { replace: false });
 
     expect(await readLabels(ACCOUNT)).toEqual([]);
+  });
+});
+
+describe("applyGmailLabelDelta (#126, ADR-0020)", () => {
+  it("stores Gmail Labels and advances the state token", async () => {
+    await applyGmailLabelDelta(
+      ACCOUNT,
+      delta({
+        created: [makeGmailLabel("g1", ACCOUNT, { name: "Kids", path: "Family/Kids" })],
+        newState: "gmail-label-state-1",
+      }),
+      { replace: false },
+    );
+
+    expect((await readGmailLabels(ACCOUNT)).map((label) => label.name)).toEqual(["Kids"]);
+    expect(await getSyncToken(gmailLabelTokenKey(ACCOUNT))).toBe("gmail-label-state-1");
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyGmailLabelDelta(ACCOUNT, delta({ created: [makeGmailLabel("stale", ACCOUNT)] }), {
+      replace: false,
+    });
+
+    await applyGmailLabelDelta(
+      ACCOUNT,
+      delta({ created: [makeGmailLabel("fresh", ACCOUNT)], reset: true }),
+      { replace: true },
+    );
+
+    expect((await readGmailLabels(ACCOUNT)).map((label) => label.id)).toEqual(["fresh"]);
+  });
+
+  it("removes destroyed Gmail Labels — a rename or deletion observed in Gmail (#126)", async () => {
+    await applyGmailLabelDelta(ACCOUNT, delta({ created: [makeGmailLabel("g1", ACCOUNT)] }), {
+      replace: false,
+    });
+
+    await applyGmailLabelDelta(ACCOUNT, delta({ destroyed: ["g1"] }), { replace: false });
+
+    expect(await readGmailLabels(ACCOUNT)).toEqual([]);
   });
 });
 

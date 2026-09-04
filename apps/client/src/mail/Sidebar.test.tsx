@@ -21,6 +21,9 @@ const props = {
   labels: [],
   labelFilter: null,
   onSelectLabel: vi.fn(),
+  gmailLabels: [],
+  gmailLabelFilter: null,
+  onSelectGmailLabel: vi.fn(),
   onCompose: vi.fn(),
   screenerCount: 0,
   draftsCount: 0,
@@ -49,5 +52,34 @@ describe("Sidebar", () => {
     const { container } = render(<Sidebar {...props} />);
     const wrapper = container.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]');
     expect(wrapper?.style.getPropertyValue("--sidebar-width")).not.toBe("");
+  });
+
+  it('renders no "Gmail labels" heading when the account has none (#126, ADR-0020)', () => {
+    render(<Sidebar {...props} />);
+    expect(screen.queryAllByText("Gmail labels").length).toBe(0);
+  });
+
+  it('renders a "Gmail labels" section, and reports a click through onSelectGmailLabel', () => {
+    const onSelectGmailLabel = vi.fn();
+    render(
+      <Sidebar
+        {...props}
+        gmailLabels={[
+          {
+            id: "acct-1:Family/Kids",
+            mailAccountId: "acct-1",
+            name: "Kids",
+            path: "Family/Kids",
+            updatedAt: "",
+          },
+        ]}
+        onSelectGmailLabel={onSelectGmailLabel}
+      />,
+    );
+    expect(screen.getAllByText("Gmail labels").length).toBeGreaterThan(0);
+    const entries = screen.getAllByRole("button", { name: "Kids" });
+    expect(entries.length).toBeGreaterThan(0);
+    entries[0]?.click();
+    expect(onSelectGmailLabel).toHaveBeenCalledWith("acct-1:Family/Kids");
   });
 });

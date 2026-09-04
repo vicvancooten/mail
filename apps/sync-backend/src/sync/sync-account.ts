@@ -3,6 +3,7 @@ import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { discoverFolders, type FolderRole, type FolderRow, persistFolders } from "./folders.js";
+import { persistGmailLabels } from "./gmail-labels.js";
 import { withMailAccountConnection } from "./imap-connection.js";
 import { type IngestFolderResult, ingestFolder } from "./ingest.js";
 import { resolveSyncPlan } from "./sync-plan.js";
@@ -67,6 +68,7 @@ export async function syncMailAccount(
 
   return withMailAccountConnection(db, account, { credentialKey }, async (client) => {
     const live = await persistFolders(db, account.id, await discoverFolders(client));
+    await persistGmailLabels(db, account.id, account.serverKind, live);
     const targets = selectFolders(live, account.serverKind, options.roles);
 
     const ingest: IngestFolderResult[] = [];

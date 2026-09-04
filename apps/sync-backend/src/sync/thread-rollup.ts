@@ -1,6 +1,8 @@
+import { gmailLabelId } from "@mail/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages, type ThreadParticipant, threads } from "../db/schema.js";
+import { isBrowsableGmailLabelName } from "./gmail-labels.js";
 import { isSentMessage, projectGmailThreadStatus } from "./inbox.js";
 
 /**
@@ -98,7 +100,12 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
   }
 
   const payload: RollupRow[] = [];
-  const gmailProjection: { id: string; folder_role: string; in_inbox: boolean }[] = [];
+  const gmailProjection: {
+    id: string;
+    folder_role: string;
+    in_inbox: boolean;
+    gmail_label_ids: string[];
+  }[] = [];
   for (const [threadId, threadMessages] of byThread) {
     // Oldest first, UID as the tie-break so two messages sharing an
     // INTERNALDATE (a bulk import, a corpus load) still order stably.
@@ -134,10 +141,24 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
     // where this conversation stands now" choice the Snippet above makes.
     if (serverKindByAccount.get(newest.mailAccountId) === "gmail") {
       const status = projectGmailThreadStatus(newest.folderRole, newest.gmailLabels);
+      // Gmail Labels (#126, ADR-0020): unlike folderRole/inInbox, membership
+      // is the *union* across every Message still in the Thread, not just the
+      // newest — a Gmail conversation is not always labelled identically on
+      // every message, and "this Thread carries this Label" (the sidebar's
+      // own question) is true the moment any message in it does, the same
+      // "any message" shape `has_sent_message` above already uses.
+      const gmailLabelIds = new Set<string>();
+      for (const row of ordered) {
+        for (const rawLabel of row.gmailLabels ?? []) {
+          if (!isBrowsableGmailLabelName(rawLabel)) continue;
+          gmailLabelIds.add(gmailLabelId(row.mailAccountId, rawLabel));
+        }
+      }
       gmailProjection.push({
         id: threadId,
         folder_role: status.folderRole,
         in_inbox: status.inInbox,
+        gmail_label_ids: [...gmailLabelIds],
       });
     }
   }
@@ -180,11 +201,13 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       update ${threads} as t set
         folder_role = v.folder_role,
         in_inbox = v.in_inbox,
+        gmail_label_ids = v.gmail_label_ids,
         updated_at = now()
       from jsonb_to_recordset(${JSON.stringify(gmailProjection)}::jsonb) as v(
         id text,
         folder_role text,
-        in_inbox boolean
+        in_inbox boolean,
+        gmail_label_ids text[]
       )
       where t.id = v.id
     `);

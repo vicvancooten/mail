@@ -23,6 +23,7 @@ function makeThread(overrides: Partial<CachedThread> = {}): CachedThread {
     hasSentMessage: false,
     pinned: false,
     labelIds: [],
+    gmailLabelIds: [],
     heldSender: null,
     heldRecipientAlias: null,
     snoozeUntil: null,

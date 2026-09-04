@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ComposeSaveOutcome,
   CompositionDelta,
+  GmailLabelDelta,
   LabelDelta,
   MailAccountDelta,
   MutationOutcome,
@@ -23,6 +24,7 @@ import {
   messages,
   threads,
 } from "../db/schema.js";
+import { persistGmailLabels } from "../sync/gmail-labels.js";
 import { deleteEmptyThreads } from "../sync/threading.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -400,6 +402,111 @@ describe("POST /sync", () => {
       // collection query or response entry alongside it.
       expect(threadDelta.created[0]?.labelIds).toHaveLength(1);
       expect(response.json().mailAccounts[accountId].Label).toBeUndefined();
+    });
+  });
+
+  describe("GmailLabel (per Mail Account, #126, ADR-0020)", () => {
+    it("carries a Gmail Mail Account's own Labels and none of the system labels", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      // Server kind is fixed to "generic" by `buildTestApp`'s stubbed verify
+      // (no live Gmail server here) — flip it directly, the same seam
+      // `mail-accounts/store.ts#updateMailAccountServerKind` uses in
+      // production once a real reconnect re-detects it.
+      await db
+        .update(mailAccounts)
+        .set({ serverKind: "gmail" })
+        .where(eq(mailAccounts.id, accountId));
+      await persistGmailLabels(db, accountId, "gmail", [
+        { role: null, name: "Kids", path: "Family/Kids", selectable: true },
+        { role: "inbox", name: "Inbox", path: "INBOX", selectable: true },
+        { role: "all", name: "All Mail", path: "[Gmail]/All Mail", selectable: true },
+        { role: null, name: "Important", path: "[Gmail]/Important", selectable: true },
+      ]);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { GmailLabel: null } } },
+      });
+      expect(response.statusCode).toBe(200);
+      const delta = response.json().mailAccounts[accountId].GmailLabel as GmailLabelDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({
+        mailAccountId: accountId,
+        name: "Kids",
+        path: "Family/Kids",
+      });
+      expect(delta.destroyed).toEqual([]);
+
+      const unchanged = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { GmailLabel: delta.newState } } },
+      });
+      expect(unchanged.json().mailAccounts).toEqual({});
+    });
+
+    it("carries an empty collection for a generic Mail Account", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { GmailLabel: null } } },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().mailAccounts[accountId].GmailLabel).toMatchObject({
+        created: [],
+        updated: [],
+        destroyed: [],
+        hasMore: false,
+      });
+    });
+
+    it("reflects a rename or deletion observed on the next sync as a destroy plus a create", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await db
+        .update(mailAccounts)
+        .set({ serverKind: "gmail" })
+        .where(eq(mailAccounts.id, accountId));
+      await persistGmailLabels(db, accountId, "gmail", [
+        { role: null, name: "Kids", path: "Family/Kids", selectable: true },
+      ]);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { GmailLabel: null } } },
+      });
+      const bootstrapDelta = bootstrap.json().mailAccounts[accountId].GmailLabel as GmailLabelDelta;
+
+      // Gmail renamed "Family/Kids" to "Family/Toddlers" — observed the next
+      // time `persistGmailLabels` runs (`live-session.ts`/`sync-account.ts`),
+      // not by anything this route does.
+      await persistGmailLabels(db, accountId, "gmail", [
+        { role: null, name: "Toddlers", path: "Family/Toddlers", selectable: true },
+      ]);
+
+      const after = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { mailAccounts: { [accountId]: { GmailLabel: bootstrapDelta.newState } } },
+      });
+      const delta = after.json().mailAccounts[accountId].GmailLabel as GmailLabelDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ name: "Toddlers", path: "Family/Toddlers" });
+      expect(delta.destroyed).toEqual(bootstrapDelta.created.map((row) => row.id));
     });
   });
 
