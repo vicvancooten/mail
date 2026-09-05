@@ -544,8 +544,32 @@ describe("DELETE /instance/providers/:provider", () => {
   it("rate limits repeated deletes", async () => {
     const app = buildTestApp();
     const cookie = await createUserWithCookie("owner");
+    await app.inject({
+      method: "PUT",
+      url: "/instance/providers/google",
+      headers: { cookie },
+      payload: { clientId: "id", clientSecret: "secret" },
+    });
 
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    const firstDelete = await app.inject({
+      method: "DELETE",
+      url: "/instance/providers/google",
+      headers: { cookie },
+    });
+    expect(firstDelete.statusCode).toBe(200);
+
+    const health = await app.inject({
+      method: "GET",
+      url: "/instance/health",
+      headers: { cookie },
+    });
+    expect(health.json().providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: "google", status: "not_registered" }),
+      ]),
+    );
+
+    for (let attempt = 0; attempt < 9; attempt += 1) {
       expect(
         (
           await app.inject({
