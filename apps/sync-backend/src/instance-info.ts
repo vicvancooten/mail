@@ -1,3 +1,5 @@
+import type { Provider } from "@mail/shared";
+
 /**
  * Facts about this running instance (#104), computed once and shared
  * between the two places that quote them: the boot-time log warnings
@@ -30,5 +32,24 @@ export function isSecureContext(publicUrl: string): boolean {
     return url.protocol === "https:" || LOOPBACK_HOSTS.has(url.hostname);
   } catch {
     return false;
+  }
+}
+
+/**
+ * The exact redirect URI a Provider Registration's OAuth client must allow
+ * (#115, ADR-0021: "Redirect URIs derive from `PUBLIC_URL`") — what the
+ * Instance page shows the Owner to paste into the Google Cloud console or
+ * Microsoft Entra. `#116`/`#117` register the matching callback route under
+ * this same path; changing it here means changing it there too.
+ *
+ * Falls back to plain string concatenation for a malformed `PUBLIC_URL`
+ * (misconfiguration `isSecureContext` above already flags elsewhere on this
+ * same page) rather than throwing — Provider Health must render regardless.
+ */
+export function buildProviderRedirectUri(publicUrl: string, provider: Provider): string {
+  try {
+    return new URL(`/auth/oauth/${provider}/callback`, publicUrl).toString();
+  } catch {
+    return `${publicUrl}/auth/oauth/${provider}/callback`;
   }
 }

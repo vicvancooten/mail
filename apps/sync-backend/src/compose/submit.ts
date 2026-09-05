@@ -2,7 +2,7 @@ import nodemailer, { type Transporter } from "nodemailer";
 import type Mail from "nodemailer/lib/mailer/index.js";
 import type { Db } from "../db/client.js";
 import type { CompositionRow } from "../db/schema.js";
-import { unsealPasswordCredential } from "../mail-accounts/credential-crypto.js";
+import { toSmtpAuth, unsealMailAccountSecret } from "../mail-accounts/credential-auth.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { buildMime, composeMailOptions } from "./draft-mime.js";
 
@@ -115,7 +115,7 @@ export async function submitComposition(
 }
 
 function build(account: MailAccountRow, credentialKey: Buffer): Transporter {
-  const password = unsealPasswordCredential(account.credential, account.id, credentialKey);
+  const secret = unsealMailAccountSecret(account.credential, account.id, credentialKey);
   return nodemailer.createTransport({
     host: account.smtpHost,
     port: account.smtpPort,
@@ -124,7 +124,7 @@ function build(account: MailAccountRow, credentialKey: Buffer): Transporter {
     // plaintext dev listener (docs/dev-setup.md).
     secure: account.smtpSecurity === "tls",
     requireTLS: account.smtpSecurity === "starttls",
-    auth: { user: account.username, pass: password },
+    auth: toSmtpAuth(account.username, secret),
     connectionTimeout: SMTP_TIMEOUT_MS,
     greetingTimeout: SMTP_TIMEOUT_MS,
     socketTimeout: SMTP_TIMEOUT_MS,

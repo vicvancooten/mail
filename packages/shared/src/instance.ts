@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { providerHealthSchema } from "./providers.js";
 
 /**
  * `GET /instance/health` (#104): the Owner-only Instance page's one data
@@ -43,6 +44,8 @@ export const instanceInfoResponseSchema = z.object({
     /** `false` means `http://` on a non-localhost host: Web Push and passkeys will not work from other devices. */
     isSecureContext: z.boolean(),
   }),
+  /** Provider Health (#115, ADR-0021, CONTEXT.md), one entry per Provider, in `PROVIDERS` order. */
+  providers: z.array(providerHealthSchema),
 });
 export type InstanceInfoResponse = z.infer<typeof instanceInfoResponseSchema>;
 

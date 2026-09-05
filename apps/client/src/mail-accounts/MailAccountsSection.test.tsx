@@ -12,6 +12,16 @@ vi.mock("../api/mail-accounts.js", () => ({
   })),
 }));
 
+vi.mock("../api/oauth-signin.js", () => ({
+  fetchProviderAvailability: vi.fn(async () => ({
+    providers: [
+      { provider: "google", available: true, unavailableReason: null },
+      { provider: "microsoft", available: true, unavailableReason: null },
+    ],
+  })),
+  startProviderSignIn: vi.fn(),
+}));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -43,5 +53,50 @@ describe("scrollToMailAccountSettings", () => {
     await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
 
     expect(() => scrollToMailAccountSettings("acct-does-not-exist")).not.toThrow();
+  });
+});
+
+/**
+ * The Needs Reauth affordance branches on `authKind` (#119): never a
+ * password form for an OAuth account, and a password account's settings row
+ * offers to switch to a Grant regardless of its status.
+ */
+describe("the Needs Reauth affordance", () => {
+  it("shows the password form on a password account", async () => {
+    const { fetchMailAccounts } = await import("../api/mail-accounts.js");
+    vi.mocked(fetchMailAccounts).mockResolvedValueOnce({
+      mailAccounts: [makeMailAccount("acct-pw", { status: "needs_reauth" })],
+    });
+    render(<MailAccountsSection />);
+
+    expect(await screen.findByLabelText("Username")).toBeDefined();
+    expect(screen.getByLabelText("Password")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+  });
+
+  it("shows the sign-in-again action and no password fields on an OAuth account", async () => {
+    const { fetchMailAccounts } = await import("../api/mail-accounts.js");
+    vi.mocked(fetchMailAccounts).mockResolvedValueOnce({
+      mailAccounts: [
+        makeMailAccount("acct-oauth", {
+          status: "needs_reauth",
+          authKind: { kind: "oauth", provider: "google" },
+        }),
+      ],
+    });
+    render(<MailAccountsSection />);
+
+    expect(await screen.findByRole("button", { name: "Sign in with Google again" })).toBeDefined();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("offers a password Gmail account switch-to-Google-sign-in even while active", async () => {
+    const { fetchMailAccounts } = await import("../api/mail-accounts.js");
+    vi.mocked(fetchMailAccounts).mockResolvedValueOnce({
+      mailAccounts: [makeMailAccount("acct-pw", { status: "active" })],
+    });
+    render(<MailAccountsSection />);
+
+    expect(await screen.findByRole("button", { name: "Switch to Google sign-in" })).toBeDefined();
   });
 });

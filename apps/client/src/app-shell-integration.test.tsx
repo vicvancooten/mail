@@ -51,6 +51,9 @@ function authResponses(role: "owner" | "member" = "owner"): Record<string, () =>
         },
         systemMailer: { configured: false },
         publicUrl: { value: "http://localhost:3000", isSecureContext: true },
+        // Provider Health (#115) — empty here; `InstancePage.test.tsx` and
+        // `ProviderRegistrationCard.test.tsx` cover its own rendering.
+        providers: [],
       }),
   };
 }

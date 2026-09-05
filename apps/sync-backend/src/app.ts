@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { isApiPath } from "@mail/shared";
 import Fastify from "fastify";
 import authPlugin from "./auth/plugin.js";
 import type { Db } from "./db/client.js";
 import type { discoverMailAccount } from "./mail-accounts/autodiscover.js";
+import type { ProviderAdapters } from "./mail-accounts/provider-adapter.js";
 import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
 import { disabledVapidKeyStore, type VapidKeyStore } from "./notifier/vapid-keys.js";
 import { noopSyncHintBroker, type SyncHintBroker } from "./realtime/sync-hints.js";
@@ -20,6 +22,7 @@ import { healthRoutes } from "./routes/health.js";
 import { instanceRoutes } from "./routes/instance.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
+import { defaultProviderAdapters, oauthSignInRoutes } from "./routes/oauth-signin.js";
 import { passkeyRoutes } from "./routes/passkeys.js";
 import { pushRoutes } from "./routes/push.js";
 import { searchRoutes } from "./routes/search.js";
@@ -55,6 +58,14 @@ export interface BuildAppOptions {
    */
   mailAccountVerify?: typeof verifyMailAccountCredentials;
   mailAccountDiscover?: typeof discoverMailAccount;
+  /**
+   * The Provider adapters Provider sign-in runs through (#116, ADR-0021) —
+   * the third injected seam beside verify and discover, and for the same
+   * reason: the real one talks to Google over HTTPS, which no test wants.
+   * Defaults to `{ google: googleProviderAdapter, microsoft: microsoftProviderAdapter }`
+   * (#117); a Provider with neither renders as an unavailable choice.
+   */
+  providerAdapters?: ProviderAdapters;
   /**
    * Starts/restarts a Mail Account's resident sync loop (#35) on create and
    * reauth. Defaults to a no-op: opening a real IMAP connection is not
@@ -97,6 +108,7 @@ export function buildApp({
   mailCredentialKey,
   mailAccountVerify,
   mailAccountDiscover,
+  providerAdapters = defaultProviderAdapters,
   syncManager = noopSyncManager,
   attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
   syncHints = noopSyncHintBroker,
@@ -120,6 +132,7 @@ export function buildApp({
     done(null, payload);
   });
 
+  app.register(rateLimit, { global: false });
   app.register(authPlugin, { db, publicUrl });
   app.register(healthRoutes);
   app.register(authRoutes, { db, publicUrl });
@@ -132,11 +145,19 @@ export function buildApp({
     discover: mailAccountDiscover,
     syncManager,
   });
+  app.register(oauthSignInRoutes, {
+    db,
+    publicUrl,
+    mailCredentialKey,
+    providerAdapters,
+    verify: mailAccountVerify,
+    syncManager,
+  });
   app.register(syncRoutes, { db });
   app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
   app.register(pushRoutes, { db, readVapidPublicKey: () => vapidKeys.readPublicKey() });
-  app.register(instanceRoutes, { publicUrl, vapidKeys, imageTag });
+  app.register(instanceRoutes, { db, publicUrl, mailCredentialKey, vapidKeys, imageTag });
   app.register(correspondentRoutes, { db });
   app.register(searchRoutes, { db });
   app.register(sendSettingsRoutes, { db });

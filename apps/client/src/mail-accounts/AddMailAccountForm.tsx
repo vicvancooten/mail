@@ -2,10 +2,13 @@ import type { MailAccountConnection, MailAccountSecurity } from "@mail/shared";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../api/auth.js";
 import { createMailAccount, discoverMailAccount } from "../api/mail-accounts.js";
+import { ProviderSignInChoice } from "./ProviderSignInChoice.js";
 
 const BLANK_CONNECTION: MailAccountConnection = { host: "", port: 993, security: "tls" };
 
 type Step =
+  /** The three-way Google / Microsoft / Other choice (#116) — where adding an account now starts. */
+  | { kind: "choice" }
   | { kind: "email" }
   | {
       kind: "credentials";
@@ -18,13 +21,25 @@ type Step =
 
 /**
  * Add-a-Mail-Account (poc-spec.md §Mail Accounts): a separate, repeatable
- * step from creating the User, run from `MailAccountsSection`. Runs the
- * autodiscover chain first; manual entry is a first-class fallback step,
- * pre-filled with privateemail's defaults when the domain's MX warrants it
- * (docs/research/0004 §4), never an apologetic dead end.
+ * step from creating the User, run from `MailAccountsSection`.
+ *
+ * Since #116 it opens on the Provider choice (`ProviderSignInChoice`);
+ * **Other** is what leads here, into the flow this form has always been.
+ * That flow is deliberately unchanged: the autodiscover chain first, manual
+ * entry as a first-class fallback step pre-filled with privateemail's
+ * defaults when the domain's MX warrants it (docs/research/0004 §4), never
+ * an apologetic dead end. Google and Microsoft never reach it at all — they
+ * leave the app entirely and come back with the account already created.
  */
-export function AddMailAccountForm({ onAdded }: { onAdded: () => void }) {
-  const [step, setStep] = useState<Step>({ kind: "email" });
+export function AddMailAccountForm({
+  onAdded,
+  isOwner = false,
+}: {
+  onAdded: () => void;
+  /** Chooses the wording for an unregistered Provider (ADR-0021). Defaults to the Member's, the safe assumption. */
+  isOwner?: boolean;
+}) {
+  const [step, setStep] = useState<Step>({ kind: "choice" });
   const [emailInput, setEmailInput] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -94,6 +109,12 @@ export function AddMailAccountForm({ onAdded }: { onAdded: () => void }) {
     setStep({ ...step, [which]: { ...step[which], ...patch } });
   }
 
+  if (step.kind === "choice") {
+    return (
+      <ProviderSignInChoice isOwner={isOwner} onChooseOther={() => setStep({ kind: "email" })} />
+    );
+  }
+
   if (step.kind === "email") {
     return (
       <form onSubmit={handleDiscover}>
@@ -107,6 +128,9 @@ export function AddMailAccountForm({ onAdded }: { onAdded: () => void }) {
           required
         />
         {error && <p role="alert">{error}</p>}
+        <button type="button" onClick={() => setStep({ kind: "choice" })} disabled={submitting}>
+          Back
+        </button>
         <button type="submit" disabled={submitting}>
           Continue
         </button>

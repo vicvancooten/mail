@@ -465,3 +465,90 @@
   border-radius: var(--radius-sm, 4px);
   padding: 1px 5px;
 }
+
+/* Providers (#115, ADR-0021): one `.provider-card` per Provider, styled
+   like `.account-preferences`'s own nested-card treatment — a sub-panel
+   inside the page's flat `<section>` rather than another flush row,
+   because each Provider's status, form and setup steps are their own
+   group. */
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  background: var(--color-surface-strong);
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.provider-card h4 {
+  margin: 0;
+  font-weight: 680;
+  font-size: 14px;
+  color: var(--color-ink);
+}
+
+.provider-status {
+  margin: 0;
+}
+
+/* Provider Health's counts (#118, ADR-0021: "how many Mail Accounts use each
+   Provider and how many of them are Needs Reauth") — a quieter line under
+   the status, not another alert. */
+.provider-counts {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+
+.provider-redirect-uri {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: 100%;
+}
+
+.provider-redirect-uri > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.provider-redirect-uri code {
+  word-break: break-all;
+}
+
+.provider-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+  width: 100%;
+}
+
+.provider-delete p[role="alert"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  max-width: none;
+}
+
+.provider-delete button[data-destructive="true"] {
+  margin-left: 0;
+}
+
+.provider-setup-steps {
+  width: 100%;
+}
+
+.provider-card ol {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  line-height: 1.6;
+}

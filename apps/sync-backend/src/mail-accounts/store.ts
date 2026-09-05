@@ -6,6 +6,16 @@ import type { MailAccountCredential } from "./credential-crypto.js";
 
 export type MailAccountRow = typeof mailAccounts.$inferSelect;
 
+/**
+ * The wire-safe half of `MailAccountCredential.kind` (#119): which door
+ * re-authentication goes through, never the credential itself.
+ */
+function toWireAuthKind(credential: MailAccountCredential): MailAccount["authKind"] {
+  return credential.kind === "oauth"
+    ? { kind: "oauth", provider: credential.provider }
+    : { kind: "password" };
+}
+
 /** Never includes `credential` — write-only across the API (ADR-0003). */
 export function toWireMailAccount(row: MailAccountRow): MailAccount {
   return {
@@ -14,6 +24,7 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
     imap: { host: row.imapHost, port: row.imapPort, security: row.imapSecurity },
     smtp: { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity },
     status: row.status,
+    authKind: toWireAuthKind(row.credential),
     sync: {
       state: row.syncState,
       lastProgressAt: row.lastProgressAt?.toISOString() ?? null,
@@ -84,6 +95,26 @@ export async function getMailAccountForUser(
     .select()
     .from(mailAccounts)
     .where(and(eq(mailAccounts.id, id), eq(mailAccounts.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Scoped by User, matched on the mailbox address (#116): "signing in as an
+ * address already among the User's Mail Accounts is refused". Scoped by User
+ * and not instance-wide on purpose — two Users on one instance may each hold
+ * a Mail Account on the same shared address (ADR-0004: ownership is the only
+ * authorization primitive), and neither is a duplicate of the other.
+ */
+export async function getMailAccountForUserByAddress(
+  db: Db,
+  userId: string,
+  emailAddress: string,
+): Promise<MailAccountRow | null> {
+  const [row] = await db
+    .select()
+    .from(mailAccounts)
+    .where(and(eq(mailAccounts.userId, userId), eq(mailAccounts.emailAddress, emailAddress)))
     .limit(1);
   return row ?? null;
 }
@@ -224,4 +255,37 @@ export async function replaceMailAccountCredential(
     .update(mailAccounts)
     .set({ username, credential, status: "active", updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
+}
+
+/**
+ * A Grant refresh's write path (#118, ADR-0021): reseals the fresh
+ * access/refresh tokens onto an already-`active` Mail Account. Unlike
+ * `replaceMailAccountCredential`, this never touches `status` or `username`
+ * — a routine token refresh is not a reauth, and never changes who's signed
+ * in.
+ */
+export async function updateMailAccountGrant(
+  db: Db,
+  id: string,
+  credential: MailAccountCredential,
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ credential, updatedAt: new Date() })
+    .where(eq(mailAccounts.id, id));
+}
+
+/**
+ * Every `active` Mail Account whose credential is an `oauth` Grant (#118) —
+ * what the refresh loop sweeps each tick. Scoped to `active`: a Mail Account
+ * already parked in Needs Reauth has nothing a token refresh can fix, so
+ * refreshing it would just be a wasted Provider round trip.
+ */
+export async function listActiveOAuthMailAccounts(db: Db): Promise<MailAccountRow[]> {
+  return db
+    .select()
+    .from(mailAccounts)
+    .where(
+      and(eq(mailAccounts.status, "active"), sql`${mailAccounts.credential}->>'kind' = 'oauth'`),
+    );
 }

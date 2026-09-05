@@ -15,6 +15,7 @@
     "dev:infra:up": "docker compose -f compose.dev.yaml up -d && ./scripts/wait-for-postgres.sh && pnpm db:migrate",
     "dev:infra:down": "docker compose -f compose.dev.yaml down",
     "build": "pnpm -r build",
+    "pretest": "pnpm --filter @mail/shared build && pnpm --filter @mail/design-tokens build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",

@@ -2,7 +2,10 @@ import type { MailAccount } from "@mail/shared";
 import { useCallback, useEffect, useState } from "react";
 import { fetchMailAccounts } from "../api/mail-accounts.js";
 import { AddMailAccountForm } from "./AddMailAccountForm.js";
+import { ProviderReauthAction } from "./ProviderReauthAction.js";
+import { PROVIDER_LABEL } from "./provider-labels.js";
 import { ReauthMailAccountForm } from "./ReauthMailAccountForm.js";
+import { clearSignInOutcome, readSignInOutcome, type SignInOutcome } from "./sign-in-outcome.js";
 
 /**
  * The DOM anchor a `needs_reauth` notification click scrolls to (#53,
@@ -37,10 +40,11 @@ export function scrollToMailAccountSettings(mailAccountId: string): void {
  * acceptance criteria) already means: a User who has filtered an account out
  * of Scope can still reach it here to fix it.
  */
-export function MailAccountsSection() {
+export function MailAccountsSection({ isOwner = false }: { isOwner?: boolean } = {}) {
   const [accounts, setAccounts] = useState<MailAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [signInOutcome, setSignInOutcome] = useState<SignInOutcome | null>(null);
 
   const reload = useCallback(() => {
     return fetchMailAccounts()
@@ -52,10 +56,32 @@ export function MailAccountsSection() {
     reload();
   }, [reload]);
 
+  // The return leg of a Provider sign-in (#116): the callback redirected
+  // here with an outcome in the query string. Read it once, then clear it,
+  // so a reload or a shared URL can't resurrect a toast about something that
+  // already happened. A success means the account was created while the
+  // browser was away — nothing local knows about it until this reload.
+  useEffect(() => {
+    const outcome = readSignInOutcome(window.location.search);
+    if (!outcome) return;
+    setSignInOutcome(outcome);
+    clearSignInOutcome();
+    if (outcome.succeeded) void reload();
+  }, [reload]);
+
   return (
     <section>
       <h3>Mail Accounts</h3>
       {error && <p role="alert">{error}</p>}
+
+      {signInOutcome && (
+        <p role="status">
+          {signInOutcome.message}{" "}
+          <button type="button" onClick={() => setSignInOutcome(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
 
       {accounts === null && <p>Loading…</p>}
 
@@ -71,10 +97,33 @@ export function MailAccountsSection() {
                   <p role="status">
                     Needs Reauth — the mail server rejected the stored credential.
                   </p>
-                  <ReauthMailAccountForm mailAccountId={account.id} onResumed={reload} />
+                  {account.authKind.kind === "oauth" ? (
+                    // Never a password form (#119, ADR-0021 user story 27):
+                    // recovery matches how the Grant was set up.
+                    <ProviderReauthAction
+                      mailAccountId={account.id}
+                      provider={account.authKind.provider}
+                      label={`Sign in with ${PROVIDER_LABEL[account.authKind.provider]} again`}
+                      isOwner={isOwner}
+                    />
+                  ) : (
+                    <ReauthMailAccountForm mailAccountId={account.id} onResumed={reload} />
+                  )}
                 </>
               ) : (
                 <span> — connected</span>
+              )}
+              {account.authKind.kind === "password" && (
+                // The same door a Gmail app-password account uses to switch
+                // to a Grant on this same Mail Account (#119, ADR-0021 user
+                // story 29) — offered regardless of status, not only Needs
+                // Reauth.
+                <ProviderReauthAction
+                  mailAccountId={account.id}
+                  provider="google"
+                  label="Switch to Google sign-in"
+                  isOwner={isOwner}
+                />
               )}
             </li>
           ))}
@@ -83,6 +132,7 @@ export function MailAccountsSection() {
 
       {adding ? (
         <AddMailAccountForm
+          isOwner={isOwner}
           onAdded={() => {
             setAdding(false);
             reload();

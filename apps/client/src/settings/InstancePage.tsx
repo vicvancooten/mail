@@ -1,17 +1,19 @@
 import type { InstanceInfoResponse } from "@mail/shared";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchInstanceInfo, generateVapidKeys } from "../api/instance.js";
+import { ProviderRegistrationCard } from "./ProviderRegistrationCard.js";
 
 /**
- * The Owner-only Instance page (#104): "running version and image tag; Web
- * Push configured yes/no with the exact generate command; System Mailer
- * configured yes/no; secure-context check on PUBLIC_URL" — exactly those
- * four facts, first cut. Reached only via `SettingsLayout`'s nav, which
- * hides this page's entry from a Member entirely; `settingsInstanceRoute`
- * (`router/routes.tsx`) redirects one away who reaches the URL directly,
- * and `GET /instance/health` itself 403s them too (`routes/instance.ts`) —
- * three layers because "a Member gets no such nav entry" is the one
- * acceptance line that must never regress.
+ * The Owner-only Instance page (#104, #115): "running version and image
+ * tag; Web Push configured yes/no with the exact generate command; System
+ * Mailer configured yes/no; secure-context check on PUBLIC_URL" (#104's four
+ * facts), plus a Providers section (#115, ADR-0021) where the Owner
+ * registers Google/Microsoft and sees Provider Health. Reached only via
+ * `SettingsLayout`'s nav, which hides this page's entry from a Member
+ * entirely; `settingsInstanceRoute` (`router/routes.tsx`) redirects one away
+ * who reaches the URL directly, and `GET /instance/health` itself 403s them
+ * too (`routes/instance.ts`) — three layers because "a Member gets no such
+ * nav entry" is the one acceptance line that must never regress.
  *
  * Per-Mail-Account sync status deliberately stays off this page (the
  * ticket's own decision, "privacy") — it already lives on each User's own
@@ -20,6 +22,8 @@ import { fetchInstanceInfo, generateVapidKeys } from "../api/instance.js";
 export function InstancePage() {
   const [info, setInfo] = useState<InstanceInfoResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const mountedRef = useRef(true);
+  const reloadRequestIdRef = useRef(0);
   // The Web Push keypair's own generate action (ADR-0015 as amended) — the
   // one thing this page *does* rather than states, so it carries its own
   // in-flight/failed state rather than reloading the whole page's facts.
@@ -42,19 +46,29 @@ export function InstancePage() {
       .finally(() => setGenerating(false));
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetchInstanceInfo()
+  const reload = useCallback(() => {
+    const requestId = ++reloadRequestIdRef.current;
+    if (mountedRef.current) {
+      setFailed(false);
+    }
+    return fetchInstanceInfo()
       .then((result) => {
-        if (!cancelled) setInfo(result);
+        if (!mountedRef.current || reloadRequestIdRef.current !== requestId) return;
+        setInfo(result);
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!mountedRef.current || reloadRequestIdRef.current !== requestId) return;
+        setFailed(true);
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void reload();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [reload]);
 
   return (
     <section className="settings-page">
@@ -129,6 +143,24 @@ export function InstancePage() {
               )}
             </span>
           </div>
+        </section>
+      )}
+
+      {info && (
+        <section className="providers-section">
+          <h3>Providers</h3>
+          <p>
+            Register the OAuth app for Google or Microsoft so Users can add an account by signing in
+            with it, rather than a username and password.
+          </p>
+          {info.providers.map((health) => (
+            <ProviderRegistrationCard
+              key={health.provider}
+              health={health}
+              isSecureContext={info.publicUrl.isSecureContext}
+              onChanged={() => void reload()}
+            />
+          ))}
         </section>
       )}
     </section>
