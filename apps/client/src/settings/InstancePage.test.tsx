@@ -61,6 +61,16 @@ function instanceInfo(overrides: Partial<InstanceInfoResponse> = {}): InstanceIn
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -252,6 +262,62 @@ describe("InstancePage", () => {
     await userEvent.click(within(googleCard).getByRole("button", { name: "Save" }));
 
     await screen.findByText("abc.apps.googleusercontent.com");
+    await waitFor(() => expect(screen.queryByText("Couldn't load instance info.")).toBeNull());
+  });
+
+  it("ignores a stale failed reload after a later reload succeeds", async () => {
+    const firstReload = deferred<InstanceInfoResponse>();
+    const secondReload = deferred<InstanceInfoResponse>();
+    const updatedInfo = instanceInfo({
+      providers: [
+        {
+          provider: "google",
+          status: "registered_untested",
+          redirectUri: "https://mail.example.com/auth/oauth/google/callback",
+          clientIdPreview: "abc.apps.googleusercontent.com",
+          mailAccountCount: 1,
+          needsReauthCount: 0,
+          lastRefreshAt: null,
+          lastRefreshError: null,
+        },
+        {
+          provider: "microsoft",
+          status: "not_registered",
+          redirectUri: "https://mail.example.com/auth/oauth/microsoft/callback",
+          clientIdPreview: null,
+          mailAccountCount: 0,
+          needsReauthCount: 0,
+          lastRefreshAt: null,
+          lastRefreshError: null,
+        },
+      ],
+    });
+    const updatedGoogle = updatedInfo.providers[0];
+    if (!updatedGoogle) throw new Error("expected Google provider fixture");
+
+    vi.mocked(instanceApi.fetchInstanceInfo)
+      .mockResolvedValueOnce(instanceInfo())
+      .mockImplementationOnce(() => firstReload.promise)
+      .mockImplementationOnce(() => secondReload.promise);
+    vi.mocked(providersApi.saveProviderRegistration).mockResolvedValue(updatedGoogle);
+    render(<InstancePage />);
+
+    expect(await screen.findByText("Providers")).toBeTruthy();
+    const googleCard = screen.getByRole("heading", { name: "Google" }).closest("section");
+    if (!googleCard) throw new Error("expected Google provider card");
+
+    await userEvent.type(within(googleCard).getByLabelText("Client ID"), "client-id");
+    await userEvent.type(within(googleCard).getByLabelText("Client secret"), "client-secret");
+    await userEvent.click(within(googleCard).getByRole("button", { name: "Save" }));
+
+    await userEvent.type(within(googleCard).getByLabelText("Client ID"), "client-id");
+    await userEvent.type(within(googleCard).getByLabelText("Client secret"), "client-secret");
+    await userEvent.click(within(googleCard).getByRole("button", { name: "Save" }));
+
+    secondReload.resolve(updatedInfo);
+    await screen.findByText("abc.apps.googleusercontent.com");
+
+    firstReload.reject(new Error("offline"));
     await waitFor(() => expect(screen.queryByText("Couldn't load instance info.")).toBeNull());
   });
 });
