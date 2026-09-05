@@ -1,7 +1,7 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "../db/client.js";
 import type { CompositionRow } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const append = vi.fn();
 const release = vi.fn();
