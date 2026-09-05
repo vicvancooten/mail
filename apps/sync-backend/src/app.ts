@@ -132,8 +132,8 @@ export function buildApp({
     done(null, payload);
   });
 
-  app.register(authPlugin, { db, publicUrl });
   app.register(rateLimit, { global: false });
+  app.register(authPlugin, { db, publicUrl });
   app.register(healthRoutes);
   app.register(authRoutes, { db, publicUrl });
   app.register(totpRoutes, { db });
