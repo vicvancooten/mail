@@ -28,6 +28,7 @@ let db: Db;
 let closeDb: () => Promise<void>;
 
 beforeEach(async () => {
+  await closeDb?.();
   const created = await createTestDb();
   db = created.db;
   closeDb = () => created.sql.end();
