@@ -9,6 +9,7 @@ import {
 } from "../mail-accounts/credential-crypto.js";
 import { GOOGLE_SCOPES } from "../mail-accounts/google-adapter.js";
 import { MICROSOFT_SCOPES } from "../mail-accounts/microsoft-adapter.js";
+import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { TEST_MAIL_CREDENTIAL_KEY } from "./db.js";
 
@@ -27,6 +28,15 @@ export interface TestMailAccountInput {
    * `password` is also set; the two are mutually exclusive credential kinds.
    */
   oauth?: { accessToken: string; provider?: "google" | "microsoft" };
+  /**
+   * Stamps `serverKind` directly (#122) — for a test that wants a
+   * Gmail-shaped row (the sync plan, the resident loop's watched Folder)
+   * without a real `X-GM-EXT-1`-advertising server to detect it from
+   * (`mail-accounts/server-kind.ts`). Left undetected (`null`) by default to
+   * model a pre-#121 row — or a test that explicitly wants an undetected
+   * account.
+   */
+  serverKind?: MailAccountServerKind;
 }
 
 /**
@@ -83,6 +93,7 @@ export async function createTestMailAccount(
       smtpSecurity: "none",
       username: emailAddress,
       credential,
+      serverKind: input.serverKind,
     })
     .returning();
 

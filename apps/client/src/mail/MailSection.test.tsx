@@ -1,5 +1,5 @@
 import type { SyncResponse } from "@mail/shared";
-import { labelId } from "@mail/shared";
+import { gmailLabelId, labelId } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { enqueueUserMutation, useMailAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
+  applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
@@ -19,6 +20,7 @@ import {
 import { resetSyncStatus } from "../sync/sync-loop.js";
 import {
   delta,
+  makeGmailLabel,
   makeLabel,
   makeMailAccount,
   makeThread,
@@ -1077,5 +1079,180 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
     fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
 
     expect(await screen.findByText("4200")).toBeDefined();
+  });
+});
+
+describe("Gmail labels (#126, ADR-0020)", () => {
+  it('hides the Sidebar\'s "Gmail labels" section until the collection has rows', async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    const { unmount } = renderMail();
+    await screen.findByText("Newer thread");
+    expect(screen.queryByText("Gmail labels")).toBeNull();
+    unmount();
+    cleanup();
+
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Family/Kids"), "acct-1", {
+            name: "Kids",
+            path: "Family/Kids",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    renderMail();
+    await screen.findByText("Newer thread");
+    expect(await screen.findByRole("button", { name: "Kids" })).toBeDefined();
+  });
+
+  it("selecting a Gmail Label in the Sidebar filters the list to Threads carrying it, archived mail included (#91 story 38)", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1", { serverKind: "gmail" })] }),
+      { replace: false },
+    );
+    const kidsId = gmailLabelId("acct-1", "Family/Kids");
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-inbox", "acct-1", {
+            subject: "Inbox with the label",
+            gmailLabelIds: [kidsId],
+            lastMessageAt: minutesAfterEpoch(3),
+          }),
+          makeThread("t-archived", "acct-1", {
+            subject: "Archived with the label",
+            inInbox: false,
+            folderRole: "archive",
+            gmailLabelIds: [kidsId],
+            lastMessageAt: minutesAfterEpoch(2),
+          }),
+          makeThread("t-unlabelled", "acct-1", {
+            subject: "No label here",
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [makeGmailLabel(kidsId, "acct-1", { name: "Kids", path: "Family/Kids" })],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("No label here");
+    fireEvent.click(await screen.findByRole("button", { name: "Kids" }));
+
+    await waitFor(() => expect(screen.queryByText("No label here")).toBeNull());
+    // Both the Inbox and the archived Thread show — unlike a Wicket Label
+    // filter (Inbox-scoped), browsing a Gmail Label is archival: "fifteen
+    // years of filing is not hidden."
+    expect(screen.getByText("Inbox with the label")).toBeDefined();
+    expect(screen.getByText("Archived with the label")).toBeDefined();
+  });
+
+  it("never offers a Gmail Label from the Label picker (#126, ADR-0020: never a Wicket Label)", async () => {
+    await applyMailAccountDelta(
+      delta({ created: [makeMailAccount("acct-1", { serverKind: "gmail" })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Only thread" })] }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Family/Kids"), "acct-1", {
+            name: "Kids",
+            path: "Family/Kids",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Only thread"));
+    fireEvent.keyDown(window, { key: "L" });
+    await screen.findByLabelText("New label name");
+
+    expect(screen.queryByRole("menuitemcheckbox", { name: /Kids/ })).toBeNull();
+  });
+
+  /**
+   * Post-merge #126 fix: `gmailLabelFilter` used to be a state field of its
+   * own, never reset by the "primary account changed" effect that already
+   * clears `labelFilter` — a Gmail Label filter selected for one account
+   * could keep narrowing the view (to a label id that means nothing for the
+   * newly primary account) after Account Scope switched away from it.
+   */
+  it("clears an active Gmail Label filter when Account Scope's primary account switches (#126 post-merge fix)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { serverKind: "gmail", createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    const kidsId = gmailLabelId("acct-1", "Family/Kids");
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t1", "acct-1", { subject: "Account one thread", gmailLabelIds: [kidsId] }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Account two thread" })] }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [makeGmailLabel(kidsId, "acct-1", { name: "Kids", path: "Family/Kids" })],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Account one thread");
+    fireEvent.click(await screen.findByRole("button", { name: "Kids" }));
+    await waitFor(() => expect(screen.queryByText("Account two thread")).toBeNull());
+    expect(screen.getByText("Account one thread")).toBeDefined();
+
+    // Narrows Scope's primary account away from acct-1 (Kids' own account) to
+    // acct-2 — the same "uncheck the currently-primary account" trigger
+    // `MailSection.test.tsx`'s Account Scope suite already uses.
+    fireEvent.click(screen.getByRole("button", { name: /Account Scope: All accounts/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "acct-1@example.test" }));
+
+    // The stale Gmail Label filter is gone — back to the ordinary Inbox view,
+    // not stuck on a label id that means nothing for acct-2.
+    await screen.findByText("Account two thread");
+    expect(screen.queryByText("Account one thread")).toBeNull();
+    // The Sidebar's own folder highlight agrees: Inbox reads active again,
+    // not still suppressed by a filter that's supposed to be gone.
+    const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
+    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(true);
   });
 });

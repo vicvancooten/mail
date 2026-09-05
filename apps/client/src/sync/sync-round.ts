@@ -19,6 +19,7 @@ import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-
 import {
   applyCompositionDelta,
   applyCorrespondentDelta,
+  applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyPreferenceDelta,
@@ -26,6 +27,7 @@ import {
   compositionTokenKey,
   correspondentTokenKey,
   getSyncToken,
+  gmailLabelTokenKey,
   labelTokenKey,
   listCachedMailAccountIds,
   MAIL_ACCOUNT_TOKEN_KEY,
@@ -146,6 +148,19 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
         hasMore ||= labelDelta.hasMore;
         await applyLabelDelta(mailAccountId, labelDelta, {
           replace: startsReplay(replaysStarted, labelTokenKey(mailAccountId), labelDelta.reset),
+        });
+      }
+
+      const gmailLabelDelta = collections.GmailLabel;
+      if (gmailLabelDelta) {
+        changed = true;
+        hasMore ||= gmailLabelDelta.hasMore;
+        await applyGmailLabelDelta(mailAccountId, gmailLabelDelta, {
+          replace: startsReplay(
+            replaysStarted,
+            gmailLabelTokenKey(mailAccountId),
+            gmailLabelDelta.reset,
+          ),
         });
       }
 
@@ -303,6 +318,7 @@ async function buildSyncRequest({
     if (includeCollections) {
       entry.Thread = await getSyncToken(threadTokenKey(account.id));
       entry.Label = await getSyncToken(labelTokenKey(account.id));
+      entry.GmailLabel = await getSyncToken(gmailLabelTokenKey(account.id));
       entry.Composition = await getSyncToken(compositionTokenKey(account.id));
       entry.Correspondent = await getSyncToken(correspondentTokenKey(account.id));
     }
@@ -315,6 +331,7 @@ async function buildSyncRequest({
     if (
       entry.Thread !== undefined ||
       entry.Label !== undefined ||
+      entry.GmailLabel !== undefined ||
       entry.Composition !== undefined ||
       entry.Correspondent !== undefined ||
       entry.mutations !== undefined ||

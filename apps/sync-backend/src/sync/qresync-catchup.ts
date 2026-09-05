@@ -6,7 +6,7 @@ import { getMailAccountById } from "../mail-accounts/store.js";
 import { handleNewArrivals } from "./arrivals.js";
 import { type FolderDeltaResult, flagsDiffer } from "./delta.js";
 import type { FolderRow } from "./folders.js";
-import { INGEST_HEADERS, storeMessage } from "./ingest.js";
+import { buildIngestFetchQuery, storeMessage } from "./ingest.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { deleteEmptyThreads } from "./threading.js";
 
@@ -102,15 +102,7 @@ export async function attemptQresyncCatchup(
     mailbox.uidNext > previousUidNext
       ? await client.fetchAll(
           `${previousUidNext}:*`,
-          {
-            uid: true,
-            flags: true,
-            envelope: true,
-            internalDate: true,
-            size: true,
-            bodyStructure: true,
-            headers: [...INGEST_HEADERS],
-          },
+          buildIngestFetchQuery(folder, account?.serverKind ?? null),
           { uid: true },
         )
       : [];
@@ -172,7 +164,9 @@ export async function attemptQresyncCatchup(
       uidValidity,
       message,
       account?.emailAddress ?? "",
+      account?.serverKind ?? null,
     );
+    if (!stored) continue; // a `\Draft` row on Gmail's All Mail (#122) — never stored
     affectedThreadIds.add(stored.threadId);
     createdMessageIds.push(stored.id);
     created += 1;

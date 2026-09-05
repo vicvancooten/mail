@@ -106,6 +106,17 @@ export const threadSchema = z.object({
    */
   labelIds: z.array(z.string()),
   /**
+   * The Gmail Labels currently on this Thread, as `GmailLabel.id`s (#126,
+   * ADR-0020) — `labelIds`'s sibling, never merged into it: a Gmail Label is
+   * never a Wicket Label (CONTEXT.md). Always empty on a non-Gmail Mail
+   * Account. Denormalized the same way `labelIds` is, from the union of every
+   * Message in the Thread's `X-GM-LABELS` (a Gmail conversation's messages
+   * are not always labelled identically), system pseudo-labels
+   * (`\Inbox`/`\Sent`/`\Starred`/Important/Categories/Chats) excluded — those
+   * are never browsable Gmail Labels, see `GmailLabel` below.
+   */
+  gmailLabelIds: z.array(z.string()),
+  /**
    * The Screening Hold (#55, CONTEXT.md): the normalized `From` address of
    * the Unscreened Sender whose mail is holding this Thread in the Screener,
    * or `null` when the Thread is not held — which is every Thread on a Mail
@@ -172,6 +183,30 @@ export const labelSchema = z.object({
 export type Label = z.infer<typeof labelSchema>;
 
 /**
+ * A Gmail Label (#126, ADR-0020, CONTEXT.md): Gmail's own tag on a message,
+ * which IMAP shows as a folder — browsable, never editable from Wicket, and
+ * never a Wicket `Label` above. Synced read-only from the User's actual
+ * Gmail account (`sync/gmail-labels.ts`'s `persistGmailLabels`, fed by the
+ * same folder listing `sync/folders.ts#discoverFolders` already performs),
+ * never created by a mutation intent — there is no `applyGmailLabel`. `id` is
+ * deterministic (`gmailLabelId` in `packages/shared/src/gmail-labels.ts`,
+ * `(mailAccountId, path)`), so a rename (a new IMAP path) is a destroy of the
+ * old id plus a create of the new one, not an update in place — the same
+ * "tombstone or rename observed through the collection" shape every
+ * path-keyed synced row gets. `name` is the display leaf ("Kids"); `path` is
+ * Gmail's own full hierarchy ("Family/Kids") — `folders.ts`'s own
+ * `name`/`path` split, reused rather than reinvented.
+ */
+export const gmailLabelSchema = z.object({
+  id: z.string(),
+  mailAccountId: z.string(),
+  name: z.string(),
+  path: z.string(),
+  updatedAt: z.iso.datetime(),
+});
+export type GmailLabel = z.infer<typeof gmailLabelSchema>;
+
+/**
  * One collection's delta since the state token the Client sent.
  * `reset: true` (ADR-0011) replaces the merge-in-place contract: the Client
  * discards whatever it had for this collection and treats `created` as the
@@ -208,6 +243,9 @@ export type ThreadDelta = z.infer<typeof threadDeltaSchema>;
 
 export const labelDeltaSchema = collectionDeltaSchema(labelSchema);
 export type LabelDelta = z.infer<typeof labelDeltaSchema>;
+
+export const gmailLabelDeltaSchema = collectionDeltaSchema(gmailLabelSchema);
+export type GmailLabelDelta = z.infer<typeof gmailLabelDeltaSchema>;
 
 /** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
 export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
@@ -544,6 +582,7 @@ export type MutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
   Label: requestedTokenSchema.optional(),
+  GmailLabel: requestedTokenSchema.optional(),
   Composition: requestedTokenSchema.optional(),
   Correspondent: requestedTokenSchema.optional(),
   /** This account's queue to flush, oldest first. Omitted (never `[]`) when there is nothing queued for it. */
@@ -600,6 +639,7 @@ export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
   Label: labelDeltaSchema.optional(),
+  GmailLabel: gmailLabelDeltaSchema.optional(),
   Composition: compositionDeltaSchema.optional(),
   Correspondent: correspondentDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */

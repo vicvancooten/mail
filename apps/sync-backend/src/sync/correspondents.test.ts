@@ -81,6 +81,20 @@ describe("activityForMessage", () => {
     expect(activityForMessage("sent", { ...base, toAddresses: [], ccAddresses: [] })).toEqual([]);
     expect(activityForMessage("inbox", { ...base, fromAddress: null })).toEqual([]);
   });
+
+  it("counts a \\Sent-labelled All Mail message's To/Cc as sent, same as a Sent-role folder (#123)", () => {
+    const activity = activityForMessage("all", { ...base, gmailLabels: ["\\Sent"] });
+    expect(activity).toEqual([
+      { address: "bo@example.com", name: "Bo", direction: "sent", at: base.sentAt },
+      { address: "cc@example.com", name: null, direction: "sent", at: base.sentAt },
+    ]);
+  });
+
+  it("counts an unlabelled All Mail message's From as received, not sent (#123)", () => {
+    expect(activityForMessage("all", { ...base, gmailLabels: null })).toEqual([
+      { address: "ann@example.com", name: "Ann", direction: "received", at: base.receivedAt },
+    ]);
+  });
 });
 
 describe("recordCorrespondentActivity", () => {

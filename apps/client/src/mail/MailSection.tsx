@@ -27,6 +27,7 @@ import {
   saveComposition,
   THREAD_PAGE_SIZE,
   useDraftCompositions,
+  useGmailLabels,
   useLabels,
   useMailAccounts,
   usePreference,
@@ -93,6 +94,24 @@ const GROUP_BULK_MESSAGE_TOAST_MS = 6_000;
  * from scratch on every keystroke — the root of the Palette's "results
  * flicker to 'No matching commands'" bug. */
 function noop() {}
+
+/**
+ * "Which view-narrowing filter is active, if any" (#43, unified with Gmail
+ * Labels in the #126 post-merge fix): a Wicket Label and a Gmail Label are
+ * mutually exclusive by construction here — there is no state shape that can
+ * express "both selected" or "the Gmail Label filter survived past whichever
+ * reset cleared the Label one", the drift that let a stale
+ * `gmailLabelFilter` outlive an account switch. `folder` stays its own,
+ * separate state (`FolderKey`) — selecting a folder always clears this to
+ * `NO_FILTER` (`selectFolder` below), but the reverse never has to hold: a
+ * filter is a narrowing *of* whichever folder the User was last in, not a
+ * replacement for it.
+ */
+type MailFilter =
+  | { kind: "none" }
+  | { kind: "label"; labelId: string }
+  | { kind: "gmailLabel"; labelId: string };
+const NO_FILTER: MailFilter = { kind: "none" };
 
 /**
  * Lazy-loaded (compose-spec §Editor: "TipTap v3 ... lazy-loaded so it never
@@ -205,10 +224,34 @@ export function MailSection({
   const preference = usePreference();
   const autoAdvanceEnabled = preference?.autoAdvanceEnabled ?? DEFAULT_AUTO_ADVANCE_ENABLED;
   const direction = preference?.autoAdvanceDirection ?? DEFAULT_AUTO_ADVANCE_DIRECTION;
-  // Filter-by-label (#43): "a label filter behaves as a view, bounded
-  // window like any other" — `null` means the ordinary Inbox view.
-  const [labelFilter, setLabelFilter] = useState<string | null>(initialLabelFilter);
+  // Filter-by-label (#43, unified with Gmail Labels in the #126 post-merge
+  // fix): "a label filter behaves as a view, bounded window like any
+  // other" — one discriminated union rather than two parallel optional
+  // fields (`labelFilter`/`gmailLabelFilter`) that could independently go
+  // stale relative to each other (that drift was exactly #126's bug: an
+  // account switch reset `labelFilter` but not `gmailLabelFilter`, and the
+  // Sidebar's active-row highlight never learned to check the latter at
+  // all). `{ kind: "none" }` means the ordinary Inbox/folder view;
+  // `labelFilter`/`gmailLabelFilter` below are derived read-back for every
+  // call site that only cares about "which one, if any" — never set
+  // independently of `filter` itself.
+  const [filter, setFilter] = useState<MailFilter>(
+    initialLabelFilter !== null ? { kind: "label", labelId: initialLabelFilter } : NO_FILTER,
+  );
+  const labelFilter = filter.kind === "label" ? filter.labelId : null;
   const labels = useLabels(accountId) ?? [];
+  // Gmail Labels (#126, ADR-0020): a Gmail Mail Account's own Labels,
+  // browsable and read-only, `labelFilter`'s sibling — never merged into it,
+  // and mutually exclusive with it (selecting one clears the other, `filter`
+  // being a single union rather than two fields is what makes that
+  // exclusivity structural instead of a convention every setter has to
+  // remember). Always `[]` for a non-Gmail account (the Sync Backend never
+  // populates the collection for one), which is what makes the sidebar
+  // section's own "only for Gmail Mail Accounts" rule a plain empty-list
+  // check, the same way the Labels section already hides itself when there
+  // are none.
+  const gmailLabels = useGmailLabels(accountId) ?? [];
+  const gmailLabelFilter = filter.kind === "gmailLabel" ? filter.labelId : null;
 
   // Report label/Thread selection to whoever asked (`onLocationChange`) —
   // routed callers use this to keep `/mail`'s URL a mirror of this state
@@ -382,7 +425,7 @@ export function MailSection({
     if (previousPrimary === null) return;
     setSelectedThreadId(null);
     setLimit(THREAD_PAGE_SIZE);
-    setLabelFilter(null);
+    setFilter(NO_FILTER);
     setFolder(DEFAULT_FOLDER);
   }, [accountId]);
 
@@ -402,7 +445,7 @@ export function MailSection({
       previousPrimaryAccountRef.current = id;
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
-      setLabelFilter(null);
+      setFilter(NO_FILTER);
       setFolder(DEFAULT_FOLDER);
     },
     [setAccountScope],
@@ -430,7 +473,7 @@ export function MailSection({
         return;
       }
       setFolder(next);
-      setLabelFilter(null);
+      setFilter(NO_FILTER);
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
     },
@@ -450,7 +493,7 @@ export function MailSection({
       switch (target.kind) {
         case "thread":
           if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
-          setLabelFilter(null);
+          setFilter(NO_FILTER);
           setFolder(DEFAULT_FOLDER);
           setSelectedThreadId(target.threadId);
           return;
@@ -467,16 +510,25 @@ export function MailSection({
   }, [accountId, narrowScopeTo, reopenCompose]);
 
   const selectLabelFilter = useCallback((labelId: string | null) => {
-    setLabelFilter(labelId);
+    setFilter(labelId !== null ? { kind: "label", labelId } : NO_FILTER);
     setSelectedThreadId(null);
     setLimit(THREAD_PAGE_SIZE);
     if (labelId !== null) setFolder(DEFAULT_FOLDER);
   }, []);
 
-  const view = useMemo(
-    () => (labelFilter ? ({ kind: "label", labelId: labelFilter } as const) : folderToView(folder)),
-    [labelFilter, folder],
-  );
+  const selectGmailLabelFilter = useCallback((labelId: string) => {
+    setFilter({ kind: "gmailLabel", labelId });
+    setSelectedThreadId(null);
+    setLimit(THREAD_PAGE_SIZE);
+    setFolder(DEFAULT_FOLDER);
+  }, []);
+
+  const view = useMemo(() => {
+    if (filter.kind === "gmailLabel")
+      return { kind: "gmailLabel", labelId: filter.labelId } as const;
+    if (filter.kind === "label") return { kind: "label", labelId: filter.labelId } as const;
+    return folderToView(folder);
+  }, [filter, folder]);
   // Account Scope (#73): merges every in-scope account's Threads into one
   // newest-first list (`useThreadWindow`'s own doc comment) — the acceptance
   // criteria's "Thread list shows only in-scope Threads".
@@ -521,8 +573,8 @@ export function MailSection({
   // never while a Label filter has narrowed what's actually on screen out
   // from under `folder`.
   const bulkFolderRole = useMemo(
-    () => (labelFilter === null ? bulkTriageFolderRoleForFolder(folder) : null),
-    [folder, labelFilter],
+    () => (filter.kind === "none" ? bulkTriageFolderRoleForFolder(folder) : null),
+    [folder, filter],
   );
   // A group's true total (`POST /bulk-triage/count`), keyed by its own
   // label — fetched lazily, once per label, the first time its header is
@@ -969,6 +1021,9 @@ export function MailSection({
             labels={labelsForPicker}
             labelFilter={labelFilter}
             onSelectLabel={selectLabelFilter}
+            gmailLabels={gmailLabels}
+            gmailLabelFilter={gmailLabelFilter}
+            onSelectGmailLabel={selectGmailLabelFilter}
             onCompose={openCompose}
             screenerCount={screenerSenderCount}
             draftsCount={draftCompositions.length}

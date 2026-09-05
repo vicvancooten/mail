@@ -1,6 +1,6 @@
 {
-  "id": "f1d85d1c-c4cb-4ba3-9153-faaa97548e0a",
-  "prevId": "6688b261-27b1-4a8e-8b69-8f225f2515eb",
+  "id": "287fa60e-48e4-48f3-aa29-0bdc0a156d35",
+  "prevId": "0bc2c8cc-853c-462d-a810-e80dc93cfb4b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1155,6 +1155,107 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.gmail_labels": {
+      "name": "gmail_labels",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "mail_account_id": {
+          "name": "mail_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "sync_rev": {
+          "name": "sync_rev",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "sync_created_rev": {
+          "name": "sync_created_rev",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "gmail_labels_sync_rev_idx": {
+          "name": "gmail_labels_sync_rev_idx",
+          "columns": [
+            {
+              "expression": "mail_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sync_rev",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "gmail_labels_mail_account_id_mail_accounts_id_fk": {
+          "name": "gmail_labels_mail_account_id_mail_accounts_id_fk",
+          "tableFrom": "gmail_labels",
+          "tableTo": "mail_accounts",
+          "columnsFrom": [
+            "mail_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.labels": {
       "name": "labels",
       "schema": "",
@@ -1399,6 +1500,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'active'"
+        },
+        "server_kind": {
+          "name": "server_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "signature": {
           "name": "signature",
@@ -1852,6 +1959,12 @@
           "notNull": true,
           "default": "'{}'"
         },
+        "gmail_labels": {
+          "name": "gmail_labels",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
         "size_bytes": {
           "name": "size_bytes",
           "type": "integer",
@@ -2199,6 +2312,111 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.oauth_sign_in_attempts": {
+      "name": "oauth_sign_in_attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_verifier": {
+          "name": "code_verifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mail_account_id": {
+          "name": "mail_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "oauth_sign_in_attempts_user_id_idx": {
+          "name": "oauth_sign_in_attempts_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "oauth_sign_in_attempts_user_id_users_id_fk": {
+          "name": "oauth_sign_in_attempts_user_id_users_id_fk",
+          "tableFrom": "oauth_sign_in_attempts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "oauth_sign_in_attempts_mail_account_id_mail_accounts_id_fk": {
+          "name": "oauth_sign_in_attempts_mail_account_id_mail_accounts_id_fk",
+          "tableFrom": "oauth_sign_in_attempts",
+          "tableTo": "mail_accounts",
+          "columnsFrom": [
+            "mail_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.passkey_credentials": {
       "name": "passkey_credentials",
       "schema": "",
@@ -2427,6 +2645,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "last_refresh_at": {
+          "name": "last_refresh_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_refresh_error": {
+          "name": "last_refresh_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -2891,6 +3121,13 @@
           "notNull": true,
           "default": "'{}'"
         },
+        "gmail_label_ids": {
+          "name": "gmail_label_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
         "held_sender": {
           "name": "held_sender",
           "type": "text",
@@ -3219,6 +3456,44 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.vapid_keys": {
+      "name": "vapid_keys",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "public_key": {
+          "name": "public_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "private_key": {
+          "name": "private_key",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

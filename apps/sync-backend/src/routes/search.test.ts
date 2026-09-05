@@ -38,7 +38,7 @@ function buildTestApp() {
     db,
     publicUrl: PUBLIC_URL,
     mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
-    mailAccountVerify: async () => ({ ok: true }),
+    mailAccountVerify: async () => ({ ok: true, serverKind: "generic" }),
   });
 }
 

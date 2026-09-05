@@ -127,6 +127,54 @@ describe("recordNewMailNotifications", () => {
     await recordNewMailNotifications(db, inbox, account, []);
     expect(await listUndelivered(db)).toEqual([]);
   });
+
+  describe("on Gmail (#125, ADR-0020)", () => {
+    /** One Message stored on All Mail (role "all"), the way #122's Gmail ingest would have. */
+    async function seedGmailMessage(
+      allMail: FolderRow,
+      gmailLabels: string[] | null,
+    ): Promise<string> {
+      const threadId = await resolveThread(db, {
+        mailAccountId: account.id,
+        threadingIds: [randomUUID()],
+        subject: "Test",
+        receivedAt: new Date("2026-01-01T00:00:00Z"),
+      });
+      const id = randomUUID();
+      await db.insert(messages).values({
+        id,
+        mailAccountId: account.id,
+        threadId,
+        folderId: allMail.id,
+        uid: 1,
+        subject: "Test",
+        fromName: "Bob",
+        fromAddress: "bob@x.test",
+        sentAt: new Date("2026-01-01T00:00:00Z"),
+        receivedAt: new Date("2026-01-01T00:00:00Z"),
+        gmailLabels,
+      });
+      return id;
+    }
+
+    it("records a new_mail entry for a \\Inbox-labelled All Mail message", async () => {
+      const allMail = await seedFolder("all", "[Gmail]/All Mail");
+      const messageId = await seedGmailMessage(allMail, ["\\Inbox"]);
+
+      await recordNewMailNotifications(db, allMail, account, [messageId]);
+
+      expect((await listUndelivered(db)).map((row) => row.kind)).toEqual(["new_mail"]);
+    });
+
+    it("never records anything for an unlabelled All Mail message — it's archived, not the Inbox", async () => {
+      const allMail = await seedFolder("all", "[Gmail]/All Mail");
+      const messageId = await seedGmailMessage(allMail, null);
+
+      await recordNewMailNotifications(db, allMail, account, [messageId]);
+
+      expect(await listUndelivered(db)).toEqual([]);
+    });
+  });
 });
 
 describe("recordNeedsReauthNotification", () => {

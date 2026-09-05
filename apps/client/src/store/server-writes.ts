@@ -2,6 +2,7 @@ import type {
   CollectionDelta,
   Composition,
   Correspondent,
+  GmailLabel,
   Label,
   MailAccount,
   Preference,
@@ -53,6 +54,10 @@ export function labelTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Label`;
 }
 
+export function gmailLabelTokenKey(mailAccountId: string): string {
+  return `account:${mailAccountId}:GmailLabel`;
+}
+
 export function compositionTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Composition`;
 }
@@ -93,6 +98,7 @@ export async function applyMailAccountDelta(
       db.mailAccounts,
       db.threads,
       db.labels,
+      db.gmailLabels,
       db.correspondents,
       db.compositions,
       db.listWindows,
@@ -219,6 +225,26 @@ export async function applyLabelDelta(
     if (upserts.length > 0) await db.labels.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.labels.bulkDelete(delta.destroyed);
     await db.syncState.put({ key: labelTokenKey(mailAccountId), token: delta.newState });
+  });
+}
+
+/**
+ * `GmailLabel`, scoped to one Mail Account (#126, ADR-0020). `Label`'s
+ * sibling above, same no-windowing shape, into its own table — never merged
+ * into `db.labels`, a Gmail Label is never a Wicket Label (CONTEXT.md).
+ */
+export async function applyGmailLabelDelta(
+  mailAccountId: string,
+  delta: CollectionDelta<GmailLabel>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.gmailLabels, db.syncState], async () => {
+    if (replace) await db.gmailLabels.where("mailAccountId").equals(mailAccountId).delete();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.gmailLabels.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.gmailLabels.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: gmailLabelTokenKey(mailAccountId), token: delta.newState });
   });
 }
 
@@ -357,6 +383,7 @@ export async function pruneOrphanedMailAccountData(): Promise<void> {
       db.mailAccounts,
       db.threads,
       db.labels,
+      db.gmailLabels,
       db.correspondents,
       db.compositions,
       db.listWindows,
@@ -381,6 +408,7 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   await db.mailAccounts.bulkDelete(mailAccountIds);
   await db.threads.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.labels.where("mailAccountId").anyOf(mailAccountIds).delete();
+  await db.gmailLabels.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.correspondents.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.compositions.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.listWindows.where("mailAccountId").anyOf(mailAccountIds).delete();
@@ -388,6 +416,7 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   await db.syncState.bulkDelete([
     ...mailAccountIds.map(threadTokenKey),
     ...mailAccountIds.map(labelTokenKey),
+    ...mailAccountIds.map(gmailLabelTokenKey),
     ...mailAccountIds.map(correspondentTokenKey),
     ...mailAccountIds.map(compositionTokenKey),
   ]);

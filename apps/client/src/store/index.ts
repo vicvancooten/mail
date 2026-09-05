@@ -67,6 +67,7 @@ export {
 } from "./mutation-queue.js";
 export {
   readCorrespondents,
+  readGmailLabels,
   readLabels,
   readMailAccounts,
   readPreference,
@@ -79,6 +80,7 @@ export {
   THREAD_PAGE_SIZE,
   type ThreadWindowPage,
   useCorrespondents,
+  useGmailLabels,
   useLabels,
   useMailAccounts,
   usePreference,

@@ -248,6 +248,16 @@ export const mailAccounts = pgTable(
     status: text("status", { enum: ["active", "needs_reauth"] })
       .notNull()
       .default("active"),
+    // Whether this Mail Account's server speaks Gmail's IMAP extension
+    // (`X-GM-EXT-1`), detected by `mail-accounts/server-kind.ts` — ADR-0020:
+    // "selection by server capability, not credential kind", so an
+    // app-password Gmail account gets the same kind as one added by Google
+    // sign-in. Set at verification for a new account (`mail-accounts/verify.ts`)
+    // and on every connect for an existing one (`sync/imap-connection.ts`),
+    // so a Mail Account added before this column existed picks it up on its
+    // next sync rather than needing a migration backfill. Null until then —
+    // the write paths this unblocks (label ops vs. moves) don't exist yet.
+    serverKind: text("server_kind", { enum: ["gmail", "generic"] }),
     /** The plain-text signature (#47, compose-spec §Signature) — null until the User sets one. */
     signature: text("signature"),
     /** The notification on/off toggle (#54, poc-spec.md §Preferences) — the Mail-Account-scoped half of Preferences, alongside `signature`. */
@@ -284,6 +294,16 @@ export const mailAccounts = pgTable(
     // Only `sync/body-sweep.ts` writes either column.
     bodyWatermark: timestamp("body_watermark", { withTimezone: true }),
     bodySweepComplete: boolean("body_sweep_complete").notNull().default(false),
+    // Gmail's roughly 2.5 GB/day IMAP download cap (#127, ADR-0020's final
+    // consequence): once the body sweep trips it on a `gmail`-kind account,
+    // `sync/body-sweep.ts` stamps this instead of failing the sweep, and
+    // skips fetching until it passes. Null the rest of the time — a sweep
+    // that isn't paused has nothing here, and this is never set on a
+    // `generic` account (that Provider's errors still tear the session down
+    // as before). Doesn't touch `syncState`/`lastSyncError`: a paused sweep
+    // is expected behaviour, not a sync error, and the Index Watermark
+    // already states partial coverage on its own.
+    bodySweepPausedUntil: timestamp("body_sweep_paused_until", { withTimezone: true }),
     // Bumped whenever a Folder under this account is rebuilt from a
     // UIDVALIDITY change (`sync/ingest.ts#applyUidValidity`) — the "underlying
     // state was rebuilt" trigger ADR-0011 names for a Thread `reset: true`.
@@ -445,6 +465,16 @@ export const threads = pgTable(
     // mutations.ts` is the only writer; `labels` below is the id→name
     // collection those ids resolve against.
     labelIds: text("label_ids").array().notNull().default([]),
+    // Gmail Labels currently on this Thread (#126, ADR-0020) — `labelIds`'s
+    // sibling, never merged into it: a Gmail Label is never a Wicket Label
+    // (CONTEXT.md). Always `[]` on a non-Gmail account. `sync/thread-rollup.ts`
+    // is the only writer, computed from the union of every Message in the
+    // Thread's `gmailLabels` (a Gmail conversation is not always labelled
+    // identically on every message), mapped through
+    // `gmail-labels.ts#gmailLabelId` and filtered to exclude system
+    // pseudo-labels the same way `sync/gmail-labels.ts#persistGmailLabels`
+    // excludes them from the `GmailLabel` collection itself.
+    gmailLabelIds: text("gmail_label_ids").array().notNull().default([]),
     // The Screening Hold (#55, CONTEXT.md, ADR-0008): the normalized `From`
     // address of the Unscreened Sender holding this Thread in the Screener,
     // null when it is not held. An App Feature with no IMAP-side trace —
@@ -587,6 +617,50 @@ export const labels = pgTable(
 export type LabelRow = typeof labels.$inferSelect;
 
 /**
+ * A Gmail Label (#126, ADR-0020, CONTEXT.md): Gmail's own tag on a message,
+ * which IMAP shows as a folder — browsable, never editable from Wicket, and
+ * never a `labels` row above. Its own ADR-0011 collection, never merged into
+ * `labels`. `id` is **deterministic** (`gmailLabelId` in
+ * `packages/shared/src/gmail-labels.ts`, `(mailAccountId, path)`) the same
+ * way a `labels` row's is, but for a different reason: Gmail — not the
+ * User — assigns the path, so determinism here is purely so
+ * `sync/gmail-labels.ts#persistGmailLabels` can upsert by id with no
+ * lookup-by-path round trip, and so `threads.gmailLabelIds` (built off a raw
+ * `X-GM-LABELS` string, never a join) always names the same row.
+ *
+ * `sync/gmail-labels.ts` is the only writer — fed by the same folder listing
+ * `sync/folders.ts#discoverFolders` already performs on every sync, filtered
+ * to the subset that is a genuine browsable User Gmail Label rather than one
+ * of the four Folders Gmail's mail actually syncs into (All Mail, Spam,
+ * Trash, Drafts — `sync/sync-plan.ts`'s `GMAIL_SYNCED_ROLES`) or one of its
+ * housekeeping labels never shown (Inbox, Sent, Starred, Important,
+ * Categories, Chats — #91 story 40). A rename changes Gmail's own IMAP path,
+ * so it is a destroy of the old id plus a create of the new one, exactly like
+ * `sync/folders.ts#persistFolders` already treats a renamed Folder.
+ */
+export const gmailLabels = pgTable(
+  "gmail_labels",
+  {
+    id: text("id").primaryKey(),
+    mailAccountId: text("mail_account_id")
+      .notNull()
+      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    /** The display leaf, e.g. "Kids" for the label at path "Family/Kids" — `folders.ts`'s own `name`. */
+    name: text("name").notNull(),
+    /** Gmail's own full hierarchy, e.g. "Family/Kids" — `folders.ts`'s own `path`, and half of this row's deterministic id. */
+    path: text("path").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `labels`/`threads` — see their
+    // comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [index("gmail_labels_sync_rev_idx").on(table.mailAccountId, table.syncRev)],
+);
+export type GmailLabelRow = typeof gmailLabels.$inferSelect;
+
+/**
  * A Correspondent (#49, CONTEXT.md, compose-spec §Recipient autocomplete):
  * an address this Mail Account has actually exchanged mail with, derived
  * from message history and never hand-edited. `id` is deterministic
@@ -689,9 +763,11 @@ export interface MessageAddress {
  * `(folderId, uid)` — IMAP's own identity for a message — so re-ingesting a
  * folder updates rows instead of duplicating them ("zero lost or duplicated
  * messages", `docs/poc-scope.md`). A message that genuinely exists in two
- * folders (a Sent self-copy, a Gmail label) is two rows with the same
+ * folders (a Sent self-copy on a non-Gmail server) is two rows with the same
  * `messageIdHeader`, because that is two IMAP messages; threading pulls them
- * into one Thread.
+ * into one Thread. On Gmail this no longer includes a Gmail Label
+ * (ADR-0020): a Gmail Label is read off the one All Mail copy as
+ * `gmailLabels`, never a second synced Folder.
  *
  * `seen`/`flagged` are the two **Protocol Features** (ADR-0006): read state
  * and Star, mirrored from `\Seen`/`\Flagged` so a User's existing stars are
@@ -699,6 +775,14 @@ export interface MessageAddress {
  * `flags` keeps the raw set alongside them so nothing is lost in the
  * mapping. Pin, Label and Gatekeeper state are App Features and get their
  * own tables in their own tickets — never a column here.
+ *
+ * `gmailLabels` (#122, ADR-0020) is null on a non-Gmail server and on every
+ * Gmail Folder except All Mail — Spam/Trash/Drafts messages are never
+ * labelled per message, only the row that actually needs it (a Gmail Label
+ * is read through All Mail) gets one. `sync/ingest.ts#storeMessage` is the
+ * only writer; `sync/inbox.ts#isInInbox` and `sync/inbox.ts#isSentMessage`
+ * (#123 — `\Sent` stands in for the Sent Folder role Gmail never syncs) are
+ * the seams that read it back.
  *
  * `bodyText`/`bodyHtml`/`snippet` are null until the body is fetched:
  * ADR-0005's backfill is headers-first with lazy bodies, and #36's sweep
@@ -755,6 +839,8 @@ export const messages = pgTable(
     answered: boolean("answered").notNull().default(false),
     draft: boolean("draft").notNull().default(false),
     flags: text("flags").array().notNull().default([]),
+    /** This message's Gmail Labels (`X-GM-LABELS`), fetched per message on All Mail only — see the table doc comment. */
+    gmailLabels: text("gmail_labels").array(),
 
     sizeBytes: integer("size_bytes"),
     hasAttachments: boolean("has_attachments").notNull().default(false),

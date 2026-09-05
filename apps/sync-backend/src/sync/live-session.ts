@@ -2,23 +2,24 @@ import type { ExistsEvent, ExpungeEvent, FlagsEvent, ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { getMailAccountById, type MailAccountRow, setSyncStatus } from "../mail-accounts/store.js";
 import { establishFolderBaseline, runAccountBackfill } from "./backfill.js";
 import { runBodySweep } from "./body-sweep.js";
 import { applyFolderDelta, getFolderById } from "./delta.js";
-import {
-  discoverFolders,
-  type FolderRow,
-  listSelectableFolders,
-  persistFolders,
-} from "./folders.js";
+import { discoverFolders, type FolderRow, persistFolders } from "./folders.js";
+import { persistGmailLabels } from "./gmail-labels.js";
 import { connectMailAccount, MailAccountNeedsReauthError } from "./imap-connection.js";
 import { attemptQresyncCatchup } from "./qresync-catchup.js";
+import { listSyncPlanFolders, resolveSyncPlan, resolveWatchFolder } from "./sync-plan.js";
 
 /**
  * The resident per-account sync loop (#35): one long-lived IMAP connection
- * that holds IDLE on INBOX and polls every other folder, self-restarting
- * with backoff on any drop. This is what `sync/sync-account.ts`'s own module
+ * that holds IDLE on the account's watched Folder and polls every other
+ * Folder the sync plan covers, self-restarting with backoff on any drop.
+ * The watched Folder is INBOX on a generic account; on Gmail it is All Mail
+ * (#122, ADR-0020) — the Inbox there is a Gmail Label seen through it, never
+ * a Folder of its own. This is what `sync/sync-account.ts`'s own module
  * comment named as its replacement — that one-shot pass is still what runs
  * inside here for a folder's very first sync (and for a UIDVALIDITY
  * rebuild), so #34's tested ingest path never forks into a second copy.
@@ -221,39 +222,44 @@ async function runSession(db: Db, accountId: string, ctx: RunSessionContext): Pr
   try {
     await setSyncStatus(db, accountId, { state: "syncing" });
     const live = await persistFolders(db, accountId, await discoverFolders(client));
-    const inbox = live.find((folder) => folder.role === "inbox" && folder.selectable);
-    if (!inbox) {
-      throw new Error(`Mail Account ${accountId} has no selectable INBOX`);
+    await persistGmailLabels(db, accountId, account.serverKind, live);
+    const plan = resolveSyncPlan(account.serverKind, live);
+    const watchFolder = resolveWatchFolder(account.serverKind, plan);
+    if (!watchFolder) {
+      const label = isGmailAccount(account.serverKind) ? "All Mail" : "INBOX";
+      throw new Error(`Mail Account ${accountId} has no selectable ${label} folder`);
     }
 
-    // Every selectable folder gets a baseline first — a fast, message-free
-    // metadata read (#36's `establishFolderBaseline`) — before a single
-    // message is fetched. That gives the account-wide backfill walker a
-    // cursor to resume for every folder, and gives INBOX's delta/QRESYNC
-    // catch-up below a `uidNext` to diff against, all up front rather than
-    // after a full synchronous ingest the way #34/#35 did.
-    let inboxJustEstablished = false;
-    for (const folder of live) {
-      if (!folder.selectable) continue;
+    // Every Folder the sync plan covers gets a baseline first — a fast,
+    // message-free metadata read (#36's `establishFolderBaseline`) — before a
+    // single message is fetched. That gives the account-wide backfill walker
+    // a cursor to resume for every plan Folder, and gives the watched
+    // Folder's delta/QRESYNC catch-up below a `uidNext` to diff against, all
+    // up front rather than after a full synchronous ingest the way #34/#35
+    // did. Folders the plan doesn't cover (every other Gmail Label) are never
+    // touched here — ADR-0020.
+    let watchJustEstablished = false;
+    for (const folder of plan) {
       const { established } = await establishFolderBaseline(db, client, folder);
-      if (folder.id === inbox.id) inboxJustEstablished = established;
+      if (folder.id === watchFolder.id) watchJustEstablished = established;
     }
 
-    // A freshly established INBOX — first-ever connect, or a UIDVALIDITY
-    // rebuild — has nothing stored to delta against yet: every one of its
-    // messages is the background backfill's job from here (`residentLoop`),
-    // not a delta's. Anything else means INBOX was already tracked, and
-    // whatever changed since last time is a genuine gap `attemptQresyncCatchup`
-    // (falling back to the UID-diff `applyFolderDelta`) catches up on.
-    if (!inboxJustEstablished) {
-      const freshInbox = await getFolderById(db, inbox.id);
-      if (freshInbox && !(await attemptQresyncCatchup(db, client, freshInbox))) {
-        await applyFolderDelta(db, client, freshInbox);
+    // A freshly established watched Folder — first-ever connect, or a
+    // UIDVALIDITY rebuild — has nothing stored to delta against yet: every
+    // one of its messages is the background backfill's job from here
+    // (`residentLoop`), not a delta's. Anything else means it was already
+    // tracked, and whatever changed since last time is a genuine gap
+    // `attemptQresyncCatchup` (falling back to the UID-diff `applyFolderDelta`)
+    // catches up on.
+    if (!watchJustEstablished) {
+      const freshWatch = await getFolderById(db, watchFolder.id);
+      if (freshWatch && !(await attemptQresyncCatchup(db, client, freshWatch))) {
+        await applyFolderDelta(db, client, freshWatch);
       }
     }
     await setSyncStatus(db, accountId, { state: "idle", touchProgress: true });
 
-    await residentLoop(db, client, accountId, inbox, ctx);
+    await residentLoop(db, client, accountId, watchFolder, account.serverKind, ctx);
   } finally {
     await client.logout().catch(() => undefined);
     client.close();
@@ -261,16 +267,17 @@ async function runSession(db: Db, accountId: string, ctx: RunSessionContext): Pr
 }
 
 /**
- * The steady state once the baseline is established: IDLE reactions on
- * INBOX and a polling ticker for everything else, both funnelled through one
- * failure signal so either kind of trouble tears the whole session down the
- * same way.
+ * The steady state once the baseline is established: IDLE reactions on the
+ * watched Folder and a polling ticker for everything else the sync plan
+ * covers, both funnelled through one failure signal so either kind of
+ * trouble tears the whole session down the same way.
  */
 async function residentLoop(
   db: Db,
   client: ImapFlow,
   accountId: string,
-  inbox: FolderRow,
+  watchFolder: FolderRow,
+  serverKind: MailAccountRow["serverKind"],
   ctx: RunSessionContext,
 ): Promise<void> {
   const failure = createSignal();
@@ -292,7 +299,7 @@ async function residentLoop(
     }
     wakeInFlight = true;
     try {
-      const fresh = await getFolderById(db, inbox.id);
+      const fresh = await getFolderById(db, watchFolder.id);
       if (fresh) await applyFolderDelta(db, client, fresh);
       await setSyncStatus(db, accountId, { state: "idle", touchProgress: true });
     } catch (err) {
@@ -319,13 +326,13 @@ async function residentLoop(
   // what (a plain EXPUNGE doesn't carry a UID) — `applyFolderDelta`'s
   // UID-diff is what actually finds out, so every one of them just wakes it.
   const onExists = (event: ExistsEvent) => {
-    if (event.path === inbox.path) scheduleWake();
+    if (event.path === watchFolder.path) scheduleWake();
   };
   const onFlags = (event: FlagsEvent) => {
-    if (event.path === inbox.path) scheduleWake();
+    if (event.path === watchFolder.path) scheduleWake();
   };
   const onExpunge = (event: ExpungeEvent) => {
-    if (event.path === inbox.path) scheduleWake();
+    if (event.path === watchFolder.path) scheduleWake();
   };
   const onClose = () => fail(new Error("IMAP connection closed"));
   const onError = (err: Error) => fail(err);
@@ -339,18 +346,18 @@ async function residentLoop(
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   const runPoll = async () => {
     try {
-      const current = await listSelectableFolders(db, accountId);
+      const current = await listSyncPlanFolders(db, accountId, serverKind);
       for (const folder of current) {
-        if (folder.role === "inbox") continue;
+        if (folder.id === watchFolder.id) continue;
         if (ctx.isStopped() || failed !== undefined) return;
         if (!(await attemptQresyncCatchup(db, client, folder))) {
           await applyFolderDelta(db, client, folder);
         }
       }
-      // Re-select INBOX so auto-IDLE arms there rather than on whatever
-      // folder was polled last — the fast path makes this a no-op once it
-      // already is.
-      const lock = await client.getMailboxLock(inbox.path, { readOnly: true });
+      // Re-select the watched Folder so auto-IDLE arms there rather than on
+      // whatever folder was polled last — the fast path makes this a no-op
+      // once it already is.
+      const lock = await client.getMailboxLock(watchFolder.path, { readOnly: true });
       lock.release();
       await setSyncStatus(db, accountId, { state: "idle", touchProgress: true });
     } catch (err) {

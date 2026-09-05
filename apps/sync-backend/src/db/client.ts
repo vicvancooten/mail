@@ -9,3 +9,6 @@ export function createDb(env: Pick<Env, "DATABASE_URL">) {
 }
 
 export type Db = ReturnType<typeof createDb>["db"];
+
+/** The transaction handle `db.transaction(async (tx) => ...)` hands its callback — same query surface as `Db`. */
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];

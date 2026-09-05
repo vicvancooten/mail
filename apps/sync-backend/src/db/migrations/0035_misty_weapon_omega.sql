@@ -1,0 +1,1 @@
+ALTER TABLE "mail_accounts" ADD COLUMN "body_sweep_paused_until" timestamp with time zone;

@@ -105,6 +105,10 @@ describe("Mail Account add flow against GreenMail", () => {
       throw new Error("saved Mail Account row not found");
     }
     expect(JSON.stringify(stored.credential)).not.toContain(password);
+
+    // GreenMail doesn't advertise Gmail's `X-GM-EXT-1` capability (#121,
+    // ADR-0020), so every GreenMail-backed account records `generic`.
+    expect(stored.serverKind).toBe("generic");
     const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
     expect(unsealPasswordCredential(stored.credential, stored.id, key)).toBe(password);
   });

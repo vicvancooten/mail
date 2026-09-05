@@ -1,9 +1,10 @@
 import { normalizeSenderAddress } from "@mail/shared";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { folders, messages, threads } from "../db/schema.js";
+import { messages, threads } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import type { FolderRow } from "../sync/folders.js";
+import { isInInbox, selectInboxResidentMessageIds } from "../sync/inbox.js";
 import { enqueueProtocolWrites } from "../sync/protocol-writes.js";
 import { resolveBlockedAliases, resolveVerdicts, verdictFor } from "./verdicts.js";
 
@@ -21,7 +22,12 @@ import { resolveBlockedAliases, resolveVerdicts, verdictFor } from "./verdicts.j
  *   never get held, however the correspondent stands — screening is about
  *   strangers walking up, not about mail you are already having.
  * - *in the Inbox* keeps a Sent self-copy, a Junk delivery, and anything a
- *   server-side rule already filed out of the Screener's way.
+ *   server-side rule already filed out of the Screener's way. Read through
+ *   `sync/inbox.ts#isInInbox`, not `folder.role === "inbox"` (#125,
+ *   ADR-0020): on Gmail every live arrival syncs off All Mail (`folder.role`
+ *   is `"all"`, never `"inbox"`), so residency is a per-message question —
+ *   `\Inbox` in that arrival's own `gmailLabels` — not one the batch's shared
+ *   folder answers for everyone at once.
  * - *after the Cutoff* is the grandfathering promise (CONTEXT.md's Gatekeeper
  *   Cutoff): day one of screening shows an empty Screener, not a backlog of
  *   every stranger in mailbox history.
@@ -101,6 +107,7 @@ export async function screenArrivals(
       fromAddress: messages.fromAddress,
       recipientAlias: messages.recipientAlias,
       receivedAt: messages.receivedAt,
+      gmailLabels: messages.gmailLabels,
     })
     .from(messages)
     .where(inArray(messages.id, createdMessageIds))
@@ -171,6 +178,9 @@ export async function screenArrivals(
     const batchSoFar = seenInBatch.get(arrival.threadId) ?? 0;
     seenInBatch.set(arrival.threadId, batchSoFar + 1);
 
+    // Per-arrival, not per-folder (#125) — see the module doc comment.
+    const arrivalInInbox = isInInbox(folder.role, arrival.gmailLabels);
+
     // #103's Blocked Alias, checked first and unconditionally on sender: an
     // arrival at a Blocked Alias moves to Trash "regardless of sender ...
     // beating even an Approved Sender" (CONTEXT.md), so this branch never
@@ -178,11 +188,7 @@ export async function screenArrivals(
     // does not get a vote once this one has fired. Same folder gate as a
     // Blocked Sender: a Sent self-copy or any other non-Inbox arrival is
     // never something to trash over.
-    if (
-      arrival.recipientAlias &&
-      blockedAliases.has(arrival.recipientAlias) &&
-      folder.role === "inbox"
-    ) {
+    if (arrival.recipientAlias && blockedAliases.has(arrival.recipientAlias) && arrivalInInbox) {
       result.blockedMessageIds.push(arrival.id);
       const bucket = blockedByThread.get(arrival.threadId) ?? [];
       bucket.push(arrival.id);
@@ -194,7 +200,7 @@ export async function screenArrivals(
     const resolvedVerdict = verdictFor(resolved, address);
     const verdict = resolvedVerdict.verdict;
 
-    if (verdict === "blocked" && folder.role === "inbox") {
+    if (verdict === "blocked" && arrivalInInbox) {
       result.blockedMessageIds.push(arrival.id);
       const byThread = resolvedVerdict.spam ? spammedByThread : blockedByThread;
       const bucket = byThread.get(arrival.threadId) ?? [];
@@ -211,7 +217,7 @@ export async function screenArrivals(
     const startsNewThread = (preexisting.get(arrival.threadId) ?? 0) === 0 && batchSoFar === 0;
     const shouldHold =
       startsNewThread &&
-      folder.role === "inbox" &&
+      arrivalInInbox &&
       verdict === "unscreened" &&
       address !== null &&
       // `>=`, not `>` — see `gatekeeper/settings.ts#flooredToSecond` for why
@@ -267,6 +273,13 @@ export async function screenArrivals(
  * `inInbox` is only flipped when nothing *else* of the Thread is left in the
  * Inbox: a Blocked or Spam sender replying into a conversation the User is
  * having with other people moves their message, not the conversation.
+ *
+ * "Still in the Inbox" is read through
+ * `sync/inbox.ts#selectInboxResidentMessageIds`, not a join on
+ * `folders.role === "inbox"` (#125, ADR-0020) — on Gmail the rest of the
+ * Thread lives in All Mail same as the arrival just moved, so residency turns
+ * on each remaining message's own `gmailLabels`, the same reasoning
+ * `decisions.ts#trashHeldThreads` gives for its own resident check.
  */
 async function moveOnArrival(
   db: Db,
@@ -277,19 +290,11 @@ async function moveOnArrival(
 ): Promise<void> {
   await enqueueProtocolWrites(db, mailAccountId, messageIds, target);
 
-  const stillInInbox = await db
-    .select({ id: messages.id })
-    .from(messages)
-    .innerJoin(folders, eq(messages.folderId, folders.id))
-    .where(
-      and(
-        eq(messages.threadId, threadId),
-        eq(folders.role, "inbox"),
-        notInArray(messages.id, messageIds),
-      ),
-    )
-    .limit(1);
-  if (stillInInbox.length > 0) return;
+  const stillResidentIds = await selectInboxResidentMessageIds(
+    db,
+    and(eq(messages.threadId, threadId), notInArray(messages.id, messageIds)),
+  );
+  if (stillResidentIds.length > 0) return;
 
   await db
     .update(threads)

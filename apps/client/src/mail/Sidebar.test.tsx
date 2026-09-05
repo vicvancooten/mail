@@ -21,6 +21,9 @@ const props = {
   labels: [],
   labelFilter: null,
   onSelectLabel: vi.fn(),
+  gmailLabels: [],
+  gmailLabelFilter: null,
+  onSelectGmailLabel: vi.fn(),
   onCompose: vi.fn(),
   screenerCount: 0,
   draftsCount: 0,
@@ -49,5 +52,54 @@ describe("Sidebar", () => {
     const { container } = render(<Sidebar {...props} />);
     const wrapper = container.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]');
     expect(wrapper?.style.getPropertyValue("--sidebar-width")).not.toBe("");
+  });
+
+  it('renders no "Gmail labels" heading when the account has none (#126, ADR-0020)', () => {
+    render(<Sidebar {...props} />);
+    expect(screen.queryAllByText("Gmail labels").length).toBe(0);
+  });
+
+  it('renders a "Gmail labels" section, and reports a click through onSelectGmailLabel', () => {
+    const onSelectGmailLabel = vi.fn();
+    render(
+      <Sidebar
+        {...props}
+        gmailLabels={[
+          {
+            id: "acct-1:Family/Kids",
+            mailAccountId: "acct-1",
+            name: "Kids",
+            path: "Family/Kids",
+            updatedAt: "",
+          },
+        ]}
+        onSelectGmailLabel={onSelectGmailLabel}
+      />,
+    );
+    expect(screen.getAllByText("Gmail labels").length).toBeGreaterThan(0);
+    const entries = screen.getAllByRole("button", { name: "Kids" });
+    expect(entries.length).toBeGreaterThan(0);
+    entries[0]?.click();
+    expect(onSelectGmailLabel).toHaveBeenCalledWith("acct-1:Family/Kids");
+  });
+
+  /**
+   * Post-merge #126 fix: a Wicket Label filter already clears the folder
+   * row's own "active" highlight (`labelFilter !== null`) — a Gmail Label
+   * filter has to do the same, or the ordinary Inbox row keeps reading as
+   * current while a Gmail Label actually narrows what's on screen.
+   */
+  it("clears the folder row's active highlight while a Gmail Label filter is selected", () => {
+    render(<Sidebar {...props} gmailLabelFilter="acct-1:Family/Kids" />);
+    const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
+    for (const button of inboxButtons) {
+      expect(button.getAttribute("data-active")).toBe("false");
+    }
+  });
+
+  it("still highlights the folder row when neither filter is selected", () => {
+    render(<Sidebar {...props} />);
+    const inboxButtons = screen.getAllByRole("button", { name: /inbox/i });
+    expect(inboxButtons.some((button) => button.getAttribute("data-active") === "true")).toBe(true);
   });
 });

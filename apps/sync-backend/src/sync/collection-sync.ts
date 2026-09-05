@@ -2,6 +2,7 @@ import type {
   CollectionDelta,
   Composition,
   Correspondent,
+  GmailLabel,
   Label,
   MailAccount,
   Preference,
@@ -13,6 +14,7 @@ import type { Db } from "../db/client.js";
 import {
   compositions,
   correspondents,
+  gmailLabels,
   labels,
   mailAccounts,
   syncTombstones,
@@ -24,6 +26,7 @@ import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
 import {
   toWireComposition,
   toWireCorrespondent,
+  toWireGmailLabel,
   toWireLabel,
   toWireThread,
 } from "./thread-projection.js";
@@ -325,6 +328,53 @@ export async function syncLabelCollection(
     needsReset,
     token,
     toPayload: toWireLabel,
+  });
+}
+
+/**
+ * `GmailLabel`, scoped to one Mail Account (#126, ADR-0020). Read-only and
+ * browsable, never merged into `Label` — see `db/schema.ts#gmailLabels`'s own
+ * doc comment. Real tombstones here, unlike `Label`'s defensive query:
+ * `sync/gmail-labels.ts#persistGmailLabels` writes one every time a Gmail
+ * Label is deleted or renamed in Gmail itself, which is exactly what makes a
+ * rename or deletion "reflected after the next sync" without a special case.
+ */
+export async function syncGmailLabelCollection(
+  db: Db,
+  mailAccountId: string,
+  token: string | null,
+): Promise<CollectionDelta<GmailLabel> | null> {
+  const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+  const rows = await db
+    .select()
+    .from(gmailLabels)
+    .where(and(eq(gmailLabels.mailAccountId, mailAccountId), gt(gmailLabels.syncRev, cursorRev)))
+    .orderBy(asc(gmailLabels.syncRev))
+    .limit(PAGE_SIZE + 1);
+
+  const tombstoneRows = needsReset
+    ? []
+    : await db
+        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+        .from(syncTombstones)
+        .where(
+          and(
+            eq(syncTombstones.mailAccountId, mailAccountId),
+            eq(syncTombstones.collection, "GmailLabel"),
+            gt(syncTombstones.syncRev, cursorRev),
+          ),
+        )
+        .orderBy(asc(syncTombstones.syncRev))
+        .limit(PAGE_SIZE + 1);
+
+  return buildDelta({
+    rows,
+    tombstones: tombstoneRows,
+    cursorRev,
+    needsReset,
+    token,
+    toPayload: toWireGmailLabel,
   });
 }
 

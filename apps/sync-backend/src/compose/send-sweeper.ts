@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/client.js";
 import { type CompositionRow, compositions } from "../db/schema.js";
 import { approveSendRecipients } from "../gatekeeper/verdicts.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
 import { activityForSentComposition, recordCorrespondentActivity } from "../sync/correspondents.js";
@@ -32,7 +33,10 @@ import { type SendMail, submitComposition } from "./submit.js";
  * "Nothing is written to `Sent` until submission succeeds" (ADR-0007) is
  * literal: the APPEND happens after `submitComposition` returns ok, never
  * before, so a cancelled or failed send leaves no trace in the User's
- * mailbox.
+ * mailbox. On a Gmail account the APPEND itself never happens at all
+ * (ADR-0020, #123): Gmail files the SMTP-submitted copy into Sent (All Mail)
+ * on its own, so a second APPEND only risks a duplicate — see
+ * `imapSentWriter`'s own doc comment.
  */
 
 export interface SweepOptions {
@@ -188,6 +192,13 @@ export async function sweepOne(
  * does: an account with no `Sent` folder simply gets no copy, and Mail never
  * creates a folder on the User's mail server as a side effect.
  *
+ * The `APPEND` itself is skipped outright on a Gmail account (ADR-0020,
+ * #123): Gmail files the SMTP-submitted mail into Sent (All Mail) itself, so
+ * a second APPEND risks a duplicate Gmail may or may not collapse. The
+ * Composition record is what keeps the Bcc list that server copy lacks —
+ * nothing here needs to reconstruct it. The draft expunge and blob cleanup
+ * still run; only the write to `Sent` is Gmail-conditional.
+ *
  * This is `sweepOne`'s default, behind the `appendToSent` seam so a test can
  * exercise a whole sweep — claim, submit, failure classification — without
  * an IMAP server, while production still gets one connection per swept
@@ -196,13 +207,15 @@ export async function sweepOne(
 export function imapSentWriter(db: Db, credentialKey: Buffer): AppendToSent {
   return async ({ account, row, mime }) => {
     await withMailAccountConnection(db, account, { credentialKey }, async (client) => {
-      const sent = await findFolderByRole(db, account.id, "sent");
-      if (sent) {
-        const lock = await client.getMailboxLock(sent.path);
-        try {
-          await client.append(sent.path, mime, ["\\Seen"]);
-        } finally {
-          lock.release();
+      if (!isGmailAccount(account.serverKind)) {
+        const sent = await findFolderByRole(db, account.id, "sent");
+        if (sent) {
+          const lock = await client.getMailboxLock(sent.path);
+          try {
+            await client.append(sent.path, mime, ["\\Seen"]);
+          } finally {
+            lock.release();
+          }
         }
       }
       await expungeDraftCopy(db, client, row);

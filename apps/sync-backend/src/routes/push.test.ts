@@ -43,7 +43,7 @@ function buildTestApp(vapidPublicKey: string | null = null) {
     db,
     publicUrl: PUBLIC_URL,
     mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
-    mailAccountVerify: async () => ({ ok: true }),
+    mailAccountVerify: async () => ({ ok: true, serverKind: "generic" }),
     // `/push/config` reads the key through the store per request now
     // (ADR-0015 as amended: it can be minted while the process runs), so a
     // fixed answer is all this suite needs to state.
