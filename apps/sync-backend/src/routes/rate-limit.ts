@@ -1,4 +1,4 @@
-import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 interface FixedWindowBucket {
   count: number;
@@ -11,6 +11,8 @@ export interface RouteRateLimitOptions {
   windowMs: number;
 }
 
+type RoutePreHandler = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
+
 function identityFor(request: FastifyRequest): string {
   return request.user?.id ?? request.ip;
 }
@@ -19,7 +21,7 @@ export function createRouteRateLimit({
   key,
   max,
   windowMs,
-}: RouteRateLimitOptions): preHandlerHookHandler {
+}: RouteRateLimitOptions): RoutePreHandler {
   const buckets = new Map<string, FixedWindowBucket>();
 
   return async function routeRateLimit(request, reply) {
@@ -34,9 +36,7 @@ export function createRouteRateLimit({
     const bucketKey = `${key}:${identityFor(request)}`;
     const existing = buckets.get(bucketKey);
     const bucket =
-      !existing || existing.resetAt <= now
-        ? { count: 0, resetAt: now + windowMs }
-        : existing;
+      !existing || existing.resetAt <= now ? { count: 0, resetAt: now + windowMs } : existing;
 
     bucket.count += 1;
     buckets.set(bucketKey, bucket);
@@ -54,8 +54,8 @@ export function createRouteRateLimit({
 
 export function guardWithRateLimit(
   guard: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
-  rateLimit: preHandlerHookHandler,
-): preHandlerHookHandler {
+  rateLimit: RoutePreHandler,
+): RoutePreHandler {
   return async function guardedRateLimit(request, reply) {
     await guard(request, reply);
     if (reply.sent) {

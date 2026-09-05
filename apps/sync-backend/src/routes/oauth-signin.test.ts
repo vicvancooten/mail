@@ -159,7 +159,9 @@ function outcomeOf(location: string): string | null {
   return new URL(location).searchParams.get(OAUTH_SIGN_IN_OUTCOME_PARAM);
 }
 
-function expectRateLimited(response: Awaited<ReturnType<ReturnType<typeof buildTestApp>["inject"]>>) {
+function expectRateLimited(
+  response: Awaited<ReturnType<ReturnType<typeof buildTestApp>["inject"]>>,
+) {
   expect(response.statusCode).toBe(429);
   expect(response.json()).toEqual({ error: "rate_limited" });
   expect(response.headers["retry-after"]).toBeDefined();
@@ -717,7 +719,6 @@ describe("GET /auth/oauth/:provider/callback", () => {
           userId,
           provider: "google",
           purpose: "add_mail_account",
-          mailAccountId: null,
         })
       ).state;
       expect(
@@ -736,7 +737,6 @@ describe("GET /auth/oauth/:provider/callback", () => {
         userId,
         provider: "google",
         purpose: "add_mail_account",
-        mailAccountId: null,
       })
     ).state;
     expectRateLimited(
