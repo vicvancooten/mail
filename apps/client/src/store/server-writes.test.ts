@@ -240,7 +240,7 @@ describe("the bounded working set", () => {
   // Likewise, this seeds a queued reference and then trims a >1,000-row window
   // to prove referenced Threads are retained even when unreferenced neighbours
   // are evicted.
-  it("keeps a Thread a queued Optimistic Action references alive", async () => {
+  it("keeps a Thread that a queued Optimistic Action references alive", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(10) }), { replace: false });
     await localCache().pendingMutations.put({
       id: "01JQUEUED",
