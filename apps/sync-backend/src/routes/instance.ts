@@ -82,7 +82,12 @@ export async function instanceRoutes(
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
   const limitOwnerWrites = (groupId: string, max: number) =>
-    app.rateLimit({ groupId, max, timeWindow: 60_000 });
+    app.rateLimit({
+      groupId,
+      max,
+      timeWindow: 60_000,
+      keyGenerator: (request) => request.user?.id ?? request.ip,
+    });
 
   async function buildProviderHealth(provider: Provider): Promise<ProviderHealth> {
     const [registration, mailAccountCount, needsReauthCount] = await Promise.all([

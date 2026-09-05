@@ -136,7 +136,6 @@ export function buildApp({
   app.register(fastifyRateLimit, {
     global: false,
     hook: "preHandler",
-    keyGenerator: (request) => request.user?.id ?? request.ip,
     errorResponseBuilder: () => ({ statusCode: 429, error: "rate_limited" }),
   });
   app.register(healthRoutes);

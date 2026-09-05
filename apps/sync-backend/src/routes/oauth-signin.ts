@@ -103,12 +103,18 @@ export async function oauthSignInRoutes(
   const key = deriveCredentialKey(mailCredentialKey);
   const requireAuthWithRateLimit = (groupId: string, max: number) => [
     app.requireAuth,
-    app.rateLimit({ groupId, max, timeWindow: 60_000 }),
+    app.rateLimit({
+      groupId,
+      max,
+      timeWindow: 60_000,
+      keyGenerator: (request) => request.user?.id ?? request.ip,
+    }),
   ];
   const oauthCallbackRateLimit = app.rateLimit({
     groupId: "oauth-provider-callback",
     max: 10,
     timeWindow: 60_000,
+    keyGenerator: (request) => request.user?.id ?? request.ip,
   });
 
   /** The redirect URI must be byte-identical between the authorization request, the token exchange and the Provider's console (#115's `buildProviderRedirectUri`) — one call site, no chance of drift. */
