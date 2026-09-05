@@ -150,4 +150,20 @@ describe("refreshThreadRollups — Gmail projection (#122)", () => {
     const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
     expect(thread).toMatchObject({ hasSentMessage: true });
   });
+
+  it("does not rewrite an unchanged Gmail projection on a second rollup", async () => {
+    const account = await createTestMailAccount(db, { serverKind: "gmail" });
+    const allMail = await seedFolder(account.id, "all", "[Gmail]/All Mail");
+    const threadId = randomUUID();
+    await db.insert(threads).values({ id: threadId, mailAccountId: account.id, subject: "Hi" });
+    await seedMessage(account, threadId, allMail, ["Projects"]);
+
+    await refreshThreadRollups(db, [threadId]);
+    const [before] = await db.select().from(threads).where(eq(threads.id, threadId));
+
+    await refreshThreadRollups(db, [threadId]);
+
+    const [after] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(after?.syncRev).toEqual((before?.syncRev ?? 0) + 1);
+  });
 });

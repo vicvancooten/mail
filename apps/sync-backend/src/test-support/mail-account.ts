@@ -30,8 +30,9 @@ export interface TestMailAccountInput {
    * Stamps `serverKind` directly (#122) — for a test that wants a
    * Gmail-shaped row (the sync plan, the resident loop's watched Folder)
    * without a real `X-GM-EXT-1`-advertising server to detect it from
-   * (`mail-accounts/server-kind.ts`). Left undetected (`null`) by default,
-   * same as a freshly inserted row.
+   * (`mail-accounts/server-kind.ts`). Left undetected (`null`) by default to
+   * model a pre-#121 row — or a test that explicitly wants an undetected
+   * account.
    */
   serverKind?: MailAccountServerKind;
 }

@@ -211,6 +211,11 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
         gmail_label_ids text[]
       )
       where t.id = v.id
+        and (
+          t.folder_role is distinct from v.folder_role
+          or t.in_inbox is distinct from v.in_inbox
+          or t.gmail_label_ids is distinct from v.gmail_label_ids
+        )
     `);
   }
 }
