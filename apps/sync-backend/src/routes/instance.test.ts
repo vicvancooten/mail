@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { MailAccountConnection } from "@mail/shared";
 import { eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession } from "../auth/sessions.js";
 import type { Db } from "../db/client.js";
@@ -28,10 +28,13 @@ let db: Db;
 let closeDb: () => Promise<void>;
 let apps: Array<ReturnType<typeof buildApp>> = [];
 
-beforeEach(async () => {
+beforeAll(async () => {
   const created = await createTestDb();
   db = created.db;
   closeDb = () => created.sql.end();
+});
+
+beforeEach(async () => {
   apps = [];
   await resetTestDb(db);
 });
