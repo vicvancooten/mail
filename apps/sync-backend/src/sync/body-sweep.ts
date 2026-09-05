@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages } from "../db/schema.js";
@@ -102,6 +102,8 @@ export async function runBodySweepBatch(
     else byFolder.set(row.folderId, [row]);
   }
 
+  let processed = 0;
+  let oldestProcessed: Date | undefined;
   try {
     for (const [folderId, rows] of byFolder) {
       const [folder] = await db.select().from(folders).where(eq(folders.id, folderId)).limit(1);
@@ -130,6 +132,10 @@ export async function runBodySweepBatch(
           // message would show up in every future batch forever and this
           // account would never reach `complete`.
           await storeMessageBody(db, row.id, body);
+          processed += 1;
+          if (!oldestProcessed || row.receivedAt < oldestProcessed) {
+            oldestProcessed = row.receivedAt;
+          }
         }
       } finally {
         lock.release();
@@ -137,28 +143,13 @@ export async function runBodySweepBatch(
     }
   } catch (err) {
     if (isGmailAccount(account?.serverKind) && isGmailDownloadCapError(err)) {
-      const processedRows = await db
-        .select({ receivedAt: messages.receivedAt })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.mailAccountId, mailAccountId),
-            inArray(
-              messages.id,
-              pending.map((row) => row.id),
-            ),
-            isNotNull(messages.bodyFetchedAt),
-          ),
-        )
-        .orderBy(desc(messages.receivedAt));
-      const oldestProcessed = processedRows[processedRows.length - 1];
       const pausedUntil = new Date(Date.now() + GMAIL_DOWNLOAD_CAP_RESUME_MS);
       await db
         .update(mailAccounts)
         .set({
           bodySweepPausedUntil: pausedUntil,
           bodySweepComplete: false,
-          ...(oldestProcessed ? { bodyWatermark: oldestProcessed.receivedAt } : {}),
+          ...(oldestProcessed ? { bodyWatermark: oldestProcessed } : {}),
           updatedAt: new Date(),
         })
         .where(eq(mailAccounts.id, mailAccountId));
@@ -166,7 +157,7 @@ export async function runBodySweepBatch(
       // stored — the resume picks up wherever `bodyFetchedAt IS NULL` still
       // leaves off, and the watermark advances to the oldest message this
       // call already persisted.
-      return { processed: processedRows.length, complete: false, pausedUntil };
+      return { processed, complete: false, pausedUntil };
     }
     throw err;
   }
