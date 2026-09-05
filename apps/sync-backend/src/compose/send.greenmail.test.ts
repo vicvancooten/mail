@@ -285,10 +285,14 @@ describe("the send path against GreenMail", () => {
     const [row] = await db.select().from(compositions).where(eq(compositions.id, id));
     expect(row?.status).toBe("sent");
     // GreenMail files one Sent copy for this SMTP submit; the Sync Backend
-    // must not add a second APPEND copy.
+    // must not add a second APPEND copy. The Bcc/header split itself is
+    // unit-covered in `submit.test.ts`; this integration seam only proves the
+    // Gmail path skips the extra APPEND.
+    const mintedId = row?.messageId;
+    expect(mintedId).toBeTruthy();
     const sent = await sourcesIn(o, "Sent");
     expect(sent).toHaveLength(1);
-    expect(sent[0]).not.toMatch(/^Bcc:/m);
+    expect(sent[0]).toContain(`Message-ID: <${mintedId}>`);
     expect(await sourcesIn(o, "INBOX")).toHaveLength(1);
   });
 });
