@@ -268,7 +268,7 @@ describe("the send path against GreenMail", () => {
     await expect(o.status("Sent", { messages: true })).rejects.toThrow();
   });
 
-  it("skips the Sent APPEND on a Gmail account, but the send still completes (ADR-0020, #123)", async () => {
+  it("corrects a GreenMail-backed row seeded as Gmail back to generic on connect, so the live send still APPENDs once", async () => {
     account = await createTestMailAccount(db, {
       serverKind: "gmail",
       emailAddress: `send-gmail-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@mail.test`,
@@ -284,11 +284,13 @@ describe("the send path against GreenMail", () => {
 
     const [row] = await db.select().from(compositions).where(eq(compositions.id, id));
     expect(row?.status).toBe("sent");
-    // GreenMail files one Sent copy for this SMTP submit; the Sync Backend
-    // must not add a second APPEND copy.
+    // GreenMail does not advertise Gmail's IMAP capability, so the first live
+    // IMAP connect corrects this seeded row back to `generic` before the send
+    // path decides whether to APPEND to Sent.
+    expect((await getMailAccountById(db, account.id))?.serverKind).toBe("generic");
     const sent = await sourcesIn(o, "Sent");
     expect(sent).toHaveLength(1);
-    expect(sent[0]).not.toMatch(/^Bcc:/m);
+    expect(sent[0]).toMatch(/^Bcc:/m);
     expect(await sourcesIn(o, "INBOX")).toHaveLength(1);
   });
 });
