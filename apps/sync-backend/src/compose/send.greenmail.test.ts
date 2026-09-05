@@ -41,6 +41,7 @@ const DOC: ComposeDocument = {
 };
 
 beforeEach(async () => {
+  await closeDb?.();
   const created = await createTestDb();
   db = created.db;
   closeDb = () => created.sql.end();
@@ -283,9 +284,11 @@ describe("the send path against GreenMail", () => {
 
     const [row] = await db.select().from(compositions).where(eq(compositions.id, id));
     expect(row?.status).toBe("sent");
-    // Gmail files the SMTP-submitted mail into Sent itself; the Sync Backend
-    // never APPENDs a second copy.
-    expect(await sourcesIn(o, "Sent")).toHaveLength(0);
+    // GreenMail files one Sent copy for this SMTP submit; the Sync Backend
+    // must not add a second APPEND copy.
+    const sent = await sourcesIn(o, "Sent");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toMatch(/^Bcc:/m);
     expect(await sourcesIn(o, "INBOX")).toHaveLength(1);
   });
 });

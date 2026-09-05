@@ -195,6 +195,19 @@ export async function refreshThreadRollups(db: Db, threadIds: string[]): Promise
       has_sent_message boolean
     )
     where t.id = v.id
+      and (
+        t.subject is distinct from v.subject
+        or t.participants is distinct from v.participants
+        or t.snippet is distinct from v.snippet
+        or t.last_message_id is distinct from v.last_message_id
+        or t.first_message_at is distinct from v.first_message_at
+        or t.last_message_at is distinct from v.last_message_at
+        or t.message_count is distinct from v.message_count
+        or t.unread_count is distinct from v.unread_count
+        or t.starred is distinct from v.starred
+        or t.has_attachments is distinct from v.has_attachments
+        or t.has_sent_message is distinct from v.has_sent_message
+      )
   `);
 
   if (gmailProjection.length > 0) {

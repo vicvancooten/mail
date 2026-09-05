@@ -54,6 +54,7 @@ async function seedMessage(
 }
 
 beforeEach(async () => {
+  await closeDb?.();
   const created = await createTestDb();
   db = created.db;
   closeDb = () => created.sql.end();
