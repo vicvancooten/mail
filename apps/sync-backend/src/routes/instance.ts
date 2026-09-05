@@ -31,6 +31,8 @@ import {
 } from "../provider-registrations/store.js";
 import { parseProviderParam } from "./route-params.js";
 
+const PROVIDER_REGISTRATION_RATE_LIMIT = { max: 10, timeWindow: 60_000 };
+
 export interface InstanceRoutesOptions {
   db: Db;
   publicUrl: string;
@@ -209,7 +211,7 @@ export async function instanceRoutes(
   // "one notification each" is per genuine transition, not per account.
   app.delete(
     "/instance/providers/:provider",
-    { preHandler: app.requireOwner },
+    { config: { rateLimit: PROVIDER_REGISTRATION_RATE_LIMIT }, preHandler: app.requireOwner },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;

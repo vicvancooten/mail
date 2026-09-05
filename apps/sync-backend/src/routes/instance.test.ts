@@ -540,6 +540,30 @@ describe("DELETE /instance/providers/:provider", () => {
       ]),
     );
   });
+
+  it("rate limits repeated deletes", async () => {
+    const app = buildTestApp();
+    const cookie = await createUserWithCookie("owner");
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "DELETE",
+            url: "/instance/providers/google",
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    const limited = await app.inject({
+      method: "DELETE",
+      url: "/instance/providers/google",
+      headers: { cookie },
+    });
+    expect(limited.statusCode).toBe(429);
+  });
 });
 
 describe("POST /instance/vapid-keys", () => {
