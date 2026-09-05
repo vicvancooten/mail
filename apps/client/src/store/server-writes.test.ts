@@ -196,6 +196,9 @@ describe("the bounded working set", () => {
     expect(page.threads.length).toBeLessThanOrEqual(THREAD_WINDOW_HIGH_WATER);
   }, 20_000);
 
+  // This seeds and trims the same >1,000-row window as the test above, then
+  // applies one more delta — also fine locally, but slower GitHub Actions
+  // runners against fake-indexeddb can push it past Vitest's 5s default.
   it("ignores a delta for a Thread below the window rather than growing the cache", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
       replace: false,
@@ -213,7 +216,7 @@ describe("the bounded working set", () => {
 
     expect(await localCache().threads.get("ancient")).toBeUndefined();
     expect(await localCache().threads.count()).toBe(before);
-  });
+  }, 20_000);
 
   it("keeps an opened Thread in the entity cache when it ages out of the window", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(10) }), { replace: false });
