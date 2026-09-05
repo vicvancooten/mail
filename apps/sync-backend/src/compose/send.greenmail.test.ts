@@ -290,7 +290,7 @@ describe("the send path against GreenMail", () => {
     // Gmail path skips the extra APPEND.
     const sent = await sourcesIn(o, "Sent");
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("Gmail files its own Sent copy");
+    expect(sent[0]).toContain(`<${row?.messageId}>`);
     expect(await sourcesIn(o, "INBOX")).toHaveLength(1);
   });
 });
