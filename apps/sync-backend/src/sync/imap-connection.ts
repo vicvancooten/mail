@@ -188,6 +188,7 @@ async function attemptConnect(
   const serverKind = detectServerKind(client);
   if (serverKind !== account.serverKind) {
     await updateMailAccountServerKind(db, account.id, serverKind);
+    account.serverKind = serverKind;
   }
 
   return client;

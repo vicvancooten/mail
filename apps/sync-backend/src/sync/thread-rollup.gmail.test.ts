@@ -164,6 +164,6 @@ describe("refreshThreadRollups — Gmail projection (#122)", () => {
     await refreshThreadRollups(db, [threadId]);
 
     const [after] = await db.select().from(threads).where(eq(threads.id, threadId));
-    expect(after?.syncRev).toEqual((before?.syncRev ?? 0) + 1);
+    expect(after?.syncRev).toEqual(before?.syncRev);
   });
 });

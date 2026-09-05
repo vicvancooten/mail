@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages } from "../db/schema.js";
@@ -38,9 +38,7 @@ export interface BodySweepBatchResult {
   complete: boolean;
   /**
    * Set only while a Gmail download-cap pause (#127, ADR-0020) is in
-   * effect — the batch touched no IMAP command, either because it was
-   * already paused or because this call is the one that just tripped the
-   * cap.
+   * effect.
    */
   pausedUntil?: Date;
 }
@@ -139,16 +137,36 @@ export async function runBodySweepBatch(
     }
   } catch (err) {
     if (isGmailAccount(account?.serverKind) && isGmailDownloadCapError(err)) {
+      const processedRows = await db
+        .select({ receivedAt: messages.receivedAt })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.mailAccountId, mailAccountId),
+            inArray(
+              messages.id,
+              pending.map((row) => row.id),
+            ),
+            isNotNull(messages.bodyFetchedAt),
+          ),
+        )
+        .orderBy(desc(messages.receivedAt));
+      const oldestProcessed = processedRows[processedRows.length - 1];
       const pausedUntil = new Date(Date.now() + GMAIL_DOWNLOAD_CAP_RESUME_MS);
       await db
         .update(mailAccounts)
-        .set({ bodySweepPausedUntil: pausedUntil, updatedAt: new Date() })
+        .set({
+          bodySweepPausedUntil: pausedUntil,
+          bodySweepComplete: false,
+          ...(oldestProcessed ? { bodyWatermark: oldestProcessed.receivedAt } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(mailAccounts.id, mailAccountId));
       // Whatever bodies this batch already stored before the cap hit stay
-      // stored — the next batch after resume picks up wherever
-      // `bodyFetchedAt IS NULL` still leaves off, same as any other
-      // partially-completed batch.
-      return { processed: 0, complete: false, pausedUntil };
+      // stored — the resume picks up wherever `bodyFetchedAt IS NULL` still
+      // leaves off, and the watermark advances to the oldest message this
+      // call already persisted.
+      return { processed: processedRows.length, complete: false, pausedUntil };
     }
     throw err;
   }
