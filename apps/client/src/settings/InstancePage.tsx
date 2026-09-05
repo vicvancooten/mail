@@ -46,7 +46,9 @@ export function InstancePage() {
   }
 
   const reload = useCallback(() => {
-    setFailed(false);
+    if (mountedRef.current) {
+      setFailed(false);
+    }
     return fetchInstanceInfo()
       .then((result) => {
         if (!mountedRef.current) return;
