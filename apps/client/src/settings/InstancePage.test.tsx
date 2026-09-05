@@ -1,13 +1,20 @@
 import type { InstanceInfoResponse } from "@mail/shared";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as instanceApi from "../api/instance.js";
+import * as providersApi from "../api/providers.js";
 import { InstancePage } from "./InstancePage.js";
 
 vi.mock("../api/instance.js", () => ({
   fetchInstanceInfo: vi.fn(),
   generateVapidKeys: vi.fn(),
+}));
+
+vi.mock("../api/providers.js", () => ({
+  saveProviderRegistration: vi.fn(),
+  fetchProviderDeletePreview: vi.fn(),
+  deleteProviderRegistration: vi.fn(),
 }));
 
 /**
@@ -191,5 +198,60 @@ describe("InstancePage", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Generate keys" })).toBeTruthy();
+  });
+
+  it("clears a transient load error after a later successful reload", async () => {
+    const updatedInfo = instanceInfo({
+      providers: [
+        {
+          provider: "google",
+          status: "registered_untested",
+          redirectUri: "https://mail.example.com/auth/oauth/google/callback",
+          clientIdPreview: "abc.apps.googleusercontent.com",
+          mailAccountCount: 1,
+          needsReauthCount: 0,
+          lastRefreshAt: null,
+          lastRefreshError: null,
+        },
+        {
+          provider: "microsoft",
+          status: "not_registered",
+          redirectUri: "https://mail.example.com/auth/oauth/microsoft/callback",
+          clientIdPreview: null,
+          mailAccountCount: 0,
+          needsReauthCount: 0,
+          lastRefreshAt: null,
+          lastRefreshError: null,
+        },
+      ],
+    });
+    const updatedGoogle = updatedInfo.providers[0];
+    if (!updatedGoogle) throw new Error("expected Google provider fixture");
+
+    vi.mocked(instanceApi.fetchInstanceInfo)
+      .mockResolvedValueOnce(instanceInfo())
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(updatedInfo);
+    vi.mocked(providersApi.saveProviderRegistration).mockResolvedValue(updatedGoogle);
+    render(<InstancePage />);
+
+    expect(await screen.findByText("Providers")).toBeTruthy();
+    const googleCard = screen.getByRole("heading", { name: "Google" }).closest("section");
+    if (!googleCard) throw new Error("expected Google provider card");
+
+    await userEvent.type(within(googleCard).getByLabelText("Client ID"), "client-id");
+    await userEvent.type(within(googleCard).getByLabelText("Client secret"), "client-secret");
+    await userEvent.click(within(googleCard).getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Couldn't load instance info.",
+    );
+
+    await userEvent.type(within(googleCard).getByLabelText("Client ID"), "client-id");
+    await userEvent.type(within(googleCard).getByLabelText("Client secret"), "client-secret");
+    await userEvent.click(within(googleCard).getByRole("button", { name: "Save" }));
+
+    await screen.findByText("abc.apps.googleusercontent.com");
+    await waitFor(() => expect(screen.queryByText("Couldn't load instance info.")).toBeNull());
   });
 });
