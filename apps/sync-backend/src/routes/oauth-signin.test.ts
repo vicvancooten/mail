@@ -356,6 +356,31 @@ describe("POST /auth/oauth/:provider/start", () => {
       .where(eq(oauthSignInAttempts.userId, userId));
     expect(attempt).toMatchObject({ purpose: "reauth", mailAccountId: account.id });
   });
+
+  it("rate limits repeated start attempts", async () => {
+    const app = buildTestApp();
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/auth/oauth/google/start",
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    const limited = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+    });
+    expect(limited.statusCode).toBe(429);
+  });
 });
 
 describe("GET /auth/oauth/:provider/callback", () => {
@@ -561,6 +586,31 @@ describe("GET /auth/oauth/:provider/callback", () => {
     });
 
     expect(outcomeOf(response.headers.location as string)).toBe("provider_error");
+  });
+
+  it("rate limits repeated callback attempts", async () => {
+    const app = buildTestApp();
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "GET",
+            url: callbackUrl({ code: "c", state: `not-a-real-state-${attempt}` }),
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(302);
+    }
+
+    const limited = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state: "not-a-real-state-limited" }),
+      headers: { cookie },
+    });
+    expect(limited.statusCode).toBe(429);
   });
 
   it("reports tenant_refused when the token exchange throws an error the adapter classifies as one (#117)", async () => {

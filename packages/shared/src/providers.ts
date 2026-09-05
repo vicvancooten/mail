@@ -96,12 +96,19 @@ export type ProviderMailAccountCountResponse = z.infer<
 export const providerUnavailableReasonSchema = z.enum(["not_registered", "not_supported"]);
 export type ProviderUnavailableReason = z.infer<typeof providerUnavailableReasonSchema>;
 
-export const providerAvailabilitySchema = z.object({
-  provider: providerSchema,
-  available: z.boolean(),
-  /** Null exactly when `available` is true. */
-  unavailableReason: providerUnavailableReasonSchema.nullable(),
-});
+export const providerAvailabilitySchema = z.discriminatedUnion("available", [
+  z.object({
+    provider: providerSchema,
+    available: z.literal(true),
+    /** Null exactly when `available` is true. */
+    unavailableReason: z.null(),
+  }),
+  z.object({
+    provider: providerSchema,
+    available: z.literal(false),
+    unavailableReason: providerUnavailableReasonSchema,
+  }),
+]);
 export type ProviderAvailability = z.infer<typeof providerAvailabilitySchema>;
 
 /** `GET /auth/oauth/providers` (#116): one entry per Provider, in `PROVIDERS` order. Readable by any User — unlike Provider Health, it carries no Registration detail, only whether signing in is possible. */

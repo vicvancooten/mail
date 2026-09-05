@@ -1,5 +1,5 @@
 import type { InstanceInfoResponse } from "@mail/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchInstanceInfo, generateVapidKeys } from "../api/instance.js";
 import { ProviderRegistrationCard } from "./ProviderRegistrationCard.js";
 
@@ -22,6 +22,8 @@ import { ProviderRegistrationCard } from "./ProviderRegistrationCard.js";
 export function InstancePage() {
   const [info, setInfo] = useState<InstanceInfoResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const mountedRef = useRef(true);
+  const reloadRequestIdRef = useRef(0);
   // The Web Push keypair's own generate action (ADR-0015 as amended) — the
   // one thing this page *does* rather than states, so it carries its own
   // in-flight/failed state rather than reloading the whole page's facts.
@@ -45,13 +47,27 @@ export function InstancePage() {
   }
 
   const reload = useCallback(() => {
+    const requestId = ++reloadRequestIdRef.current;
+    if (mountedRef.current) {
+      setFailed(false);
+    }
     return fetchInstanceInfo()
-      .then((result) => setInfo(result))
-      .catch(() => setFailed(true));
+      .then((result) => {
+        if (!mountedRef.current || reloadRequestIdRef.current !== requestId) return;
+        setInfo(result);
+      })
+      .catch(() => {
+        if (!mountedRef.current || reloadRequestIdRef.current !== requestId) return;
+        setFailed(true);
+      });
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     void reload();
+    return () => {
+      mountedRef.current = false;
+    };
   }, [reload]);
 
   return (

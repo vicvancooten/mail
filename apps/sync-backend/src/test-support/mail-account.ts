@@ -7,6 +7,8 @@ import {
   sealOAuthCredential,
   sealPasswordCredential,
 } from "../mail-accounts/credential-crypto.js";
+import { GOOGLE_SCOPES } from "../mail-accounts/google-adapter.js";
+import { MICROSOFT_SCOPES } from "../mail-accounts/microsoft-adapter.js";
 import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { TEST_MAIL_CREDENTIAL_KEY } from "./db.js";
@@ -63,14 +65,15 @@ export async function createTestMailAccount(
 
   const id = randomUUID();
   const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
+  const provider = input.oauth?.provider ?? "google";
   const credential: MailAccountCredential = input.oauth
     ? sealOAuthCredential(
         {
-          provider: input.oauth.provider ?? "google",
+          provider,
           accessToken: input.oauth.accessToken,
           refreshToken: "unused-in-this-ticket-refresh-token",
           expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-          scope: ["https://mail.google.com/"],
+          scope: provider === "microsoft" ? MICROSOFT_SCOPES : GOOGLE_SCOPES,
         },
         id,
         key,
