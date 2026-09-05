@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { isApiPath } from "@mail/shared";
 import Fastify from "fastify";
@@ -132,6 +133,12 @@ export function buildApp({
   });
 
   app.register(authPlugin, { db, publicUrl });
+  app.register(fastifyRateLimit, {
+    global: false,
+    hook: "preHandler",
+    keyGenerator: (request) => request.user?.id ?? request.ip,
+    errorResponseBuilder: () => ({ statusCode: 429, error: "rate_limited" }),
+  });
   app.register(healthRoutes);
   app.register(authRoutes, { db, publicUrl });
   app.register(totpRoutes, { db });

@@ -29,7 +29,6 @@ import {
   type ProviderRegistrationRow,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
-import { createRouteRateLimit, guardWithRateLimit } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
 
 export interface InstanceRoutesOptions {
@@ -82,11 +81,8 @@ export async function instanceRoutes(
   { db, publicUrl, mailCredentialKey, vapidKeys, imageTag }: InstanceRoutesOptions,
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
-  const limitOwnerWrites = (routeKey: string, max: number) =>
-    guardWithRateLimit(
-      app.requireOwner,
-      createRouteRateLimit({ key: routeKey, max, windowMs: 60_000 }),
-    );
+  const limitOwnerWrites = (groupId: string, max: number) =>
+    app.rateLimit({ groupId, max, timeWindow: 60_000 });
 
   async function buildProviderHealth(provider: Provider): Promise<ProviderHealth> {
     const [registration, mailAccountCount, needsReauthCount] = await Promise.all([
@@ -143,7 +139,7 @@ export async function instanceRoutes(
    */
   app.post(
     "/instance/vapid-keys",
-    { preHandler: limitOwnerWrites("instance-vapid-keys", 5) },
+    { preHandler: [app.requireOwner, limitOwnerWrites("instance-vapid-keys", 5)] },
     async (_request, reply) => {
       if (!vapidKeys.canGenerate) {
         return reply.code(409).send({ error: "env_managed" });
@@ -175,7 +171,7 @@ export async function instanceRoutes(
   // — `buildProviderHealth` only ever reads `clientId` off the stored row.
   app.put(
     "/instance/providers/:provider",
-    { preHandler: limitOwnerWrites("instance-provider-save", 5) },
+    { preHandler: [app.requireOwner, limitOwnerWrites("instance-provider-save", 5)] },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;
@@ -219,7 +215,7 @@ export async function instanceRoutes(
   // "one notification each" is per genuine transition, not per account.
   app.delete(
     "/instance/providers/:provider",
-    { preHandler: limitOwnerWrites("instance-provider-delete", 5) },
+    { preHandler: [app.requireOwner, limitOwnerWrites("instance-provider-delete", 5)] },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;

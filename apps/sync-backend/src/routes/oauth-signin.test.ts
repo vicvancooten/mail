@@ -163,7 +163,7 @@ function expectRateLimited(
   response: Awaited<ReturnType<ReturnType<typeof buildTestApp>["inject"]>>,
 ) {
   expect(response.statusCode).toBe(429);
-  expect(response.json()).toEqual({ error: "rate_limited" });
+  expect(response.json()).toMatchObject({ error: "rate_limited" });
   expect(response.headers["retry-after"]).toBeDefined();
 }
 

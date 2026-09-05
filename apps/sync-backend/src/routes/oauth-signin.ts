@@ -35,7 +35,6 @@ import {
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import { getProviderRegistration } from "../provider-registrations/store.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
-import { createRouteRateLimit, guardWithRateLimit } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
 
 /**
@@ -102,15 +101,14 @@ export async function oauthSignInRoutes(
   }: OAuthSignInRoutesOptions,
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
-  const requireAuthWithRateLimit = (routeKey: string, max: number) =>
-    guardWithRateLimit(
-      app.requireAuth,
-      createRouteRateLimit({ key: routeKey, max, windowMs: 60_000 }),
-    );
-  const oauthCallbackRateLimit = createRouteRateLimit({
-    key: "oauth-provider-callback",
+  const requireAuthWithRateLimit = (groupId: string, max: number) => [
+    app.requireAuth,
+    app.rateLimit({ groupId, max, timeWindow: 60_000 }),
+  ];
+  const oauthCallbackRateLimit = app.rateLimit({
+    groupId: "oauth-provider-callback",
     max: 10,
-    windowMs: 60_000,
+    timeWindow: 60_000,
   });
 
   /** The redirect URI must be byte-identical between the authorization request, the token exchange and the Provider's console (#115's `buildProviderRedirectUri`) — one call site, no chance of drift. */
