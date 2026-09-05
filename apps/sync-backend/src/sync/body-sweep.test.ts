@@ -149,6 +149,23 @@ describe("runBodySweepBatch's Gmail download-cap pause (#127, ADR-0020)", () => 
     expect(row?.bodyWatermark?.toISOString()).toBe(receivedAt.toISOString());
   });
 
+  it("only counts and advances through rows whose bodies were actually persisted", async () => {
+    const account = await createTestMailAccount(db, { serverKind: "gmail" });
+    const folderId = await seedFolder(account.id);
+    const newer = new Date("2026-01-02T00:00:00Z");
+    const older = new Date("2026-01-01T00:00:00Z");
+    await seedPendingMessage(account, folderId, 2, newer);
+    await seedPendingMessage(account, folderId, 1, older);
+
+    const { client } = createFakeClient(async () => [{ uid: 2, bodyStructure: undefined }]);
+
+    const result = await runBodySweepBatch(db, client, account.id, 10);
+    expect(result).toEqual({ processed: 1, complete: false });
+
+    const row = await getMailAccountById(db, account.id);
+    expect(row?.bodyWatermark?.toISOString()).toBe(newer.toISOString());
+  });
+
   it("still throws (and does not pause) on a generic-kind account", async () => {
     const account = await createTestMailAccount(db, { serverKind: "generic" });
     const folderId = await seedFolder(account.id);

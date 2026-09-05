@@ -162,21 +162,17 @@ export async function runBodySweepBatch(
     throw err;
   }
 
-  const oldest = pending[pending.length - 1];
-  if (!oldest) {
-    throw new Error("pending body sweep batch was non-empty but yielded no rows");
-  }
   await db
     .update(mailAccounts)
     .set({
-      bodyWatermark: oldest.receivedAt,
+      ...(oldestProcessed ? { bodyWatermark: oldestProcessed } : {}),
       bodySweepComplete: false,
       bodySweepPausedUntil: null,
       updatedAt: new Date(),
     })
     .where(eq(mailAccounts.id, mailAccountId));
 
-  return { processed: pending.length, complete: false };
+  return { processed, complete: false };
 }
 
 /** A tiny sleep that also resolves early on `stopSignal` — same shape as `live-session.ts`'s own. */
