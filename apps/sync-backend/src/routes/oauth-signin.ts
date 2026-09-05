@@ -35,6 +35,7 @@ import {
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import { getProviderRegistration } from "../provider-registrations/store.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
+import { AUTHORIZATION_RATE_LIMIT } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
 
 /**
@@ -69,8 +70,6 @@ import { parseProviderParam } from "./route-params.js";
 
 /** Where the callback always lands the browser — outcome or not, success or not. */
 const MAIL_ACCOUNTS_SETTINGS_PATH = "/settings/mail-accounts";
-const OAUTH_RATE_LIMIT = { max: 10, timeWindow: 60_000 };
-
 export interface OAuthSignInRoutesOptions {
   db: Db;
   /** ADR-0009's single source of truth: the redirect URI's base, and the origin the callback redirects back into. */
@@ -172,7 +171,7 @@ export async function oauthSignInRoutes(
   // identity by a tampered request.
   app.post(
     "/auth/oauth/:provider/start",
-    { config: { rateLimit: OAUTH_RATE_LIMIT }, preHandler: app.requireAuth },
+    { config: { rateLimit: AUTHORIZATION_RATE_LIMIT }, preHandler: app.requireAuth },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;
@@ -222,7 +221,7 @@ export async function oauthSignInRoutes(
 
   app.get(
     "/auth/oauth/:provider/callback",
-    { config: { rateLimit: OAUTH_RATE_LIMIT } },
+    { config: { rateLimit: AUTHORIZATION_RATE_LIMIT } },
     async (request, reply) => {
       const parsed = providerSchema.safeParse((request.params as { provider?: string }).provider);
       if (!parsed.success) {
