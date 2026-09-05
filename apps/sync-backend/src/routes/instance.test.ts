@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { MailAccountConnection } from "@mail/shared";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession } from "../auth/sessions.js";
 import type { Db } from "../db/client.js";
@@ -26,12 +26,20 @@ const CONNECTION: MailAccountConnection = { host: "imap.example.com", port: 993,
 
 let db: Db;
 let closeDb: () => Promise<void>;
+let apps: Array<ReturnType<typeof buildApp>> = [];
 
 beforeEach(async () => {
   const created = await createTestDb();
   db = created.db;
   closeDb = () => created.sql.end();
+  apps = [];
   await resetTestDb(db);
+});
+
+afterEach(async () => {
+  while (apps.length > 0) {
+    await apps.pop()?.close();
+  }
 });
 
 afterAll(async () => {
@@ -41,13 +49,15 @@ afterAll(async () => {
 function buildTestApp(
   options: { vapidKeys?: VapidKeyStore; publicUrl?: string; imageTag?: string } = {},
 ) {
-  return buildApp({
+  const app = buildApp({
     db,
     publicUrl: options.publicUrl ?? PUBLIC_URL,
     mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY,
     vapidKeys: options.vapidKeys,
     imageTag: options.imageTag ?? "test-tag",
   });
+  apps.push(app);
+  return app;
 }
 
 /** The real store, over this test's own database — what `main.ts` wires in. */
