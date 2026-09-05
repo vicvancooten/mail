@@ -14,7 +14,7 @@ import type {
   ProviderAdapter,
   ProviderGrant,
 } from "../mail-accounts/provider-adapter.js";
-import { deriveCodeChallenge } from "../mail-accounts/sign-in-attempts.js";
+import { deriveCodeChallenge, startSignInAttempt } from "../mail-accounts/sign-in-attempts.js";
 import type { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import {
   deleteProviderRegistration,
@@ -157,6 +157,12 @@ function stateFrom(authorizationUrl: string): string {
 /** The outcome code the callback redirected with — the only thing the Client ever learns from it. */
 function outcomeOf(location: string): string | null {
   return new URL(location).searchParams.get(OAUTH_SIGN_IN_OUTCOME_PARAM);
+}
+
+function expectRateLimited(response: Awaited<ReturnType<ReturnType<typeof buildTestApp>["inject"]>>) {
+  expect(response.statusCode).toBe(429);
+  expect(response.json()).toEqual({ error: "rate_limited" });
+  expect(response.headers["retry-after"]).toBeDefined();
 }
 
 describe("GET /auth/oauth/providers", () => {
@@ -355,6 +361,32 @@ describe("POST /auth/oauth/:provider/start", () => {
       .from(oauthSignInAttempts)
       .where(eq(oauthSignInAttempts.userId, userId));
     expect(attempt).toMatchObject({ purpose: "reauth", mailAccountId: account.id });
+  });
+
+  it("rate-limits repeated start attempts by the same User", async () => {
+    const app = buildTestApp();
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle();
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/auth/oauth/google/start",
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    expectRateLimited(
+      await app.inject({
+        method: "POST",
+        url: "/auth/oauth/google/start",
+        headers: { cookie },
+      }),
+    );
   });
 });
 
@@ -672,6 +704,48 @@ describe("GET /auth/oauth/:provider/callback", () => {
 
     expect(outcomeOf(response.headers.location as string)).toBe("provider_not_registered");
     expect(await db.select().from(mailAccounts)).toHaveLength(0);
+  });
+
+  it("rate-limits repeated callback attempts by the same User", async () => {
+    const app = buildTestApp();
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle();
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const state = (
+        await startSignInAttempt(db, {
+          userId,
+          provider: "google",
+          purpose: "add_mail_account",
+          mailAccountId: null,
+        })
+      ).state;
+      expect(
+        (
+          await app.inject({
+            method: "GET",
+            url: callbackUrl({ code: `code-${attempt}`, state }),
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(302);
+    }
+
+    const state = (
+      await startSignInAttempt(db, {
+        userId,
+        provider: "google",
+        purpose: "add_mail_account",
+        mailAccountId: null,
+      })
+    ).state;
+    expectRateLimited(
+      await app.inject({
+        method: "GET",
+        url: callbackUrl({ code: "too-many", state }),
+        headers: { cookie },
+      }),
+    );
   });
 });
 

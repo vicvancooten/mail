@@ -35,6 +35,7 @@ import {
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import { getProviderRegistration } from "../provider-registrations/store.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
+import { createRouteRateLimit, guardWithRateLimit } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
 
 /**
@@ -101,6 +102,16 @@ export async function oauthSignInRoutes(
   }: OAuthSignInRoutesOptions,
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
+  const requireAuthWithRateLimit = (routeKey: string, max: number) =>
+    guardWithRateLimit(
+      app.requireAuth,
+      createRouteRateLimit({ key: routeKey, max, windowMs: 60_000 }),
+    );
+  const oauthCallbackRateLimit = createRouteRateLimit({
+    key: "oauth-provider-callback",
+    max: 10,
+    windowMs: 60_000,
+  });
 
   /** The redirect URI must be byte-identical between the authorization request, the token exchange and the Provider's console (#115's `buildProviderRedirectUri`) — one call site, no chance of drift. */
   const redirectUriFor = (provider: Provider) => buildProviderRedirectUri(publicUrl, provider);
@@ -171,7 +182,7 @@ export async function oauthSignInRoutes(
   // identity by a tampered request.
   app.post(
     "/auth/oauth/:provider/start",
-    { preHandler: app.requireAuth },
+    { preHandler: requireAuthWithRateLimit("oauth-provider-start", 10) },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;
@@ -219,142 +230,146 @@ export async function oauthSignInRoutes(
     },
   );
 
-  app.get("/auth/oauth/:provider/callback", async (request, reply) => {
-    const parsed = providerSchema.safeParse((request.params as { provider?: string }).provider);
-    if (!parsed.success) {
-      return finish(reply, "invalid_state");
-    }
-    const provider = parsed.data;
-
-    // The session cookie is the only thing that says whose Mail Account this
-    // is; the `state` alone must never be enough (it travels through the
-    // Provider and the URL bar). No session means nothing to attach to.
-    const user = request.user;
-    if (!user) {
-      return finish(reply, "session_expired");
-    }
-
-    const query = request.query as {
-      code?: string;
-      state?: string;
-      error?: string;
-      error_description?: string;
-    };
-    if (typeof query.state !== "string") {
-      return finish(reply, "invalid_state");
-    }
-
-    // Redeemed — and deleted — before anything else is decided, so even a
-    // Provider-side error can't leave a live attempt behind to replay.
-    const attempt = await consumeSignInAttempt(db, {
-      state: query.state,
-      userId: user.id,
-      provider,
-    });
-    if (!attempt) {
-      return finish(reply, "invalid_state");
-    }
-
-    const adapter = providerAdapters[provider];
-
-    // `access_denied` is the User pressing Cancel on the consent screen —
-    // ADR-0021's "plain toast", not an error worth a different word for.
-    // Anything else the adapter recognises as a tenant refusal (#117: an
-    // M365 tenant blocking IMAP or withholding admin consent) is a distinct,
-    // never-retry outcome; everything left over is an ordinary provider_error.
-    if (query.error) {
-      if (
-        query.error !== "access_denied" &&
-        adapter?.isTenantRefusal?.({ error: query.error, detail: query.error_description })
-      ) {
-        return finish(reply, "tenant_refused");
+  app.get(
+    "/auth/oauth/:provider/callback",
+    { preHandler: oauthCallbackRateLimit },
+    async (request, reply) => {
+      const parsed = providerSchema.safeParse((request.params as { provider?: string }).provider);
+      if (!parsed.success) {
+        return finish(reply, "invalid_state");
       }
-      return finish(reply, query.error === "access_denied" ? "cancelled" : "provider_error");
-    }
-    if (typeof query.code !== "string" || query.code.length === 0) {
-      return finish(reply, "provider_error");
-    }
+      const provider = parsed.data;
 
-    const registration = await getProviderRegistration(db, provider);
-    if (!adapter || !registration) {
-      // The Owner removed the Registration while the User was at the consent
-      // screen. Nothing was created, and the reason is the Owner's to fix.
-      return finish(reply, "provider_not_registered");
-    }
-
-    let grant: Awaited<ReturnType<ProviderAdapter["exchangeCode"]>>;
-    try {
-      grant = await adapter.exchangeCode({
-        clientId: registration.clientId,
-        clientSecret: unsealSecret(registration.clientSecret, provider, key),
-        redirectUri: redirectUriFor(provider),
-        code: query.code,
-        codeVerifier: attempt.codeVerifier,
-      });
-    } catch (err) {
-      const errorCode = errorCodeOf(err);
-      if (
-        errorCode &&
-        adapter.isTenantRefusal?.({
-          error: errorCode,
-          detail: err instanceof Error ? err.message : undefined,
-        })
-      ) {
-        request.log.warn({ err, provider }, "A tenant refused the sign-in (ADR-0021).");
-        return finish(reply, "tenant_refused");
+      // The session cookie is the only thing that says whose Mail Account this
+      // is; the `state` alone must never be enough (it travels through the
+      // Provider and the URL bar). No session means nothing to attach to.
+      const user = request.user;
+      if (!user) {
+        return finish(reply, "session_expired");
       }
-      request.log.warn({ err, provider }, "Provider rejected the authorization code exchange.");
-      return finish(reply, "provider_error");
-    }
 
-    // The address is the Provider's answer, never the User's (ADR-0021).
-    const emailAddress = grant.emailAddress;
+      const query = request.query as {
+        code?: string;
+        state?: string;
+        error?: string;
+        error_description?: string;
+      };
+      if (typeof query.state !== "string") {
+        return finish(reply, "invalid_state");
+      }
 
-    if (attempt.purpose === "reauth") {
-      return finishReauth(request, reply, {
+      // Redeemed — and deleted — before anything else is decided, so even a
+      // Provider-side error can't leave a live attempt behind to replay.
+      const attempt = await consumeSignInAttempt(db, {
+        state: query.state,
+        userId: user.id,
         provider,
-        mailAccountId: attempt.mailAccountId,
+      });
+      if (!attempt) {
+        return finish(reply, "invalid_state");
+      }
+
+      const adapter = providerAdapters[provider];
+
+      // `access_denied` is the User pressing Cancel on the consent screen —
+      // ADR-0021's "plain toast", not an error worth a different word for.
+      // Anything else the adapter recognises as a tenant refusal (#117: an
+      // M365 tenant blocking IMAP or withholding admin consent) is a distinct,
+      // never-retry outcome; everything left over is an ordinary provider_error.
+      if (query.error) {
+        if (
+          query.error !== "access_denied" &&
+          adapter?.isTenantRefusal?.({ error: query.error, detail: query.error_description })
+        ) {
+          return finish(reply, "tenant_refused");
+        }
+        return finish(reply, query.error === "access_denied" ? "cancelled" : "provider_error");
+      }
+      if (typeof query.code !== "string" || query.code.length === 0) {
+        return finish(reply, "provider_error");
+      }
+
+      const registration = await getProviderRegistration(db, provider);
+      if (!adapter || !registration) {
+        // The Owner removed the Registration while the User was at the consent
+        // screen. Nothing was created, and the reason is the Owner's to fix.
+        return finish(reply, "provider_not_registered");
+      }
+
+      let grant: Awaited<ReturnType<ProviderAdapter["exchangeCode"]>>;
+      try {
+        grant = await adapter.exchangeCode({
+          clientId: registration.clientId,
+          clientSecret: unsealSecret(registration.clientSecret, provider, key),
+          redirectUri: redirectUriFor(provider),
+          code: query.code,
+          codeVerifier: attempt.codeVerifier,
+        });
+      } catch (err) {
+        const errorCode = errorCodeOf(err);
+        if (
+          errorCode &&
+          adapter.isTenantRefusal?.({
+            error: errorCode,
+            detail: err instanceof Error ? err.message : undefined,
+          })
+        ) {
+          request.log.warn({ err, provider }, "A tenant refused the sign-in (ADR-0021).");
+          return finish(reply, "tenant_refused");
+        }
+        request.log.warn({ err, provider }, "Provider rejected the authorization code exchange.");
+        return finish(reply, "provider_error");
+      }
+
+      // The address is the Provider's answer, never the User's (ADR-0021).
+      const emailAddress = grant.emailAddress;
+
+      if (attempt.purpose === "reauth") {
+        return finishReauth(request, reply, {
+          provider,
+          mailAccountId: attempt.mailAccountId,
+          userId: user.id,
+          emailAddress,
+          grant,
+        });
+      }
+
+      if (await getMailAccountForUserByAddress(db, user.id, emailAddress)) {
+        return finish(reply, "duplicate_address");
+      }
+
+      // Verify-before-save, the same rule a password account has always had
+      // (poc-spec.md §Mail Accounts) — over XOAUTH2 here, through the very
+      // `credential-auth.ts` seam #114 built for it.
+      const { imap, smtp } = adapter.connection;
+      const result = await verifyGrant({ imap, smtp, username: emailAddress, grant });
+      if (!result.ok) {
+        request.log.warn(
+          { provider, reason: result.reason, detail: result.detail },
+          "A Provider Grant did not survive IMAP/SMTP verification; no Mail Account was created.",
+        );
+        return finish(reply, "verification_failed");
+      }
+
+      const id = randomUUID();
+      const row = await insertMailAccount(db, {
+        id,
         userId: user.id,
         emailAddress,
-        grant,
+        imap,
+        smtp,
+        // Gmail's IMAP/SMTP login *is* the address, and there is no second
+        // login to ask for — signing in is the only way this row is created.
+        username: emailAddress,
+        credential: sealGrant(grant, provider, id),
       });
-    }
+      // "back to the Mail Accounts settings page with the new Gmail account
+      // already syncing" (#116): the same call `POST /mail-accounts` makes.
+      syncManager.start(row);
 
-    if (await getMailAccountForUserByAddress(db, user.id, emailAddress)) {
-      return finish(reply, "duplicate_address");
-    }
-
-    // Verify-before-save, the same rule a password account has always had
-    // (poc-spec.md §Mail Accounts) — over XOAUTH2 here, through the very
-    // `credential-auth.ts` seam #114 built for it.
-    const { imap, smtp } = adapter.connection;
-    const result = await verifyGrant({ imap, smtp, username: emailAddress, grant });
-    if (!result.ok) {
-      request.log.warn(
-        { provider, reason: result.reason, detail: result.detail },
-        "A Provider Grant did not survive IMAP/SMTP verification; no Mail Account was created.",
-      );
-      return finish(reply, "verification_failed");
-    }
-
-    const id = randomUUID();
-    const row = await insertMailAccount(db, {
-      id,
-      userId: user.id,
-      emailAddress,
-      imap,
-      smtp,
-      // Gmail's IMAP/SMTP login *is* the address, and there is no second
-      // login to ask for — signing in is the only way this row is created.
-      username: emailAddress,
-      credential: sealGrant(grant, provider, id),
-    });
-    // "back to the Mail Accounts settings page with the new Gmail account
-    // already syncing" (#116): the same call `POST /mail-accounts` makes.
-    syncManager.start(row);
-
-    return finish(reply, "signed_in");
-  });
+      return finish(reply, "signed_in");
+    },
+  );
 
   /**
    * The `reauth` half of the callback (#119): "sign in with Google/Microsoft

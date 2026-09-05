@@ -29,6 +29,7 @@ import {
   type ProviderRegistrationRow,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
+import { createRouteRateLimit, guardWithRateLimit } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
 
 export interface InstanceRoutesOptions {
@@ -81,6 +82,11 @@ export async function instanceRoutes(
   { db, publicUrl, mailCredentialKey, vapidKeys, imageTag }: InstanceRoutesOptions,
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
+  const limitOwnerWrites = (routeKey: string, max: number) =>
+    guardWithRateLimit(
+      app.requireOwner,
+      createRouteRateLimit({ key: routeKey, max, windowMs: 60_000 }),
+    );
 
   async function buildProviderHealth(provider: Provider): Promise<ProviderHealth> {
     const [registration, mailAccountCount, needsReauthCount] = await Promise.all([
@@ -135,37 +141,41 @@ export async function instanceRoutes(
    * notifications. `409` is an env-pinned instance, where the environment
    * would override whatever this wrote on the next boot.
    */
-  app.post("/instance/vapid-keys", { preHandler: app.requireOwner }, async (_request, reply) => {
-    if (!vapidKeys.canGenerate) {
-      return reply.code(409).send({ error: "env_managed" });
-    }
-    const existing = await vapidKeys.ensure();
-    if (existing) {
+  app.post(
+    "/instance/vapid-keys",
+    { preHandler: limitOwnerWrites("instance-vapid-keys", 5) },
+    async (_request, reply) => {
+      if (!vapidKeys.canGenerate) {
+        return reply.code(409).send({ error: "env_managed" });
+      }
+      const existing = await vapidKeys.ensure();
+      if (existing) {
+        return generateVapidKeysResponseSchema.parse({
+          publicKey: existing.publicKey,
+          replaced: false,
+        });
+      }
+      const repaired = await vapidKeys.repair();
+      if (!repaired) {
+        // `ensure` found nothing and `repair` refused, which only happens if a
+        // readable keypair appeared between the two — the caller's request is
+        // already satisfied, so re-read rather than reporting a failure.
+        const publicKey = await vapidKeys.readPublicKey();
+        if (!publicKey) return reply.code(500).send({ error: "generation_failed" });
+        return generateVapidKeysResponseSchema.parse({ publicKey, replaced: false });
+      }
       return generateVapidKeysResponseSchema.parse({
-        publicKey: existing.publicKey,
-        replaced: false,
+        publicKey: repaired.publicKey,
+        replaced: true,
       });
-    }
-    const repaired = await vapidKeys.repair();
-    if (!repaired) {
-      // `ensure` found nothing and `repair` refused, which only happens if a
-      // readable keypair appeared between the two — the caller's request is
-      // already satisfied, so re-read rather than reporting a failure.
-      const publicKey = await vapidKeys.readPublicKey();
-      if (!publicKey) return reply.code(500).send({ error: "generation_failed" });
-      return generateVapidKeysResponseSchema.parse({ publicKey, replaced: false });
-    }
-    return generateVapidKeysResponseSchema.parse({
-      publicKey: repaired.publicKey,
-      replaced: true,
-    });
-  });
+    },
+  );
 
   // Save (#115): create-or-replace, no restart. Never echoes the secret back
   // — `buildProviderHealth` only ever reads `clientId` off the stored row.
   app.put(
     "/instance/providers/:provider",
-    { preHandler: app.requireOwner },
+    { preHandler: limitOwnerWrites("instance-provider-save", 5) },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;
@@ -209,7 +219,7 @@ export async function instanceRoutes(
   // "one notification each" is per genuine transition, not per account.
   app.delete(
     "/instance/providers/:provider",
-    { preHandler: app.requireOwner },
+    { preHandler: limitOwnerWrites("instance-provider-delete", 5) },
     async (request, reply) => {
       const provider = parseProviderParam(request, reply);
       if (!provider) return reply;

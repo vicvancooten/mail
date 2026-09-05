@@ -59,6 +59,12 @@ function realVapidKeys(overrides: { envKeypair?: { publicKey: string; privateKey
   });
 }
 
+function expectRateLimited(response: Awaited<ReturnType<ReturnType<typeof buildTestApp>["inject"]>>) {
+  expect(response.statusCode).toBe(429);
+  expect(response.json()).toEqual({ error: "rate_limited" });
+  expect(response.headers["retry-after"]).toBeDefined();
+}
+
 async function createUserWithCookie(role: "owner" | "member"): Promise<string> {
   const userId = randomUUID();
   await db.insert(users).values({
@@ -431,6 +437,33 @@ describe("PUT /instance/providers/:provider", () => {
     expect(second.statusCode).toBe(200);
     expect(second.json().provider).toMatchObject({ clientIdPreview: "second-id" });
   });
+
+  it("rate-limits repeated Provider registration saves", async () => {
+    const app = buildTestApp();
+    const cookie = await createUserWithCookie("owner");
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "PUT",
+            url: "/instance/providers/google",
+            headers: { cookie },
+            payload: { clientId: `id-${attempt}`, clientSecret: "secret" },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    expectRateLimited(
+      await app.inject({
+        method: "PUT",
+        url: "/instance/providers/google",
+        headers: { cookie },
+        payload: { clientId: "id-too-many", clientSecret: "secret" },
+      }),
+    );
+  });
 });
 
 describe("GET /instance/providers/:provider/delete-preview", () => {
@@ -540,6 +573,37 @@ describe("DELETE /instance/providers/:provider", () => {
       ]),
     );
   });
+
+  it("rate-limits repeated Provider deletion attempts", async () => {
+    const app = buildTestApp();
+    const cookie = await createUserWithCookie("owner");
+    await app.inject({
+      method: "PUT",
+      url: "/instance/providers/google",
+      headers: { cookie },
+      payload: { clientId: "id", clientSecret: "secret" },
+    });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "DELETE",
+            url: "/instance/providers/google",
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    expectRateLimited(
+      await app.inject({
+        method: "DELETE",
+        url: "/instance/providers/google",
+        headers: { cookie },
+      }),
+    );
+  });
 });
 
 describe("POST /instance/vapid-keys", () => {
@@ -609,5 +673,30 @@ describe("POST /instance/vapid-keys", () => {
     });
 
     expect(response.statusCode).toBe(403);
+  });
+
+  it("rate-limits repeated VAPID key generation requests", async () => {
+    const app = buildTestApp({ vapidKeys: realVapidKeys() });
+    const cookie = await createUserWithCookie("owner");
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/instance/vapid-keys",
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    expectRateLimited(
+      await app.inject({
+        method: "POST",
+        url: "/instance/vapid-keys",
+        headers: { cookie },
+      }),
+    );
   });
 });
