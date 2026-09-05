@@ -218,6 +218,9 @@ describe("the bounded working set", () => {
     expect(await localCache().threads.count()).toBe(before);
   }, 20_000);
 
+  // This opens a retained Thread, then runs the same >1,000-row trim path as
+  // the cases above before checking that the pinned entity survives outside the
+  // list window — still fine locally, but slower CI runners can exceed 5s.
   it("keeps an opened Thread in the entity cache when it ages out of the window", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(10) }), { replace: false });
     await pinThreadIntoCache("t000000");
@@ -232,8 +235,11 @@ describe("the bounded working set", () => {
     expect(await localCache().threads.get("t000000")).toBeDefined();
     const page = await readThreadWindow(ACCOUNT, { limit: 5_000 });
     expect(page.threads.map((thread) => thread.id)).not.toContain("t000000");
-  });
+  }, 20_000);
 
+  // Likewise, this seeds a queued reference and then trims a >1,000-row window
+  // to prove referenced Threads are retained even when unreferenced neighbours
+  // are evicted.
   it("keeps a Thread a queued Optimistic Action references", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(10) }), { replace: false });
     await localCache().pendingMutations.put({
@@ -252,8 +258,11 @@ describe("the bounded working set", () => {
     expect(await localCache().threads.get("t000001")).toBeDefined();
     // Its unreferenced neighbour went, so this is retention, not a failed trim.
     expect(await localCache().threads.get("t000002")).toBeUndefined();
-  });
+  }, 20_000);
 
+  // This also seeds and trims a >1,000-row window before asserting the reset
+  // replay path, which stays under 5s locally but not reliably on slower
+  // GitHub Actions runners against fake-indexeddb.
   it("reopens the window on a reset replay", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
       replace: false,
@@ -266,7 +275,7 @@ describe("the bounded working set", () => {
     const row = await windowRow();
     expect(row?.complete).toBe(true);
     expect(row?.oldestHeldSort).toBeNull();
-  });
+  }, 20_000);
 
   describe("closing stale notifications on \\Seen (#53, ADR-0015)", () => {
     beforeEach(() => {
