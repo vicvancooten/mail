@@ -1,13 +1,12 @@
 import type { ThreadParticipant } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import { Check, Clock, type LucideIcon, Pin, Star } from "lucide-react";
+import { Check, Clock, type LucideIcon, Pin, Star, Trash2 } from "lucide-react";
 import { type CSSProperties, type ReactElement, type ReactNode, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { CachedThread } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
 import { parseHeadline } from "./search/headline.js";
-import { defaultSwipeSnoozeUntil } from "./snooze-presets.js";
 import { formatRowTime, type TimeGroupTier } from "./time-groups.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "./useSwipeToTriage.js";
 
@@ -74,17 +73,22 @@ export interface RowHoverAction {
  * anyway (`j`/`k`, the Action registry's single listener), so nothing about
  * that path changes.
  *
- * `onArchive`/`onSnooze` (#44, #76, `poc-scope.md` §Clients & notifications)
- * wire the row into `useSwipeToTriage` *and* their own row controls below —
- * optional because `VirtualizedThreadList` has one non-triage caller path in
- * tests, and because the swipe hook is already a no-op for anything but a
- * touch pointer, so wiring it unconditionally would cost nothing either way;
- * optional just avoids threading unused callbacks through call sites that
- * truly have none. There is deliberately no `onTrash` here: Trash stays one
- * keystroke away (the registry's `#`/Backspace/Delete binding) and one
- * right-click away (`contextMenu` below), but per #66's own row-cluster/
- * swipe design ("swipe right marks Done, swipe left snoozes") it has no
- * row-level hover or swipe control of its own.
+ * `onArchive`/`onTrash`/`onSnooze` (#44, #76, #149, `poc-scope.md` §Clients &
+ * notifications) wire the row into `useSwipeToTriage` *and* their own row
+ * controls below — optional because `VirtualizedThreadList` has one
+ * non-triage caller path in tests, and because the swipe hook is already a
+ * no-op for anything but a touch pointer, so wiring it unconditionally would
+ * cost nothing either way; optional just avoids threading unused callbacks
+ * through call sites that truly have none. Per #149's "one gesture module...
+ * right = Done, left = Trash" (#133), `onTrash` is swipe left's own commit —
+ * Trash otherwise stays one keystroke away (the registry's `#`/Backspace/
+ * Delete binding) and one right-click away (`contextMenu` below), with no
+ * hover-cluster control of its own (unlike Snooze/Pin below): the swipe *is*
+ * its row-level control. `onSnooze` no longer wires into the swipe at all
+ * (#149 removes Snooze from swipe) — it only builds the hover cluster's
+ * Snooze button now, which #134's `hoverCapable` already keeps permanently
+ * visible on a touch device instead of hover-revealed, so losing swipe-to-
+ * Snooze costs nothing there.
  *
  * `headline`/`folderPill`/`actionBadge` are search's own additions (#51,
  * `docs/search-ux-spec.md` §The row: "Built on ADR-0011's `Thread` list-row
@@ -98,6 +102,7 @@ export function ThreadRow({
   selected,
   onSelect,
   onArchive,
+  onTrash,
   onSnooze,
   onTogglePin,
   hoverActions,
@@ -116,7 +121,9 @@ export function ThreadRow({
   selected: boolean;
   onSelect: () => void;
   onArchive?: () => void;
-  /** #76: `until` is an ISO datetime — the row cluster's Snooze button opens `SnoozeMenu` for a preset/custom pick, and a bare swipe left commits `snooze-presets.ts`'s `defaultSwipeSnoozeUntil` with no picker in reach. */
+  /** #149: swipe left's own commit — "one gesture module... right = Done, left = Trash" (#133). No hover-cluster button of its own; the swipe is Trash's only row-level control. */
+  onTrash?: () => void;
+  /** #76: `until` is an ISO datetime — the row cluster's Snooze button opens `SnoozeMenu` for a preset/custom pick. No longer a swipe outcome (#149); the hover cluster is this row's only Snooze control now. */
   onSnooze?: (until: string) => void;
   /** #43/#87: the comp's row-hover actions are Snooze *and* Pin — same optional-wiring posture as the two above, so search's non-triage rows simply render neither. */
   onTogglePin?: () => void;
@@ -152,7 +159,7 @@ export function ThreadRow({
 
   const swipe = useSwipeToTriage({
     onArchive: onArchive ?? (() => {}),
-    onSnooze: onSnooze ? () => onSnooze(defaultSwipeSnoozeUntil().toISOString()) : () => {},
+    onTrash: onTrash ?? (() => {}),
   });
   const revealStrength = Math.min(Math.abs(swipe.offsetX) / SWIPE_COMMIT_THRESHOLD_PX, 1);
 
@@ -375,7 +382,7 @@ export function ThreadRow({
   const withMenu = (content: ReactElement): ReactElement =>
     contextMenu ? contextMenu(content) : content;
 
-  if (!onArchive && !onSnooze) return withMenu(row); // no swipe wiring: skip the reveal wrapper entirely
+  if (!onArchive && !onTrash) return withMenu(row); // no swipe wiring: skip the reveal wrapper entirely
 
   return withMenu(
     <div className="thread-row-outer">
@@ -385,9 +392,9 @@ export function ThreadRow({
           style={{ opacity: revealStrength } as CSSProperties}
           aria-hidden="true"
         >
-          {swipe.revealing === "snooze" ? (
-            <span className="swipe-reveal-snooze">
-              <Clock size={16} /> Snooze
+          {swipe.revealing === "trash" ? (
+            <span className="swipe-reveal-trash">
+              <Trash2 size={16} /> Trash
             </span>
           ) : (
             // "Done" (#66 user story 8) — the act, on the row a swipe commits

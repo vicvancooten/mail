@@ -1204,7 +1204,7 @@
 }
 
 /* ============================================================================
-   SWIPE-TO-TRIAGE (#44, #76, touch only)
+   SWIPE-TO-TRIAGE (#44, #149, touch only) — right Done, left Trash
    The reveal is the tray the item is being dropped into.
    ========================================================================= */
 
@@ -1247,19 +1247,18 @@
   justify-content: flex-start;
 }
 
-/* #76: swipe left snoozes (#66's "swipe right marks Done, swipe left
-   snoozes"). Snooze is not destructive, so its tray is a warn *tint* with
-   warn ink rather than a saturated warn ground — the one treatment that
-   holds its contrast in both themes, where a flat `--color-warn` fill does
-   not. */
-.swipe-reveal.snooze {
-  background: color-mix(in oklab, var(--color-warn) 20%, var(--color-bg));
-  color: var(--color-warn);
+/* #149: swipe left commits Trash (was Snooze — #133's "Swipe to Triage"
+   decision removes Snooze from swipe entirely). Trash is destructive, so its
+   tray is the same saturated danger ground the row's other destructive
+   affordances use (`.block-alias-confirm`'s own pairing), not a tint. */
+.swipe-reveal.trash {
+  background: var(--color-danger);
+  color: var(--color-accent-foreground);
   justify-content: flex-end;
 }
 
 .swipe-reveal-archive,
-.swipe-reveal-snooze {
+.swipe-reveal-trash {
   display: inline-flex;
   align-items: center;
   gap: 7px;
