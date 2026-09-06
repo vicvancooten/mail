@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +110,31 @@ describe("StreamStack (#105)", () => {
     expect(await screen.findByText("Newer thread")).toBeDefined();
     expect(screen.getByText("Older thread")).toBeDefined();
     expect(screen.queryByText("Snippet t-older")).toBeNull();
+  });
+
+  it("renders the same Reader action hierarchy Split/List do, plus its own Skip button (#143, #105: 'Stream is not a second design')", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    // The primary tier — Reply, Done, Snooze, Trash — same as every surface.
+    expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
+
+    // Skip stays Stream's own button, not a registry tier.
+    expect(screen.getByRole("button", { name: /Skip/ })).toBeDefined();
+
+    // The secondary tier — Pin, Star, Label — inline and quieter, same as
+    // Split/List at desktop width; Read/unread and Forward reach through the
+    // same More menu every surface gets.
+    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: /Pin/ })).toBeNull();
   });
 
   it("'e' Dones the top card and the next one slides up", async () => {

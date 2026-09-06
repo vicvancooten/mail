@@ -1465,6 +1465,26 @@
   flex: none;
 }
 
+/* The secondary tier (#143): Pin, Star, Label — inline, but visually
+   quieter than the primary run, since they're one click away rather than
+   competing with it (desktop only; `ThreadDetailPane` doesn't render this
+   wrapper at all on a touch-capable phone, folding the three into the More
+   menu instead). */
+.reading-actions-secondary {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.reading-actions-secondary button {
+  opacity: 0.6;
+}
+
+.reading-actions-secondary button:hover:not(:disabled),
+.reading-actions-secondary button.on {
+  opacity: 1;
+}
+
 .reading-meta {
   display: flex;
   align-items: center;

@@ -1,6 +1,7 @@
 import type { SyncResponse } from "@mail/shared";
 import { gmailLabelId, labelId } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,6 +78,27 @@ function stubFetch(sync: () => Promise<Response>) {
 }
 
 const never = () => new Promise<Response>(() => {});
+
+/**
+ * `useTouchCapablePhone` (#143) reads one combined `matchMedia` query — jsdom
+ * has none by default, so a bare test sees `false` (desktop) unchanged; this
+ * stands in the query in for the one test that needs the phone case.
+ */
+function stubTouchCapablePhone(matches: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query.includes("pointer: coarse") && matches,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
 
 beforeEach(async () => {
   resetSyncStatus();
@@ -523,7 +545,7 @@ describe("MailSection", () => {
     expect(await screen.findByText("Couldn't archive — restored to the list.")).toBeDefined();
   });
 
-  it("selecting an unread Thread marks it read; the Mark unread button toggles it back (#42)", async () => {
+  it("selecting an unread Thread marks it read; the Reader's More menu toggles it back (#42, #143)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -537,16 +559,22 @@ describe("MailSection", () => {
         "unread",
       );
     });
-    const markUnread = await screen.findByRole("button", { name: "Mark unread" });
 
     // `u` no longer toggles read/unread (#79 rebinds it to "back to list") —
-    // the mouse affordance is still the way to reach it, plus the Command
-    // Palette now (`command-palette.test.tsx`).
-    fireEvent.click(markUnread);
-    expect(await screen.findByRole("button", { name: "Mark read" })).toBeDefined();
+    // the mouse affordance now lives in the Reader's More menu (#143's own
+    // `reader-more` tier), plus the Command Palette (`command-palette.test.tsx`).
+    // The trigger only opens for a real pointer-event sequence (`userEvent`),
+    // not a bare synthetic click — same as every other Radix Dropdown/Menu
+    // trigger in this suite.
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /More actions for "Newer/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Mark as unread" }));
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /Newer thread/ }).className).toContain("unread");
     });
+
+    await user.click(await screen.findByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as read" })).toBeDefined();
   });
 
   it("u (#79, rebound from mark-unread) sends the reading pane back to the list", async () => {
@@ -686,6 +714,69 @@ describe("MailSection", () => {
 
     await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
     expect(screen.getByRole("option", { name: /Newer thread/ })).toBeDefined();
+  });
+});
+
+describe("Reader action hierarchy (#143)", () => {
+  it("renders Reply/Done/Snooze/Trash as primaries, Pin/Star/Label inline and quieter, and everything else in the More menu", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    // The primary tier: visible on every surface (Split, List, phone, Stream).
+    expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
+
+    // The secondary tier: inline, but visually quieter — desktop only.
+    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Apply or remove a label" })).toBeDefined();
+
+    // Read/unread (the `reader-more` tier — Forward joins it too, but only
+    // once a Message has loaded to forward, which this test doesn't wait
+    // for) is reachable *only* from the More menu, and the secondary tier
+    // doesn't also duplicate into it on desktop.
+    expect(screen.queryByRole("button", { name: /Mark as (read|unread)/ })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Pin" })).toBeNull();
+  });
+
+  it("on a touch-capable phone the Reader shows only the four primaries plus More, folding Pin/Star/Label into it and dropping prev/next", async () => {
+    stubTouchCapablePhone(true);
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
+
+    expect(screen.queryByRole("button", { name: "Previous thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Star" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Apply or remove a label" })).toBeNull();
+
+    // Pin and Star carry their own keycap (their registry binding), so their
+    // menu item's accessible name is the label plus the printed key — a
+    // regex, the same way `ActionMenu.test.tsx` matches a keycap-bearing
+    // item, rather than an exact string.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Star/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
   });
 });
 
