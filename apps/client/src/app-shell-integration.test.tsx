@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { writeAccountScope } from "./mail/device-preferences.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "./store/server-writes.js";
@@ -248,6 +249,97 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(
       await screen.findByText("Routed thread", { selector: ".reading-subject" }),
     ).toBeDefined();
+  });
+
+  it("a cold-start Thread deep-link (#151) widens a narrowed Account Scope so the URL's own Thread is actually visible", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Notified thread" })] }),
+      { replace: false },
+    );
+    stubFetch();
+    // Scope was previously narrowed to the *other* account — the same
+    // gap `sw.ts#focusOrOpenClient` opening a bare "/" would have left
+    // unaddressed, since Account Scope is a Device Preference, not part
+    // of the URL a real notification click carries.
+    writeAccountScope(["acct-1"]);
+
+    history.replaceState(null, "", "/mail?thread=t2&account=acct-2");
+    render(<App />);
+
+    expect(
+      await screen.findByText("Notified thread", { selector: ".reading-subject" }),
+    ).toBeDefined();
+  });
+
+  it("a cold-start Gatekeeper digest deep-link (#151) opens the Screener, narrowed to that Mail Account", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    writeAccountScope(["acct-1"]);
+
+    history.replaceState(null, "", "/mail?folder=screener&account=acct-2");
+    render(<App />);
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(location.pathname).toBe("/mail");
+    expect(location.search).toContain("folder=screener");
+  });
+
+  it("a cold-start Needs Reauth deep-link (#151) lands on Mail Accounts settings and scrolls to that row", async () => {
+    const account = makeMailAccount("acct-1", { status: "needs_reauth" });
+    await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
+    stubFetch([account]);
+
+    history.replaceState(null, "", "/settings/mail-accounts?account=acct-1");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Mail Accounts", level: 2 })).toBeDefined();
+    await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
+  });
+
+  it("a Gatekeeper digest notification click, with a window open, opens the Screener narrowed to that Mail Account (#151)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
+      { replace: false },
+    );
+    stubFetch();
+
+    render(<App />);
+    expect(await screen.findByText("Account one thread")).toBeDefined();
+
+    act(() => {
+      publishNotificationTarget({ kind: "screener", mailAccountId: "acct-2" });
+    });
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(screen.queryByText("Account one thread")).toBeNull();
   });
 
   it("opening a Thread from the list pushes a history entry, and the phone back gesture returns to it (#81)", async () => {

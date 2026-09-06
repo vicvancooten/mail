@@ -74,6 +74,16 @@ export interface MailSearch {
   folder?: FolderKey;
   /** The selected Thread id. */
   thread?: string;
+  /**
+   * A notification deep-link's Mail Account (#151), *not* part of the
+   * restorable snapshot `onLocationChange` mirrors back: Account Scope is
+   * its own Device Preference (`useAccountScope.ts`), so this only ever
+   * seeds `MailSection`'s `initialAccountId` on a fresh mount — widening a
+   * previously-narrowed Scope so the `thread`/`screener` target above is
+   * actually visible. `MailRoute`'s own `onLocationChange` never writes it
+   * back, so it drops out of the URL the instant the mount settles.
+   */
+  account?: string;
 }
 
 export const mailRoute = createRoute({
@@ -84,6 +94,7 @@ export const mailRoute = createRoute({
     folder:
       parseFolderKey(typeof search.folder === "string" ? search.folder : undefined) ?? undefined,
     thread: typeof search.thread === "string" ? search.thread : undefined,
+    account: typeof search.account === "string" ? search.account : undefined,
   }),
   component: MailRoute,
 });
@@ -147,9 +158,17 @@ export const settingsThisDeviceRoute = createRoute({
   component: ThisDeviceSection,
 });
 
+export interface SettingsMailAccountsSearch {
+  /** A `needs_reauth` notification's cold-start deep-link (#151) — `MailAccountsPage`'s own seam for `scrollToMailAccountSettings`, mirroring what `RootLayout.tsx`'s notification-target effect does for an already-open window. */
+  account?: string;
+}
+
 export const settingsMailAccountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/mail-accounts",
+  validateSearch: (search: Record<string, unknown>): SettingsMailAccountsSearch => ({
+    account: typeof search.account === "string" ? search.account : undefined,
+  }),
   component: MailAccountsPage,
 });
 
