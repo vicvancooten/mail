@@ -242,15 +242,15 @@ export function SearchResultsView({
   accountScope: readonly string[];
 }) {
   const selectedThread =
-    state.results.find((thread) => thread.id === state.selectedThreadId) ?? null;
+    state.viewResults.find((thread) => thread.id === state.selectedThreadId) ?? null;
   const watermark = formatWatermark(state);
   const account = accounts.find((candidate) => candidate.id === mailAccountId) ?? null;
   const showAccountBadge = accountScope.length > 1;
 
   const getRowExtra = (thread: { id: string; mailAccountId: string }): RowExtra | undefined => {
-    const display = state.displayById.get(thread.id);
+    const display = state.viewDisplayById.get(thread.id);
     if (!display) return undefined;
-    const overlaid = state.results.find((candidate) => candidate.id === thread.id);
+    const overlaid = state.viewResults.find((candidate) => candidate.id === thread.id);
     return {
       headline: display.headline,
       folderPill:
@@ -281,7 +281,7 @@ export function SearchResultsView({
   // the inline watermark — stay gated on `results.length`; the degraded
   // banner itself does not.
   const footer =
-    state.results.length === 0 ? null : (
+    state.viewResults.length === 0 ? null : (
       <div className="search-foot">
         {degradedBanner ??
           (state.hasMore ? (
@@ -298,17 +298,28 @@ export function SearchResultsView({
       </div>
     );
 
+  // #139, `docs/search-ux-spec.md` §Search & commands: a request in flight
+  // for a changed query never shows "No matches" — with nothing accepted
+  // yet (the very first query of a session) that means a loading state
+  // takes the empty state's place; with a previous accepted set already on
+  // screen (`state.viewResults`, held by `useSearchState` for exactly this),
+  // it means that set stays put, `searchLoading` below only adding a
+  // non-blocking indicator rather than replacing it.
   const list =
     !state.meetsFloor && state.queryText.trim().length > 0 ? (
       <p className="mail-empty">Keep typing — search starts at 3 characters.</p>
-    ) : state.results.length === 0 ? (
-      <>
-        <EmptyState state={state} />
-        {degradedBanner ? <div className="search-foot">{degradedBanner}</div> : null}
-      </>
+    ) : state.viewResults.length === 0 ? (
+      state.serverLoading ? (
+        <p className="mail-empty search-loading">Searching…</p>
+      ) : (
+        <>
+          <EmptyState state={state} />
+          {degradedBanner ? <div className="search-foot">{degradedBanner}</div> : null}
+        </>
+      )
     ) : (
       <VirtualizedThreadList
-        threads={state.results}
+        threads={state.viewResults}
         complete
         selectedThreadId={state.selectedThreadId}
         onSelect={state.select}
@@ -318,6 +329,12 @@ export function SearchResultsView({
         getRowExtra={getRowExtra}
       />
     );
+  const searchLoading =
+    state.serverLoading && state.viewResults.length > 0 ? (
+      <p className="search-loading-inline" aria-live="polite">
+        Searching…
+      </p>
+    ) : null;
 
   if (viewMode === "list" && selectedThread) {
     return (
@@ -328,7 +345,7 @@ export function SearchResultsView({
         triage={triage}
         onReply={onReply}
         onMailtoLink={onMailtoLink}
-        focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
+        focusMessageId={state.viewDisplayById.get(selectedThread.id)?.matchedMessageId}
       />
     );
   }
@@ -337,6 +354,7 @@ export function SearchResultsView({
     return (
       <div className="search-results-view search-results-list">
         <ChipRow state={state} accounts={accounts} mailAccountId={mailAccountId} />
+        {searchLoading}
         {list}
       </div>
     );
@@ -346,6 +364,7 @@ export function SearchResultsView({
     <div className={`split-view search-results-view${selectedThread ? " has-selection" : ""}`}>
       <div className="split-list">
         <ChipRow state={state} accounts={accounts} mailAccountId={mailAccountId} />
+        {searchLoading}
         {list}
       </div>
       <div className="split-pane">
@@ -357,7 +376,7 @@ export function SearchResultsView({
             triage={triage}
             onReply={onReply}
             onMailtoLink={onMailtoLink}
-            focusMessageId={state.displayById.get(selectedThread.id)?.matchedMessageId}
+            focusMessageId={state.viewDisplayById.get(selectedThread.id)?.matchedMessageId}
           />
         ) : (
           <p className="mail-empty">Select a result to read it.</p>

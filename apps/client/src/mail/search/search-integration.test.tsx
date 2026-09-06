@@ -285,6 +285,77 @@ describe("search (#51)", () => {
     expect(screen.getAllByText("Remote result").length).toBeGreaterThan(0);
   });
 
+  it("#139: results stay on screen with a loading state while a changed query's request is in flight, and a stale response never replaces the current one", async () => {
+    await seedOneThread();
+
+    // Each `/search` call gets its own deferred promise, resolved by hand
+    // below, and its own tagged response — the point of this test is
+    // controlling exactly when each request settles relative to the next
+    // keystroke, which a same-tick mock response can't exercise.
+    const deferred: Array<{ text: string; resolve: (response: SearchResponse) => void }> = [];
+    function response(subject: string): SearchResponse {
+      return {
+        results: [
+          {
+            thread: makeThread(subject, "acct-1", { subject }),
+            matchedMessageId: `${subject}-msg`,
+            headline: null,
+            folder: { id: "f1", name: "Inbox", role: "inbox" },
+            gatekeeper: null,
+          },
+        ],
+        cursor: null,
+        indexWatermark: { coveredSince: null, complete: true },
+      };
+    }
+    stubFetch(
+      (init) =>
+        new Promise((resolve) => {
+          const body = JSON.parse(init?.body as string) as SearchRequest;
+          deferred.push({ text: body.text ?? "", resolve: (r) => resolve(jsonResponse(r)) });
+        }),
+    );
+
+    renderMail();
+    await screen.findByText("Origin thread");
+
+    fireEvent.keyDown(window, { key: "/" });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+
+    // First query: nothing accepted yet, a request is in flight — a loading
+    // state, never "No matches" (search-ux-spec.md §Search & commands).
+    fireEvent.change(field, { target: { value: "invoice" } });
+    await waitFor(() => expect(deferred).toHaveLength(1));
+    expect(await screen.findByText("Searching…")).toBeDefined();
+    expect(screen.queryByText(/No matches/)).toBeNull();
+
+    deferred[0]?.resolve(response("Invoice March"));
+    expect(await screen.findByText("Invoice March")).toBeDefined();
+
+    // Typing further characters: the previous result stays on screen while
+    // the new query's own request is in flight, with a non-blocking loading
+    // indicator alongside it rather than a swap to "No matches".
+    fireEvent.change(field, { target: { value: "invoice2" } });
+    await waitFor(() => expect(deferred).toHaveLength(2));
+    expect(screen.getByText("Invoice March")).toBeDefined();
+    expect(await screen.findByText("Searching…")).toBeDefined();
+    expect(screen.queryByText(/No matches/)).toBeNull();
+
+    // Typing again before that second request settles supersedes it — its
+    // response, resolved after the fact, must not replace what's on screen.
+    fireEvent.change(field, { target: { value: "invoice23" } });
+    await waitFor(() => expect(deferred).toHaveLength(3));
+    deferred[1]?.resolve(response("Should not appear"));
+    await waitFor(() => expect(screen.queryByText("Should not appear")).toBeNull());
+    expect(screen.getByText("Invoice March")).toBeDefined();
+
+    // The current query's own response replaces the held-over result.
+    deferred[2]?.resolve(response("Invoice April"));
+    expect(await screen.findByText("Invoice April")).toBeDefined();
+    expect(screen.queryByText("Invoice March")).toBeNull();
+    expect(screen.queryByText("Searching…")).toBeNull();
+  });
+
   it("badges Held and Blocked results (#56, poc-spec.md: 'search returns held and blocked mail badged')", async () => {
     await seedOneThread();
     const searchResponse: SearchResponse = {
