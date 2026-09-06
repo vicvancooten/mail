@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
-import { jsonResponse } from "../test-support/mock-fetch.js";
 import { stubMatchMedia } from "../test-support/match-media.js";
+import { jsonResponse } from "../test-support/mock-fetch.js";
 
 /**
  * #135, seam 1 of #133's Testing Decisions: the routed App over a memory
@@ -31,7 +31,12 @@ function stubFetch() {
       if (url === "/auth/session")
         return Promise.resolve(
           jsonResponse({
-            user: { id: "u1", username: "vic", role: "owner", createdAt: "2026-01-01T00:00:00.000Z" },
+            user: {
+              id: "u1",
+              username: "vic",
+              role: "owner",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
           }),
         );
       if (url === "/push/config") return Promise.resolve(jsonResponse({ vapidPublicKey: null }));

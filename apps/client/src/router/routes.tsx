@@ -8,8 +8,8 @@ import {
 } from "@tanstack/react-router";
 import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
-import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { isPhoneWidth } from "../hooks/use-phone-width.js";
+import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";

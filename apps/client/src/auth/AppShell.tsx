@@ -1,5 +1,5 @@
 import type { User } from "@mail/shared";
-import { RouterProvider, type RouterHistory } from "@tanstack/react-router";
+import { type RouterHistory, RouterProvider } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { createAppRouter } from "../router/routes.js";
 import { useAuth } from "./AuthContext.js";
