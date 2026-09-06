@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
-import { writeAccountScope } from "./mail/device-preferences.js";
+import { writeAccountScope, writeViewMode } from "./mail/device-preferences.js";
+import { resetScrollOffsetsForTest } from "./mail/scroll-restore.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "./store/server-writes.js";
@@ -89,6 +90,13 @@ beforeEach(async () => {
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
+  // `scroll-restore.ts`'s map is deliberately module-level, not component
+  // state (#142, its own doc comment) — it has to survive `MailSection`
+  // unmounting for Stream/Settings — which also means it survives past
+  // this test unless cleared: most fixtures here share the same Account +
+  // folder + label, so a saved offset would otherwise leak into the next
+  // test's first mount of that same list.
+  resetScrollOffsetsForTest();
   // jsdom's `history`/`location` persist across tests in one file — a
   // `replaceState` alone reset the URL but not the position, so a test that
   // left the real history mid-stack (#140's own `history.back()`/`forward()`
@@ -138,6 +146,134 @@ async function seedTwoThreads(): Promise<void> {
     { replace: false },
   );
 }
+
+/** Enough Threads, all in the same Time Group (tier 1, 54px rows), that the list's total content height clears the 600px viewport `test-support/virtualization.ts` stubs — without that headroom there is nothing to scroll, and every offset restoration assertion below would trivially pass at 0. Newest (`t0`) first, same order `seedTwoThreads` above documents. */
+async function seedManyThreads(count: number): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: Array.from({ length: count }, (_, i) =>
+        makeThread(`t${i}`, "acct-1", {
+          subject: `Thread ${i}`,
+          lastMessageAt: minutesAfterEpoch(count - i),
+        }),
+      ),
+    }),
+    { replace: false },
+  );
+}
+
+describe("scroll restoration (#142)", () => {
+  it("restores the list's exact pixel offset on return from the Reader, in the List layout where the list unmounts while reading", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+    act(() => writeViewMode("list"));
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    fireEvent.scroll(list, { target: { scrollTop: 400 } });
+
+    fireEvent.click(screen.getByText("Thread 0"));
+    // The List layout swaps the list for the Reader outright (`ListView.tsx`)
+    // — nothing named ".thread-list" is even in the tree while it's open.
+    await screen.findByRole("button", { name: "Back to list" });
+    expect(document.querySelector(".thread-list")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    await screen.findByText("Thread 0");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(400);
+  });
+
+  it("restores the list's exact pixel offset on return from Stream, in the Split layout where the list never unmounts for the Reader alone", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    fireEvent.scroll(list, { target: { scrollTop: 550 } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
+    await waitFor(() => expect(document.querySelector(".thread-list")).toBeNull());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close Stream" }));
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    await screen.findByText("Thread 0");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(550);
+  });
+
+  it("restores the list's exact pixel offset on return from Settings", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    fireEvent.scroll(list, { target: { scrollTop: 300 } });
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "General" });
+    expect(document.querySelector(".thread-list")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Mail" }));
+    await screen.findByText("Thread 0");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(300);
+  });
+
+  it("survives the open Thread being removed from the list (Done) while reading, restoring the same offset rather than falling back", async () => {
+    await seedManyThreads(20);
+    stubFetch();
+    act(() => writeViewMode("list"));
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    // Well within the shortened (19-Thread) list's own total height, so the
+    // saved offset still fits after Done removes one row (#142's "no longer
+    // valid" fallback is for an offset that stops fitting, not any removal).
+    fireEvent.scroll(list, { target: { scrollTop: 300 } });
+
+    fireEvent.click(screen.getByText("Thread 0"));
+    await screen.findByRole("button", { name: /Done/ });
+    fireEvent.click(screen.getByRole("button", { name: /Done/ }));
+
+    await waitFor(() => expect(screen.queryByText("Thread 0")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    await screen.findByText("Thread 1");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(300);
+  });
+
+  it("falls back to scrolling the still-open Thread into view when no offset has been saved yet", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+    // Split (the default view mode): its own list never unmounts for the
+    // Reader alone, so this is a *cold* mount of the list — a reload
+    // straight onto a deep Thread — with no prior "leave" to have ever
+    // saved a pixel offset for this list under `scroll-restore.ts`.
+    history.replaceState(null, "", "/mail?thread=t20");
+
+    render(<App />);
+    await screen.findByText("Thread 20", { selector: ".reading-subject" });
+
+    // No saved offset exists for this list — `initialScrollThreadId`'s
+    // fallback (unchanged since #51) is what put Thread 20's own row on
+    // screen, not a restored pixel offset.
+    expect(await screen.findByText("Thread 20", { selector: ".subject" })).toBeDefined();
+  });
+});
 
 describe("the app shell over a routed tree (#71)", () => {
   it("lands on Mail by default, with the seeded Thread visible", async () => {

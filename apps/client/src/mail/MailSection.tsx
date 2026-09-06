@@ -63,6 +63,7 @@ import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
 import { Screener } from "./screener/Screener.js";
+import { scrollRestoreKey } from "./scroll-restore.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { wrapSearchTriage } from "./search/useSearchState.js";
@@ -213,6 +214,18 @@ export function MailSection({
   const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
   const accountId = accountScope[0] ?? null;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
+  // #142's scroll-restore fallback ("scroll the previously open Thread into
+  // view" when no saved offset exists) needs the Thread that *was* open, not
+  // the live `selectedThreadId` — closing the Reader clears that to `null`
+  // as part of returning to the list, in the very same render the list
+  // remounts in (the List layout) or reads this prop fresh (a Stream/
+  // Settings round trip remounts `MailSection` itself). Mutated during
+  // render, not an effect: an effect fires one commit too late for a mount
+  // that happens in this same render pass, and the write is idempotent
+  // (skipped whenever there's nothing new to remember), the same "store a
+  // previous value in a ref" pattern React's own docs describe.
+  const lastSelectedThreadIdRef = useRef<string | null>(initialThreadId);
+  if (selectedThreadId) lastSelectedThreadIdRef.current = selectedThreadId;
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`): the
   // Screener is one of these entries too, so `screenerOpen` below is derived
@@ -845,6 +858,14 @@ export function MailSection({
   // disappeared: "nothing open."
   const visibleIds = useMemo(() => visibleThreads.map((thread) => thread.id), [visibleThreads]);
 
+  // This list's own identity for scroll restoration (#142): folder + label
+  // filter + Account Scope, so a saved offset only ever comes back for the
+  // same list it was left at, never a different folder/label the User has
+  // since switched to. `accountScope` is a fresh array identity every
+  // render (`useAccountScope.ts`), so it's joined into the string rather
+  // than compared by reference.
+  const listScrollRestoreKey = scrollRestoreKey({ folder, labelFilter, accountScope });
+
   // Search (#51, `docs/search-ux-spec.md`): the hook itself moved to Hub
   // level (#147, `command-palette/PaletteHostContext.tsx`) so the Palette is
   // mounted once, above every App and screen — MailSection reads the same
@@ -1125,7 +1146,8 @@ export function MailSection({
                 triage={triage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
-                initialScrollThreadId={selectedThreadId}
+                initialScrollThreadId={lastSelectedThreadIdRef.current}
+                scrollRestoreKey={listScrollRestoreKey}
                 density={density}
                 groupBulk={groupBulk}
               />
@@ -1141,7 +1163,8 @@ export function MailSection({
                 triage={triage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
-                initialScrollThreadId={selectedThreadId}
+                initialScrollThreadId={lastSelectedThreadIdRef.current}
+                scrollRestoreKey={listScrollRestoreKey}
                 density={density}
                 groupBulk={groupBulk}
               />

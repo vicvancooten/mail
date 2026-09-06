@@ -34,6 +34,7 @@ import { AccountScope } from "./AccountScope.js";
 
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { resetScrollOffsetsForTest } from "./scroll-restore.js";
 import { taperHeaderHeight, taperRowHeight } from "./taper.js";
 import { resetUndoToastsForTest } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
@@ -90,6 +91,13 @@ beforeEach(async () => {
   // own doc comment on this seam) — a Done/Trash from one test must never
   // fold into the next test's own toast count.
   resetUndoToastsForTest();
+  // `scroll-restore.ts`'s saved-offset map is module state too (#142, its
+  // own doc comment) — it has to survive `MailSection` unmounting for a
+  // Stream/Settings round trip, which also means it survives past this
+  // test unless cleared: many fixtures here share the same Account +
+  // folder + label, so a saved offset would otherwise leak into the next
+  // test's first mount of that same list.
+  resetScrollOffsetsForTest();
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
