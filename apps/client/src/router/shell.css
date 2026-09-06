@@ -240,10 +240,10 @@
 /* ---------- the global search entry ---------- */
 
 /* A button, not an input: this raises the Command Palette (the direction
-   contract's signature interaction). Mail's own real text field
-   (`mail/search/SearchField.tsx`) lives in its own search bar below the Hub
-   (`mail/mail.css`'s `.mail-search-bar`, #96) — Client chrome stays a
-   trigger for every App, the way `CONTEXT.md`'s Hub entry describes it. */
+   contract's signature interaction), the single entry point for search and
+   commands alike (#147) — Mail's own text field is gone, so this is the one
+   visible search affordance left, a trigger for every App, the way
+   `CONTEXT.md`'s Hub entry describes it. */
 .global-search {
   width: 100%;
   max-width: 560px;

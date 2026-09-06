@@ -220,6 +220,33 @@ export function VirtualizedThreadList({
   // leak across a boundary the User can plainly read.
   const [previewGroupLabel, setPreviewGroupLabel] = useState<string | null>(null);
 
+  // The last known pointer position over this list, in viewport
+  // coordinates — kept in a ref, not state, since it changes on every
+  // `mousemove` and none of those by themselves should force a render (#152).
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+
+  // The Thread now sitting under that stationary pointer, force-armed the
+  // same way `previewArmed` forces a group's rows above — but recomputed
+  // off `items` changing (a Triage action removing a row), never off a real
+  // `mousemove`: a row sliding up under a pointer that never moved fires no
+  // `mouseenter` of its own, so without this it would sit unarmed until the
+  // User actually moves the mouse, and a same-spot click would open the
+  // mail that just arrived there instead of repeating Done (#152's "Hover
+  // re-arm"). A real `mousemove` clears it below — the row genuinely under
+  // the pointer by then has already fired its own `mouseenter`/`mouseleave`,
+  // so its own hover state is the one to trust from that point on.
+  const [pointerArmedThreadId, setPointerArmedThreadId] = useState<string | null>(null);
+
+  const trackPointer = useCallback((event: { clientX: number; clientY: number }) => {
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    setPointerArmedThreadId(null);
+  }, []);
+
+  const clearPointer = useCallback(() => {
+    lastPointerRef.current = null;
+    setPointerArmedThreadId(null);
+  }, []);
+
   // Every control this list draws that isn't structure comes from the
   // Action registry (#94): the row's Done check, its hover cluster, its
   // right-click menu, and the Time Group header's own menu. Without a
@@ -262,6 +289,24 @@ export function VirtualizedThreadList({
     [density],
   );
 
+  // Each item's own top offset, as a plain prefix sum over `itemHeight` — the
+  // same one number the virtualizer's `estimateSize` and each item's own
+  // rendered `style.height` both already use (#75's "not duplicated between
+  // code and CSS"), read here directly rather than through the virtualizer's
+  // own (ResizeObserver-corrected, in a real browser) measurement of the
+  // mounted DOM: #152's pointer math cares about intended layout, which this
+  // gives exactly, with no dependency on however a `<div>` happens to measure
+  // under whatever's currently rendering it (jsdom included).
+  const itemOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const item of items) {
+      offsets.push(offset);
+      offset += itemHeight(item);
+    }
+    return offsets;
+  }, [items, itemHeight]);
+
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
@@ -280,6 +325,33 @@ export function VirtualizedThreadList({
     if (!onLoadMore || complete) return;
     if (lastVirtualIndex >= items.length - LOAD_MORE_THRESHOLD) onLoadMore();
   }, [lastVirtualIndex, items.length, complete, onLoadMore]);
+
+  // #152: re-checked on every `items` change (a row removed by Done, most
+  // often) rather than on a `mousemove` — the whole bug is that the pointer
+  // never moves. Reads the container's current geometry fresh (`parentRef`
+  // isn't itself a dependency — a ref never changes identity) rather than
+  // closing over it, so it always judges the list exactly as it just
+  // rendered.
+  useEffect(() => {
+    const pointer = lastPointerRef.current;
+    const container = parentRef.current;
+    if (!pointer || !container) return;
+    const rect = container.getBoundingClientRect();
+    if (
+      pointer.x < rect.left ||
+      pointer.x > rect.right ||
+      pointer.y < rect.top ||
+      pointer.y > rect.bottom
+    ) {
+      return;
+    }
+    const relativeY = pointer.y - rect.top + container.scrollTop;
+    const hitIndex = itemOffsets.findIndex(
+      (start, index) => relativeY >= start && relativeY < start + itemHeight(items[index]),
+    );
+    const item = hitIndex !== -1 ? items[hitIndex] : undefined;
+    setPointerArmedThreadId(item?.kind === "thread" ? item.thread.id : null);
+  }, [items, itemOffsets, itemHeight]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately once-on-mount — see the prop doc comment.
   useEffect(() => {
@@ -360,6 +432,8 @@ export function VirtualizedThreadList({
       ref={parentRef}
       role="listbox"
       aria-label="Threads"
+      onMouseMove={trackPointer}
+      onMouseLeave={clearPointer}
     >
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualItems.map((virtualItem) => {
@@ -461,6 +535,7 @@ export function VirtualizedThreadList({
                         ? () => triage.archive(item.thread.id)
                         : undefined
                   }
+                  onTrash={triage ? () => triage.trash(item.thread.id) : undefined}
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
                   hoverActions={rowCtx ? rowHoverActions(rowCtx, item.thread) : undefined}
@@ -486,6 +561,7 @@ export function VirtualizedThreadList({
                   tier={item.tier}
                   height={itemHeight(item)}
                   previewArmed={previewGroupLabel !== null && item.groupLabel === previewGroupLabel}
+                  pointerArmed={item.thread.id === pointerArmedThreadId}
                 />
               )}
             </div>

@@ -29,9 +29,13 @@ import {
 } from "../test-support/mail-fixtures.js";
 import { stubMatchMedia } from "../test-support/match-media.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
+import { PaletteHostTestProvider } from "../test-support/palette-host-harness.js";
 import { AccountScope } from "./AccountScope.js";
+
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { taperHeaderHeight, taperRowHeight } from "./taper.js";
+import { resetUndoToastsForTest } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
 
 /** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
@@ -82,6 +86,10 @@ const never = () => new Promise<Response>(() => {});
 
 beforeEach(async () => {
   resetSyncStatus();
+  // The Undo toast's coalescing buckets are module state too (`undo-toast.ts`'s
+  // own doc comment on this seam) — a Done/Trash from one test must never
+  // fold into the next test's own toast count.
+  resetUndoToastsForTest();
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
@@ -134,6 +142,34 @@ async function seedTwoThreads(): Promise<void> {
   );
 }
 
+/** Three Threads, newest first: "Row 1", "Row 2", "Row 3" — #152's hover re-arm, where the order rows slide up in matters. */
+async function seedThreeThreads(): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: [
+        makeThread("t-3", "acct-1", {
+          subject: "Row 3",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(1),
+        }),
+        makeThread("t-2", "acct-1", {
+          subject: "Row 2",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(2),
+        }),
+        makeThread("t-1", "acct-1", {
+          subject: "Row 1",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(3),
+        }),
+      ],
+    }),
+    { replace: false },
+  );
+}
+
 /**
  * Account Scope's own control lives in the Hub now (#96,
  * `router/RootLayout.tsx`), a separate component from `MailSection` — this
@@ -155,7 +191,9 @@ function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
   return render(
     <AuthProvider>
       <AccountScopeHarness />
-      <MailSection {...props} />
+      <PaletteHostTestProvider>
+        <MailSection {...props} />
+      </PaletteHostTestProvider>
       <Toaster />
     </AuthProvider>,
   );
@@ -525,6 +563,68 @@ describe("MailSection", () => {
     expect(await screen.findByText("Couldn't archive — restored to the list.")).toBeDefined();
   });
 
+  it("arms the row that slides under a stationary pointer once Done removes the row above it, for several rows in a row (#152)", async () => {
+    await seedThreeThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Row 1");
+
+    // `.thread-list`'s own bounding rect: jsdom has no layout engine (all
+    // zero by default) — stub just this one container's so a `clientY` can
+    // be translated into a position within the scrolled content
+    // (`VirtualizedThreadList`'s own pointer-to-item math). Scoped to this
+    // one element, not `HTMLDivElement.prototype` — every row is a `<div>`
+    // too, and `measureElement` (#75) reads its own `getBoundingClientRect`
+    // for its real height; patching the prototype would measure every row
+    // at the container's 600px instead of its own taper height.
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    const rect = vi.spyOn(list, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 400,
+      bottom: 600,
+      width: 400,
+      height: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect);
+
+    const rowOf = (subject: string) =>
+      screen.getByText(subject).closest('[role="option"]') as HTMLElement;
+    const doneButtonFor = (subject: string) =>
+      screen.getByRole("button", { name: `Mark "${subject}" Done` });
+
+    // All three land in one group ("Older", decades-old fixtures) — the
+    // pointer rests at the middle of the topmost row's own slot.
+    const y = taperHeaderHeight(4, "comfortable") + taperRowHeight(4, "comfortable") / 2;
+    fireEvent.mouseMove(list, { clientX: 10, clientY: y });
+    fireEvent.mouseEnter(rowOf("Row 1"));
+    expect(rowOf("Row 1").getAttribute("data-armed")).toBe("true");
+
+    // Done on Row 1 — no pointer movement follows. Row 2 slides up into
+    // Row 1's screen slot and must arm on its own; `mail.css` only enables
+    // `.done-btn`'s `pointer-events` once `data-armed="true"`, so this is
+    // what makes a same-spot second click land on Done rather than falling
+    // through to the row's own `onClick` (open the mail).
+    fireEvent.click(doneButtonFor("Row 1"));
+    await waitFor(() => expect(screen.queryByText("Row 1")).toBeNull());
+    await waitFor(() => expect(rowOf("Row 2").getAttribute("data-armed")).toBe("true"));
+
+    // A second Done at the same spot, still with no pointer movement
+    // between — Row 3 arms too.
+    fireEvent.click(doneButtonFor("Row 2"));
+    await waitFor(() => expect(screen.queryByText("Row 2")).toBeNull());
+    await waitFor(() => expect(rowOf("Row 3").getAttribute("data-armed")).toBe("true"));
+
+    // Moving the pointer away still disarms it, same as today.
+    fireEvent.mouseMove(list, { clientX: 10, clientY: y + 500 });
+    expect(rowOf("Row 3").getAttribute("data-armed")).toBe("false");
+
+    rect.mockRestore();
+  });
+
   it("selecting an unread Thread marks it read; the Reader's More menu toggles it back (#42, #143)", async () => {
     await seedTwoThreads();
     stubFetch(never);
@@ -663,7 +763,7 @@ describe("MailSection", () => {
     expect(await screen.findByText("Couldn't snooze — restored to the list.")).toBeDefined();
   });
 
-  it("right-clicking a row opens the Action registry's menu, and Trash — which has no row control at all — works from it (#94)", async () => {
+  it("right-clicking a row opens the Action registry's menu, and Trash — which has no row *hover* control — works from it (#94)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -673,13 +773,58 @@ describe("MailSection", () => {
     fireEvent.contextMenu(row);
 
     // The menu names the Thread it is about, and lists Trash with its own
-    // keycap — the action #66 deliberately gave no hover or swipe control,
-    // which on touch makes this menu the only way to reach it.
+    // keycap — #66 gave it no hover-cluster control, which on touch is
+    // otherwise reached only by swiping left (#149) or through this menu.
     const trash = await screen.findByRole("menuitem", { name: /Move to Trash/ });
     expect(trash.textContent).toContain("#");
     fireEvent.click(trash);
 
     await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+  });
+
+  it("swiping a row right commits Done, and left commits Trash, both past the threshold (#149)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+
+    // Right, past the commit threshold: Done — same Optimistic Action and
+    // Undo toast as the row's own Done button.
+    fireEvent.pointerDown(row, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(row, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(row, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    // Same coalescing Undo toast every other Triage path raises (#95,
+    // ADR-0019) — "Done" collides with the row's own (hidden) swipe-reveal
+    // label, so the Undo button is the toast's unambiguous signature.
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDefined();
+
+    // Left, past the commit threshold, on the remaining row: Trash.
+    const older = await screen.findByRole("option", { name: /Older thread/ });
+    fireEvent.pointerDown(older, { pointerId: 2, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(older, { pointerId: 2, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(older, { pointerId: 2, pointerType: "touch", clientX: -120 });
+
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    expect(await screen.findByText("Moved to trash")).toBeDefined();
+  });
+
+  it("releasing a row swipe short of the threshold cancels — the row springs back with no action taken (#149)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+
+    fireEvent.pointerDown(row, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(row, { pointerId: 1, pointerType: "touch", clientX: 40 });
+    fireEvent.pointerUp(row, { pointerId: 1, pointerType: "touch", clientX: 40 });
+
+    // Still here, still selectable — no Optimistic Action was queued.
+    await waitFor(() => expect(listQueuedMutations("acct-1")).resolves.toHaveLength(0));
+    expect(screen.getByText("Newer thread")).toBeDefined();
   });
 
   it("a row's menu acts on the row it was raised on, not on whatever is selected (#94)", async () => {
@@ -926,6 +1071,64 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
         },
       }),
     );
+  });
+});
+
+describe("Swipe between Threads inside the Reader (#150)", () => {
+  it("swiping the Reader left opens the next (older) Thread, replacing rather than pushing history", async () => {
+    // Touch-capable phone (#143): prev/next buttons are gone, so swipe and
+    // Auto-advance are the only way to move between Threads without
+    // returning to the list first.
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: -120 });
+
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+  });
+
+  it("swiping right from the older (last) Thread opens the previous (newer) one", async () => {
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Older thread"));
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+  });
+
+  it("swiping past the end of the list (no neighbour that way) does nothing — the Thread stays open", async () => {
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    // "Newer thread" is the newest — there is no *previous* (newer) Thread,
+    // so swiping right must be a no-op.
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    expect(screen.getByText("Newer thread", { selector: ".reading-subject" })).toBeDefined();
   });
 });
 

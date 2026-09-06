@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { writeAccountScope } from "./mail/device-preferences.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "./store/server-writes.js";
@@ -285,6 +286,97 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
+  it("a cold-start Thread deep-link (#151) widens a narrowed Account Scope so the URL's own Thread is actually visible", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Notified thread" })] }),
+      { replace: false },
+    );
+    stubFetch();
+    // Scope was previously narrowed to the *other* account — the same
+    // gap `sw.ts#focusOrOpenClient` opening a bare "/" would have left
+    // unaddressed, since Account Scope is a Device Preference, not part
+    // of the URL a real notification click carries.
+    writeAccountScope(["acct-1"]);
+
+    history.replaceState(null, "", "/mail?thread=t2&account=acct-2");
+    render(<App />);
+
+    expect(
+      await screen.findByText("Notified thread", { selector: ".reading-subject" }),
+    ).toBeDefined();
+  });
+
+  it("a cold-start Gatekeeper digest deep-link (#151) opens the Screener, narrowed to that Mail Account", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    writeAccountScope(["acct-1"]);
+
+    history.replaceState(null, "", "/mail?folder=screener&account=acct-2");
+    render(<App />);
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(location.pathname).toBe("/mail");
+    expect(location.search).toContain("folder=screener");
+  });
+
+  it("a cold-start Needs Reauth deep-link (#151) lands on Mail Accounts settings and scrolls to that row", async () => {
+    const account = makeMailAccount("acct-1", { status: "needs_reauth" });
+    await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
+    stubFetch([account]);
+
+    history.replaceState(null, "", "/settings/mail-accounts?account=acct-1");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Mail Accounts", level: 2 })).toBeDefined();
+    await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
+  });
+
+  it("a Gatekeeper digest notification click, with a window open, opens the Screener narrowed to that Mail Account (#151)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
+      { replace: false },
+    );
+    stubFetch();
+
+    render(<App />);
+    expect(await screen.findByText("Account one thread")).toBeDefined();
+
+    act(() => {
+      publishNotificationTarget({ kind: "screener", mailAccountId: "acct-2" });
+    });
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(screen.queryByText("Account one thread")).toBeNull();
+  });
+
   it("opening a Thread from the list pushes a history entry, and the phone back gesture returns to it (#81)", async () => {
     await seedOneThread();
     stubFetch();
@@ -415,6 +507,55 @@ describe("the app shell over a routed tree (#71)", () => {
     await waitFor(() => expect(location.pathname).toBe("/contacts"));
   });
 
+  it("leaving Stream after entering it from Mail goes back to the Mail surface that was showing, adding no net history (#141)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+    const historyLengthAtMail = history.length;
+
+    await user.click(screen.getByRole("button", { name: "Open Stream" }));
+    await screen.findByRole("button", { name: "Close Stream" });
+    expect(location.pathname).toBe("/mail/stream");
+    expect(history.length).toBe(historyLengthAtMail + 1);
+
+    await user.click(screen.getByRole("button", { name: "Close Stream" }));
+
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    expect(await screen.findByText("Routed thread")).toBeDefined();
+    // The pushed Stream entry was popped via `history.back()`, not
+    // replaced-over and left behind for a real browser to still hold as a
+    // reachable "forward" entry (`history.length` itself can't tell a pop
+    // from a replace apart — neither changes it, the same fact #140's own
+    // Back-pill test above notes) — so the proof is behavioural: one more
+    // Back from here leaves Mail entirely rather than bouncing back into
+    // Stream.
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() => expect(location.pathname).not.toBe("/mail/stream"));
+  });
+
+  it("landing on the Stream route cold and leaving it navigates to Mail (#141)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/stream");
+    render(<App />);
+    await screen.findByRole("button", { name: "Close Stream" });
+    const historyLengthAtStream = history.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Stream" }));
+
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    expect(await screen.findByText("Routed thread")).toBeDefined();
+    // A cold entry has nothing pushed to go back to — the navigate to Mail
+    // replaces rather than growing the stack.
+    expect(history.length).toBe(historyLengthAtStream);
+  });
+
   it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {
     const account = makeMailAccount("acct-1", { status: "needs_reauth" });
     await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
@@ -524,5 +665,77 @@ describe("the app shell over a routed tree (#71)", () => {
 
     expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
     expect(location.pathname).toBe("/settings/general");
+  });
+
+  describe("the Command Palette, lifted to Hub level (#147)", () => {
+    it("has no Mail search field anywhere — the Hub's pill is the one visible search affordance", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      expect(screen.queryByLabelText("Search mail")).toBeNull();
+      expect(screen.getByRole("button", { name: /Search everything/ })).toBeDefined();
+    });
+
+    it("opens from the Hub's own search pill, from `/`, and from ⌘K — all reaching the same Palette", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      fireEvent.click(screen.getByRole("button", { name: /Search everything/ }));
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+      fireEvent.keyDown(window, { key: "/" });
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      fireEvent.keyDown(
+        await screen.findByLabelText<HTMLInputElement>("Search commands and mail"),
+        { key: "Escape" },
+      );
+      await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+    });
+
+    it("opens over Stream — mounted once at Hub level, not inside the Mail surface (#147)", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
+      await screen.findByText("Routed thread", { selector: ".reading-subject" });
+      expect(document.querySelector(".stream-route")).not.toBeNull();
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      // Both the Palette and Stream are in the tree at once — the Palette
+      // renders *over* Stream rather than Stream unmounting it or hiding
+      // behind it, the bug the epic named directly.
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      expect(document.querySelector(".stream-route")).not.toBeNull();
+      expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
+    });
+
+    it("opens from a placeholder App too, with its own commands still listed", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      history.replaceState(null, "", "/contacts");
+      render(<App />);
+      await screen.findByLabelText("Contacts");
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
+    });
   });
 });
