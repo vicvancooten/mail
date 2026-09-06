@@ -29,7 +29,9 @@ import {
 } from "../test-support/mail-fixtures.js";
 import { stubMatchMedia } from "../test-support/match-media.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
+import { PaletteHostTestProvider } from "../test-support/palette-host-harness.js";
 import { AccountScope } from "./AccountScope.js";
+
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
 import { resetUndoToastsForTest } from "./undo-toast.js";
@@ -160,7 +162,9 @@ function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
   return render(
     <AuthProvider>
       <AccountScopeHarness />
-      <MailSection {...props} />
+      <PaletteHostTestProvider>
+        <MailSection {...props} />
+      </PaletteHostTestProvider>
       <Toaster />
     </AuthProvider>,
   );

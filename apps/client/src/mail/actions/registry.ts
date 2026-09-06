@@ -311,9 +311,15 @@ export const ACTIONS: readonly Action[] = [
     run: (ctx) => ctx.streamSkip?.(),
   },
 
+  // `/` and ⌘K both open the Command Palette now (#147: "the single entry
+  // point") — there is no field of Mail's own left for `/` to focus, so
+  // `onFocusSearch` is what `ctx.onFocusSearch`/`ctx.onOpenPalette` both end
+  // up wired to (`router/RootLayout.tsx`, `MailSection.tsx`,
+  // `stream/StreamStack.tsx`). Kept as two registry entries, not one, so the
+  // Shortcut Sheet still lists both bindings by name.
   {
     id: "focus-search",
-    label: "Focus search",
+    label: "Search",
     icon: Search,
     section: "Search",
     binding: { keys: ["/"], display: "/", preventDefault: true },
