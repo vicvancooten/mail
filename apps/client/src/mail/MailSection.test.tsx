@@ -31,6 +31,8 @@ import { stubMatchMedia } from "../test-support/match-media.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
 import { PaletteHostTestProvider } from "../test-support/palette-host-harness.js";
 import { AccountScope } from "./AccountScope.js";
+import { resetActiveMailHost } from "./actions/active-mail-host.js";
+import { resetSurfaceHandles } from "./actions/surface-handles.js";
 
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
@@ -98,6 +100,15 @@ beforeEach(async () => {
   // folder + label, so a saved offset would otherwise leak into the next
   // test's first mount of that same list.
   resetScrollOffsetsForTest();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
+  // published by whichever Mail-family surface is mounted and cleared on its
+  // unmount — but that clear only runs if the effect's cleanup actually
+  // fires before the next test's own mount reads it, which an interrupted
+  // render can't guarantee. Their own "Test-only" reset exports are exactly
+  // for this: drop a stale host/handle rather than let it survive into the
+  // next test's first render.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });

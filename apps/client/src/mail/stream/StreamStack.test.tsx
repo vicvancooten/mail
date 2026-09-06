@@ -17,6 +17,8 @@ import {
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { PaletteHostTestProvider } from "../../test-support/palette-host-harness.js";
+import { resetActiveMailHost } from "../actions/active-mail-host.js";
+import { resetSurfaceHandles } from "../actions/surface-handles.js";
 import { resetUndoToastsForTest } from "../undo-toast.js";
 import { StreamStack } from "./StreamStack.js";
 
@@ -60,6 +62,12 @@ function stubFetch(sync: () => Promise<Response> = never) {
 beforeEach(async () => {
   resetSyncStatus();
   resetUndoToastsForTest();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147): dropped on unmount by
+  // the mounted surface itself, but only once that unmount's own effect
+  // cleanup actually runs — their own reset exports are the guaranteed way
+  // to start each test with neither still holding a previous mount's host.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `stream-stack-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });

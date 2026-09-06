@@ -8,6 +8,8 @@ import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writ
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { resetActiveMailHost } from "../actions/active-mail-host.js";
+import { resetSurfaceHandles } from "../actions/surface-handles.js";
 import { addRecentSearch } from "../device-preferences.js";
 
 /**
@@ -60,6 +62,13 @@ function stubFetch(search: () => Promise<Response> = never) {
 
 beforeEach(async () => {
   resetSyncStatus();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
+  // published by whichever Mail-family surface is mounted and cleared on its
+  // own unmount — but only once that unmount's effect cleanup has actually
+  // run, which the next test's mount can't guarantee. Their own "Test-only"
+  // reset exports drop a stale host/handle rather than let it survive.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `command-palette-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });

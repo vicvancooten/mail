@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { resetActiveMailHost } from "./mail/actions/active-mail-host.js";
+import { resetSurfaceHandles } from "./mail/actions/surface-handles.js";
 import { writeAccountScope, writeViewMode } from "./mail/device-preferences.js";
 import { resetScrollOffsetsForTest } from "./mail/scroll-restore.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
@@ -86,6 +88,13 @@ function stubFetch(mailAccounts: MailAccount[] = [], role: "owner" | "member" = 
 
 beforeEach(async () => {
   resetSyncStatus();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
+  // published by whichever Mail-family surface is mounted and cleared on its
+  // own unmount — but only once that unmount's effect cleanup has actually
+  // run, which the next test's mount can't guarantee. Their own "Test-only"
+  // reset exports drop a stale host/handle rather than let it survive.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `app-shell-integration-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });

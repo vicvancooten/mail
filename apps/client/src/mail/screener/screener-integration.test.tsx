@@ -16,6 +16,8 @@ import {
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { PaletteHostTestProvider } from "../../test-support/palette-host-harness.js";
+import { resetActiveMailHost } from "../actions/active-mail-host.js";
+import { resetSurfaceHandles } from "../actions/surface-handles.js";
 import { MailSection } from "../MailSection.js";
 import { resetUndoToastsForTest } from "../undo-toast.js";
 
@@ -112,6 +114,12 @@ function stubFetch(threadMessages: Record<string, Message[]> = {}) {
 beforeEach(async () => {
   resetSyncStatus();
   resetUndoToastsForTest();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147): `MailSection`'s own
+  // unmount clears these, but only once that unmount's effect cleanup has
+  // actually run — their own reset exports guarantee a clean start instead
+  // of depending on that timing.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   toastCalls.length = 0;
   const name = `screener-integration-test-${counter++}`;
   names.push(name);
