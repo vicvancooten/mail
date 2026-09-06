@@ -32,6 +32,13 @@ hits are also present), Mail hits beneath. `>` narrows the list to commands only
 shows recent searches plus the most-used commands. Enter runs the top item whichever kind it is. The
 Palette is Client chrome, mounted once above every App and screen, so it opens over Stream too.
 
+#147 lands the mount: the Palette moved to Hub level (`router/RootLayout.tsx`) rather than living
+inside the Mail surface, so the Hub pill/`/`/⌘K reach it from any App and it renders over Stream for
+real. Ranking and merging commands with mail hits in one list (the three-command cap, recent
+searches plus most-used commands in the empty state, `>` actually narrowing to commands) is #148's
+own piece of work, still to land — the paragraph above describes the target shape, not what #147
+itself changed.
+
 Typing in the Palette runs the same search this spec has always described — the 3-character floor,
 the ~200ms debounce, the Local Cache prefilter — and shows the **top few hits inline**, in a
 bounded, scrolling pane alongside the matching commands. Typing here **never** swaps the list pane

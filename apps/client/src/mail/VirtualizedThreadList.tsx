@@ -535,6 +535,7 @@ export function VirtualizedThreadList({
                         ? () => triage.archive(item.thread.id)
                         : undefined
                   }
+                  onTrash={triage ? () => triage.trash(item.thread.id) : undefined}
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
                   hoverActions={rowCtx ? rowHoverActions(rowCtx, item.thread) : undefined}

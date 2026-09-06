@@ -666,4 +666,76 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
     expect(location.pathname).toBe("/settings/general");
   });
+
+  describe("the Command Palette, lifted to Hub level (#147)", () => {
+    it("has no Mail search field anywhere — the Hub's pill is the one visible search affordance", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      expect(screen.queryByLabelText("Search mail")).toBeNull();
+      expect(screen.getByRole("button", { name: /Search everything/ })).toBeDefined();
+    });
+
+    it("opens from the Hub's own search pill, from `/`, and from ⌘K — all reaching the same Palette", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      fireEvent.click(screen.getByRole("button", { name: /Search everything/ }));
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+      fireEvent.keyDown(window, { key: "/" });
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      fireEvent.keyDown(
+        await screen.findByLabelText<HTMLInputElement>("Search commands and mail"),
+        { key: "Escape" },
+      );
+      await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+    });
+
+    it("opens over Stream — mounted once at Hub level, not inside the Mail surface (#147)", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
+      await screen.findByText("Routed thread", { selector: ".reading-subject" });
+      expect(document.querySelector(".stream-route")).not.toBeNull();
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      // Both the Palette and Stream are in the tree at once — the Palette
+      // renders *over* Stream rather than Stream unmounting it or hiding
+      // behind it, the bug the epic named directly.
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      expect(document.querySelector(".stream-route")).not.toBeNull();
+      expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
+    });
+
+    it("opens from a placeholder App too, with its own commands still listed", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      history.replaceState(null, "", "/contacts");
+      render(<App />);
+      await screen.findByLabelText("Contacts");
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
+    });
+  });
 });
