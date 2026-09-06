@@ -596,6 +596,116 @@ describe("the View dialog and Block's split menu (#102)", () => {
   });
 });
 
+describe("remote images refresh after a Screener decision (#145)", () => {
+  it("approving a sender invalidates the per-tab message cache, so the next Reader open for their Thread loads images without a reload", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-cache", "acct-1", {
+            subject: "Please read",
+            snippet: "First contact",
+            heldSender: "stranger@example.test",
+            participants: [{ name: "A Stranger", address: "stranger@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    // Same fixture `ScreenerViewDialog`'s own test uses for "blocks remote
+    // images and offers no click-through" — a proxied `<img>` `MessageBody`
+    // gates behind "Load remote images" whenever `remoteImagesAllowed` is
+    // `false`.
+    const proxiedImageHtml =
+      '<img src="/messages/m-cache/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">';
+    // Stands in for the Verdict the backend re-resolves on every fetch
+    // (`routes/messages.ts`) — flipped below once Approve is queued, exactly
+    // as the real server would answer differently on the next round trip.
+    let remoteImagesAllowed = false;
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push(url);
+      const auth = AUTH_RESPONSES[url];
+      if (auth) return auth();
+      if (url === "/sync") return never();
+      if (url === "/threads/held-cache/messages") {
+        return jsonResponse({
+          messages: [
+            makeMessage({
+              id: "m-cache",
+              threadId: "held-cache",
+              bodyHtml: proxiedImageHtml,
+              remoteImagesAllowed,
+            }),
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    render(
+      <AuthProvider>
+        <MailSection />
+      </AuthProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await screen.findByText("A Stranger");
+
+    // Warm the per-tab cache for this Thread through the View dialog, which
+    // reads via the same `useThreadMessages` hook the Reader uses.
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("Please read");
+    expect(calls.filter((url) => url === "/threads/held-cache/messages")).toHaveLength(1);
+
+    // The sender's Verdict is now Approved server-side.
+    remoteImagesAllowed = true;
+    fireEvent.click(within(dialog).getByRole("button", { name: /Approve/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // Sync lands: the Thread leaves the Screener into the ordinary Inbox.
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        updated: [
+          makeThread("held-cache", "acct-1", {
+            subject: "Please read",
+            heldSender: null,
+            participants: [{ name: "A Stranger", address: "stranger@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Inbox" }));
+    fireEvent.click(await screen.findByText("Please read"));
+
+    // The invalidated cache forces at least one more fetch — a stale cache
+    // would have served the first, still-blocked response and never asked
+    // again. (More than one refetch can fire: the Command Palette's own
+    // `useThreadMessages(selectedThread?.id)` mounts alongside the Reader's,
+    // per that hook's own doc comment — both see the invalidated cache.)
+    await waitFor(() =>
+      expect(
+        calls.filter((url) => url === "/threads/held-cache/messages").length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+    await screen.findByText("Please read", { selector: ".reading-subject" });
+    // A fresh `remoteImagesAllowed: true` means no manual opt-in is offered.
+    expect(screen.queryByRole("button", { name: "Load remote images" })).toBeNull();
+  });
+});
+
 describe("Mark as spam has a real Undo (#90's close-out of #102's Acceptance box)", () => {
   it("Mark as spam raises an Undo toast whose Undo enqueues unblockAndRestore", async () => {
     const user = userEvent.setup();
