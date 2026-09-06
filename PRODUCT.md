@@ -82,8 +82,9 @@ results, the Screener, and settings (preferences, auth methods, Mail Accounts, G
 - React 19 + Vite SPA (ADR-0002), PWA with a hand-written app-shell-only service worker.
 - Message bodies are third-party HTML rendered in a sandboxed iframe. The design system stops at
   that boundary; the identity cannot restyle what senders wrote.
-- Remote images are blocked by default and load automatically only for Approved Senders — the
-  Gatekeeper verdict *is* the image-loading permission.
+- Remote images follow a per-Mail-Account setting — Always, Approved Senders only, or Ask every
+  time — defaulting to Approved Senders only while Gatekeeper is on and to Always when it is off
+  (#133). Under Approved Senders only, the Gatekeeper verdict *is* the image-loading permission.
 - Density and layout are **Device Preferences**: they deliberately never sync, because they mean
   different things on a phone and a desktop.
 - Safe-area insets matter: the layout paints under the iOS notch and home indicator.
