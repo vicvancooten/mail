@@ -27,6 +27,7 @@ import {
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
+import { stubMatchMedia } from "../test-support/match-media.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
 import { AccountScope } from "./AccountScope.js";
 import { writeViewMode } from "./device-preferences.js";
@@ -78,27 +79,6 @@ function stubFetch(sync: () => Promise<Response>) {
 }
 
 const never = () => new Promise<Response>(() => {});
-
-/**
- * `useTouchCapablePhone` (#143) reads one combined `matchMedia` query — jsdom
- * has none by default, so a bare test sees `false` (desktop) unchanged; this
- * stands in the query in for the one test that needs the phone case.
- */
-function stubTouchCapablePhone(matches: boolean) {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn((query: string) => ({
-      matches: query.includes("pointer: coarse") && matches,
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  );
-}
 
 beforeEach(async () => {
   resetSyncStatus();
@@ -749,7 +729,11 @@ describe("Reader action hierarchy (#143)", () => {
   });
 
   it("on a touch-capable phone the Reader shows only the four primaries plus More, folding Pin/Star/Label into it and dropping prev/next", async () => {
-    stubTouchCapablePhone(true);
+    // `useTouchCapablePhone` (#143) is phone width *and* no hover-capable
+    // pointer — matching only the phone-width query reports every other
+    // query (including the hover one) as not matching, same stub
+    // `settings-phone-integration.test.tsx` uses for the same 700px breakpoint.
+    stubMatchMedia((query) => query === "(max-width: 700px)");
     await seedTwoThreads();
     stubFetch(never);
 
