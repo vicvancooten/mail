@@ -36,10 +36,23 @@ import { resetSurfaceHandles } from "./actions/surface-handles.js";
 
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { invalidateThreadMessages } from "./reading/useThreadMessages.js";
 import { resetScrollOffsetsForTest } from "./scroll-restore.js";
 import { taperHeaderHeight, taperRowHeight } from "./taper.js";
 import { resetUndoToastsForTest } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
+
+/**
+ * A call-through spy, not a replacement — `invalidateThreadMessages` keeps
+ * its real behaviour (the #144-review test below needs the real per-tab
+ * cache, not a stub of it), just recorded so that test can assert *when*
+ * it's called without reaching into `useThreadMessages.ts`'s own module
+ * state.
+ */
+vi.mock("./reading/useThreadMessages.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./reading/useThreadMessages.js")>();
+  return { ...actual, invalidateThreadMessages: vi.fn(actual.invalidateThreadMessages) };
+});
 
 /** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
 vi.mock("../api/attachments.js", () => ({
@@ -100,6 +113,10 @@ beforeEach(async () => {
   // folder + label, so a saved offset would otherwise leak into the next
   // test's first mount of that same list.
   resetScrollOffsetsForTest();
+  // The `invalidateThreadMessages` call-through spy (above) is a module-level
+  // `vi.fn`, so its own call history is as much a leak risk as the module
+  // state it wraps.
+  vi.mocked(invalidateThreadMessages).mockClear();
   // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
   // published by whichever Mail-family surface is mounted and cleared on its
   // unmount — but that clear only runs if the effect's cleanup actually
@@ -963,6 +980,13 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
 
     // Named by itself (#108, #144) — never folded into a "Blocked" toast.
     expect(await screen.findByText("Spam")).toBeDefined();
+    // #133's "Remote images" decision, #145's own acceptance criteria: Spam
+    // records a Blocked Verdict, changing `remoteImagesAllowed` same as
+    // Block — the per-tab message cache must be invalidated at enqueue time
+    // so the next Reader open for this sender refetches rather than serving
+    // a stale response (review follow-up on #144, matching
+    // `screener/Screener.tsx#decide`'s own uniform invalidation).
+    expect(invalidateThreadMessages).toHaveBeenCalledWith(["t-newer"]);
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
 
     await waitFor(() => expect(screen.getByText("Newer thread")).toBeDefined());
@@ -975,6 +999,10 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
         },
       }),
     );
+    // Undo restores the Thread and so restores the old Verdict too — the
+    // cache must be invalidated a second time, same as `approveSender`'s own
+    // undo does.
+    expect(invalidateThreadMessages).toHaveBeenCalledTimes(2);
   });
 
   it('Block moves the Thread to Trash instantly and names itself "Blocked" in its own Undo toast', async () => {
@@ -994,6 +1022,12 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
       threadId: "t-newer",
     });
     expect(await screen.findByText("Blocked")).toBeDefined();
+    // Same staleness as Spam above — Block records a Blocked Verdict too.
+    expect(invalidateThreadMessages).toHaveBeenCalledWith(["t-newer"]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(screen.getByText("Newer thread")).toBeDefined());
+    expect(invalidateThreadMessages).toHaveBeenCalledTimes(2);
   });
 
   it("Approve records the Verdict without moving the Thread, and still names itself in the Undo toast", async () => {
@@ -1016,6 +1050,7 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
         threadId: "t-newer",
       });
     });
+    expect(invalidateThreadMessages).toHaveBeenCalledWith(["t-newer"]);
 
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
     await waitFor(async () => {
@@ -1028,6 +1063,7 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
         }),
       );
     });
+    expect(invalidateThreadMessages).toHaveBeenCalledTimes(2);
   });
 
   it("`!` Spams the open Thread from the keyboard (user story #20), and the Reader's More menu offers all three (#143)", async () => {

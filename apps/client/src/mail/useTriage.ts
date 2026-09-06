@@ -261,12 +261,17 @@ export function useTriage({
       const { accountId, sender } = resolved;
       advanceSelection(threadId); // leaves the Inbox, same as trash
       void enqueueMutation({ type: "spamSender", sender, threadId }, accountId);
+      // Spam records a Blocked Verdict same as Block below — the same
+      // staleness `approveSender`'s own invalidation (and
+      // `screener/Screener.tsx#decide`'s, #145) fixes there applies here too.
+      invalidateThreadMessages([threadId]);
       notifyTriageSucceeded();
       const undo = () => {
         void enqueueMutation(
           { type: "unblockAndRestore", sender, threadIds: [threadId] },
           accountId,
         );
+        invalidateThreadMessages([threadId]);
       };
       announceUndoableAction("spam", undo);
       return undo;
@@ -281,12 +286,16 @@ export function useTriage({
       const { accountId, sender } = resolved;
       advanceSelection(threadId);
       void enqueueMutation({ type: "blockSender", sender, threadId }, accountId);
+      // Block records a Blocked Verdict too — same staleness, same fix
+      // (`approveSender`'s own invalidation, `screener/Screener.tsx#decide`).
+      invalidateThreadMessages([threadId]);
       notifyTriageSucceeded();
       const undo = () => {
         void enqueueMutation(
           { type: "unblockAndRestore", sender, threadIds: [threadId] },
           accountId,
         );
+        invalidateThreadMessages([threadId]);
       };
       announceUndoableAction("block", undo);
       return undo;
