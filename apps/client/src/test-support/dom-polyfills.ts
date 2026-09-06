@@ -41,3 +41,22 @@ if (!Element.prototype.scrollTo) {
     this.dispatchEvent(new Event("scroll"));
   } as typeof Element.prototype.scrollTo;
 }
+
+/**
+ * jsdom implements the `PointerEvent` constructor but none of the Pointer
+ * Capture methods it lets a handler call on the target element — needed by
+ * `useSwipeToTriage.ts` (#149), which every row-swipe and Stream-card-swipe
+ * integration test drives with real `fireEvent.pointer*` events rather than
+ * a hand-built fake event. No-ops are all these tests need: nothing here
+ * asserts on capture actually retargeting subsequent moves, only on the
+ * offset/commit the hook computes from the events it's handed.
+ */
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+}

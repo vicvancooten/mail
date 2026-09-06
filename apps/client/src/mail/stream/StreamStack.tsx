@@ -1,5 +1,5 @@
 import type { MailAccount, Message } from "@mail/shared";
-import { CheckCircle2, SkipForward, X } from "lucide-react";
+import { Check, CheckCircle2, SkipForward, Trash2, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildReplyContent, type ReplyMode } from "../../compose/reply.js";
 import type { CachedThread } from "../../store/index.js";
@@ -14,8 +14,10 @@ import {
 } from "../../store/index.js";
 import { useLocalCacheSync } from "../../sync/use-local-cache-sync.js";
 import { ActionsProvider, useActionKeyboard } from "../actions/ActionsProvider.js";
+import { publishActiveMailHost } from "../actions/active-mail-host.js";
 import { currentReaderHandle } from "../actions/surface-handles.js";
 import type { ActionContext } from "../actions/types.js";
+import { usePaletteHost } from "../command-palette/PaletteHostContext.js";
 import { ShortcutSheet } from "../command-palette/ShortcutSheet.js";
 import { folderToView } from "../folders.js";
 import { RollbackToast } from "../RollbackToast.js";
@@ -25,6 +27,7 @@ import { ThreadDetailPane } from "../ThreadDetailPane.js";
 import { findThread, neighborId } from "../thread-navigation.js";
 import { PINNED_GROUP_LABEL, timeGroupLabel } from "../time-groups.js";
 import { useAccountScope } from "../useAccountScope.js";
+import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "../useSwipeToTriage.js";
 import { useTriage } from "../useTriage.js";
 import "./stream.css";
 
@@ -78,6 +81,7 @@ const STREAM_ENDED_ID = "__stream-ended";
  */
 export function StreamStack({ onLeave }: { onLeave: () => void }) {
   useLocalCacheSync();
+  const { paletteOpen, openPalette } = usePaletteHost();
   const mailAccounts = useMailAccounts();
   const { scope: accountScope } = useAccountScope(mailAccounts);
   const accountId = accountScope[0] ?? null;
@@ -168,6 +172,22 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
   const nextThread = topId ? findThread(threads, neighborId(ids, topId, 1)) : null;
   const { messages } = useThreadMessages(topThreadSnapshot?.id ?? "");
 
+  // #149: the same gesture module `ThreadRow.tsx` uses ("one gesture module
+  // serves list rows and Stream cards", #133) — right commits Done, left
+  // commits Trash, both through `triage` so they get the same Optimistic
+  // Action + coalescing Undo toast as every other Triage path. Skip stays
+  // its own button below (`streamSkip`/`onClick={skip}`): "not now" is a
+  // deliberate press, never a flick.
+  const cardSwipe = useSwipeToTriage({
+    onArchive: () => {
+      if (topThreadSnapshot) triage.archive(topThreadSnapshot.id);
+    },
+    onTrash: () => {
+      if (topThreadSnapshot) triage.trash(topThreadSnapshot.id);
+    },
+  });
+  const cardRevealStrength = Math.min(Math.abs(cardSwipe.offsetX) / SWIPE_COMMIT_THRESHOLD_PX, 1);
+
   const [composeId, setComposeId] = useState<string | null>(null);
   const [composeFromChoices, setComposeFromChoices] = useState<MailAccount[] | null>(null);
   const closeCompose = useCallback(() => setComposeId(null), []);
@@ -244,8 +264,12 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       onBackToList: onLeave,
       onOpenScreener: () => {},
       screenerCount: 0,
-      onFocusSearch: () => {},
-      onOpenPalette: () => {},
+      // `/` and ⌘K reach the Hub-level Palette from Stream too now (#147) —
+      // it used to be a no-op here, the bug the epic named directly
+      // ("the Command Palette appears behind [Stream] and is invisible
+      // until Stream is closed").
+      onFocusSearch: openPalette,
+      onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream: () => {},
       onMove: () => {},
@@ -256,10 +280,30 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       draft: null,
       streamSkip: topThreadSnapshot ? skip : null,
     }),
-    [topThreadSnapshot, triage, messages, labels, openReply, openCompose, onLeave, skip],
+    [
+      topThreadSnapshot,
+      triage,
+      messages,
+      labels,
+      openReply,
+      openCompose,
+      onLeave,
+      skip,
+      openPalette,
+    ],
   );
 
-  useActionKeyboard(actionContext, composeId !== null || shortcutSheetOpen);
+  // Publishes this surface's own `ActionContext` for the Hub-level Palette
+  // to read (#147, `actions/active-mail-host.ts`) — Stream seeds nothing
+  // (`{ kind: "other" }`, the same "All mail" default a saved view seeds,
+  // `search/scope.ts`'s own doc comment): it's a stack to drain, not a
+  // navigable folder.
+  useEffect(
+    () => publishActiveMailHost({ ctx: actionContext, searchOrigin: { kind: "other" } }),
+    [actionContext],
+  );
+
+  useActionKeyboard(actionContext, composeId !== null || shortcutSheetOpen || paletteOpen);
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
@@ -293,19 +337,45 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
               className={`stream-card stream-card-top${leaving ? " leaving" : ""}`}
               key={topThreadSnapshot.id}
             >
-              <ThreadDetailPane
-                thread={topThreadSnapshot}
-                groupLabel={
-                  topThreadSnapshot.pinned
-                    ? PINNED_GROUP_LABEL
-                    : timeGroupLabel(
-                        topThreadSnapshot.lastMessageAt ?? topThreadSnapshot.firstMessageAt,
-                      )
-                }
-                triage={triage}
-                onReply={openReply}
-                onMailtoLink={openMailtoLink}
-              />
+              <div className="stream-card-swipe">
+                <div
+                  className={`stream-card-swipe-reveal ${cardSwipe.revealing ?? ""}`}
+                  style={{ opacity: cardRevealStrength }}
+                  aria-hidden="true"
+                >
+                  {cardSwipe.revealing === "trash" ? (
+                    <span className="stream-card-swipe-label">
+                      <Trash2 size={18} /> Trash
+                    </span>
+                  ) : (
+                    <span className="stream-card-swipe-label">
+                      <Check size={18} /> Done
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="stream-card-swipe-surface"
+                  style={{
+                    transform: cardSwipe.offsetX ? `translateX(${cardSwipe.offsetX}px)` : undefined,
+                    transition: cardSwipe.settling ? undefined : "none",
+                  }}
+                  {...cardSwipe.handlers}
+                >
+                  <ThreadDetailPane
+                    thread={topThreadSnapshot}
+                    groupLabel={
+                      topThreadSnapshot.pinned
+                        ? PINNED_GROUP_LABEL
+                        : timeGroupLabel(
+                            topThreadSnapshot.lastMessageAt ?? topThreadSnapshot.firstMessageAt,
+                          )
+                    }
+                    triage={triage}
+                    onReply={openReply}
+                    onMailtoLink={openMailtoLink}
+                  />
+                </div>
+              </div>
               <button type="button" className="stream-skip" onClick={skip}>
                 <SkipForward size={15} />
                 Skip

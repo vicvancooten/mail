@@ -1,12 +1,17 @@
+import type { MailAccount } from "@mail/shared";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AccountScope } from "../mail/AccountScope.js";
-import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
+import { isTyping } from "../mail/actions/ActionsProvider.js";
+import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
+import { noopActionContext } from "../mail/actions/types.js";
+import { CommandPalette } from "../mail/command-palette/CommandPalette.js";
+import { PaletteHostProvider, usePaletteHost } from "../mail/command-palette/PaletteHostContext.js";
 import { useAccountScope } from "../mail/useAccountScope.js";
 import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
@@ -49,15 +54,32 @@ import "./shell.css";
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
  * itself, not by a caller who has them to hand.
+ *
+ * The Command Palette (#147) is mounted here, once, as a sibling of
+ * `.app-viewport` — above Stream and every other App and screen, the same
+ * "Client chrome, present on every screen" reasoning `CONTEXT.md`'s Hub
+ * entry already gives Account Scope. `PaletteHostProvider` owns the search
+ * session and the open/closed flag; `RootLayoutChrome` (below) is what
+ * actually reads them, since a provider's own value can't be read by the
+ * component that renders it.
  */
 export function RootLayout() {
+  const mailAccounts = useMailAccounts() ?? [];
+  const { scope: accountScope } = useAccountScope(mailAccounts);
+  return (
+    <PaletteHostProvider accountScope={accountScope} mailAccounts={mailAccounts}>
+      <RootLayoutChrome mailAccounts={mailAccounts} />
+    </PaletteHostProvider>
+  );
+}
+
+function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   const { user, onLogout } = rootRoute.useRouteContext();
   const [signingOut, setSigningOut] = useState(false);
   // Account Scope (#96): moved into the Hub, so it needs the same
   // `mailAccounts`/`useAccountScope` pair `MailSection.tsx` reads — the two
   // stay in sync through `device-preferences.ts#subscribeAccountScope`
   // (`useAccountScope.ts`'s own doc comment), not through a shared prop.
-  const mailAccounts = useMailAccounts() ?? [];
   const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
   // `Link`'s own `data-status="active"` would do this, but only for exact
   // matches — `/mail` should still read as current while a Thread or label
@@ -66,6 +88,14 @@ export function RootLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = rootRoute.useNavigate();
   const [resolvedDark, toggleAppearance] = useResolvedAppearance();
+  const { search, paletteOpen, openPalette, closePalette } = usePaletteHost();
+  // Whichever Mail-family surface (`MailSection`, `stream/StreamStack`) is
+  // currently mounted publishes its own live `ActionContext`/`ViewOrigin`
+  // here (`actions/active-mail-host.ts`) — `null` on `/settings` or a
+  // placeholder App, where `noopActionContext` (already what the Shortcut
+  // Sheet renders against with nothing selected) and "seeds nothing" stand
+  // in.
+  const activeHost = useActiveMailHost();
 
   // A `needs-reauth` notification click (#53, ADR-0015: "a click always
   // lands where the next decision is") names a Mail Account's *Settings* —
@@ -84,39 +114,69 @@ export function RootLayout() {
     });
   }, [navigate]);
 
-  // ⌘K reaches the Command Palette everywhere (the direction contract's
-  // signature interaction), but the Palette itself is Mail-scoped
-  // (`global-open.ts`'s own doc comment). Outside `/mail`, catch the chord
-  // here, record the request, and navigate — `MailSection`'s mount effect
-  // consumes the flag and opens the already-built Palette. Inside `/mail`,
-  // `MailSection` owns `⌘K` directly, so this only needs to act when it's
-  // the one thing mounted.
+  // `/`, ⌘K and the Hub's own search pill all raise the Palette directly now
+  // (#147) — there is no Mail-scoped mount to navigate to first, since the
+  // Palette lives here. `isTyping` (`ActionsProvider.tsx`'s own guard) keeps
+  // a bare `/` out of any other field's way; a modified ⌘K still fires while
+  // typing, same as every other `meta` binding in the registry.
   useEffect(() => {
-    if (pathname.startsWith("/mail")) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      requestGlobalPaletteOpen();
-      void navigate({ to: "/mail" });
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        openPalette();
+        return;
+      }
+      if (event.key === "/" && !isTyping(event)) {
+        event.preventDefault();
+        openPalette();
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pathname, navigate]);
+  }, [openPalette]);
 
   function handleLogout() {
     setSigningOut(true);
     void onLogout().finally(() => setSigningOut(false));
   }
 
-  // The header field is the comp's search *entry* — a button that raises the
-  // Command Palette, not a second text input beside Mail's own. Off `/mail`
-  // the request rides the same bridge `⌘K` does, navigating so there is a
-  // Palette to open; on `/mail` a mounted `MailSection` takes it directly
-  // (`global-open.ts`).
-  function openGlobalSearch() {
-    requestGlobalPaletteOpen();
-    if (!pathname.startsWith("/mail")) void navigate({ to: "/mail" });
-  }
+  // Selecting a hit or opening the full results view only has somewhere to
+  // land on `/mail` (`MailSection`'s own reading pane / `SearchResultsView`)
+  // — triggered from anywhere else (Stream, Settings, a placeholder App),
+  // navigate there first so "See all results" and Enter still reach the
+  // same results view the spec has always described, rather than quietly
+  // doing nothing. `CommandPalette.tsx` itself is unchanged (#147: "leave
+  // the Palette's content as close to unchanged as you can") — only these
+  // two callbacks are wrapped, and only when Mail's own results view isn't
+  // already what's on screen.
+  const paletteSearch = useMemo(() => {
+    if (pathname === "/mail") return search;
+    return {
+      ...search,
+      select: (id: string | null) => {
+        void navigate({ to: "/mail" });
+        search.select(id);
+      },
+      openResultsView: () => {
+        void navigate({ to: "/mail" });
+        search.openResultsView();
+      },
+    };
+  }, [search, pathname, navigate]);
+
+  // Nothing Mail-scoped mounted (Settings, a placeholder App): the same
+  // "nothing wired" context the Shortcut Sheet already renders against,
+  // with `/`/⌘K's own callbacks still live so those two rows work from
+  // anywhere, and Stream still one command away.
+  const fallbackCtx = useMemo(
+    () =>
+      noopActionContext({
+        onFocusSearch: openPalette,
+        onOpenPalette: openPalette,
+        onOpenStream: () => void navigate({ to: "/mail/stream" }),
+      }),
+    [openPalette, navigate],
+  );
 
   return (
     <TooltipProvider>
@@ -127,7 +187,7 @@ export function RootLayout() {
             <AppSwitcher pathname={pathname} />
           </div>
           <div className="header-center">
-            <button type="button" className="global-search" onClick={openGlobalSearch}>
+            <button type="button" className="global-search" onClick={openPalette}>
               <Search size={16} />
               <span>Search everything…</span>
               <kbd>⌘K</kbd>
@@ -159,6 +219,15 @@ export function RootLayout() {
         </div>
         <Toaster />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={closePalette}
+        ctx={activeHost?.ctx ?? fallbackCtx}
+        search={paletteSearch}
+        searchOrigin={activeHost?.searchOrigin ?? { kind: "other" }}
+        accounts={mailAccounts}
+        accountScope={accountScope}
+      />
     </TooltipProvider>
   );
 }

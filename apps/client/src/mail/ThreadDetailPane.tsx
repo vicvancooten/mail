@@ -34,6 +34,7 @@ import { MessageList } from "./reading/MessageList.js";
 import type { MailtoLink } from "./reading/mailto.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
+import { useSwipeToNavigate } from "./useSwipeToNavigate.js";
 import type { Triage } from "./useTriage.js";
 
 /** Reply / reply-all / forward, against one specific Message (compose-spec §Threading headers). */
@@ -181,9 +182,36 @@ export function ThreadDetailPane({
   const primaryIds = PRIMARY_READER_ACTION_IDS;
   const secondaryIds = phone ? new Set<string>() : SECONDARY_READER_ACTION_IDS;
 
+  // #150: swipe right for the previous (newer) Thread, left for the next
+  // (older) one — the same `onPrev`/`onNext` the (desktop-only) chevron
+  // buttons above call, so the neighbour, the end-of-list no-op, and the
+  // history-replace all come free from reusing that one callback pair. Not
+  // gated on `phone`: like #149's row/Stream swipe, the underlying gesture
+  // is already a no-op for anything but a touch pointer, so wiring it
+  // unconditionally costs nothing when a mouse is what's dragging (or when
+  // neither neighbour exists, since `onPrev`/`onNext` are then both absent
+  // and the hook's commits are no-ops). Only spread onto the pane when at
+  // least one neighbour exists, so Stream's own `ThreadDetailPane` — which
+  // never passes either — never gets a second, redundant pointer listener
+  // stacked under its own card-swipe-to-triage surface.
+  const nav = useSwipeToNavigate({ onPrev, onNext });
+  const swipeNavigable = Boolean(onPrev || onNext);
+
   return (
     <ActionMenu ctx={readerCtx} asChild label={`Actions for "${thread.subject || "(no subject)"}"`}>
-      <div className="thread-detail" key={thread.id}>
+      <div
+        className={`thread-detail${swipeNavigable ? " thread-detail-swipeable" : ""}`}
+        key={thread.id}
+        {...(swipeNavigable ? nav.handlers : undefined)}
+        style={
+          swipeNavigable
+            ? {
+                transform: nav.offsetX ? `translateX(${nav.offsetX}px)` : undefined,
+                transition: nav.settling ? undefined : "none",
+              }
+            : undefined
+        }
+      >
         <div className="reading-header">
           <div className="reading-topline">
             {onBack ? (
