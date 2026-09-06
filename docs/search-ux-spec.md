@@ -25,6 +25,13 @@ grouped by section**, unbound commands included — Mark read/unread among them,
 rebinds `h` (was "previous", now Snooze) and `u` (was mark‑unread, now "back to list"). `?` opens
 the Shortcut Sheet, the same registry rendered read-only as a cheat sheet.
 
+Revised again by #133: the Palette is the **only** entry point. Mail's own header search field is
+gone, and `/` opens the Palette exactly as `⌘K` and the Hub's search pill do. Plain text searches
+mail *and* matches commands at once, in one list: matching commands first (at most three when Mail
+hits are also present), Mail hits beneath. `>` narrows the list to commands only. The empty field
+shows recent searches plus the most-used commands. Enter runs the top item whichever kind it is. The
+Palette is Client chrome, mounted once above every App and screen, so it opens over Stream too.
+
 Typing in the Palette runs the same search this spec has always described — the 3-character floor,
 the ~200ms debounce, the Local Cache prefilter — and shows the **top few hits inline**, in a
 bounded, scrolling pane alongside the matching commands. Typing here **never** swaps the list pane
@@ -83,9 +90,10 @@ all results", the full results view).
 
 ### Phone
 
-At phone width a **search icon in the top bar opens the Command Palette full-screen** (#79) —
-there's no room beside it to expand a field in place, so the icon is a dedicated Palette trigger
-rather than the desktop click-to-open field. Everything above still applies at that width: commands
+At phone width the Hub's search pill **opens the Command Palette full-screen** (#79; whether it
+stays a pill or shrinks to an icon is the phone redesign's call, #133) — there's no room beside it
+to expand a field in place, so it is a dedicated Palette trigger rather than the desktop
+click-to-open field. Everything above still applies at that width: commands
 and top hits inline, "See all results" swapping in the real results list, tapping a result pushing
 the thread route and back returning to the results. The chip row sits under the field and scrolls
 with the results.

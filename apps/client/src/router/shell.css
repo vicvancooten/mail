@@ -466,6 +466,32 @@
   }
 }
 
+/* The phone App Switcher's own Sheet (#136): a bottom sheet, not the
+   desktop's inline row, so `.tabs-row` stacks full-width pills instead of a
+   run of pills fighting the header's own width. Unscoped by the `640px`
+   media query above — `AppSwitcher.tsx` itself decides sheet vs inline, so
+   these rules apply at whatever width the sheet renders. */
+.switcher-sheet {
+  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+}
+
+.switcher-sheet .tabs-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 0 0;
+}
+
+.switcher-sheet .tab-pill {
+  height: 46px;
+  padding: 0 14px;
+  font-size: 15px;
+}
+
+.switcher-sheet .tab-pill span:not(.tp-soon) {
+  flex: 1;
+}
+
 /* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`
    rather than a hand-computed "header is 60px" calc, so it holds at any
    header height. Every route's own top-level element is a `height: 100%;
