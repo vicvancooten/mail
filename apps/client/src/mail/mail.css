@@ -3352,6 +3352,36 @@ button.search-chip-toggle.on {
   font-weight: 600;
 }
 
+/* The empty state's "Recent searches" heading (#148) — the only Group
+   heading that carries its own control, since clearing is "not optional"
+   on a shared machine (docs/search-ux-spec.md §The empty field). */
+.command-palette-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.command-palette-clear-recent {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-ink-faint);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.command-palette-clear-recent:hover {
+  color: var(--color-ink-muted);
+}
+
+.command-palette-recent-icon {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+
 .command-palette-watermark {
   margin: 6px 10px 2px;
   color: var(--color-ink-faint);

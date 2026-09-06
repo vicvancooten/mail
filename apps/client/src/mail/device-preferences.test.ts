@@ -3,7 +3,9 @@ import { act } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   readAccountScope,
+  readCommandUsage,
   readGroupCollapsed,
+  recordCommandUsage,
   resolveAccountScope,
   useListDensity,
   useSidebarCollapsed,
@@ -141,5 +143,34 @@ describe("useViewMode / useListDensity / useSidebarCollapsed", () => {
 
     expect(a.result.current[0]).toBe(true);
     expect(b.result.current[0]).toBe(true);
+  });
+});
+
+/**
+ * Palette command usage (#148): the "most-used commands" ranking behind the
+ * Command Palette's empty state (`command-palette/CommandPalette.tsx`) reads
+ * straight off this — the narrower, storage-level check for the same seam
+ * `command-palette-integration.test.tsx`'s own empty-state tests exercise
+ * end to end.
+ */
+describe("readCommandUsage / recordCommandUsage", () => {
+  it("starts empty", () => {
+    expect(readCommandUsage()).toEqual({});
+  });
+
+  it("counts a run, and every run after it", () => {
+    recordCommandUsage("compose");
+    recordCommandUsage("compose");
+    recordCommandUsage("done");
+
+    expect(readCommandUsage()).toEqual({ compose: 2, done: 1 });
+  });
+
+  it("ignores a corrupt stored value rather than throwing", () => {
+    localStorage.setItem("mail.devicePref.commandUsage", "not json");
+    expect(readCommandUsage()).toEqual({});
+
+    localStorage.setItem("mail.devicePref.commandUsage", JSON.stringify(["array", "not", "map"]));
+    expect(readCommandUsage()).toEqual({});
   });
 });
