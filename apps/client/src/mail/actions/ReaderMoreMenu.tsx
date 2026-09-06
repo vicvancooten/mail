@@ -16,8 +16,8 @@ import { type ActionContext, actionLabel } from "./types.js";
 
 /**
  * The Reader's "More" menu (#143): every surface's own way to reach the
- * `reader-more` tier — Read/unread, Forward, and whatever #144 adds (Spam,
- * Approve, Block) — plus Pin, Star and Label too on a touch-capable phone,
+ * `reader-more` tier — Read/unread, Forward, Spam, Approve, Block (#144) —
+ * plus Pin, Star and Label too on a touch-capable phone,
  * where `ThreadDetailPane` doesn't render the secondary run inline
  * (`includeSecondary`, `registry.ts#moreReaderActions`).
  *

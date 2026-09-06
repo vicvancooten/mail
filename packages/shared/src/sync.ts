@@ -473,6 +473,16 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  *   Future-only by construction: ADR-0008 is explicit that unblocking "stops
  *   the bleeding but recovers nothing".
  *
+ * `approveSender`/`blockSender`/`spamSender`'s optional `threadId` (#144:
+ * Spam, Approve and Block on any Inbox Thread) names one specific Thread the
+ * decision must act on, alongside whatever the sender happens to be holding
+ * (nothing, ordinarily, since an Inbox Thread was by definition never held).
+ * These three are otherwise unchanged: still one decision per *sender*, and
+ * still correct for a stranger who has three other Threads sitting in the
+ * Screener at the same moment. The Verdict they record takes effect
+ * regardless of whether Gatekeeper is even enabled for the Mail Account,
+ * exactly as it would for a seeded or Screener decision.
+ *
  * A domain-scoped intent for a public provider (`gatekeeper.ts`'s
  * `BARRED_VERDICT_DOMAINS`) is `rejected` rather than silently downgraded to
  * an address — the Client should never have offered the button, and a
@@ -540,10 +550,28 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
   z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("setRemoteImages"), value: remoteImagesSettingSchema }),
-  z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),
+  z.object({
+    type: z.literal("approveSender"),
+    sender: gatekeeperSenderSchema,
+    /**
+     * Present only when this decision was reached for one specific Inbox
+     * Thread rather than from the Screener (#144: Spam/Approve/Block on any
+     * Inbox Thread) — `sync/mutations.ts#applyGatekeeperIntent`'s own
+     * doc comment says what each of the three does with it.
+     */
+    threadId: z.string().optional(),
+  }),
   z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
-  z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),
-  z.object({ type: z.literal("spamSender"), sender: gatekeeperSenderSchema }),
+  z.object({
+    type: z.literal("blockSender"),
+    sender: gatekeeperSenderSchema,
+    threadId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("spamSender"),
+    sender: gatekeeperSenderSchema,
+    threadId: z.string().optional(),
+  }),
   z.object({ type: z.literal("unblockSender"), sender: gatekeeperSenderSchema }),
   z.object({
     type: z.literal("unblockAndRestore"),

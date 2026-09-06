@@ -1154,7 +1154,11 @@ export const gatekeeperVerdicts = pgTable(
     // the flag that picks Junk over Trash as the destination
     // (`gatekeeper/decisions.ts#spamSender`, `gatekeeper/screening.ts`).
     spam: boolean("spam").notNull().default(false),
-    source: text("source", { enum: ["seed", "sent", "screener", "settings"] }).notNull(),
+    // `inbox` (#144): Spam/Approve/Block reached from an ordinary Inbox
+    // Thread rather than the Screener — same column, no migration needed
+    // (plain `text`, no DB-side check constraint; `@mail/shared`'s
+    // `gatekeeperVerdictSourceSchema` is the one place that enumerates it).
+    source: text("source", { enum: ["seed", "sent", "screener", "settings", "inbox"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

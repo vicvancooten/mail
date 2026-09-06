@@ -909,6 +909,171 @@ describe("Reader action hierarchy (#143)", () => {
   });
 });
 
+describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
+  it("the row menu offers Spam (with its `!` keycap), Approve and Block, none of which have ever been near the Screener", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+    fireEvent.contextMenu(row);
+
+    const spam = await screen.findByRole("menuitem", { name: /Spam/ });
+    expect(spam.textContent).toContain("!");
+    expect(await screen.findByRole("menuitem", { name: "Approve" })).toBeDefined();
+    expect(await screen.findByRole("menuitem", { name: "Block" })).toBeDefined();
+  });
+
+  it("Spam moves the Thread to Junk instantly, records the Verdict against its own sender, and names itself in the Undo toast", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Newer thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Spam/ }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(screen.getByText("Older thread")).toBeDefined();
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "spamSender",
+      sender: { scope: "address", value: "ada@example.test" },
+      threadId: "t-newer",
+    });
+
+    // Named by itself (#108, #144) — never folded into a "Blocked" toast.
+    expect(await screen.findByText("Spam")).toBeDefined();
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(screen.getByText("Newer thread")).toBeDefined());
+    expect(await listQueuedMutations("acct-1")).toContainEqual(
+      expect.objectContaining({
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "ada@example.test" },
+          threadIds: ["t-newer"],
+        },
+      }),
+    );
+  });
+
+  it('Block moves the Thread to Trash instantly and names itself "Blocked" in its own Undo toast', async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Newer thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Block" }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "blockSender",
+      sender: { scope: "address", value: "ada@example.test" },
+      threadId: "t-newer",
+    });
+    expect(await screen.findByText("Blocked")).toBeDefined();
+  });
+
+  it("Approve records the Verdict without moving the Thread, and still names itself in the Undo toast", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Newer thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Approve" }));
+
+    // Nothing moves — Approve never held this Thread to release.
+    expect(screen.getByText("Newer thread")).toBeDefined();
+    expect(await screen.findByText("Approved")).toBeDefined();
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+        type: "approveSender",
+        sender: { scope: "address", value: "ada@example.test" },
+        threadId: "t-newer",
+      });
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toContainEqual(
+        expect.objectContaining({
+          intent: {
+            type: "unblockSender",
+            sender: { scope: "address", value: "ada@example.test" },
+          },
+        }),
+      );
+    });
+  });
+
+  it("`!` Spams the open Thread from the keyboard (user story #20), and the Reader's More menu offers all three (#143)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: /Spam/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Approve" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Block" })).toBeDefined();
+    await user.keyboard("{Escape}");
+
+    fireEvent.keyDown(window, { key: "!" });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "spamSender",
+      sender: { scope: "address", value: "ada@example.test" },
+      threadId: "t-newer",
+    });
+  });
+
+  it("works on a Mail Account with Gatekeeper off and a Thread the Screener never held — the same as with it on", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: false, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-cold", "acct-1", {
+            subject: "Never screened",
+            participants: [{ name: "Cold Sender", address: "cold@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Never screened/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Spam/ }));
+
+    await waitFor(() => expect(screen.queryByText("Never screened")).toBeNull());
+    expect(await listQueuedMutations("acct-1")).toContainEqual(
+      expect.objectContaining({
+        intent: {
+          type: "spamSender",
+          sender: { scope: "address", value: "cold@example.test" },
+          threadId: "t-cold",
+        },
+      }),
+    );
+  });
+});
+
 describe("Swipe between Threads inside the Reader (#150)", () => {
   it("swiping the Reader left opens the next (older) Thread, replacing rather than pushing history", async () => {
     // Touch-capable phone (#143): prev/next buttons are gone, so swipe and

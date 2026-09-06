@@ -82,20 +82,27 @@ function describeIntent(intent: MutationIntent): string | null {
       return null;
     // The Gatekeeper decisions (#55). Unlike the two groups above these have
     // no other surface that would report a failure — the Screener row simply
-    // comes back — so they say so here.
+    // comes back — so they say so here. `threadId` present (#144) means this
+    // was reached from an Inbox Thread rather than the Screener, so there is
+    // no Screener row to point at — the Thread itself is what comes back.
     case "approveSender":
-      return "Couldn't approve — the sender is still waiting in the Screener.";
+      return intent.threadId
+        ? "Couldn't approve."
+        : "Couldn't approve — the sender is still waiting in the Screener.";
     case "denySender":
       return "Couldn't deny — the sender is still waiting in the Screener.";
     case "blockSender":
       // #103's Block Alias rides this same intent at `scope: "recipient"` —
       // there is no Screener row to say "still waiting" about, so it gets
       // its own message rather than the sender-shaped default.
-      return intent.sender.scope === "recipient"
-        ? "Couldn't block that Alias."
+      if (intent.sender.scope === "recipient") return "Couldn't block that Alias.";
+      return intent.threadId
+        ? "Couldn't block — restored to the Inbox."
         : "Couldn't block — the sender is still waiting in the Screener.";
     case "spamSender":
-      return "Couldn't mark as spam — the sender is still waiting in the Screener.";
+      return intent.threadId
+        ? "Couldn't Spam — restored to the Inbox."
+        : "Couldn't mark as spam — the sender is still waiting in the Screener.";
     case "unblockSender":
       return "Couldn't unblock — they are still blocked.";
     case "unblockAndRestore":

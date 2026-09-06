@@ -27,7 +27,7 @@ export type ActionSection = (typeof ACTION_SECTIONS)[number];
  * The three `reader-*` tags are the Reader's own tier (#143): `reader-primary`
  * (Reply, Done, Snooze, Trash) is visible on every surface; `reader-secondary`
  * (Pin, Star, Label) renders inline but quieter, desktop only; `reader-more`
- * (Read/unread, Forward, and whatever #144 adds — Spam, Approve, Block) lives
+ * (Read/unread, Forward, Spam, Approve, Block — #144) lives
  * in the Reader's "More" menu on every surface, joined there by the secondary
  * tier too on a touch-capable phone, where there's no room to keep it inline
  * (`ThreadDetailPane`, `registry.ts#moreReaderActions`). A new More-tier
@@ -226,6 +226,9 @@ export const NOOP_TRIAGE: Triage = {
   togglePin: () => {},
   applyLabel: () => {},
   removeLabel: () => {},
+  spamSender: () => NOOP_UNDO,
+  blockSender: () => NOOP_UNDO,
+  approveSender: () => NOOP_UNDO,
 };
 
 /**
