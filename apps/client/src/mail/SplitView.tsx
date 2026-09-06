@@ -31,6 +31,7 @@ export function SplitView({
   onReply,
   onMailtoLink,
   initialScrollThreadId,
+  scrollRestoreKey,
   density,
   groupBulk,
 }: {
@@ -48,6 +49,8 @@ export function SplitView({
   onMailtoLink: (link: MailtoLink) => void;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
+  /** Passed straight through to `VirtualizedThreadList` (#142) — Split's own list never unmounts on Reader open, only on leaving Mail for Stream/Settings, so this only ever matters here on that return. */
+  scrollRestoreKey?: string | null;
   /** Passed straight through to `VirtualizedThreadList` — the `compact` List Density Device Preference (#54, #75). */
   density?: ListDensity;
   /** Passed straight through to `VirtualizedThreadList` — the group header cluster (#66, #77). */
@@ -73,6 +76,7 @@ export function SplitView({
           onLoadMore={onLoadMore}
           triage={triage}
           initialScrollThreadId={initialScrollThreadId}
+          scrollRestoreKey={scrollRestoreKey}
           density={density}
           groupBulk={groupBulk}
         />

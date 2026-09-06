@@ -29,6 +29,7 @@ import {
   readGroupCollapsed,
   writeGroupCollapsed,
 } from "./device-preferences.js";
+import { readListScrollOffset, saveListScrollOffset } from "./scroll-restore.js";
 import { type RowHoverAction, ThreadRow } from "./ThreadRow.js";
 import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
 import { groupThreadsByTime, PINNED_GROUP_LABEL, type TimeGroupTier } from "./time-groups.js";
@@ -124,6 +125,7 @@ export function VirtualizedThreadList({
   getRowExtra,
   keyboardDisabled = false,
   initialScrollThreadId = null,
+  scrollRestoreKey = null,
   density = DEFAULT_LIST_DENSITY,
   groupBulk,
 }: {
@@ -144,14 +146,32 @@ export function VirtualizedThreadList({
   getRowExtra?: (thread: CachedThread) => RowExtra | undefined;
   /** Keeps this list from publishing its selection mover (#94) — for a copy of the list left mounted-but-hidden behind another surface (#51's search route swap), which must not be what `j`/`k` moves through. */
   keyboardDisabled?: boolean;
-  /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. */
+  /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. Also `scrollRestoreKey`'s own fallback (#142): tried only when that key is unset or has no saved offset yet, or the saved one no longer fits this list. */
   initialScrollThreadId?: string | null;
+  /** This list's own identity for `scroll-restore.ts` (#142) — Account Scope + folder + label, from `MailSection`. Unset (search's own ungrouped list, `group={false}`) opts out of both saving and restoring a pixel offset entirely, leaving `initialScrollThreadId` as the only behavior, same as before this ticket. */
+  scrollRestoreKey?: string | null;
   /** The `compact` List Density Device Preference (#54) — shifts every taper tier by a fixed delta (#75, `taper.ts`) rather than flattening it. */
   density?: ListDensity;
   /** The group header cluster's own Done all / Mark all read / true-count wiring (#66, #77) — omitted anywhere the current folder isn't a valid bulk-Triage target (`MailSection`'s own gating), same "every prop here defaults to exactly today's behavior" posture the rest of this component's props already have. */
   groupBulk?: GroupBulkController;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
+  // #142: a plain `ref` alone can't drive an effect's dependency array, and
+  // this list's empty state (`threads.length === 0`, below) renders a `<p>`
+  // with no scroll container at all — the first real commit of the
+  // container can land on a *later* render than this component's own first
+  // one (the Local Cache's read resolves asynchronously), after which a
+  // `useEffect(fn, [])` has already fired, once, against a `parentRef` that
+  // was still null. Mirroring the container node into state via this
+  // callback ref gives the restore/tracking effects below a value that
+  // actually changes on the render where the node first exists, so `[
+  // scrollContainer]` fires them at the right time regardless of which
+  // render that turns out to be.
+  const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
+  const setParentRef = useCallback((node: HTMLDivElement | null) => {
+    parentRef.current = node;
+    setScrollContainer(node);
+  }, []);
 
   // Gates every hover-only affordance below — the row Done glyph, the
   // Group Done node, bulk actions and the Timeline Spine — on input
@@ -281,14 +301,58 @@ export function VirtualizedThreadList({
     if (lastVirtualIndex >= items.length - LOAD_MORE_THRESHOLD) onLoadMore();
   }, [lastVirtualIndex, items.length, complete, onLoadMore]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately once-on-mount — see the prop doc comment.
+  // Runs once the scroll container actually exists, whichever render that
+  // is (`scrollContainer`'s own doc comment) — a `restoredRef` guard, not an
+  // empty dependency array, is what makes this "once per real mount" now,
+  // since `scrollRestoreKey`/`initialScrollThreadId` reasonably belong in
+  // the dependency array but must never re-trigger a second scroll partway
+  // through the same mount (a folder switch, say).
+  const restoredRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `restoredRef` guards this to exactly once per mount; re-running it for every later change to `scrollRestoreKey`/`initialScrollThreadId`/`items` would re-scroll the list out from under whoever is looking at it.
   useEffect(() => {
+    if (!scrollContainer || restoredRef.current) return;
+    restoredRef.current = true;
+    // #142: a saved pixel offset wins over the Thread-into-view fallback
+    // whenever one exists *and* still fits this list — `<=` its current
+    // total size, so a saved offset the removal of Threads (Done,
+    // Auto-advance) has pushed past the end falls through to the fallback
+    // instead of leaving the list scrolled to a blank gap.
+    const savedOffset = scrollRestoreKey ? readListScrollOffset(scrollRestoreKey) : null;
+    if (savedOffset !== null && savedOffset <= virtualizer.getTotalSize()) {
+      virtualizer.scrollToOffset(savedOffset, { align: "start" });
+      return;
+    }
     if (!initialScrollThreadId) return;
     const itemIndex = items.findIndex(
       (item) => item.kind === "thread" && item.thread.id === initialScrollThreadId,
     );
     if (itemIndex !== -1) virtualizer.scrollToIndex(itemIndex, { align: "auto" });
-  }, []);
+  }, [scrollContainer]);
+
+  // The offset this list is scrolled to right now, tracked continuously
+  // rather than read from `scrollContainer` at unmount — a host ref/state
+  // value can already be cleared by the time a passive effect's cleanup
+  // runs, but a plain ref this component itself owns can't be.
+  const currentOffsetRef = useRef(0);
+  useEffect(() => {
+    if (!scrollContainer) return;
+    const handleScroll = () => {
+      currentOffsetRef.current = scrollContainer.scrollTop;
+    };
+    handleScroll();
+    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+  }, [scrollContainer]);
+
+  // Saves this list's own last-known offset under its key the moment it
+  // leaves — unmounting (the List layout's Reader taking its place) or
+  // `scrollRestoreKey` itself changing out from under it (a folder/label
+  // switch while mounted, e.g. in Split) both count as "left" (#142).
+  useEffect(() => {
+    return () => {
+      if (scrollRestoreKey) saveListScrollOffset(scrollRestoreKey, currentOffsetRef.current);
+    };
+  }, [scrollRestoreKey]);
 
   const threadIds = useMemo(
     () => items.filter((item) => item.kind === "thread").map((item) => item.thread.id),
@@ -357,7 +421,7 @@ export function VirtualizedThreadList({
   return (
     <div
       className={`thread-list${density === "compact" ? " thread-list--compact" : ""}`}
-      ref={parentRef}
+      ref={setParentRef}
       role="listbox"
       aria-label="Threads"
     >
