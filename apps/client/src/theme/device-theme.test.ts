@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HUB_COLOR, applyTheme, readTheme, writeTheme } from "./device-theme.js";
+import { applyTheme, HUB_COLOR, readTheme, writeTheme } from "./device-theme.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
