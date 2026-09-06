@@ -41,7 +41,7 @@ export function readTheme(): Theme {
  * custom property; `index.html` carries the same two values for the cold
  * load, and both have to move together if the token ever does.
  */
-const HUB_COLOR: Record<"light" | "dark", string> = {
+export const HUB_COLOR: Record<"light" | "dark", string> = {
   light: "#f5f5f8",
   dark: "#08090b",
 };
