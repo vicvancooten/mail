@@ -1,7 +1,13 @@
 import { labelId } from "@mail/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../../store/index.js";
-import { ACTIONS, globalActions, menuActions, surfaceActions } from "./registry.js";
+import {
+  ACTIONS,
+  globalActions,
+  menuActions,
+  moreReaderActions,
+  surfaceActions,
+} from "./registry.js";
 import { actionLabel, noopActionContext, withGroup, withThread } from "./types.js";
 
 function makeThread(overrides: Partial<CachedThread> = {}): CachedThread {
@@ -87,6 +93,11 @@ describe("the Action registry", () => {
     expect(ids).toContain("snooze");
     expect(ids).toContain("label");
     expect(ids).toContain("trash");
+    // #144: Spam, Approve and Block are reachable from any Inbox Thread's
+    // own row menu, not only the Screener's contextual entries.
+    expect(ids).toContain("spam");
+    expect(ids).toContain("block-sender");
+    expect(ids).toContain("approve-sender");
     // No Message loaded for a row nobody has opened, so replying is out.
     expect(ids).not.toContain("reply");
   });
@@ -166,5 +177,50 @@ describe("the Action registry", () => {
     expect(hover).toContain("snooze");
     expect(hover).toContain("pin");
     expect(hover).not.toContain("trash");
+  });
+});
+
+describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
+  it("puts all three in the Reader's More menu, unavailable with nothing selected", () => {
+    const withoutThread = moreReaderActions(noopActionContext(), { includeSecondary: false });
+    expect(withoutThread.map((action) => action.id)).not.toContain("spam");
+
+    const ctx = withThread(noopActionContext(), makeThread());
+    const ids = moreReaderActions(ctx, { includeSecondary: false }).map((action) => action.id);
+    expect(ids).toContain("spam");
+    expect(ids).toContain("block-sender");
+    expect(ids).toContain("approve-sender");
+  });
+
+  it("binds `!` to Spam alone (user story #20) — Approve and Block are menu/Palette-only", () => {
+    const spam = ACTIONS.find((action) => action.id === "spam");
+    expect(spam?.binding).toEqual({ keys: ["!"], display: "!", preventDefault: true });
+    const block = ACTIONS.find((action) => action.id === "block-sender");
+    const approve = ACTIONS.find((action) => action.id === "approve-sender");
+    expect(block?.binding).toBeNull();
+    expect(approve?.binding).toBeNull();
+  });
+
+  it("runs Spam/Block/Approve against the Thread in context, in danger ink for Spam and Block only", () => {
+    const spamSender = vi.fn();
+    const blockSender = vi.fn();
+    const approveSender = vi.fn();
+    const base = noopActionContext();
+    const ctx = withThread(
+      noopActionContext({ triage: { ...base.triage, spamSender, blockSender, approveSender } }),
+      makeThread(),
+    );
+
+    ACTIONS.find((action) => action.id === "spam")?.run(ctx);
+    ACTIONS.find((action) => action.id === "block-sender")?.run(ctx);
+    ACTIONS.find((action) => action.id === "approve-sender")?.run(ctx);
+
+    expect(spamSender).toHaveBeenCalledWith("t1");
+    expect(blockSender).toHaveBeenCalledWith("t1");
+    expect(approveSender).toHaveBeenCalledWith("t1");
+
+    expect(ACTIONS.find((action) => action.id === "spam")?.destructive).toBe(true);
+    expect(ACTIONS.find((action) => action.id === "block-sender")?.destructive).toBe(true);
+    expect(ACTIONS.find((action) => action.id === "approve-sender")?.destructive).toBeFalsy();
   });
 });

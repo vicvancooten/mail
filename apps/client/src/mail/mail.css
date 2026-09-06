@@ -1388,6 +1388,19 @@
   background: var(--color-bg);
 }
 
+/* #150: only present when a neighbour Thread exists to swipe to
+   (`ThreadDetailPane`'s own `swipeNavigable`). `pan-y` is what lets the
+   browser keep handling vertical scroll (`.reading-body`'s own
+   `overflow-y: auto`, below) as native scroll rather than delivering it to
+   the swipe hook as horizontal drag — the same trick `.thread-row`/
+   `.stream-card-swipe-surface` already rely on. The transition is the
+   snap-back/settle animation; JS turns it off (`transition: "none"`) for
+   the duration of an actual drag so the pane tracks the finger with no lag. */
+.thread-detail-swipeable {
+  touch-action: pan-y;
+  transition: transform 0.2s ease;
+}
+
 /* The Width decision (#98, grill Q10): the reading header centers at the
    same 74ch column as the Snippet and a plain-text body, regardless of how
    wide the HTML body below it fills the pane — `max-width` plus centering,

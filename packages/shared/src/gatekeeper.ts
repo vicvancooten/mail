@@ -115,9 +115,17 @@ export type GatekeeperScope = z.infer<typeof gatekeeperScopeSchema>;
  * what makes "why is this sender approved?" answerable a year later —
  * `seed` is enabling's sweep of Sent history, `sent` is a live send,
  * `screener` is a decision the User made in the Screener, `settings` is the
- * Blocked Senders list.
+ * Blocked Senders list, `inbox` is Spam/Approve/Block reached from an
+ * ordinary Inbox Thread instead of the Screener (#144) — the same three
+ * decisions, recorded honestly as having come from a different surface.
  */
-export const gatekeeperVerdictSourceSchema = z.enum(["seed", "sent", "screener", "settings"]);
+export const gatekeeperVerdictSourceSchema = z.enum([
+  "seed",
+  "sent",
+  "screener",
+  "settings",
+  "inbox",
+]);
 export type GatekeeperVerdictSource = z.infer<typeof gatekeeperVerdictSourceSchema>;
 
 /**

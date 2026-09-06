@@ -34,6 +34,7 @@ import { AccountScope } from "./AccountScope.js";
 
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { taperHeaderHeight, taperRowHeight } from "./taper.js";
 import { resetUndoToastsForTest } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
 
@@ -134,6 +135,34 @@ async function seedTwoThreads(): Promise<void> {
           unreadCount: 1,
           messageCount: 1,
           lastMessageAt: minutesAfterEpoch(2),
+        }),
+      ],
+    }),
+    { replace: false },
+  );
+}
+
+/** Three Threads, newest first: "Row 1", "Row 2", "Row 3" — #152's hover re-arm, where the order rows slide up in matters. */
+async function seedThreeThreads(): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: [
+        makeThread("t-3", "acct-1", {
+          subject: "Row 3",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(1),
+        }),
+        makeThread("t-2", "acct-1", {
+          subject: "Row 2",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(2),
+        }),
+        makeThread("t-1", "acct-1", {
+          subject: "Row 1",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(3),
         }),
       ],
     }),
@@ -534,6 +563,68 @@ describe("MailSection", () => {
     expect(await screen.findByText("Couldn't archive — restored to the list.")).toBeDefined();
   });
 
+  it("arms the row that slides under a stationary pointer once Done removes the row above it, for several rows in a row (#152)", async () => {
+    await seedThreeThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Row 1");
+
+    // `.thread-list`'s own bounding rect: jsdom has no layout engine (all
+    // zero by default) — stub just this one container's so a `clientY` can
+    // be translated into a position within the scrolled content
+    // (`VirtualizedThreadList`'s own pointer-to-item math). Scoped to this
+    // one element, not `HTMLDivElement.prototype` — every row is a `<div>`
+    // too, and `measureElement` (#75) reads its own `getBoundingClientRect`
+    // for its real height; patching the prototype would measure every row
+    // at the container's 600px instead of its own taper height.
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    const rect = vi.spyOn(list, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 400,
+      bottom: 600,
+      width: 400,
+      height: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect);
+
+    const rowOf = (subject: string) =>
+      screen.getByText(subject).closest('[role="option"]') as HTMLElement;
+    const doneButtonFor = (subject: string) =>
+      screen.getByRole("button", { name: `Mark "${subject}" Done` });
+
+    // All three land in one group ("Older", decades-old fixtures) — the
+    // pointer rests at the middle of the topmost row's own slot.
+    const y = taperHeaderHeight(4, "comfortable") + taperRowHeight(4, "comfortable") / 2;
+    fireEvent.mouseMove(list, { clientX: 10, clientY: y });
+    fireEvent.mouseEnter(rowOf("Row 1"));
+    expect(rowOf("Row 1").getAttribute("data-armed")).toBe("true");
+
+    // Done on Row 1 — no pointer movement follows. Row 2 slides up into
+    // Row 1's screen slot and must arm on its own; `mail.css` only enables
+    // `.done-btn`'s `pointer-events` once `data-armed="true"`, so this is
+    // what makes a same-spot second click land on Done rather than falling
+    // through to the row's own `onClick` (open the mail).
+    fireEvent.click(doneButtonFor("Row 1"));
+    await waitFor(() => expect(screen.queryByText("Row 1")).toBeNull());
+    await waitFor(() => expect(rowOf("Row 2").getAttribute("data-armed")).toBe("true"));
+
+    // A second Done at the same spot, still with no pointer movement
+    // between — Row 3 arms too.
+    fireEvent.click(doneButtonFor("Row 2"));
+    await waitFor(() => expect(screen.queryByText("Row 2")).toBeNull());
+    await waitFor(() => expect(rowOf("Row 3").getAttribute("data-armed")).toBe("true"));
+
+    // Moving the pointer away still disarms it, same as today.
+    fireEvent.mouseMove(list, { clientX: 10, clientY: y + 500 });
+    expect(rowOf("Row 3").getAttribute("data-armed")).toBe("false");
+
+    rect.mockRestore();
+  });
+
   it("selecting an unread Thread marks it read; the Reader's More menu toggles it back (#42, #143)", async () => {
     await seedTwoThreads();
     stubFetch(never);
@@ -815,6 +906,229 @@ describe("Reader action hierarchy (#143)", () => {
     expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: /Star/ })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+  });
+});
+
+describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
+  it("the row menu offers Spam (with its `!` keycap), Approve and Block, none of which have ever been near the Screener", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+    fireEvent.contextMenu(row);
+
+    const spam = await screen.findByRole("menuitem", { name: /Spam/ });
+    expect(spam.textContent).toContain("!");
+    expect(await screen.findByRole("menuitem", { name: "Approve" })).toBeDefined();
+    expect(await screen.findByRole("menuitem", { name: "Block" })).toBeDefined();
+  });
+
+  it("Spam moves the Thread to Junk instantly, records the Verdict against its own sender, and names itself in the Undo toast", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Newer thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Spam/ }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(screen.getByText("Older thread")).toBeDefined();
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "spamSender",
+      sender: { scope: "address", value: "ada@example.test" },
+      threadId: "t-newer",
+    });
+
+    // Named by itself (#108, #144) — never folded into a "Blocked" toast.
+    expect(await screen.findByText("Spam")).toBeDefined();
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(screen.getByText("Newer thread")).toBeDefined());
+    expect(await listQueuedMutations("acct-1")).toContainEqual(
+      expect.objectContaining({
+        intent: {
+          type: "unblockAndRestore",
+          sender: { scope: "address", value: "ada@example.test" },
+          threadIds: ["t-newer"],
+        },
+      }),
+    );
+  });
+
+  it('Block moves the Thread to Trash instantly and names itself "Blocked" in its own Undo toast', async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Newer thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Block" }));
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "blockSender",
+      sender: { scope: "address", value: "ada@example.test" },
+      threadId: "t-newer",
+    });
+    expect(await screen.findByText("Blocked")).toBeDefined();
+  });
+
+  it("Approve records the Verdict without moving the Thread, and still names itself in the Undo toast", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Newer thread/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Approve" }));
+
+    // Nothing moves — Approve never held this Thread to release.
+    expect(screen.getByText("Newer thread")).toBeDefined();
+    expect(await screen.findByText("Approved")).toBeDefined();
+
+    await waitFor(async () => {
+      const queued = await listQueuedMutations("acct-1");
+      expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+        type: "approveSender",
+        sender: { scope: "address", value: "ada@example.test" },
+        threadId: "t-newer",
+      });
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toContainEqual(
+        expect.objectContaining({
+          intent: {
+            type: "unblockSender",
+            sender: { scope: "address", value: "ada@example.test" },
+          },
+        }),
+      );
+    });
+  });
+
+  it("`!` Spams the open Thread from the keyboard (user story #20), and the Reader's More menu offers all three (#143)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: /Spam/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Approve" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Block" })).toBeDefined();
+    await user.keyboard("{Escape}");
+
+    fireEvent.keyDown(window, { key: "!" });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "spamSender",
+      sender: { scope: "address", value: "ada@example.test" },
+      threadId: "t-newer",
+    });
+  });
+
+  it("works on a Mail Account with Gatekeeper off and a Thread the Screener never held — the same as with it on", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: false, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-cold", "acct-1", {
+            subject: "Never screened",
+            participants: [{ name: "Cold Sender", address: "cold@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /Never screened/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Spam/ }));
+
+    await waitFor(() => expect(screen.queryByText("Never screened")).toBeNull());
+    expect(await listQueuedMutations("acct-1")).toContainEqual(
+      expect.objectContaining({
+        intent: {
+          type: "spamSender",
+          sender: { scope: "address", value: "cold@example.test" },
+          threadId: "t-cold",
+        },
+      }),
+    );
+  });
+});
+
+describe("Swipe between Threads inside the Reader (#150)", () => {
+  it("swiping the Reader left opens the next (older) Thread, replacing rather than pushing history", async () => {
+    // Touch-capable phone (#143): prev/next buttons are gone, so swipe and
+    // Auto-advance are the only way to move between Threads without
+    // returning to the list first.
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: -120 });
+
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+  });
+
+  it("swiping right from the older (last) Thread opens the previous (newer) one", async () => {
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Older thread"));
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+  });
+
+  it("swiping past the end of the list (no neighbour that way) does nothing — the Thread stays open", async () => {
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    // "Newer thread" is the newest — there is no *previous* (newer) Thread,
+    // so swiping right must be a no-op.
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    expect(screen.getByText("Newer thread", { selector: ".reading-subject" })).toBeDefined();
   });
 });
 

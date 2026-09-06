@@ -720,6 +720,20 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         };
         break;
       }
+      // #144: Spam/Block reached from an Inbox Thread rather than the
+      // Screener — the only two Gatekeeper decisions that carry a `threadId`
+      // and so ever reach this thread's overlay bucket at all (the
+      // Screener's own sender-only calls return no `referencedThreadIds`,
+      // `store/mutation-queue.ts#referencedThreadIds`). Same immediate-hide
+      // shape as `archive`/`trash` above, just landing in Junk for Spam —
+      // `unblockAndRestore` is already what reverses either one, offline
+      // included, via the `restoreToInbox`/`unblockAndRestore` case above.
+      case "blockSender":
+        overlaid = { ...overlaid, inInbox: false, folderRole: "trash", snoozeUntil: null };
+        break;
+      case "spamSender":
+        overlaid = { ...overlaid, inInbox: false, folderRole: "junk", snoozeUntil: null };
+        break;
     }
   }
   return overlaid;

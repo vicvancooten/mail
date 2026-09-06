@@ -49,12 +49,21 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     // here for the Thread overlay to predict and nothing to exempt from
     // eviction. The Screener's own optimistic feel comes from the row
     // leaving the Screener list, not from a Thread-level overlay.
-    case "approveSender":
     case "denySender":
-    case "blockSender":
-    case "spamSender":
     case "unblockSender":
       return [];
+    // `approveSender`/`blockSender`/`spamSender`'s own optional `threadId`
+    // (#144: Spam, Approve and Block on any Inbox Thread) is the one
+    // exception to the paragraph above — reached from an Inbox Thread rather
+    // than the Screener, these name the exact Thread the User is looking at,
+    // which is what lets `reads.ts#applyOverlay` hide a Spam'd or Blocked
+    // Thread the instant it's queued, the same immediate feel `archive`/
+    // `trash` already have, rather than waiting on the next Thread delta.
+    // The Screener's own sender-only calls (no `threadId`) still return `[]`.
+    case "approveSender":
+    case "blockSender":
+    case "spamSender":
+      return intent.threadId ? [intent.threadId] : [];
     // `unblockAndRestore` (#95, ADR-0019) is the one Gatekeeper intent that
     // *does* name Threads — Undo has to restore exactly the ones the
     // Screener decision it reverses trashed, captured by the Client at
