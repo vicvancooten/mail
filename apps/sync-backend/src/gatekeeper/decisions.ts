@@ -27,6 +27,16 @@ import {
  * is currently holding and acts on all of them at once, which is also what
  * makes the decision correct for a stranger who wrote three times while
  * waiting.
+ *
+ * `approveSender`/`blockSender`/`spamSender`'s own optional `threadId` (#144,
+ * epic #133's "Gatekeeper set on Inbox Threads") is the one exception: it
+ * names a specific Thread the same three decisions must also act on when
+ * they're reached from an ordinary Inbox Thread's row menu, Reader More
+ * menu, or keyboard (`!` for Spam) rather than the Screener — a Thread that,
+ * by construction, is never held (a held Thread never appears in the
+ * Inbox). The Verdict is written exactly the same way either way; what
+ * `threadId` adds is folding that one Thread into the set Block/Spam move,
+ * since `heldByGatekeeperKey` alone would never find it.
  */
 
 export type DecisionResult = { ok: true } | { ok: false; reason: string };
@@ -45,9 +55,18 @@ export async function approveSender(
   db: Db,
   mailAccountId: string,
   sender: GatekeeperSender,
+  /**
+   * Present for the Inbox Thread's own Approve (#144: Spam, Approve and
+   * Block on any Inbox Thread) — an Inbox Thread was never held, so there is
+   * nothing for `releaseHeldThreads` to find and release; this parameter
+   * exists only to record `source: "inbox"` honestly and to keep this
+   * function's shape symmetric with `blockSender`/`spamSender` below, which
+   * *do* need it to move a Thread that isn't held either.
+   */
+  threadId?: string,
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
-    await setVerdict(db, mailAccountId, sender, "approved", "screener");
+    await setVerdict(db, mailAccountId, sender, "approved", threadId ? "inbox" : "screener");
     await releaseHeldThreads(db, mailAccountId, sender);
   });
 }
@@ -98,10 +117,17 @@ export async function blockSender(
   db: Db,
   mailAccountId: string,
   sender: GatekeeperSender,
+  /**
+   * The Inbox Thread's own Block (#144): names the one Thread this decision
+   * must move to Trash even though it isn't (and, by definition, never was)
+   * held — `trashHeldThreads` folds it into the held set rather than
+   * requiring a second code path.
+   */
+  threadId?: string,
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
-    await setVerdict(db, mailAccountId, sender, "blocked", "screener");
-    await trashHeldThreads(db, mailAccountId, sender, "trash");
+    await setVerdict(db, mailAccountId, sender, "blocked", threadId ? "inbox" : "screener");
+    await trashHeldThreads(db, mailAccountId, sender, "trash", threadId);
   });
 }
 
@@ -123,10 +149,12 @@ export async function spamSender(
   db: Db,
   mailAccountId: string,
   sender: GatekeeperSender,
+  /** The Inbox Thread's own Spam (#144) — same reasoning as `blockSender`'s own `threadId`, just to Junk instead of Trash. */
+  threadId?: string,
 ): Promise<DecisionResult> {
   return withVerdictWrite(async () => {
-    await setVerdict(db, mailAccountId, sender, "blocked", "screener", true);
-    await trashHeldThreads(db, mailAccountId, sender, "junk");
+    await setVerdict(db, mailAccountId, sender, "blocked", threadId ? "inbox" : "screener", true);
+    await trashHeldThreads(db, mailAccountId, sender, "junk", threadId);
   });
 }
 
@@ -289,13 +317,16 @@ async function trashHeldThreads(
   mailAccountId: string,
   sender: GatekeeperSender,
   target: "trash" | "junk",
+  /** Folded into the held set below (#144) — the Inbox Thread this decision names explicitly, which `heldByGatekeeperKey` will never match on its own. */
+  extraThreadId?: string,
 ): Promise<void> {
   const held = await db
     .select({ id: threads.id })
     .from(threads)
     .where(heldByGatekeeperKey(mailAccountId, sender));
-  if (held.length === 0) return;
   const heldThreadIds = held.map((row) => row.id);
+  if (extraThreadId && !heldThreadIds.includes(extraThreadId)) heldThreadIds.push(extraThreadId);
+  if (heldThreadIds.length === 0) return;
 
   const targetFolder = await findFolderByRole(db, mailAccountId, target);
   if (targetFolder) {

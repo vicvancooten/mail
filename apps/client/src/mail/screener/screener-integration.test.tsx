@@ -465,7 +465,7 @@ describe("the View dialog and Block's split menu (#102)", () => {
     });
   });
 
-  it("Block's split menu offers Mark as spam, queuing a spamSender decision", async () => {
+  it("Block's split menu offers Spam, queuing a spamSender decision", async () => {
     const user = userEvent.setup();
     await seedOneHeldSender("held-spam", "villain@example.test", "A Villain");
     renderMail();
@@ -474,7 +474,7 @@ describe("the View dialog and Block's split menu (#102)", () => {
     await screen.findByText("A Villain");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
-    await user.click(await screen.findByText("Mark as spam"));
+    await user.click(await screen.findByText("Spam"));
 
     await waitFor(async () => {
       const queued = await listQueuedMutations("acct-1");
@@ -706,8 +706,8 @@ describe("remote images refresh after a Screener decision (#145)", () => {
   });
 });
 
-describe("Mark as spam has a real Undo (#90's close-out of #102's Acceptance box)", () => {
-  it("Mark as spam raises an Undo toast whose Undo enqueues unblockAndRestore", async () => {
+describe("Spam has a real Undo (#90's close-out of #102's Acceptance box)", () => {
+  it("Spam raises its own named Undo toast whose Undo enqueues unblockAndRestore (#108, #144)", async () => {
     const user = userEvent.setup();
     await applyMailAccountDelta(
       delta({
@@ -734,18 +734,17 @@ describe("Mark as spam has a real Undo (#90's close-out of #102's Acceptance box
     await screen.findByText("A Villain");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
-    await user.click(await screen.findByText("Mark as spam"));
+    await user.click(await screen.findByText("Spam"));
 
     await waitFor(async () => {
       const queued = await listQueuedMutations("acct-1");
       expect(queued.map((mutation) => mutation.intent.type)).toContain("spamSender");
     });
 
-    // Same coalesced toast Block/Deny already raise (`undo-toast.ts`'s
-    // `"block"` kind) — Spam is a Blocked Verdict for every purpose this
-    // reversal answers, see `Screener.tsx`'s own doc comment on why it
-    // rides that kind rather than a new one.
-    const toastOptions = lastToastFor("undo-toast-block");
+    // Its own `"spam"` toast kind, not `"block"` (#108, #144) — a coalesced
+    // toast now says which of the three actually happened. The reversal
+    // (`unblockAndRestore`) is identical to Block's either way.
+    const toastOptions = lastToastFor("undo-toast-spam");
     expect(toastOptions.action?.label).toBe("Undo");
 
     toastOptions.action?.onClick();

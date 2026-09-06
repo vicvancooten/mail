@@ -7,6 +7,7 @@ import {
   ChevronUp,
   Clock,
   CornerUpLeft,
+  Flag,
   Forward,
   Keyboard,
   Layers,
@@ -236,6 +237,51 @@ export const ACTIONS: readonly Action[] = [
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.trash(ctx.thread.id);
+    },
+  },
+
+  // Gatekeeper's set on any Inbox Thread (#144, epic #133): the Screener's
+  // own three decisions, reachable from the row menu and the Reader's More
+  // menu regardless of whether this Thread was ever held, and regardless of
+  // whether Gatekeeper is even on for the account — `useTriage.ts`'s own
+  // doc comment says what each does. Spam alone gets a key (`!`, user story
+  // #20); Approve and Block are menu-only, like Forward and Read/unread.
+  {
+    id: "spam",
+    label: "Spam",
+    icon: Flag,
+    section: "Triage",
+    binding: { keys: ["!"], display: "!", preventDefault: true },
+    surfaces: ["reader-more", "menu"],
+    destructive: true,
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.triage.spamSender(ctx.thread.id);
+    },
+  },
+  {
+    id: "block-sender",
+    label: "Block",
+    icon: Ban,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-more", "menu"],
+    destructive: true,
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.triage.blockSender(ctx.thread.id);
+    },
+  },
+  {
+    id: "approve-sender",
+    label: "Approve",
+    icon: Check,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-more", "menu"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.triage.approveSender(ctx.thread.id);
     },
   },
 
@@ -512,7 +558,7 @@ export function secondaryReaderActions(ctx: ActionContext): readonly Action[] {
 
 /**
  * The Reader's "More" menu (#143) — the `reader-more` tier (Read/unread,
- * Forward, and whatever #144 adds: Spam, Approve, Block) on every surface,
+ * Forward, Spam, Approve, Block — #144) on every surface,
  * joined by the secondary tier too (Pin, Star, Label) on a touch-capable
  * phone, where the inline run has nowhere to sit (`ThreadDetailPane`'s own
  * phone check). A new More-tier action needs nothing here — it only needs

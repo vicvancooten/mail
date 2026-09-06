@@ -638,5 +638,22 @@ export function wrapSearchTriage(
       materialize(threadId);
       triage.removeLabel(threadId, name);
     },
+    // #144: Spam and Block leave the Inbox exactly like Trash does, so they
+    // get the same `onActed` treatment; Approve changes nothing about where
+    // the row sits, same as Star/Pin/Label above.
+    spamSender: (threadId) => {
+      materialize(threadId);
+      onActed(threadId);
+      return triage.spamSender(threadId);
+    },
+    blockSender: (threadId) => {
+      materialize(threadId);
+      onActed(threadId);
+      return triage.blockSender(threadId);
+    },
+    approveSender: (threadId) => {
+      materialize(threadId);
+      return triage.approveSender(threadId);
+    },
   };
 }

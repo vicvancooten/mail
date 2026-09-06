@@ -1004,6 +1004,120 @@ describe("flushMutations — the Gatekeeper decisions (#55)", () => {
   });
 });
 
+describe("flushMutations — Spam/Approve/Block on any Inbox Thread (#144)", () => {
+  /** An ordinary, never-held Inbox Thread with one Message carrying `fromAddress` — `seedThread` above leaves it unset. */
+  async function seedThreadFrom(fromAddress: string): Promise<string> {
+    const threadId = await resolveThread(db, {
+      mailAccountId: account.id,
+      threadingIds: [randomUUID()],
+      subject: "Test",
+      receivedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const folderId = await seedFolder("inbox", "INBOX");
+    await db.insert(messages).values({
+      id: randomUUID(),
+      mailAccountId: account.id,
+      threadId,
+      folderId,
+      uid: 1,
+      subject: "Test",
+      fromAddress,
+      sentAt: new Date("2026-01-01T00:00:00Z"),
+      receivedAt: new Date("2026-01-01T00:00:00Z"),
+      seen: false,
+    });
+    return threadId;
+  }
+
+  it("Spam's own `threadId` moves an un-held Inbox Thread to Junk and records the Verdict", async () => {
+    await seedFolder("junk", "Junk");
+    const threadId = await seedThreadFrom("villain@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01SPAMTHREAD",
+        intent: {
+          type: "spamSender",
+          sender: { scope: "address", value: "villain@example.test" },
+          threadId,
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01SPAMTHREAD", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("junk");
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe("blocked");
+  });
+
+  it("Block's own `threadId` moves an un-held Inbox Thread to Trash and records the Verdict", async () => {
+    await seedFolder("trash", "Trash");
+    const threadId = await seedThreadFrom("stranger@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01BLOCKTHREAD",
+        intent: {
+          type: "blockSender",
+          sender: { scope: "address", value: "stranger@example.test" },
+          threadId,
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01BLOCKTHREAD", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("trash");
+    expect((await resolveVerdict(db, account.id, "stranger@example.test")).verdict).toBe("blocked");
+  });
+
+  it("Approve's own `threadId` records the Verdict without moving the Thread — it was never held to release", async () => {
+    const threadId = await seedThreadFrom("colleague@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01APPROVETHREAD",
+        intent: {
+          type: "approveSender",
+          sender: { scope: "address", value: "colleague@example.test" },
+          threadId,
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01APPROVETHREAD", status: "applied" }]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(true);
+    expect(row?.folderRole).toBe("inbox");
+    expect((await resolveVerdict(db, account.id, "colleague@example.test")).verdict).toBe(
+      "approved",
+    );
+  });
+
+  it("still succeeds on a Thread this Mail Account genuinely has no matching folder for — the decision is recorded either way", async () => {
+    // No Junk folder seeded — mirrors `trashHeldThreads`'s own tolerance
+    // (`gatekeeper/decisions.ts`), just reached via a named `threadId`
+    // instead of the held-sender match.
+    const threadId = await seedThreadFrom("villain@example.test");
+
+    const outcomes = await flushMutations(db, account.id, [
+      {
+        id: "01SPAMNOFOLDER",
+        intent: {
+          type: "spamSender",
+          sender: { scope: "address", value: "villain@example.test" },
+          threadId,
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01SPAMNOFOLDER", status: "applied" }]);
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe("blocked");
+  });
+});
+
 describe("flushMutations — discardComposition/undiscardComposition (#101)", () => {
   async function insertComposition(status: "draft" | "discarded" | "pending" = "draft") {
     const id = randomUUID();
