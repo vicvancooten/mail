@@ -1519,6 +1519,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 34px 32px;
 }
 
@@ -1596,6 +1597,12 @@
   padding: 16px 18px;
   border-radius: var(--radius-panel);
   background: var(--color-surface);
+  /* The sender's HTML is unconstrained by design (the Width decision above)
+     but the pane is not: whatever width their document wants, the iframe's
+     own box stays capped here so it can never push the Reader into
+     horizontal scroll (#138). */
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .message-item-header {
@@ -2960,12 +2967,35 @@ button.search-chip-toggle.on {
     display: none;
   }
 
+  /* #138: the desktop-only 74ch reading column and the non-wrapping action
+     row both assume width the phone doesn't have. The header goes full
+     width, and the action row drops to its own line below the subject so
+     the subject gets one full line before it has to truncate — wrapping
+     further within itself if even that line runs short. */
   .reading-header {
+    max-width: none;
     padding: 16px 16px 0;
+  }
+
+  .reading-topline {
+    flex-wrap: wrap;
+  }
+
+  .reading-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    margin-top: 8px;
   }
 
   .reading-body {
     padding: 0 16px 24px;
+  }
+
+  /* The fixed 148px attachment tile is a desktop grid unit; on a phone two
+     tiles share a row instead so neither tile — nor the row of them —
+     forces horizontal scroll. */
+  .attachment-item {
+    width: calc(50% - 5px);
   }
 
   .reply-hint {
