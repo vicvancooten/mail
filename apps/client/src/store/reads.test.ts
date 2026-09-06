@@ -655,17 +655,22 @@ describe("readMailAccounts", () => {
     expect((await readMailAccounts()).map((account) => account.id)).toEqual(["older", "newer"]);
   });
 
-  it("overlays a queued setSignature/setNotificationsEnabled onto the base row (#54)", async () => {
+  it("overlays a queued setSignature/setNotificationsEnabled/setRemoteImages onto the base row (#54, #146)", async () => {
     await applyMailAccountDelta(
-      delta({ created: [makeMailAccount("acct-1", { signature: null })] }),
+      delta({ created: [makeMailAccount("acct-1", { signature: null, remoteImages: "always" })] }),
       { replace: false },
     );
 
     await enqueueMutation({ type: "setSignature", signature: "Ada" }, "acct-1");
     await enqueueMutation({ type: "setNotificationsEnabled", enabled: false }, "acct-1");
+    await enqueueMutation({ type: "setRemoteImages", value: "ask" }, "acct-1");
 
     const [account] = await readMailAccounts();
-    expect(account).toMatchObject({ signature: "Ada", notificationsEnabled: false });
+    expect(account).toMatchObject({
+      signature: "Ada",
+      notificationsEnabled: false,
+      remoteImages: "ask",
+    });
   });
 });
 

@@ -6,7 +6,7 @@ import {
   undoSendDelaySchema,
 } from "./compose.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
-import { mailAccountSchema } from "./mail-accounts.js";
+import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
 
 /**
  * The one delta endpoint (ADR-0011): `POST /sync` carries a map of
@@ -305,13 +305,15 @@ export const queuedUserMutationSchema = z.object({
 export type QueuedUserMutation = z.infer<typeof queuedUserMutationSchema>;
 
 /**
- * The Mail-Account-scoped half of Preferences (#54): the plain-text
- * signature (already a `MailAccount` field, #47) and the notification on/off
- * toggle both ride the existing `MailAccount` collection rather than a
- * separate one — one Mail Account, one row, no join needed to render either.
- * Both are edited through this Mail Account's ordinary mutation queue —
- * `setSignature`/`setNotificationsEnabled` on `mutationIntentSchema` below —
- * same as any other App Feature.
+ * The Mail-Account-scoped half of Preferences (#54, plus the remote-images
+ * setting #146 grew onto it the same way): the plain-text signature (already
+ * a `MailAccount` field, #47), the notification on/off toggle, and the
+ * remote-images permission all ride the existing `MailAccount` collection
+ * rather than a separate one — one Mail Account, one row, no join needed to
+ * render any of them. All three are edited through this Mail Account's
+ * ordinary mutation queue — `setSignature`/`setNotificationsEnabled`/
+ * `setRemoteImages` on `mutationIntentSchema` below — same as any other App
+ * Feature.
  */
 
 /**
@@ -433,9 +435,9 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * (ADR-0007: "a cancel arriving after the claim loses and is reported to
  * the User as too late").
  *
- * `setSignature`/`setNotificationsEnabled` (#54) are the Mail-Account-scoped
- * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
- * above for why they ride this queue rather than a new collection.
+ * `setSignature`/`setNotificationsEnabled`/`setRemoteImages` (#54, #146) are
+ * the Mail-Account-scoped half of Preferences — see the docstring above for
+ * why they ride this queue rather than a new collection.
  *
  * The Gatekeeper intents (#55, #102) are the Screener's decisions and the
  * Blocked Senders list's undo. They ride this queue rather than their own
@@ -537,6 +539,7 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("undiscardComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
   z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
+  z.object({ type: z.literal("setRemoteImages"), value: remoteImagesSettingSchema }),
   z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
   z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),

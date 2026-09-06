@@ -1,4 +1,5 @@
 import type { MailAccount, MailAccountConnection } from "@mail/shared";
+import { resolveRemoteImagesSetting } from "@mail/shared";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.js";
 import { mailAccounts } from "../db/schema.js";
@@ -38,6 +39,10 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
     },
     signature: row.signature,
     notificationsEnabled: row.notificationsEnabled,
+    // Resolved here, not left `null` (#146): every wire read re-derives the
+    // default from the current `gatekeeperEnabled` rather than freezing
+    // whatever it was when the account last synced.
+    remoteImages: resolveRemoteImagesSetting(row.remoteImages, row.gatekeeperEnabled),
     gatekeeper: {
       enabled: row.gatekeeperEnabled,
       cutoff: row.gatekeeperCutoff?.toISOString() ?? null,
@@ -267,6 +272,18 @@ export async function updateMailAccountNotificationsEnabled(
   await db
     .update(mailAccounts)
     .set({ notificationsEnabled: enabled, updatedAt: new Date() })
+    .where(eq(mailAccounts.id, id));
+}
+
+/** The remote-images preference's write path (#146) — `setRemoteImages`'s handler in `sync/mutations.ts`. */
+export async function updateMailAccountRemoteImages(
+  db: Db,
+  id: string,
+  value: MailAccountRow["remoteImages"],
+): Promise<void> {
+  await db
+    .update(mailAccounts)
+    .set({ remoteImages: value, updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
 }
 
