@@ -15,6 +15,7 @@ import {
   minutesAfterEpoch,
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { resetUndoToastsForTest } from "../undo-toast.js";
 import { StreamStack } from "./StreamStack.js";
 
 /** The composer's own network calls — irrelevant here and mocked quiet, same as `MailSection.test.tsx`. */
@@ -56,6 +57,7 @@ function stubFetch(sync: () => Promise<Response> = never) {
 
 beforeEach(async () => {
   resetSyncStatus();
+  resetUndoToastsForTest();
   const name = `stream-stack-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
@@ -146,6 +148,65 @@ describe("StreamStack (#105)", () => {
     });
     expect(await screen.findByText("Older thread")).toBeDefined();
     expect(await listQueuedMutations("acct-1")).toEqual([]);
+  });
+
+  it("swiping the card right commits Done, through the same Triage/Undo path as 'e' (#149)", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    const surface = document.querySelector(".stream-card-swipe-surface") as Element;
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toEqual([
+        expect.objectContaining({
+          intent: expect.objectContaining({ type: "archive", threadId: "t-newer" }),
+        }),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(await screen.findByText("Older thread")).toBeDefined();
+    // "Done" collides with the card's own (hidden) swipe-reveal label — the
+    // Undo button is the toast's unambiguous signature (#95, ADR-0019).
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("swiping the card left commits Trash, past the threshold (#149)", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    const surface = document.querySelector(".stream-card-swipe-surface") as Element;
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "touch", clientX: -120 });
+
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toEqual([
+        expect.objectContaining({
+          intent: expect.objectContaining({ type: "trash", threadId: "t-newer" }),
+        }),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(await screen.findByText("Moved to trash")).toBeDefined();
+  });
+
+  it("releasing a card swipe short of the threshold cancels, leaving the stack untouched (#149)", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    const surface = document.querySelector(".stream-card-swipe-surface") as Element;
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: "touch", clientX: 40 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "touch", clientX: 40 });
+
+    await waitFor(() => expect(listQueuedMutations("acct-1")).resolves.toEqual([]));
+    expect(screen.getByText("Newer thread")).toBeDefined();
   });
 
   it("reaches an ending state once the stack is cleared, with a way back to Mail", async () => {

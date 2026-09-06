@@ -30,6 +30,7 @@ import { jsonResponse } from "../test-support/mock-fetch.js";
 import { AccountScope } from "./AccountScope.js";
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { resetUndoToastsForTest } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
 
 /** The composer's own network calls (`Attachments.tsx`) — irrelevant here and mocked quiet, same as `Composer.test.tsx`. */
@@ -80,6 +81,10 @@ const never = () => new Promise<Response>(() => {});
 
 beforeEach(async () => {
   resetSyncStatus();
+  // The Undo toast's coalescing buckets are module state too (`undo-toast.ts`'s
+  // own doc comment on this seam) — a Done/Trash from one test must never
+  // fold into the next test's own toast count.
+  resetUndoToastsForTest();
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
@@ -655,7 +660,7 @@ describe("MailSection", () => {
     expect(await screen.findByText("Couldn't snooze — restored to the list.")).toBeDefined();
   });
 
-  it("right-clicking a row opens the Action registry's menu, and Trash — which has no row control at all — works from it (#94)", async () => {
+  it("right-clicking a row opens the Action registry's menu, and Trash — which has no row *hover* control — works from it (#94)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -665,13 +670,58 @@ describe("MailSection", () => {
     fireEvent.contextMenu(row);
 
     // The menu names the Thread it is about, and lists Trash with its own
-    // keycap — the action #66 deliberately gave no hover or swipe control,
-    // which on touch makes this menu the only way to reach it.
+    // keycap — #66 gave it no hover-cluster control, which on touch is
+    // otherwise reached only by swiping left (#149) or through this menu.
     const trash = await screen.findByRole("menuitem", { name: /Move to Trash/ });
     expect(trash.textContent).toContain("#");
     fireEvent.click(trash);
 
     await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+  });
+
+  it("swiping a row right commits Done, and left commits Trash, both past the threshold (#149)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+
+    // Right, past the commit threshold: Done — same Optimistic Action and
+    // Undo toast as the row's own Done button.
+    fireEvent.pointerDown(row, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(row, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(row, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    // Same coalescing Undo toast every other Triage path raises (#95,
+    // ADR-0019) — "Done" collides with the row's own (hidden) swipe-reveal
+    // label, so the Undo button is the toast's unambiguous signature.
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDefined();
+
+    // Left, past the commit threshold, on the remaining row: Trash.
+    const older = await screen.findByRole("option", { name: /Older thread/ });
+    fireEvent.pointerDown(older, { pointerId: 2, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(older, { pointerId: 2, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(older, { pointerId: 2, pointerType: "touch", clientX: -120 });
+
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    expect(await screen.findByText("Moved to trash")).toBeDefined();
+  });
+
+  it("releasing a row swipe short of the threshold cancels — the row springs back with no action taken (#149)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    const row = await screen.findByRole("option", { name: /Newer thread/ });
+
+    fireEvent.pointerDown(row, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(row, { pointerId: 1, pointerType: "touch", clientX: 40 });
+    fireEvent.pointerUp(row, { pointerId: 1, pointerType: "touch", clientX: 40 });
+
+    // Still here, still selectable — no Optimistic Action was queued.
+    await waitFor(() => expect(listQueuedMutations("acct-1")).resolves.toHaveLength(0));
+    expect(screen.getByText("Newer thread")).toBeDefined();
   });
 
   it("a row's menu acts on the row it was raised on, not on whatever is selected (#94)", async () => {
