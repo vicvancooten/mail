@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
+import { startNotificationRouter } from "./pwa/notification-router.js";
 import { registerServiceWorker } from "./pwa/update.js";
 import { applyTheme, readTheme } from "./theme/device-theme.js";
 
@@ -9,6 +10,13 @@ import { applyTheme, readTheme } from "./theme/device-theme.js";
 // itself a no-op wherever there's nothing to register against (`vite dev`,
 // an old browser) — see its own docstring.
 registerServiceWorker();
+
+// The main-thread half of a notification click reaching an already-open
+// window (#53, #151): `sw.ts#focusOrOpenClient` posts `{type:
+// "notification-click", target}` to the focused client; this is what turns
+// that message into `MailSection`/`RootLayout`'s own routing via
+// `publishNotificationTarget`.
+startNotificationRouter();
 
 // Applied before the first paint, not from an effect inside `RootLayout`:
 // Appearance is a Device Preference already sitting in `localStorage` (#72),

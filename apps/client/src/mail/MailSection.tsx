@@ -182,12 +182,15 @@ export function MailSection({
   initialLabelFilter = null,
   initialFolder,
   initialThreadId = null,
+  initialAccountId = null,
   onLocationChange,
   onOpenStream = noop,
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
   initialThreadId?: string | null;
+  /** A notification deep-link's Mail Account (#151, `router/MailRoute.tsx`'s own `?account=`) — widens a previously-narrowed Account Scope on a fresh mount so `initialThreadId`/a Screener `initialFolder` is actually visible. Unset for every unrouted caller (every test in this file included), the same posture the other `initial*` props take. */
+  initialAccountId?: string | null;
   onLocationChange?: (
     location: {
       labelFilter: string | null;
@@ -470,6 +473,34 @@ export function MailSection({
     setFolder(DEFAULT_FOLDER);
   }, [accountId]);
 
+  // A cold-start notification deep-link (#151): `initialAccountId` names the
+  // Mail Account a `thread`/`screener` target belongs to, seeded from the
+  // URL the same way `initialThreadId`/`initialFolder` are — a previously
+  // narrowed Scope (a Device Preference, not part of the URL) may exclude
+  // it, which would otherwise leave `initialThreadId` unfindable in
+  // `threads` or the Screener showing the wrong account's holds. Captured
+  // once, into a ref, rather than read live off the prop: `router/MailRoute
+  // .tsx`'s own `onLocationChange` drops `?account=` from the URL within
+  // the same tick this mounts (it never mirrors that param back), which
+  // would otherwise race the async Scope resolution below and clear the
+  // target before this ever got to apply it. Widens Scope exactly once,
+  // without the effect above's reset — that reset exists for a
+  // *User-driven* Scope change and would wipe out the
+  // `initialThreadId`/`initialFolder` this same mount already seeded;
+  // stamping `previousPrimaryAccountRef` here (the same trick
+  // `narrowScopeTo` uses) is what keeps it from firing behind this.
+  const initialAccountIdRef = useRef(initialAccountId);
+  const initialAccountAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialAccountAppliedRef.current) return;
+    const target = initialAccountIdRef.current;
+    if (!target || accountId === null) return;
+    initialAccountAppliedRef.current = true;
+    if (target === accountId) return;
+    previousPrimaryAccountRef.current = target;
+    setAccountScope([target]);
+  }, [accountId, setAccountScope]);
+
   // Narrows Scope to exactly one account: the one path (a notification
   // click landing on an account not currently primary) where a *single*
   // account still has to be picked out from the rest, the same "switch to
@@ -543,6 +574,18 @@ export function MailSection({
           // the restored Draft in the composer, per ADR-0015.
           if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
           reopenCompose(target.compositionId);
+          return;
+        case "screener":
+          // Not `openScreener()` — that reads `accountScope` from this
+          // closure, which still holds the *pre*-narrow value in the same
+          // tick `narrowScopeTo` just fired (a stale-closure read, same
+          // batching `narrowScopeTo`'s own doc comment describes) — so the
+          // "viewed" cursor would advance for the wrong account. Setting
+          // both directly here keeps them in the one account the digest
+          // actually named.
+          if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
+          writeScreenerViewed(target.mailAccountId);
+          setFolder("screener");
           return;
         case "needs-reauth":
           return;

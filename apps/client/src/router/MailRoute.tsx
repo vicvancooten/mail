@@ -106,6 +106,7 @@ export function MailRoute() {
       initialLabelFilter={search.label ?? null}
       initialFolder={search.folder}
       initialThreadId={search.thread ?? null}
+      initialAccountId={search.account ?? null}
       onLocationChange={onLocationChange}
       onOpenStream={onOpenStream}
     />
