@@ -1,5 +1,5 @@
-import { useHorizontalSwipe } from "./useHorizontalSwipe.js";
 import type { HorizontalSwipe } from "./useHorizontalSwipe.js";
+import { useHorizontalSwipe } from "./useHorizontalSwipe.js";
 
 /**
  * Swipe between Threads inside the Reader (#150, #133's Navigation decision:

@@ -1,5 +1,5 @@
-import { SWIPE_COMMIT_THRESHOLD_PX, useHorizontalSwipe } from "./useHorizontalSwipe.js";
 import type { HorizontalSwipe } from "./useHorizontalSwipe.js";
+import { SWIPE_COMMIT_THRESHOLD_PX, useHorizontalSwipe } from "./useHorizontalSwipe.js";
 
 /**
  * Swipe-to-Done/-Trash on touch (#149, #133's own "Swipe to Triage" decision:

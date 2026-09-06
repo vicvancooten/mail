@@ -92,9 +92,7 @@ describe("useSwipeToNavigate", () => {
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
-      result.current.handlers.onPointerUp(
-        pointerEvent({ clientX: SWIPE_COMMIT_THRESHOLD_PX + 5 }),
-      );
+      result.current.handlers.onPointerUp(pointerEvent({ clientX: SWIPE_COMMIT_THRESHOLD_PX + 5 }));
     });
 
     expect(onNext).not.toHaveBeenCalled();
