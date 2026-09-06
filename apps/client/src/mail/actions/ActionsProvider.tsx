@@ -31,8 +31,14 @@ export function useActions(): ActionContext | null {
   return useContext(ActionsReactContext);
 }
 
-/** True while the User is typing into a field — every binding below goes quiet, the guard all four of the listeners this hook replaced already shared. */
-function isTyping(event: KeyboardEvent): boolean {
+/**
+ * True while the User is typing into a field — every binding below goes
+ * quiet, the guard all four of the listeners this hook replaced already
+ * shared. Exported for `router/RootLayout.tsx`'s own `/`/⌘K listener (#147):
+ * the Hub-level Palette-open handler needs the identical guard so a bare
+ * `/` typed into some other field (a Settings input, say) is never hijacked.
+ */
+export function isTyping(event: KeyboardEvent): boolean {
   const target = event.target as HTMLElement | null;
   return Boolean(
     target &&

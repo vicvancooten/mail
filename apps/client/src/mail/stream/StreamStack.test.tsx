@@ -16,6 +16,7 @@ import {
   minutesAfterEpoch,
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { PaletteHostTestProvider } from "../../test-support/palette-host-harness.js";
 import { resetUndoToastsForTest } from "../undo-toast.js";
 import { StreamStack } from "./StreamStack.js";
 
@@ -98,7 +99,9 @@ async function seedTwoThreads(): Promise<void> {
 function renderStream(onLeave: () => void = () => {}) {
   return render(
     <AuthProvider>
-      <StreamStack onLeave={onLeave} />
+      <PaletteHostTestProvider>
+        <StreamStack onLeave={onLeave} />
+      </PaletteHostTestProvider>
       <Toaster />
     </AuthProvider>,
   );

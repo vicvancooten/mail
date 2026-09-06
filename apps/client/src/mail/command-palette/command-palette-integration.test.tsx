@@ -2,21 +2,22 @@ import type { SearchResponse } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthProvider } from "../../auth/AuthContext.js";
+import App from "../../App.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
-import { MailSection } from "../MailSection.js";
 
 /**
- * #79's own end-to-end coverage: `⌘K`/`Ctrl-K` opening the Command Palette,
- * running a Command from it, typing a mail query and reaching the full
- * results pane through "See all results", and `?` opening the Shortcut
- * Sheet — driven the way `MailSection.test.tsx` and
- * `search/search-integration.test.tsx` already do: a real IndexedDB-backed
- * Local Cache and a stubbed `fetch`, never a mocked `useSearchState`.
+ * #79's own end-to-end coverage, driven over the full routed tree (#147:
+ * the Palette moved to Hub level, `router/RootLayout.tsx`, so a bare
+ * `MailSection` no longer mounts one at all) the way
+ * `app-shell-integration.test.tsx` already renders `<App/>`: `⌘K`/`Ctrl-K`
+ * opening the Command Palette, running a Command from it, typing a mail
+ * query and reaching the full results pane through "See all results", and
+ * `?` opening the Shortcut Sheet — a real IndexedDB-backed Local Cache and
+ * a stubbed `fetch`, never a mocked `useSearchState`.
  */
 
 /** The composer's own network calls — irrelevant here, mocked quiet like `MailSection.test.tsx` does. */
@@ -62,6 +63,8 @@ beforeEach(async () => {
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
+  // jsdom's `history`/`location` persist across tests in one file.
+  history.replaceState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -80,20 +83,16 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
-function renderMail() {
-  return render(
-    <AuthProvider>
-      <MailSection />
-    </AuthProvider>,
-  );
+function renderApp() {
+  return render(<App />);
 }
 
-describe("Command Palette (#79)", () => {
+describe("Command Palette (#79, lifted to Hub level by #147)", () => {
   it("⌘K opens the Palette, listing commands grouped with their bindings, unbound ones included", async () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
@@ -111,7 +110,7 @@ describe("Command Palette (#79)", () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     await screen.findByLabelText("Search commands and mail");
@@ -139,7 +138,7 @@ describe("Command Palette (#79)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText("Search commands and mail");
@@ -175,7 +174,7 @@ describe("Command Palette (#79)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText("Search commands and mail");
@@ -212,7 +211,7 @@ describe("Command Palette (#79)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
@@ -239,7 +238,7 @@ describe("Command Palette (#79)", () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
@@ -257,7 +256,7 @@ describe("Command Palette (#79)", () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
     fireEvent.keyDown(window, { key: "?" });
@@ -265,5 +264,23 @@ describe("Command Palette (#79)", () => {
     const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
     expect(within(sheet).getByText("Compose", { selector: "dt" })).toBeDefined();
     expect(within(sheet).getAllByText("Command Palette only").length).toBeGreaterThan(0);
+  });
+
+  it("opens from the Hub's own search pill and from `/`, from outside `/mail` too (#147)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    renderApp();
+    await screen.findByText("Origin thread");
+
+    // The Hub pill, reachable from any App.
+    fireEvent.click(screen.getByRole("button", { name: /Search everything/ }));
+    expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+    // `/` opens the Palette directly — there is no Mail field left to focus.
+    fireEvent.keyDown(window, { key: "/" });
+    expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
   });
 });

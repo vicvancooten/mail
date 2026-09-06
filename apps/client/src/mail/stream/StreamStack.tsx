@@ -14,8 +14,10 @@ import {
 } from "../../store/index.js";
 import { useLocalCacheSync } from "../../sync/use-local-cache-sync.js";
 import { ActionsProvider, useActionKeyboard } from "../actions/ActionsProvider.js";
+import { publishActiveMailHost } from "../actions/active-mail-host.js";
 import { currentReaderHandle } from "../actions/surface-handles.js";
 import type { ActionContext } from "../actions/types.js";
+import { usePaletteHost } from "../command-palette/PaletteHostContext.js";
 import { ShortcutSheet } from "../command-palette/ShortcutSheet.js";
 import { folderToView } from "../folders.js";
 import { RollbackToast } from "../RollbackToast.js";
@@ -79,6 +81,7 @@ const STREAM_ENDED_ID = "__stream-ended";
  */
 export function StreamStack({ onLeave }: { onLeave: () => void }) {
   useLocalCacheSync();
+  const { paletteOpen, openPalette } = usePaletteHost();
   const mailAccounts = useMailAccounts();
   const { scope: accountScope } = useAccountScope(mailAccounts);
   const accountId = accountScope[0] ?? null;
@@ -261,8 +264,12 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       onBackToList: onLeave,
       onOpenScreener: () => {},
       screenerCount: 0,
-      onFocusSearch: () => {},
-      onOpenPalette: () => {},
+      // `/` and ⌘K reach the Hub-level Palette from Stream too now (#147) —
+      // it used to be a no-op here, the bug the epic named directly
+      // ("the Command Palette appears behind [Stream] and is invisible
+      // until Stream is closed").
+      onFocusSearch: openPalette,
+      onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream: () => {},
       onMove: () => {},
@@ -273,10 +280,30 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       draft: null,
       streamSkip: topThreadSnapshot ? skip : null,
     }),
-    [topThreadSnapshot, triage, messages, labels, openReply, openCompose, onLeave, skip],
+    [
+      topThreadSnapshot,
+      triage,
+      messages,
+      labels,
+      openReply,
+      openCompose,
+      onLeave,
+      skip,
+      openPalette,
+    ],
   );
 
-  useActionKeyboard(actionContext, composeId !== null || shortcutSheetOpen);
+  // Publishes this surface's own `ActionContext` for the Hub-level Palette
+  // to read (#147, `actions/active-mail-host.ts`) — Stream seeds nothing
+  // (`{ kind: "other" }`, the same "All mail" default a saved view seeds,
+  // `search/scope.ts`'s own doc comment): it's a stack to drain, not a
+  // navigable folder.
+  useEffect(
+    () => publishActiveMailHost({ ctx: actionContext, searchOrigin: { kind: "other" } }),
+    [actionContext],
+  );
+
+  useActionKeyboard(actionContext, composeId !== null || shortcutSheetOpen || paletteOpen);
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
