@@ -34,6 +34,7 @@ import { AccountScope } from "./AccountScope.js";
 
 import { writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
+import { taperHeaderHeight, taperRowHeight } from "./taper.js";
 import { resetUndoToastsForTest } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
 
@@ -134,6 +135,34 @@ async function seedTwoThreads(): Promise<void> {
           unreadCount: 1,
           messageCount: 1,
           lastMessageAt: minutesAfterEpoch(2),
+        }),
+      ],
+    }),
+    { replace: false },
+  );
+}
+
+/** Three Threads, newest first: "Row 1", "Row 2", "Row 3" — #152's hover re-arm, where the order rows slide up in matters. */
+async function seedThreeThreads(): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: [
+        makeThread("t-3", "acct-1", {
+          subject: "Row 3",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(1),
+        }),
+        makeThread("t-2", "acct-1", {
+          subject: "Row 2",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(2),
+        }),
+        makeThread("t-1", "acct-1", {
+          subject: "Row 1",
+          unreadCount: 0,
+          lastMessageAt: minutesAfterEpoch(3),
         }),
       ],
     }),
@@ -532,6 +561,68 @@ describe("MailSection", () => {
 
     expect(await screen.findByText("Newer thread")).toBeDefined();
     expect(await screen.findByText("Couldn't archive — restored to the list.")).toBeDefined();
+  });
+
+  it("arms the row that slides under a stationary pointer once Done removes the row above it, for several rows in a row (#152)", async () => {
+    await seedThreeThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Row 1");
+
+    // `.thread-list`'s own bounding rect: jsdom has no layout engine (all
+    // zero by default) — stub just this one container's so a `clientY` can
+    // be translated into a position within the scrolled content
+    // (`VirtualizedThreadList`'s own pointer-to-item math). Scoped to this
+    // one element, not `HTMLDivElement.prototype` — every row is a `<div>`
+    // too, and `measureElement` (#75) reads its own `getBoundingClientRect`
+    // for its real height; patching the prototype would measure every row
+    // at the container's 600px instead of its own taper height.
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    const rect = vi.spyOn(list, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 400,
+      bottom: 600,
+      width: 400,
+      height: 600,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect);
+
+    const rowOf = (subject: string) =>
+      screen.getByText(subject).closest('[role="option"]') as HTMLElement;
+    const doneButtonFor = (subject: string) =>
+      screen.getByRole("button", { name: `Mark "${subject}" Done` });
+
+    // All three land in one group ("Older", decades-old fixtures) — the
+    // pointer rests at the middle of the topmost row's own slot.
+    const y = taperHeaderHeight(4, "comfortable") + taperRowHeight(4, "comfortable") / 2;
+    fireEvent.mouseMove(list, { clientX: 10, clientY: y });
+    fireEvent.mouseEnter(rowOf("Row 1"));
+    expect(rowOf("Row 1").getAttribute("data-armed")).toBe("true");
+
+    // Done on Row 1 — no pointer movement follows. Row 2 slides up into
+    // Row 1's screen slot and must arm on its own; `mail.css` only enables
+    // `.done-btn`'s `pointer-events` once `data-armed="true"`, so this is
+    // what makes a same-spot second click land on Done rather than falling
+    // through to the row's own `onClick` (open the mail).
+    fireEvent.click(doneButtonFor("Row 1"));
+    await waitFor(() => expect(screen.queryByText("Row 1")).toBeNull());
+    await waitFor(() => expect(rowOf("Row 2").getAttribute("data-armed")).toBe("true"));
+
+    // A second Done at the same spot, still with no pointer movement
+    // between — Row 3 arms too.
+    fireEvent.click(doneButtonFor("Row 2"));
+    await waitFor(() => expect(screen.queryByText("Row 2")).toBeNull());
+    await waitFor(() => expect(rowOf("Row 3").getAttribute("data-armed")).toBe("true"));
+
+    // Moving the pointer away still disarms it, same as today.
+    fireEvent.mouseMove(list, { clientX: 10, clientY: y + 500 });
+    expect(rowOf("Row 3").getAttribute("data-armed")).toBe("false");
+
+    rect.mockRestore();
   });
 
   it("selecting an unread Thread marks it read; the Reader's More menu toggles it back (#42, #143)", async () => {

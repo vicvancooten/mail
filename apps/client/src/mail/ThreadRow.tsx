@@ -115,6 +115,7 @@ export function ThreadRow({
   tier = null,
   height,
   previewArmed = false,
+  pointerArmed = false,
   hoverCapable = true,
 }: {
   thread: CachedThread;
@@ -147,6 +148,17 @@ export function ThreadRow({
   height?: number;
   /** True while the User hovers this row's own group header checkmark (#66, #77's "hovering the header checkmark previews... every row's Done action") — forces the same reveal hover/focus/selected already give the row's Done control, without claiming this row is itself hovered, focused or selected. */
   previewArmed?: boolean;
+  /** True once this row is the one now sitting under the pointer's last
+   * known screen position, forced by `VirtualizedThreadList` after a Triage
+   * action (Done) removes a row and the next one slides up under a
+   * *stationary* pointer (#152) — no `mouseenter` fires just because the
+   * content moved, so without this the row would sit unarmed until the User
+   * actually moves the mouse, and a same-spot click would open the mail
+   * that just arrived there instead of repeating Done. Same "force armed
+   * without claiming hovered/focused/selected" posture as `previewArmed`
+   * above, kept as its own prop rather than reusing it: `previewArmed` also
+   * drives `data-group-preview`, which this has nothing to do with. */
+  pointerArmed?: boolean;
   /** `useHoverCapable()` (#134): `(hover: hover) and (pointer: fine)`, not a viewport breakpoint. `false` drops the row's own Done glyph and its reserved gutter entirely — swipe right is the row's Done gesture on touch — and switches the hover cluster (Snooze/Pin) from hover-revealed to permanently visible, the phone alternative. Defaults `true` so a caller with no capability read above it (most unit tests) keeps today's hover-revealed row. */
   hoverCapable?: boolean;
 }) {
@@ -172,7 +184,7 @@ export function ThreadRow({
   // way a click does, so one state covers all three triggers.
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const armed = hovered || focused || selected || previewArmed;
+  const armed = hovered || focused || selected || previewArmed || pointerArmed;
 
   // The Snooze popover (#76): its own local toggle, mirroring
   // `ThreadDetailPane`'s `pickerOpen` for `LabelPicker` — one open control
