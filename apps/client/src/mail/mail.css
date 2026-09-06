@@ -2230,6 +2230,17 @@ button.search-chip-toggle.on {
   font-size: 11px;
 }
 
+/* #139: a non-blocking indicator that a changed query's own request is
+   still in flight, shown alongside results already on screen — never
+   replacing them, and never "No matches" (search-ux-spec.md §Search &
+   commands). */
+.search-loading-inline {
+  margin: 0;
+  padding: 6px 16px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
+}
+
 .search-offline-banner,
 .search-reauth-banner {
   margin: 0;
