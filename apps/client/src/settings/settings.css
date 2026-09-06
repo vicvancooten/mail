@@ -72,6 +72,44 @@
   overflow-y: auto;
 }
 
+/* Phone width (#135, `hooks/use-phone-width.ts`'s 700px, matching every
+   other Split/List switch in the app): a column, not a row, and whichever
+   screen is current fills it — the section list alone at `/settings`, or
+   a section's own page with the Back header above it. No rail is ever
+   rendered here, on either screen. */
+.settings-shell--phone {
+  flex-direction: column;
+}
+
+.settings-shell--phone .settings-nav {
+  width: 100%;
+  flex: 1;
+  border-right: none;
+}
+
+.settings-page-header {
+  flex: 0 0 auto;
+  border-bottom: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.settings-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 14px;
+  padding-left: calc(14px + env(safe-area-inset-left));
+  color: var(--color-ink);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.settings-back:hover {
+  background: var(--color-hover);
+}
+
 .settings-page {
   padding: 0 0 calc(56px + env(safe-area-inset-bottom));
 }

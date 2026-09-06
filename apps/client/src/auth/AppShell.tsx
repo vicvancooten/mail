@@ -1,5 +1,5 @@
 import type { User } from "@mail/shared";
-import { RouterProvider } from "@tanstack/react-router";
+import { RouterProvider, type RouterHistory } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { createAppRouter } from "../router/routes.js";
 import { useAuth } from "./AuthContext.js";
@@ -19,10 +19,13 @@ import { useAuth } from "./AuthContext.js";
  * `User` signs back in — `AuthGate` unmounts this component entirely on
  * logout, which is what makes "fresh" free here rather than something this
  * component has to arrange itself.
+ *
+ * `history` is `App.tsx`'s own pass-through test seam (`routes.js#createAppRouter`'s
+ * doc comment) — unset in production, a `createMemoryHistory()` in a test.
  */
-export function AppShell({ user }: { user: User }) {
+export function AppShell({ user, history }: { user: User; history?: RouterHistory }) {
   const { logout } = useAuth();
-  const [router] = useState(() => createAppRouter({ user, onLogout: logout }));
+  const [router] = useState(() => createAppRouter({ user, onLogout: logout }, history));
   // The router itself is built once (above); a `User` object that changes
   // identity mid-session (a fresh `/auth/session` read) still has to reach
   // every route's `rootRoute.useRouteContext()` — `router.update` is

@@ -9,6 +9,7 @@ import {
 import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
+import { isPhoneWidth } from "../hooks/use-phone-width.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";
@@ -104,9 +105,9 @@ export const streamRoute = createRoute({
 /**
  * Settings' own sub-routes (#99): `settingsRoute` is now a layout route
  * (`SettingsLayout`'s side nav + `<Outlet/>`) rather than a single screen —
- * `/settings` itself carries no content of its own, redirecting to General
- * the same way `indexRoute` above forwards `/` to Mail. Each child is its
- * own bounded pane (`SettingsLayout`'s own doc comment).
+ * `/settings` itself carries no content of its own on desktop, redirecting
+ * to General the same way `indexRoute` above forwards `/` to Mail. Each
+ * child is its own bounded pane (`SettingsLayout`'s own doc comment).
  */
 export const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -114,11 +115,23 @@ export const settingsRoute = createRoute({
   component: SettingsLayout,
 });
 
+/**
+ * At phone width, `/settings` *is* the entry point (#135): the section list
+ * `SettingsLayout` renders full-width, with no rail and no section
+ * auto-selected. The redirect-to-General that always fired here only makes
+ * sense once a rail is beside the content it selects into — on desktop the
+ * redirect still holds, so `/settings` and `/settings/general` keep meaning
+ * the same thing there. `isPhoneWidth()` (not the reactive hook: a route's
+ * `beforeLoad` isn't a component) reads the same breakpoint `SettingsLayout`
+ * itself renders from, so the two never disagree about which one is current.
+ */
 const settingsIndexRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: "/settings/general" });
+    if (!isPhoneWidth()) {
+      throw redirect({ to: "/settings/general" });
+    }
   },
 });
 

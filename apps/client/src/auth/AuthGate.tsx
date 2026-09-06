@@ -1,3 +1,4 @@
+import type { RouterHistory } from "@tanstack/react-router";
 import { Mark } from "../brand/Mark.js";
 import { AppShell } from "./AppShell.js";
 import { AuthCard } from "./AuthCard.js";
@@ -6,8 +7,12 @@ import { ClaimForm } from "./ClaimForm.js";
 import { LoginForm } from "./LoginForm.js";
 import { TotpChallengeForm } from "./TotpChallengeForm.js";
 
-/** Renders the right one of first-run claim / login / TOTP challenge / authenticated shell off `AuthContext`. */
-export function AuthGate() {
+/**
+ * Renders the right one of first-run claim / login / TOTP challenge /
+ * authenticated shell off `AuthContext`. `history` is `App.tsx`'s own
+ * pass-through test seam, relevant only once `AppShell` (the router) mounts.
+ */
+export function AuthGate({ history }: { history?: RouterHistory } = {}) {
   const { state } = useAuth();
 
   switch (state.kind) {
@@ -42,6 +47,6 @@ export function AuthGate() {
         </AuthCard>
       );
     case "authenticated":
-      return <AppShell user={state.user} />;
+      return <AppShell user={state.user} history={history} />;
   }
 }
