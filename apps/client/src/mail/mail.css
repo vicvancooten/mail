@@ -404,7 +404,12 @@
   display: flex;
   align-items: flex-end;
   box-sizing: border-box;
-  padding: 0 14px 0 6px;
+  /* #153: `.thread-row` below insets its own content by margin(6px) +
+     padding(8px) = 14px before `.row-check` begins — this must match on
+     the left, or the header's rail (and the spine it previews) lands 8px
+     short of the column every row's own rail sits in. Symmetric with the
+     14px already on the right. */
+  padding: 0 14px;
   color: var(--color-ink);
   background: var(--color-bg);
   user-select: none;
@@ -450,6 +455,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-left: 0;
+  transition: margin-left var(--dur-fast) var(--ease);
+}
+
+/* #153: arming Done all grows `.gh-node` from an 8px dot to a 24px target,
+   centered on the rail — its right edge moves from 17px to 25px, 8px
+   further into the 9px gap the label rests behind at 26px. Rather than let
+   the enlarged node close on the label (or worse, let the label's normal
+   position stay put while the node grows underneath it), the label yields
+   by that same 8px, restoring the resting gap: the title is displaced, not
+   sat beside. */
+.group-header-cluster[data-armed="true"] .group-header-label {
+  margin-left: 8px;
 }
 
 .group-header-count {
