@@ -58,9 +58,10 @@ export function useMailAccounts(): MailAccount[] | undefined {
 /**
  * Ordered by `createdAt` so the account switcher and "first account" are
  * stable across reloads. Overlays any queued `setSignature`/
- * `setNotificationsEnabled` Optimistic Action (#54) the same way
- * `readThreadWindow` overlays a Thread's own queue — a signature edit shows
- * immediately, offline included, rather than waiting on a round trip.
+ * `setNotificationsEnabled`/`setRemoteImages` Optimistic Action (#54, #146)
+ * the same way `readThreadWindow` overlays a Thread's own queue — a
+ * signature edit shows immediately, offline included, rather than waiting
+ * on a round trip.
  */
 export async function readMailAccounts(): Promise<MailAccount[]> {
   const db = localCache();
@@ -80,7 +81,8 @@ async function overlayMailAccountMutations(
     .filter(
       (mutation) =>
         mutation.intent.type === "setSignature" ||
-        mutation.intent.type === "setNotificationsEnabled",
+        mutation.intent.type === "setNotificationsEnabled" ||
+        mutation.intent.type === "setRemoteImages",
     )
     .toArray();
   if (relevant.length === 0) return accounts;
@@ -102,6 +104,8 @@ async function overlayMailAccountMutations(
         overlaid = { ...overlaid, signature: mutation.intent.signature };
       } else if (mutation.intent.type === "setNotificationsEnabled") {
         overlaid = { ...overlaid, notificationsEnabled: mutation.intent.enabled };
+      } else if (mutation.intent.type === "setRemoteImages") {
+        overlaid = { ...overlaid, remoteImages: mutation.intent.value };
       }
     }
     return overlaid;

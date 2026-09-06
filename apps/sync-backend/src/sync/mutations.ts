@@ -30,6 +30,7 @@ import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/ser
 import {
   getMailAccountServerKind,
   updateMailAccountNotificationsEnabled,
+  updateMailAccountRemoteImages,
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
@@ -139,9 +140,9 @@ async function applyIntent(
   serverKind: MailAccountServerKind,
   intent: MutationIntent,
 ): Promise<IntentResult> {
-  // The four Composition intents (#46, #101) and the two Preference intents
-  // (#54) name no Thread, so they are dispatched ahead of the Thread lookup
-  // every other intent starts from.
+  // The four Composition intents (#46, #101) and the three Preference intents
+  // (#54, #146) name no Thread, so they are dispatched ahead of the Thread
+  // lookup every other intent starts from.
   if (
     intent.type === "sendComposition" ||
     intent.type === "cancelSend" ||
@@ -156,6 +157,10 @@ async function applyIntent(
   }
   if (intent.type === "setNotificationsEnabled") {
     await updateMailAccountNotificationsEnabled(db, mailAccountId, intent.enabled);
+    return { ok: true };
+  }
+  if (intent.type === "setRemoteImages") {
+    await updateMailAccountRemoteImages(db, mailAccountId, intent.value);
     return { ok: true };
   }
   // The Screener's decisions (#55). Like the two above they name no Thread —
