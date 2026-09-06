@@ -296,32 +296,42 @@ describe("GET /threads/:threadId/messages", () => {
     expect(body.messages[0]?.bodyIsPlainText).toBe(true);
   });
 
-  it("allows remote images only for an Approved Sender — the Gatekeeper verdict is the permission (#55)", async () => {
-    const app = buildTestApp();
-    const cookie = await claimOwner(app);
-    const accountId = await createOwnedMailAccount(app, cookie);
+  describe("remoteImagesAllowed (#146)", () => {
+    /** Raw column writes — `remoteImages`/`gatekeeperEnabled` have no dedicated route; only the Optimistic Action / Screener side-effecting routes do, neither of which this matrix needs. */
+    async function setAccountSettings(
+      accountId: string,
+      settings: {
+        remoteImages?: "always" | "approved-only" | "ask" | null;
+        gatekeeperEnabled?: boolean;
+      },
+    ): Promise<void> {
+      await db.update(mailAccounts).set(settings).where(eq(mailAccounts.id, accountId));
+    }
 
-    const strangerThread = randomUUID();
-    await seedMessage({
-      mailAccountId: accountId,
-      threadId: strangerThread,
-      fromAddress: "stranger@example.test",
-    });
-    const friendThread = randomUUID();
-    await seedMessage({
-      mailAccountId: accountId,
-      threadId: friendThread,
-      fromAddress: "friend@example.test",
-    });
-    await setVerdict(
-      db,
-      accountId,
-      { scope: "address", value: "friend@example.test" },
-      "approved",
-      "screener",
-    );
+    async function seedStrangerAndApprovedFriend(accountId: string) {
+      const strangerThread = randomUUID();
+      await seedMessage({
+        mailAccountId: accountId,
+        threadId: strangerThread,
+        fromAddress: "stranger@example.test",
+      });
+      const friendThread = randomUUID();
+      await seedMessage({
+        mailAccountId: accountId,
+        threadId: friendThread,
+        fromAddress: "friend@example.test",
+      });
+      await setVerdict(
+        db,
+        accountId,
+        { scope: "address", value: "friend@example.test" },
+        "approved",
+        "screener",
+      );
+      return { strangerThread, friendThread };
+    }
 
-    async function remoteImagesAllowed(threadId: string): Promise<boolean> {
+    async function remoteImagesAllowed(app: FastifyInstance, cookie: string, threadId: string) {
       const response = await app.inject({
         method: "GET",
         url: `/threads/${threadId}/messages`,
@@ -332,8 +342,61 @@ describe("GET /threads/:threadId/messages", () => {
       return body.messages[0]?.remoteImagesAllowed ?? false;
     }
 
-    expect(await remoteImagesAllowed(strangerThread)).toBe(false);
-    expect(await remoteImagesAllowed(friendThread)).toBe(true);
+    it("unset defaults to approved-only while Gatekeeper is on — the Verdict is the permission (#55)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await setAccountSettings(accountId, { gatekeeperEnabled: true });
+      const { strangerThread, friendThread } = await seedStrangerAndApprovedFriend(accountId);
+
+      expect(await remoteImagesAllowed(app, cookie, strangerThread)).toBe(false);
+      expect(await remoteImagesAllowed(app, cookie, friendThread)).toBe(true);
+    });
+
+    it("unset defaults to always while Gatekeeper is off — turning screening off does not inherit its strictest posture", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      // gatekeeperEnabled defaults to false; remoteImages left unset.
+      const { strangerThread } = await seedStrangerAndApprovedFriend(accountId);
+
+      expect(await remoteImagesAllowed(app, cookie, strangerThread)).toBe(true);
+    });
+
+    it("always loads for every sender regardless of Verdict or Gatekeeper state", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await setAccountSettings(accountId, { remoteImages: "always", gatekeeperEnabled: true });
+      const { strangerThread, friendThread } = await seedStrangerAndApprovedFriend(accountId);
+
+      expect(await remoteImagesAllowed(app, cookie, strangerThread)).toBe(true);
+      expect(await remoteImagesAllowed(app, cookie, friendThread)).toBe(true);
+    });
+
+    it("ask never loads automatically, even for an Approved Sender", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await setAccountSettings(accountId, { remoteImages: "ask", gatekeeperEnabled: true });
+      const { strangerThread, friendThread } = await seedStrangerAndApprovedFriend(accountId);
+
+      expect(await remoteImagesAllowed(app, cookie, strangerThread)).toBe(false);
+      expect(await remoteImagesAllowed(app, cookie, friendThread)).toBe(false);
+    });
+
+    it("approved-only set explicitly on a Gatekeeper-off account behaves as Ask — there is nothing to approve", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      await setAccountSettings(accountId, {
+        remoteImages: "approved-only",
+        gatekeeperEnabled: false,
+      });
+      const { strangerThread } = await seedStrangerAndApprovedFriend(accountId);
+
+      expect(await remoteImagesAllowed(app, cookie, strangerThread)).toBe(false);
+    });
   });
 });
 
