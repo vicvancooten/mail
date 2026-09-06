@@ -67,24 +67,16 @@
 }
 
 /* ============================================================================
-   MAIL'S SEARCH BAR (#96)
+   MAIL'S TOP EDGE (#96, #147)
    `mail/TopBar.tsx` is gone entirely — Account Scope moved into the Hub
    (`router/shell.css`'s own Account Scope block), the label filter and
    Screener chip were dropped as redundant with the Sidebar's Labels/Screener
    entries, and Stream's toggle moved to the Sidebar (`.stream-toggle`
-   below). All that's left here is the search field itself
-   (`search/SearchField.tsx`), so this is a slim strip around one control,
-   not the row of view-mode toggles the ticket's acceptance box removes.
+   below). Mail's own search field (`.mail-search-bar`, `SearchField.tsx`)
+   followed it out under #147: the Command Palette lifted to Hub level is now
+   the only search entry, so there is nothing left to render above the
+   folder rail.
    ========================================================================= */
-
-.mail-search-bar {
-  display: flex;
-  align-items: center;
-  padding: 8px 14px;
-  padding-left: calc(14px + env(safe-area-inset-left));
-  padding-right: calc(14px + env(safe-area-inset-right));
-  background: var(--color-bg);
-}
 
 /* ============================================================================
    BODY / VIEW LAYOUTS
@@ -1871,120 +1863,12 @@
 }
 
 /* ============================================================================
-   SEARCH (#51)
+   SEARCH (#51, #147)
+   Mail's own search field (`.mail-search-field`, `SearchField.tsx`) is gone
+   under #147 — the Command Palette, lifted to Hub level, is the only place
+   left to type. What's left here is the results view itself, reached only
+   through the Palette's own "See all results" now.
    ========================================================================= */
-
-/* Mail's own search field (#51): a real text input, unlike the Hub's
-   Palette-trigger entry above it. No outline at rest, `--color-field-strong`
-   once it holds focus, and a pill so it reads as a sibling of the Hub's own
-   search entry despite living in a different bar (`.mail-search-bar`,
-   #96). */
-.mail-search-field {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 1 260px;
-  min-width: 150px;
-  height: 32px;
-  padding: 0 11px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: var(--color-field);
-  color: var(--color-ink-faint);
-  transition: background var(--dur-press) var(--ease);
-}
-
-.mail-search-field:focus-within {
-  background: var(--color-field-strong);
-}
-
-.mail-search-field input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: 12.5px;
-  outline: none;
-}
-
-.mail-search-field input::placeholder {
-  color: var(--color-ink-faint);
-}
-
-.mail-search-clear {
-  display: flex;
-  border: none;
-  background: transparent;
-  color: var(--color-ink-faint);
-  cursor: pointer;
-  padding: 0;
-}
-
-.mail-search-clear:hover {
-  color: var(--color-ink);
-}
-
-.mail-search-recent {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  background: var(--color-surface);
-  border: none;
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-overlay);
-  overflow: hidden;
-}
-
-.mail-search-recent-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: none;
-  background: transparent;
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mail-search-recent-item {
-  border-radius: var(--radius-row);
-}
-
-.mail-search-recent-item:hover {
-  background: var(--color-hover);
-}
-
-.mail-search-recent-clear {
-  margin-top: 3px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--radius-row);
-  background: transparent;
-  color: var(--color-ink-faint);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mail-search-recent-clear:hover {
-  background: var(--color-hover);
-}
-
-.mail-search-recent-clear:hover {
-  color: var(--color-ink);
-}
 
 .search-results-view.split-view .split-list {
   display: flex;
@@ -3085,18 +2969,6 @@ button.search-chip-toggle.on {
   font-size: 13.5px;
   color: var(--color-ink-faint);
   max-width: none;
-}
-
-/* ============================================================================
-   THE SEARCH BAR AT PHONE WIDTH
-   ========================================================================= */
-
-@media (max-width: 700px) {
-  .mail-search-bar {
-    /* Room for the folder-rail toggle, which is absolutely positioned into
-       the same top-left corner at this width. */
-    padding-left: calc(48px + env(safe-area-inset-left));
-  }
 }
 
 /* ============================================================================

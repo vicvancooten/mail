@@ -300,6 +300,14 @@ _Avoid_: contact (reserved for the address-book entries a User manages), recipie
 
 ### Search
 
+**Command Palette**:
+The Client's one place to type. Opened from the Hub's search pill, from `/` or from ⌘K, it answers
+what the User types with commands and mail hits in a single list — commands first whenever the words
+match one, mail hits beneath. It is the only way a search starts, and "See all results" is the only
+way from it into the full result list. Client chrome, present over every App and every screen,
+including Stream.
+_Avoid_: search box, search bar, omnibar, quick switcher
+
 **Search Index**:
 The Sync Backend's searchable projection of every message — subject, participants, body text and attachment filenames — kept beside the messages themselves and rebuilt in the background whenever the way text is analysed changes. Search runs against it, never against a full index in the Client.
 _Avoid_: FTS table, tsvector

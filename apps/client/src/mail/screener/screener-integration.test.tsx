@@ -15,6 +15,7 @@ import {
   minutesAfterEpoch,
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { PaletteHostTestProvider } from "../../test-support/palette-host-harness.js";
 import { MailSection } from "../MailSection.js";
 import { resetUndoToastsForTest } from "../undo-toast.js";
 
@@ -154,7 +155,9 @@ function renderMail(threadMessages: Record<string, Message[]> = {}) {
   globalThis.fetch = stubFetch(threadMessages) as typeof fetch;
   const result = render(
     <AuthProvider>
-      <MailSection />
+      <PaletteHostTestProvider>
+        <MailSection />
+      </PaletteHostTestProvider>
     </AuthProvider>,
   );
   return {

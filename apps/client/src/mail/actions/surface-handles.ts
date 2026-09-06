@@ -7,7 +7,7 @@
  * and the list's own collapse-aware selection mover. Rather than thread two
  * more props through `SplitView`/`ListView`/`SearchResultsView`/`stream/StreamStack`,
  * the mounted surface publishes a small handle here and clears it on
- * unmount — the same module-level channel shape `command-palette/global-open.ts`
+ * unmount — the same module-level channel shape `actions/active-mail-host.ts`
  * and `pwa/notification-router.ts` already use.
  *
  * At most one of each is ever mounted (one reader, one list), and a
