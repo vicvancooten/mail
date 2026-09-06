@@ -30,6 +30,10 @@
   "include": ["src"],
   // `sw.ts` runs in the ServiceWorker global scope, not DOM — its own
   // `tsconfig.sw.json` (WebWorker lib) typechecks it instead, since the two
-  // libs declare `self` and friends incompatibly.
-  "exclude": ["src/sw.ts", "src/sw-env.d.ts"]
+  // libs declare `self` and friends incompatibly. `device-theme.test.ts`
+  // reads files off disk with `node:fs`/`node:path`/`node:url`, which this
+  // browser-scoped config has no Node types for — its own
+  // `tsconfig.test-node.json` (this config plus `types: ["node"]`)
+  // typechecks it instead.
+  "exclude": ["src/sw.ts", "src/sw-env.d.ts", "src/theme/device-theme.test.ts"]
 }

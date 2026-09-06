@@ -580,13 +580,15 @@
   color: var(--color-ink);
 }
 
-/* Phone's own entry to Done all / Mark all read / Collapse (#97's grill
+/* Touch's own entry to Done all / Mark all read / Collapse (#97's grill
    decision: "no hover — an always-visible small overflow button... opens a
-   Sheet"). Hidden at every width that still has hover to grow the rail's
-   own node into a real target; the narrow-viewport media query below is
-   what actually shows it. */
+   Sheet"), and #134's touch alternative to the rail/bulk-actions above:
+   `GroupHeaderCluster` mounts exactly one of the two sets, gated on
+   `useHoverCapable()` rather than a viewport breakpoint, so this is styled
+   unconditionally — there being no hover to grow the rail's own node into a
+   real target is exactly when this is the only one in the DOM. */
 .gh-overflow {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
@@ -1031,6 +1033,44 @@
   color: var(--color-warn);
 }
 
+/* ---------- touch's own row: Snooze/Pin permanent, Done gone (#134) ------
+ * `[data-hover-capable="false"]` mirrors `useHoverCapable()`'s
+ * `(hover: hover) and (pointer: fine)` read, not a viewport breakpoint — a
+ * tablet with a mouse keeps the hover-revealed row above at any width, and
+ * a touch-only phone gets this row regardless of how wide it is. Snooze and
+ * Pin stay persistent (#66 user story 47, #75, #76) — there is no hover on
+ * touch, so those two need a permanent tap-target — while Done is gone
+ * entirely, gutter included: swipe right (`useSwipeToTriage.ts`) is the
+ * row's own Done gesture here, and the group header's overflow Sheet
+ * (`.gh-overflow`) covers a whole Time Group at once, so unlike Snooze/Pin
+ * there is no reserved whitespace left standing in for it (`ThreadRow`
+ * simply doesn't render `.row-check` when `hoverCapable` is false). */
+.thread-row[data-hover-capable="false"] .row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+}
+
+.thread-row[data-hover-capable="false"] .row-time,
+.thread-row[data-hover-capable="false"] .row-actions {
+  position: static;
+  inset: auto;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* With the actions permanently on, the two quietest tiers have no room for
+   both time and actions at their height — there the actions step aside and
+   swipe (plus the group header's own bulk Done) is what reaches them, which
+   is what those rows are triaged with anyway. */
+.thread-row[data-hover-capable="false"][data-tier="3"] .row-actions,
+.thread-row[data-hover-capable="false"][data-tier="4"] .row-actions {
+  display: none;
+}
+
 /* ---------- the correspondent's tile ------------------------------------
  * The comp's `.row-tile` (#86): a round disc of initials in one of five
  * tinted fill/ink pairs, picked off the address in `Avatar.tsx` so the same
@@ -1455,6 +1495,26 @@
 .reading-actions-gap {
   width: 12px;
   flex: none;
+}
+
+/* The secondary tier (#143): Pin, Star, Label — inline, but visually
+   quieter than the primary run, since they're one click away rather than
+   competing with it (desktop only; `ThreadDetailPane` doesn't render this
+   wrapper at all on a touch-capable phone, folding the three into the More
+   menu instead). */
+.reading-actions-secondary {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.reading-actions-secondary button {
+  opacity: 0.6;
+}
+
+.reading-actions-secondary button:hover:not(:disabled),
+.reading-actions-secondary button.on {
+  opacity: 1;
 }
 
 .reading-meta {
@@ -2072,6 +2132,17 @@ button.search-chip-toggle.on {
 .search-watermark.promoted {
   color: var(--color-ink-muted);
   font-size: 11px;
+}
+
+/* #139: a non-blocking indicator that a changed query's own request is
+   still in flight, shown alongside results already on screen — never
+   replacing them, and never "No matches" (search-ux-spec.md §Search &
+   commands). */
+.search-loading-inline {
+  margin: 0;
+  padding: 6px 16px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
 }
 
 .search-offline-banner,
@@ -2808,47 +2879,6 @@ button.search-chip-toggle.on {
 
   .split-pane .reading-back {
     display: flex;
-  }
-
-  /* Phone: Snooze and Pin stay persistent rather than hover-gated (#66 user
-     story 47, #75, #76) — there is no hover on touch, so those two need a
-     permanent tap-target. Done is deliberately *not* among them (#97's
-     grill decision: "no persistent per-row check on phone") — swipe right
-     (`useSwipeToTriage.ts`) is the row's own Done gesture on touch, and the
-     group header's overflow Sheet (`.gh-overflow` below) covers a whole
-     Time Group at once, so the row's `done-btn` stays reserved whitespace
-     here exactly as it is everywhere else. */
-
-  .gh-overflow {
-    display: flex;
-  }
-
-  /* With the actions permanently on, the time cannot share their box the
-     way it does at desktop — so the meta column stacks instead of layering,
-     and the row keeps both. The two quiet tiers have no room for both at
-     their height: there the actions step aside and swipe (plus the group
-     header's own bulk Done) is what reaches them, which is what those rows
-     are triaged with anyway. */
-  .thread-row .row-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 1px;
-  }
-
-  .thread-row .row-time,
-  .thread-row .row-actions {
-    position: static;
-    inset: auto;
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
-  }
-
-  .thread-row[data-tier="3"] .row-actions,
-  .thread-row[data-tier="4"] .row-actions {
-    display: none;
   }
 
   /* #138: the desktop-only 74ch reading column and the non-wrapping action

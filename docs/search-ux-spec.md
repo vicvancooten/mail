@@ -25,13 +25,19 @@ grouped by section**, unbound commands included — Mark read/unread among them,
 rebinds `h` (was "previous", now Snooze) and `u` (was mark‑unread, now "back to list"). `?` opens
 the Shortcut Sheet, the same registry rendered read-only as a cheat sheet.
 
-Revised again by #133/#147: the Palette is the **only** entry point. Mail's own header search field
-is gone, and `/` opens the Palette exactly as `⌘K` and the Hub's search pill do — all three from any
-App, since the Palette is mounted once at Hub level rather than inside the Mail surface, and so opens
-over Stream too. Ranking and merging commands with mail hits in one list (`>` narrowing to commands
-only, the three-command cap, recent searches plus most-used commands in the empty state) is #148's
-own piece of work, still to land; what changed here is only where the Palette mounts and what opens
-it — its content is otherwise exactly what this section already describes.
+Revised again by #133: the Palette is the **only** entry point. Mail's own header search field is
+gone, and `/` opens the Palette exactly as `⌘K` and the Hub's search pill do. Plain text searches
+mail *and* matches commands at once, in one list: matching commands first (at most three when Mail
+hits are also present), Mail hits beneath. `>` narrows the list to commands only. The empty field
+shows recent searches plus the most-used commands. Enter runs the top item whichever kind it is. The
+Palette is Client chrome, mounted once above every App and screen, so it opens over Stream too.
+
+#147 lands the mount: the Palette moved to Hub level (`router/RootLayout.tsx`) rather than living
+inside the Mail surface, so the Hub pill/`/`/⌘K reach it from any App and it renders over Stream for
+real. Ranking and merging commands with mail hits in one list (the three-command cap, recent
+searches plus most-used commands in the empty state, `>` actually narrowing to commands) is #148's
+own piece of work, still to land — the paragraph above describes the target shape, not what #147
+itself changed.
 
 Typing in the Palette runs the same search this spec has always described — the 3-character floor,
 the ~200ms debounce, the Local Cache prefilter — and shows the **top few hits inline**, in a
@@ -92,8 +98,8 @@ all results", the full results view).
 ### Phone
 
 At phone width the Hub's search pill **opens the Command Palette full-screen** (#79; whether it
-stays a pill or shrinks to an icon is the phone redesign's own call, #133) — there's no room beside
-it to expand a field in place, so it is a dedicated Palette trigger rather than the desktop
+stays a pill or shrinks to an icon is the phone redesign's call, #133) — there's no room beside it
+to expand a field in place, so it is a dedicated Palette trigger rather than the desktop
 click-to-open field. Everything above still applies at that width: commands
 and top hits inline, "See all results" swapping in the real results list, tapping a result pushing
 the thread route and back returning to the results. The chip row sits under the field and scrolls

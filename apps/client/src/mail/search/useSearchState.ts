@@ -96,6 +96,14 @@ export interface SearchState {
   effectiveLabel: string | undefined;
   results: readonly CachedThread[];
   displayById: ReadonlyMap<string, DisplayResult>;
+  /**
+   * The full results view's own copy of `results`/`displayById` (#139): held
+   * at whatever last settled while `serverLoading` is true, rather than
+   * following a query whose server answer hasn't arrived yet. Use this,
+   * never `results`, to render the results view's row list.
+   */
+  viewResults: readonly CachedThread[];
+  viewDisplayById: ReadonlyMap<string, DisplayResult>;
   actedOnThreadIds: ReadonlySet<string>;
   usingServerResults: boolean;
   serverLoading: boolean;
@@ -235,6 +243,12 @@ export function useSearchState(
       setServerLoading(false);
       return;
     }
+    // Pending from the moment the request key changes (search-ux-spec.md
+    // §Search & commands, #139: "the results view shows a loading state ...
+    // while a request is pending") — set synchronously here rather than
+    // inside `run()` below so the debounce wait counts as pending too, not
+    // just the fetch itself.
+    setServerLoading(true);
     let cancelled = false;
     const requestedKey = requestKey;
     const run = () => {
@@ -243,7 +257,6 @@ export function useSearchState(
         setServerLoading(false);
         return;
       }
-      setServerLoading(true);
       runServerSearch({
         mailAccountId,
         additionalMailAccountIds: additionalScopeIds(accountScope),
@@ -258,9 +271,15 @@ export function useSearchState(
           if (!cancelled) setOffline(true);
         })
         .finally(() => {
-          // Unconditional (#100, bug 3): a superseded request must not leave
-          // loading stuck true just because its own response is discarded.
-          setServerLoading(false);
+          // Guarded on `cancelled` (#139): unlike bug 3's original fix, this
+          // effect instance now sets `serverLoading` true again the moment
+          // it starts (above), so a *newer* request is already the one
+          // responsible for clearing it — a superseded request's own late
+          // `.finally` must not clear a loading flag a request it isn't
+          // running is still counting on. The non-superseded branches above
+          // (`if (!overlay.engaged...)`, the offline early return) still
+          // clear it unconditionally, since nothing newer is coming.
+          if (!cancelled) setServerLoading(false);
         });
     };
     const delay = immediateRef.current ? 0 : SERVER_DEBOUNCE_MS;
@@ -359,6 +378,29 @@ export function useSearchState(
     }
     return map;
   }, [displayResults, usingServerResults]);
+
+  // The full results view's own frozen snapshot (#139, `docs/search-ux-
+  // spec.md` §Search & commands: "the accepted server result set is
+  // retained on screen while a new request for a changed query is in
+  // flight"). `overlaidThreads`/`displayById` above recompute on every
+  // keystroke — including a bare prefilter recompute for a query whose
+  // server answer hasn't come back yet, which is exactly the "appear then
+  // disappear" flicker #139 fixes. That live recompute stays exactly as it
+  // is for the Command Palette's own inline hits (`CommandPalette.tsx`
+  // reads `results`/`displayById` directly, unchanged) — search-ux-spec.md
+  // still wants those fresh on every keystroke; only the full results view
+  // (`viewResults`/`viewDisplayById`, below) holds its breath while
+  // `serverLoading` is true, releasing to whatever just settled.
+  const acceptedViewRef = useRef<{
+    results: readonly CachedThread[];
+    displayById: ReadonlyMap<string, DisplayResult>;
+  }>({ results: [], displayById: new Map() });
+  const acceptedView = useMemo(() => {
+    if (!serverLoading) {
+      acceptedViewRef.current = { results: overlaidThreads, displayById };
+    }
+    return acceptedViewRef.current;
+  }, [serverLoading, overlaidThreads, displayById]);
 
   const open = useCallback(
     (origin: ViewOrigin) => {
@@ -509,6 +551,8 @@ export function useSearchState(
     effectiveLabel,
     results: overlaidThreads,
     displayById,
+    viewResults: acceptedView.results,
+    viewDisplayById: acceptedView.displayById,
     actedOnThreadIds: actedOn,
     usingServerResults,
     serverLoading,

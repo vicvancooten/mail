@@ -311,6 +311,20 @@ describe("enqueueMutation", () => {
 
     expect(await listQueuedMutations(ACCOUNT)).toHaveLength(2);
   });
+
+  it("queues two different setRemoteImages choices in FIFO order rather than cancelling as a boolean inverse (#146)", async () => {
+    // Unlike setPinned/setNotificationsEnabled, "ask" is not "always"'s
+    // inverse — the naive opposite-value coalesce would otherwise drop both
+    // queued edits and send neither, losing the User's actual last choice.
+    await enqueueMutation({ type: "setRemoteImages", value: "always" }, ACCOUNT);
+    await enqueueMutation({ type: "setRemoteImages", value: "ask" }, ACCOUNT);
+
+    const queued = await listQueuedMutations(ACCOUNT);
+    expect(queued.map((mutation) => mutation.intent)).toEqual([
+      { type: "setRemoteImages", value: "always" },
+      { type: "setRemoteImages", value: "ask" },
+    ]);
+  });
 });
 
 describe("resolveMutationOutcomes", () => {

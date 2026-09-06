@@ -16,6 +16,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet.js";
+import { useHoverCapable } from "../hooks/use-hover-capable.js";
 import type { CachedThread } from "../store/index.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
@@ -151,6 +152,13 @@ export function VirtualizedThreadList({
   groupBulk?: GroupBulkController;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Gates every hover-only affordance below — the row Done glyph, the
+  // Group Done node, bulk actions and the Timeline Spine — on input
+  // capability rather than viewport width (#134): read once here and
+  // threaded down, so a header and its rows never disagree about which set
+  // is on screen.
+  const hoverCapable = useHoverCapable();
 
   // Collapsed state (#78) lives in `localStorage`, not React state — it's
   // read fresh into `items` below on every pass, and `toggleCollapsed`
@@ -426,6 +434,7 @@ export function VirtualizedThreadList({
                       trueCount={groupBulk?.countFor(item.label) ?? null}
                       collapsed={item.collapsed}
                       onToggleCollapsed={() => toggleCollapsed(item.label)}
+                      hoverCapable={hoverCapable}
                       bulk={
                         groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
                           ? {
@@ -455,6 +464,7 @@ export function VirtualizedThreadList({
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
                   hoverActions={rowCtx ? rowHoverActions(rowCtx, item.thread) : undefined}
+                  hoverCapable={hoverCapable}
                   contextMenu={
                     rowCtx
                       ? (row) => (
@@ -530,12 +540,14 @@ interface GroupHeaderClusterBulk {
  * `data-armed`, one hover target for the header's own spine and a
  * different one for every row's).
  *
- * Touch has no hover to reveal any of this, so phone gets its own entry
- * point instead of a tap-to-arm stand-in: `.gh-overflow`, always visible
- * below `mail.css`'s narrow-viewport breakpoint, opens a `Sheet` listing
- * Done all / Mark all read / Collapse as plain rows — previewing the group
- * (and its spine) for as long as the sheet stays open, the touch equivalent
- * of hovering the rail node.
+ * A touch-only pointer has no hover to reveal any of this (#134,
+ * `hoverCapable` — `useHoverCapable()`'s `(hover: hover) and (pointer:
+ * fine)`, not a viewport breakpoint), so the rail and the trailing actions
+ * go unrendered there — gutter included — and `.gh-overflow` takes their
+ * place instead, opening a `Sheet` listing Done all / Mark all read /
+ * Collapse as plain rows — previewing the group (and its spine) for as
+ * long as the sheet stays open, the touch equivalent of hovering the rail
+ * node. Exactly one of the two sets renders on any device.
  */
 function GroupHeaderCluster({
   label,
@@ -544,6 +556,7 @@ function GroupHeaderCluster({
   collapsed,
   onToggleCollapsed,
   bulk,
+  hoverCapable = true,
 }: {
   label: string;
   loadedCount: number;
@@ -551,6 +564,8 @@ function GroupHeaderCluster({
   collapsed: boolean;
   onToggleCollapsed: () => void;
   bulk?: GroupHeaderClusterBulk;
+  /** `useHoverCapable()` (#134): gates the rail's Done-all node and the trailing bulk actions (Mark all read, Collapse) — both hover-only — off in favor of `.gh-overflow`'s Sheet, touch's own entry to the same three actions. Defaults `true` for a caller with no capability read above it. */
+  hoverCapable?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -602,70 +617,75 @@ function GroupHeaderCluster({
       }}
       onClick={onToggleCollapsed}
     >
-      <span className="gh-rail">
-        {bulk ? (
-          <button
-            type="button"
-            className="gh-node"
-            aria-label={`Done with ${label}`}
-            title="Done all"
-            onMouseEnter={() => setPreviewing(true)}
-            onMouseLeave={() => setPreviewing(false)}
-            onFocus={() => setPreviewing(true)}
-            onBlur={() => setPreviewing(false)}
-            onClick={(event) => {
-              event.stopPropagation();
-              bulk.onDoneAll();
-            }}
-          >
-            <Check size={12} />
-          </button>
-        ) : null}
-      </span>
+      {hoverCapable ? (
+        <span className="gh-rail">
+          {bulk ? (
+            <button
+              type="button"
+              className="gh-node"
+              aria-label={`Done with ${label}`}
+              title="Done all"
+              onMouseEnter={() => setPreviewing(true)}
+              onMouseLeave={() => setPreviewing(false)}
+              onFocus={() => setPreviewing(true)}
+              onBlur={() => setPreviewing(false)}
+              onClick={(event) => {
+                event.stopPropagation();
+                bulk.onDoneAll();
+              }}
+            >
+              <Check size={12} />
+            </button>
+          ) : null}
+        </span>
+      ) : null}
       <span className="group-header-label">{label}</span>
       <span className="group-header-count">{count}</span>
       <span className="gh-spacer" />
-      <div className="bulk-actions">
-        {bulk ? (
+      {hoverCapable ? (
+        <div className="bulk-actions">
+          {bulk ? (
+            <button
+              type="button"
+              className="group-mark-read"
+              aria-label={`Mark ${label} read`}
+              title="Mark all read"
+              onClick={(event) => {
+                event.stopPropagation();
+                bulk.onMarkAllRead();
+              }}
+            >
+              <MailOpen size={13} />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="group-mark-read"
-            aria-label={`Mark ${label} read`}
-            title="Mark all read"
+            className="group-collapse"
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand" : "Collapse"}
             onClick={(event) => {
               event.stopPropagation();
-              bulk.onMarkAllRead();
+              onToggleCollapsed();
             }}
           >
-            <MailOpen size={13} />
+            {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
           </button>
-        ) : null}
+        </div>
+      ) : (
         <button
           type="button"
-          className="group-collapse"
-          aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-          aria-expanded={!collapsed}
-          title={collapsed ? "Expand" : "Collapse"}
+          className="gh-overflow"
+          aria-label={`More actions for ${label}`}
+          title="More"
           onClick={(event) => {
             event.stopPropagation();
-            onToggleCollapsed();
+            openSheet();
           }}
         >
-          {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+          <MoreHorizontal size={14} />
         </button>
-      </div>
-      <button
-        type="button"
-        className="gh-overflow"
-        aria-label={`More actions for ${label}`}
-        title="More"
-        onClick={(event) => {
-          event.stopPropagation();
-          openSheet();
-        }}
-      >
-        <MoreHorizontal size={14} />
-      </button>
+      )}
       <Sheet open={sheetOpen} onOpenChange={closeSheet}>
         <SheetContent side="bottom" className="group-header-sheet">
           <SheetHeader className="sr-only">

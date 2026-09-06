@@ -202,6 +202,13 @@ Any Triage action whose result is shown instantly in the Client while the Sync B
 **Auto-advance**:
 After archiving or deleting, automatically opening the next thread or returning to the list (User-configurable).
 
+**Reader**:
+The surface where one Thread is read and acted on: the pane beside the list on a desktop, the whole
+screen on a phone, and the face of each card in Stream. Opening a Thread from the list is one step
+the User can take back; moving to another Thread from inside the Reader is not a further step, so
+Back always returns to the list, however many Threads were read in between.
+_Avoid_: detail view, reading mode, mail detail, thread view
+
 **Stream**:
 Processing the Inbox one Thread at a time, full screen, as a stack of cards: the newest Thread on
 top with the next one peeking out behind it, the Triage actions plus Skip laid out plainly, and

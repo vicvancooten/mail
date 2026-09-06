@@ -92,6 +92,22 @@ const GROUP_BULK_MESSAGE_TOAST_MS = 6_000;
 function noop() {}
 
 /**
+ * Why `onLocationChange` (below) is firing right now — `router/MailRoute.tsx`
+ * needs this to tell a User-driven change apart from one the URL made on its
+ * own, or a Back-then-Forward re-entry counts as a fresh opening and pushes a
+ * duplicate history entry (#140). `"select"` is any ordinary User-driven move
+ * — opening a row, prev/next, Auto-advance, a folder/label switch, a
+ * notification landing on a Thread — the only reason that can ever mean
+ * "push". `"close"` is specifically the Back pill or `u` asking to leave the
+ * Reader (`backToList` below); a router can pop its own pushed entry for
+ * this rather than replacing to a list URL and leaving it behind as a ghost.
+ * `"sync"` is the URL popping or pushing on its own — the phone back gesture,
+ * Forward — reconciled by the effect below, never a fresh User action, so it
+ * must never be mistaken for one.
+ */
+export type LocationChangeReason = "select" | "close" | "sync";
+
+/**
  * "Which view-narrowing filter is active, if any" (#43, unified with Gmail
  * Labels in the #126 post-merge fix): a Wicket Label and a Gmail Label are
  * mutually exclusive by construction here — there is no state shape that can
@@ -168,11 +184,14 @@ export function MailSection({
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
   initialThreadId?: string | null;
-  onLocationChange?: (location: {
-    labelFilter: string | null;
-    folder: FolderKey;
-    threadId: string | null;
-  }) => void;
+  onLocationChange?: (
+    location: {
+      labelFilter: string | null;
+      folder: FolderKey;
+      threadId: string | null;
+    },
+    reason: LocationChangeReason,
+  ) => void;
   /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
   onOpenStream?: () => void;
 } = {}) {
@@ -256,9 +275,26 @@ export function MailSection({
   // component hands out, so the effect below can tell that apart from one
   // that arrived some other way (see its own doc comment).
   const reportedThreadIdRef = useRef(initialThreadId);
+  // Set right before a call that changes `selectedThreadId` for a reason
+  // other than an ordinary User-driven select — `urlDrivenRef` by the
+  // Back/Forward reconciliation effect below, `closingReaderRef` by
+  // `backToList` — and consumed (reset) the moment the reporting effect
+  // reads it, so `router/MailRoute.tsx` learns *why* the location changed
+  // (#140's `LocationChangeReason`) instead of having to guess from a bare
+  // before/after diff, which is exactly what let a Back-driven close and a
+  // fresh User open look identical to it.
+  const urlDrivenRef = useRef(false);
+  const closingReaderRef = useRef(false);
   useEffect(() => {
     reportedThreadIdRef.current = selectedThreadId;
-    onLocationChange?.({ labelFilter, folder, threadId: selectedThreadId });
+    const reason: LocationChangeReason = urlDrivenRef.current
+      ? "sync"
+      : closingReaderRef.current
+        ? "close"
+        : "select";
+    urlDrivenRef.current = false;
+    closingReaderRef.current = false;
+    onLocationChange?.({ labelFilter, folder, threadId: selectedThreadId }, reason);
   }, [labelFilter, folder, selectedThreadId, onLocationChange]);
 
   // The phone back gesture (#81, mail#66: "a working back gesture supplied
@@ -271,9 +307,14 @@ export function MailSection({
   // gesture popped that entry: the URL's own `thread` search param moved on
   // its own, and the reading pane has to close (or swap Threads) to match,
   // not just leave the pane open over a URL that no longer names it.
+  // `urlDrivenRef` tags the resulting `selectedThreadId` change as `"sync"`
+  // above — never `"select"` — which is what stops a Back-then-Forward
+  // re-entry from being mistaken for a fresh opening and pushing a
+  // duplicate history entry (#140).
   useEffect(() => {
     if (initialThreadId === reportedThreadIdRef.current) return;
     reportedThreadIdRef.current = initialThreadId;
+    urlDrivenRef.current = true;
     setSelectedThreadId(initialThreadId);
   }, [initialThreadId]);
 
@@ -838,9 +879,20 @@ export function MailSection({
       threads.find((candidate) => candidate.id === selectedThreadId) ??
       null);
   const activeTriage = search.active || openedSearchThread ? searchTriage : triage;
+  // The Back pill and `u` (#140): the one path that means "leave the Reader
+  // for the list", as opposed to any other change that happens to null out
+  // `selectedThreadId` along the way (a folder/label switch, say). Search has
+  // no route of its own (ADR-0017), so only the plain branch stamps
+  // `closingReaderRef` — `router/MailRoute.tsx` is what reads the `"close"`
+  // reason this produces to pop its own pushed entry instead of replacing to
+  // a list URL and leaving it behind as a ghost.
   const backToList = useCallback(() => {
-    if (search.active || openedSearchThread) search.select(null);
-    else setSelectedThreadId(null);
+    if (search.active || openedSearchThread) {
+      search.select(null);
+      return;
+    }
+    closingReaderRef.current = true;
+    setSelectedThreadId(null);
   }, [search.active, search.select, openedSearchThread]);
 
   // The Messages of whichever Thread is open — what makes Reply/Reply
@@ -1025,7 +1077,7 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
-                onClearSelection={() => setSelectedThreadId(null)}
+                onClearSelection={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
                 onReply={openReply}
@@ -1041,7 +1093,7 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
-                onBack={() => setSelectedThreadId(null)}
+                onBack={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
                 onReply={openReply}
