@@ -3,7 +3,8 @@
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.sw.json" }
+    { "path": "./tsconfig.sw.json" },
+    { "path": "./tsconfig.test-node.json" }
   ],
   // Not used for compilation (`files` is empty and the real settings live in
   // the referenced configs) — this is here so tooling that reads the root
