@@ -110,6 +110,7 @@ export function ThreadRow({
   tier = null,
   height,
   previewArmed = false,
+  hoverCapable = true,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -139,6 +140,8 @@ export function ThreadRow({
   height?: number;
   /** True while the User hovers this row's own group header checkmark (#66, #77's "hovering the header checkmark previews... every row's Done action") — forces the same reveal hover/focus/selected already give the row's Done control, without claiming this row is itself hovered, focused or selected. */
   previewArmed?: boolean;
+  /** `useHoverCapable()` (#134): `(hover: hover) and (pointer: fine)`, not a viewport breakpoint. `false` drops the row's own Done glyph and its reserved gutter entirely — swipe right is the row's Done gesture on touch — and switches the hover cluster (Snooze/Pin) from hover-revealed to permanently visible, the phone alternative. Defaults `true` so a caller with no capability read above it (most unit tests) keeps today's hover-revealed row. */
+  hoverCapable?: boolean;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -203,6 +206,7 @@ export function ThreadRow({
       data-tier={tier ?? undefined}
       data-armed={armed}
       data-group-preview={previewArmed || undefined}
+      data-hover-capable={hoverCapable}
       style={
         {
           height,
@@ -232,24 +236,29 @@ export function ThreadRow({
           nothing but correspondents and subjects. It never touches or
           overlays the tile, because the checkmark is an action ("archive
           this"), not a selection state, and because a fixed slot means
-          arming the row shifts nothing else in it. */}
-      <span className="row-check">
-        {onArchive ? (
-          <button
-            type="button"
-            className="done-btn"
-            aria-label={`Mark "${subjectLabel}" Done`}
-            title="Done (e)"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onArchive();
-            }}
-          >
-            <Check size={12} />
-          </button>
-        ) : null}
-      </span>
+          arming the row shifts nothing else in it. A touch-only pointer has
+          no hover to reveal it (#134): swipe right is the row's own Done
+          gesture there, so this whole slot — gutter included — goes
+          unrendered rather than sitting reserved and empty. */}
+      {hoverCapable ? (
+        <span className="row-check">
+          {onArchive ? (
+            <button
+              type="button"
+              className="done-btn"
+              aria-label={`Mark "${subjectLabel}" Done`}
+              title="Done (e)"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onArchive();
+              }}
+            >
+              <Check size={12} />
+            </button>
+          ) : null}
+        </span>
+      ) : null}
       <Avatar name={participantLabel} unread={unread} />
       <span className="row-line">
         <span className="row-sender">{participantLabel}</span>

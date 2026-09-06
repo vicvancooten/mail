@@ -588,13 +588,15 @@
   color: var(--color-ink);
 }
 
-/* Phone's own entry to Done all / Mark all read / Collapse (#97's grill
+/* Touch's own entry to Done all / Mark all read / Collapse (#97's grill
    decision: "no hover — an always-visible small overflow button... opens a
-   Sheet"). Hidden at every width that still has hover to grow the rail's
-   own node into a real target; the narrow-viewport media query below is
-   what actually shows it. */
+   Sheet"), and #134's touch alternative to the rail/bulk-actions above:
+   `GroupHeaderCluster` mounts exactly one of the two sets, gated on
+   `useHoverCapable()` rather than a viewport breakpoint, so this is styled
+   unconditionally — there being no hover to grow the rail's own node into a
+   real target is exactly when this is the only one in the DOM. */
 .gh-overflow {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
@@ -1037,6 +1039,44 @@
 
 .thread-row .row-actions button.on {
   color: var(--color-warn);
+}
+
+/* ---------- touch's own row: Snooze/Pin permanent, Done gone (#134) ------
+ * `[data-hover-capable="false"]` mirrors `useHoverCapable()`'s
+ * `(hover: hover) and (pointer: fine)` read, not a viewport breakpoint — a
+ * tablet with a mouse keeps the hover-revealed row above at any width, and
+ * a touch-only phone gets this row regardless of how wide it is. Snooze and
+ * Pin stay persistent (#66 user story 47, #75, #76) — there is no hover on
+ * touch, so those two need a permanent tap-target — while Done is gone
+ * entirely, gutter included: swipe right (`useSwipeToTriage.ts`) is the
+ * row's own Done gesture here, and the group header's overflow Sheet
+ * (`.gh-overflow`) covers a whole Time Group at once, so unlike Snooze/Pin
+ * there is no reserved whitespace left standing in for it (`ThreadRow`
+ * simply doesn't render `.row-check` when `hoverCapable` is false). */
+.thread-row[data-hover-capable="false"] .row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+}
+
+.thread-row[data-hover-capable="false"] .row-time,
+.thread-row[data-hover-capable="false"] .row-actions {
+  position: static;
+  inset: auto;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* With the actions permanently on, the two quietest tiers have no room for
+   both time and actions at their height — there the actions step aside and
+   swipe (plus the group header's own bulk Done) is what reaches them, which
+   is what those rows are triaged with anyway. */
+.thread-row[data-hover-capable="false"][data-tier="3"] .row-actions,
+.thread-row[data-hover-capable="false"][data-tier="4"] .row-actions {
+  display: none;
 }
 
 /* ---------- the correspondent's tile ------------------------------------
@@ -1519,6 +1559,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 34px 32px;
 }
 
@@ -1596,6 +1637,12 @@
   padding: 16px 18px;
   border-radius: var(--radius-panel);
   background: var(--color-surface);
+  /* The sender's HTML is unconstrained by design (the Width decision above)
+     but the pane is not: whatever width their document wants, the iframe's
+     own box stays capped here so it can never push the Reader into
+     horizontal scroll (#138). */
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .message-item-header {
@@ -2919,53 +2966,35 @@ button.search-chip-toggle.on {
     display: flex;
   }
 
-  /* Phone: Snooze and Pin stay persistent rather than hover-gated (#66 user
-     story 47, #75, #76) — there is no hover on touch, so those two need a
-     permanent tap-target. Done is deliberately *not* among them (#97's
-     grill decision: "no persistent per-row check on phone") — swipe right
-     (`useSwipeToTriage.ts`) is the row's own Done gesture on touch, and the
-     group header's overflow Sheet (`.gh-overflow` below) covers a whole
-     Time Group at once, so the row's `done-btn` stays reserved whitespace
-     here exactly as it is everywhere else. */
-
-  .gh-overflow {
-    display: flex;
-  }
-
-  /* With the actions permanently on, the time cannot share their box the
-     way it does at desktop — so the meta column stacks instead of layering,
-     and the row keeps both. The two quiet tiers have no room for both at
-     their height: there the actions step aside and swipe (plus the group
-     header's own bulk Done) is what reaches them, which is what those rows
-     are triaged with anyway. */
-  .thread-row .row-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 1px;
-  }
-
-  .thread-row .row-time,
-  .thread-row .row-actions {
-    position: static;
-    inset: auto;
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
-  }
-
-  .thread-row[data-tier="3"] .row-actions,
-  .thread-row[data-tier="4"] .row-actions {
-    display: none;
-  }
-
+  /* #138: the desktop-only 74ch reading column and the non-wrapping action
+     row both assume width the phone doesn't have. The header goes full
+     width, and the action row drops to its own line below the subject so
+     the subject gets one full line before it has to truncate — wrapping
+     further within itself if even that line runs short. */
   .reading-header {
+    max-width: none;
     padding: 16px 16px 0;
+  }
+
+  .reading-topline {
+    flex-wrap: wrap;
+  }
+
+  .reading-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    margin-top: 8px;
   }
 
   .reading-body {
     padding: 0 16px 24px;
+  }
+
+  /* The fixed 148px attachment tile is a desktop grid unit; on a phone two
+     tiles share a row instead so neither tile — nor the row of them —
+     forces horizontal scroll. */
+  .attachment-item {
+    width: calc(50% - 5px);
   }
 
   .reply-hint {

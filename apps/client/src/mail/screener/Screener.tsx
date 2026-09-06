@@ -11,6 +11,7 @@ import { Avatar } from "../Avatar.js";
 import { ActionMenu } from "../actions/ActionMenu.js";
 import { useActions } from "../actions/ActionsProvider.js";
 import { withScreenerSender } from "../actions/types.js";
+import { invalidateThreadMessages } from "../reading/useThreadMessages.js";
 import { announceUndoableAction } from "../undo-toast.js";
 import { BlockAliasDialog } from "./BlockAliasDialog.js";
 import { ScreenerActions } from "./ScreenerActions.js";
@@ -145,6 +146,12 @@ export function Screener({
       // else names the row's own address.
       const decidedSender: GatekeeperSender = sender ?? { scope: "address", value: group.address };
       void enqueueMutation({ type, sender: decidedSender }, group.mailAccountId);
+      // #145: the decision changes this sender's Verdict, so the next
+      // Reader open for any of their Threads must refetch rather than serve
+      // the per-tab cache's stale `remoteImagesAllowed` — invalidated here,
+      // at enqueue time, rather than waiting on the round trip that confirms
+      // it, per #133's "Remote images" decisions.
+      invalidateThreadMessages(group.threadIds);
       const verdict =
         type === "approveSender"
           ? "Approved"

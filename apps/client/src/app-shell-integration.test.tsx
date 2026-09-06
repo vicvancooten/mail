@@ -195,6 +195,47 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/contacts");
   });
 
+  it("at phone width, the App Switcher opens as a sheet and closes by outside pointer or Escape (#136)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+
+    try {
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      // Desktop's inline expansion never renders a `dialog` — its tab row
+      // is a plain positioned `div`, open or not.
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+      expect(await screen.findByRole("dialog")).toBeDefined();
+      // Every App is reachable from the sheet, the same as the desktop row.
+      expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
+      for (const name of ["Contacts", "Calendar", "Tasks"]) {
+        expect(screen.getByRole("link", { name: new RegExp(name) })).toBeDefined();
+      }
+
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+      await screen.findByRole("dialog");
+
+      // A tap outside the sheet closes it — Radix `Dialog`'s own
+      // pointer-event dismissal, exercised here over the overlay it renders
+      // behind the sheet's content.
+      const overlay = document.querySelector('[data-slot="sheet-overlay"]');
+      expect(overlay).not.toBeNull();
+      await user.click(overlay as Element);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
   it("Appearance written from the header reaches Settings' own copy of the control (#72)", async () => {
     await seedOneThread();
     stubFetch();
