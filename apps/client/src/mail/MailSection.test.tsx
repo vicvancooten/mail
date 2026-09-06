@@ -818,6 +818,64 @@ describe("Reader action hierarchy (#143)", () => {
   });
 });
 
+describe("Swipe between Threads inside the Reader (#150)", () => {
+  it("swiping the Reader left opens the next (older) Thread, replacing rather than pushing history", async () => {
+    // Touch-capable phone (#143): prev/next buttons are gone, so swipe and
+    // Auto-advance are the only way to move between Threads without
+    // returning to the list first.
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: -120 });
+
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+  });
+
+  it("swiping right from the older (last) Thread opens the previous (newer) one", async () => {
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Older thread"));
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+  });
+
+  it("swiping past the end of the list (no neighbour that way) does nothing — the Thread stays open", async () => {
+    stubMatchMedia((query) => query === "(max-width: 700px)");
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    // "Newer thread" is the newest — there is no *previous* (newer) Thread,
+    // so swiping right must be a no-op.
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const pane = document.querySelector(".thread-detail-swipeable") as Element;
+    fireEvent.pointerDown(pane, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(pane, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    expect(screen.getByText("Newer thread", { selector: ".reading-subject" })).toBeDefined();
+  });
+});
+
 describe("Sidebar (#74)", () => {
   it("Archive shows only Threads real archived Threads, hiding the ordinary Inbox", async () => {
     await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
