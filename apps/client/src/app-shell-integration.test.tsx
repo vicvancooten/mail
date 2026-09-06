@@ -415,6 +415,55 @@ describe("the app shell over a routed tree (#71)", () => {
     await waitFor(() => expect(location.pathname).toBe("/contacts"));
   });
 
+  it("leaving Stream after entering it from Mail goes back to the Mail surface that was showing, adding no net history (#141)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+    const historyLengthAtMail = history.length;
+
+    await user.click(screen.getByRole("button", { name: "Open Stream" }));
+    await screen.findByRole("button", { name: "Close Stream" });
+    expect(location.pathname).toBe("/mail/stream");
+    expect(history.length).toBe(historyLengthAtMail + 1);
+
+    await user.click(screen.getByRole("button", { name: "Close Stream" }));
+
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    expect(await screen.findByText("Routed thread")).toBeDefined();
+    // The pushed Stream entry was popped via `history.back()`, not
+    // replaced-over and left behind for a real browser to still hold as a
+    // reachable "forward" entry (`history.length` itself can't tell a pop
+    // from a replace apart — neither changes it, the same fact #140's own
+    // Back-pill test above notes) — so the proof is behavioural: one more
+    // Back from here leaves Mail entirely rather than bouncing back into
+    // Stream.
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() => expect(location.pathname).not.toBe("/mail/stream"));
+  });
+
+  it("landing on the Stream route cold and leaving it navigates to Mail (#141)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/stream");
+    render(<App />);
+    await screen.findByRole("button", { name: "Close Stream" });
+    const historyLengthAtStream = history.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Stream" }));
+
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    expect(await screen.findByText("Routed thread")).toBeDefined();
+    // A cold entry has nothing pushed to go back to — the navigate to Mail
+    // replaces rather than growing the stack.
+    expect(history.length).toBe(historyLengthAtStream);
+  });
+
   it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {
     const account = makeMailAccount("acct-1", { status: "needs_reauth" });
     await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
