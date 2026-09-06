@@ -272,6 +272,15 @@ export const mailAccounts = pgTable(
     // make. `sync/gatekeeper/settings.ts` is the only writer.
     gatekeeperEnabled: boolean("gatekeeper_enabled").notNull().default(false),
     gatekeeperCutoff: timestamp("gatekeeper_cutoff", { withTimezone: true }),
+    // The remote-images permission (#146, CONTEXT.md §Remote images) — a
+    // third Mail-Account-scoped preference alongside `signature`/
+    // `notificationsEnabled`, edited through the same mutation queue
+    // (`setRemoteImages`). Null until the User picks one explicitly: the
+    // effective setting is derived at read time from `gatekeeperEnabled`
+    // (`@mail/shared#resolveRemoteImagesSetting`) rather than baked in as a
+    // stored default, so turning Gatekeeper on or off keeps answering the
+    // question correctly for every account that never touched this control.
+    remoteImages: text("remote_images", { enum: ["always", "approved-only", "ask"] }),
     // The groundwork for ADR-0015's two-tier liveness (#35): the resident
     // sync loop (`sync/live-session.ts`) stamps `lastProgressAt` on every
     // IDLE keepalive or completed poll and `syncState` on every transition,
