@@ -202,6 +202,7 @@ describe("scroll restoration (#142)", () => {
     await waitFor(() => expect(document.querySelector(".thread-list")).toBeNull());
 
     fireEvent.click(await screen.findByRole("button", { name: "Close Stream" }));
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
     await screen.findByText("Thread 0");
 
     expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(550);
