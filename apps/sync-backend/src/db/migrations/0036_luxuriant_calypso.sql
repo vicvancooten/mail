@@ -1,0 +1,1 @@
+ALTER TABLE "mail_accounts" ADD COLUMN "remote_images" text;

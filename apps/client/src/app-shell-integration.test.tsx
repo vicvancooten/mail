@@ -9,7 +9,12 @@ import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "./store/server-writes.js";
 import { resetSyncStatus } from "./sync/sync-loop.js";
-import { delta, makeMailAccount, makeThread } from "./test-support/mail-fixtures.js";
+import {
+  delta,
+  makeMailAccount,
+  makeThread,
+  minutesAfterEpoch,
+} from "./test-support/mail-fixtures.js";
 import { jsonResponse } from "./test-support/mock-fetch.js";
 
 /**
@@ -84,8 +89,17 @@ beforeEach(async () => {
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
-  // jsdom's `history`/`location` persist across tests in one file.
-  history.replaceState(null, "", "/");
+  // jsdom's `history`/`location` persist across tests in one file — a
+  // `replaceState` alone reset the URL but not the position, so a test that
+  // left the real history mid-stack (#140's own `history.back()`/`forward()`
+  // cases) left stale, now-unreachable "forward" entries ahead of it for the
+  // next test to inherit, throwing off that test's own push-counted
+  // assertions. `pushState` always discards everything ahead of wherever the
+  // previous test left the pointer, so every test starts at the true top of
+  // a real (if arbitrarily long) stack — the one guarantee these tests
+  // actually need, since every assertion here is relative to a length
+  // snapshot taken fresh inside the test, never an absolute one.
+  history.pushState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -100,6 +114,27 @@ async function seedOneThread(): Promise<void> {
   await applyThreadDelta(
     "acct-1",
     delta({ created: [makeThread("t1", "acct-1", { subject: "Routed thread" })] }),
+    { replace: false },
+  );
+}
+
+/** Newest first (`store/reads.ts#ThreadWindowPage`): "Newer thread" (t1) leads, "Older thread" (t2) trails. */
+async function seedTwoThreads(): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: [
+        makeThread("t1", "acct-1", {
+          subject: "Newer thread",
+          lastMessageAt: minutesAfterEpoch(2),
+        }),
+        makeThread("t2", "acct-1", {
+          subject: "Older thread",
+          lastMessageAt: minutesAfterEpoch(1),
+        }),
+      ],
+    }),
     { replace: false },
   );
 }
@@ -367,6 +402,109 @@ describe("the app shell over a routed tree (#71)", () => {
     // The reading pane actually closed to match the URL the gesture landed
     // on — not just a URL change with the pane left open over it.
     expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
+  });
+
+  it("moving between Threads inside the Reader adds no history entries, and Back returns to the list from any of them (#140)", async () => {
+    await seedTwoThreads();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Newer thread");
+    const historyLengthBeforeOpen = history.length;
+
+    fireEvent.click(screen.getByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+    expect(history.length).toBe(historyLengthBeforeOpen + 1);
+
+    // `j` moves to the next (older) Thread from inside the Reader — a
+    // replace, not a further push (CONTEXT.md: "moving to another Thread
+    // from inside the Reader is not a further step").
+    fireEvent.keyDown(window, { key: "j" });
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+    expect(history.length).toBe(historyLengthBeforeOpen + 1);
+    expect(location.search).toContain("thread=t2");
+
+    await act(async () => {
+      history.back();
+    });
+
+    // One Back lands on the list, however many Threads were read in between.
+    await waitFor(() => expect(location.search).not.toContain("thread="));
+    expect(screen.queryByText("Older thread", { selector: ".reading-subject" })).toBeNull();
+    expect(screen.getByText("Newer thread")).toBeDefined();
+    expect(screen.getByText("Older thread")).toBeDefined();
+  });
+
+  it("a Back-then-Forward gesture into the Reader still lets one further Back return to the list (#140)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    fireEvent.click(screen.getByText("Routed thread"));
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
+
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull(),
+    );
+
+    await act(async () => {
+      history.forward();
+    });
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
+
+    // The router's own same-location dedup absorbs a same-destination
+    // duplicate push, so it never surfaces as an extra `history.length` here
+    // even from the pre-#140 marker — `router/MailRoute.test.tsx` is what
+    // actually exercises the marker's own push/replace decision (the fix
+    // this ticket made) directly. What this level still has to prove: a
+    // single further Back genuinely reaches the list, not a Reader that
+    // merely looks the same because a stale entry sits between here and it.
+    await act(async () => {
+      history.back();
+    });
+
+    await waitFor(() => expect(location.search).not.toContain("thread=t1"));
+    expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
+  });
+
+  it("closing the Reader with the Back pill leaves no stale history entry: Back from the list goes wherever it went before the Thread was opened (#140)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    history.replaceState(null, "", "/contacts");
+    render(<App />);
+    await screen.findByLabelText("Contacts");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Mail" }));
+    await screen.findByText("Routed thread");
+    const historyLengthAtList = history.length;
+
+    fireEvent.click(screen.getByText("Routed thread"));
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
+    expect(history.length).toBe(historyLengthAtList + 1);
+
+    await user.click(screen.getByRole("button", { name: "Back to list" }));
+
+    await waitFor(() => expect(location.search).not.toContain("thread=t1"));
+    expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
+
+    // One more Back goes to wherever the User was before the Thread was
+    // opened — Contacts — not a ghost of the Mail list: the close popped
+    // the entry the open had pushed rather than leaving it behind and
+    // merely replacing its content (`history.length` itself can't tell the
+    // two apart — back()/replace() neither one changes it — so this is the
+    // one observable difference).
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() => expect(location.pathname).toBe("/contacts"));
   });
 
   it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {
