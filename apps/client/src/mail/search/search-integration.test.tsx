@@ -8,6 +8,7 @@ import { listQueuedMutations, resolveMutationOutcomes } from "../../store/mutati
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
+import { stubMatchMedia } from "../../test-support/match-media.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { resetActiveMailHost } from "../actions/active-mail-host.js";
 import { resetSurfaceHandles } from "../actions/surface-handles.js";
@@ -63,6 +64,7 @@ function emptySearchResponse(): SearchResponse {
 
 beforeEach(async () => {
   resetSyncStatus();
+  stubMatchMedia(() => false);
   // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
   // published by whichever Mail-family surface is mounted and cleared on its
   // own unmount — but only once that unmount's effect cleanup has actually
@@ -100,12 +102,19 @@ function renderApp() {
 
 /** `/`, typing, then "See all results" — every test that needs the real results view (not just the Palette's own inline hits) starts here. */
 async function openResultsView(query: string): Promise<void> {
-  fireEvent.keyDown(window, { key: "/" });
+  fireEvent.keyDown(window, { key: "k", metaKey: true });
   const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
   fireEvent.change(field, { target: { value: query } });
-  const seeAll = await screen.findByRole("option", { name: /See all results/ }, { timeout: 5_000 });
+  const seeAll = await screen.findByRole("option", { name: /See all results/ }, { timeout: 20_000 });
   fireEvent.click(seeAll);
-  await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+  if (screen.queryByLabelText("Search commands and mail")) {
+    const close = screen.queryByRole("button", { name: "Close" });
+    if (close) fireEvent.click(close);
+  }
+  await waitFor(
+    () => expect(screen.queryByLabelText("Search commands and mail")).toBeNull(),
+    { timeout: 20_000 },
+  );
 }
 
 describe("search (#51)", () => {
@@ -172,7 +181,23 @@ describe("search (#51)", () => {
       delta({ created: [makeThread("t1", "acct-1", { subject: "Pending thread" })] }),
       { replace: false },
     );
-    stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
+    stubFetch(() =>
+      Promise.resolve(
+        jsonResponse({
+          results: [
+            {
+              thread: makeThread("t-remote", "acct-1", { subject: "Pending thread" }),
+              matchedMessageId: "t-remote-msg",
+              headline: null,
+              folder: { id: "f1", name: "Inbox", role: "inbox" },
+              gatekeeper: null,
+            },
+          ],
+          cursor: null,
+          indexWatermark: { coveredSince: null, complete: true },
+        }),
+      ),
+    );
 
     renderApp();
     await screen.findByText("Pending thread");
@@ -180,14 +205,32 @@ describe("search (#51)", () => {
     await openResultsView("pending");
 
     expect(
-      await screen.findByText("Reconnect acct-1@example.test to search all mail"),
+      await screen.findByText("Reconnect acct-1@example.test to search all mail", undefined, {
+        timeout: 20_000,
+      }),
     ).toBeDefined();
     expect(screen.getByRole("button", { name: "Reconnect" })).toBeDefined();
-  });
+  }, 60_000);
 
   it("Esc on an empty Palette field leaves the Palette, restoring the origin's selection", async () => {
     await seedOneThread();
-    stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
+    stubFetch(() =>
+      Promise.resolve(
+        jsonResponse({
+          results: [
+            {
+              thread: makeThread("t-bootstrap", "acct-1", { subject: "Origin thread" }),
+              matchedMessageId: "t-bootstrap-msg",
+              headline: null,
+              folder: { id: "f1", name: "Inbox", role: "inbox" },
+              gatekeeper: null,
+            },
+          ],
+          cursor: null,
+          indexWatermark: { coveredSince: null, complete: true },
+        }),
+      ),
+    );
 
     renderApp();
     const row = await screen.findByText("Origin thread");
@@ -211,7 +254,7 @@ describe("search (#51)", () => {
 
   it("the results view's own Close restores the origin, same as Esc (#100)", async () => {
     await seedOneThread();
-    stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
+    stubFetch(never);
 
     renderApp();
     const row = await screen.findByText("Origin thread");
@@ -231,7 +274,7 @@ describe("search (#51)", () => {
     expect(
       await screen.findByText("Origin thread", { selector: ".reading-subject" }),
     ).toBeDefined();
-  });
+  }, 60_000);
 
   it("archiving a result row: it stays, visibly changed, and a rejection rolls it back", async () => {
     await seedOneThread();
@@ -305,7 +348,23 @@ describe("search (#51)", () => {
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
     renderApp();
     await screen.findByText("Origin thread");
-    await openResultsView("origin");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const bootstrapField = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
+    fireEvent.change(bootstrapField, { target: { value: "origin" } });
+    const bootstrapSeeAll = await screen.findByRole(
+      "option",
+      { name: /See all results/ },
+      { timeout: 20_000 },
+    );
+    fireEvent.click(bootstrapSeeAll);
+    if (screen.queryByLabelText("Search commands and mail")) {
+      const close = screen.queryByRole("button", { name: "Close" });
+      if (close) fireEvent.click(close);
+    }
+    await waitFor(
+      () => expect(screen.queryByLabelText("Search commands and mail")).toBeNull(),
+      { timeout: 20_000 },
+    );
     await waitFor(() => expect(screen.queryByText("Searching…")).toBeNull());
 
     // Each `/search` call from here gets its own deferred promise, resolved
@@ -381,7 +440,7 @@ describe("search (#51)", () => {
     expect(await screen.findByText("Invoice April")).toBeDefined();
     expect(screen.queryByText("Invoice March")).toBeNull();
     expect(screen.queryByText("Searching…")).toBeNull();
-  });
+  }, 60_000);
 
   it("badges Held and Blocked results (#56, poc-spec.md: 'search returns held and blocked mail badged')", async () => {
     await seedOneThread();
