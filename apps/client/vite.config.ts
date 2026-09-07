@@ -83,6 +83,7 @@ export default defineConfig({
       "./src/test-support/indexeddb.ts",
       "./src/test-support/virtualization.ts",
       "./src/test-support/dom-polyfills.ts",
+      "./src/test-support/testing-library-config.ts",
     ],
     // Node >=22.4 ships its own global `localStorage`/`sessionStorage`
     // (behind --experimental-webstorage, on by default on recent 22.x).
