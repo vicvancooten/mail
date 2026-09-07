@@ -326,12 +326,29 @@ async function trashHeldThreads(
     .where(heldByGatekeeperKey(mailAccountId, sender));
   const heldThreadIds = held.map((row) => row.id);
   if (extraThreadId && !heldThreadIds.includes(extraThreadId)) {
-    const [extraThread] = await db
-      .select({ id: threads.id })
-      .from(threads)
-      .where(and(eq(threads.id, extraThreadId), eq(threads.mailAccountId, mailAccountId)))
-      .limit(1);
-    if (extraThread) heldThreadIds.push(extraThread.id);
+    const normalized = normalizeGatekeeperSender(sender);
+    if (normalized.scope !== "recipient") {
+      const senderClause =
+        normalized.scope === "address"
+          ? eq(messages.fromAddress, normalized.value)
+          : or(
+              like(messages.fromAddress, `%@${escapeLike(normalized.value)}`),
+              eq(messages.fromAddress, normalized.value),
+            );
+      const [extraThread] = await db
+        .select({ id: threads.id })
+        .from(threads)
+        .innerJoin(messages, eq(messages.threadId, threads.id))
+        .where(
+          and(
+            eq(threads.id, extraThreadId),
+            eq(threads.mailAccountId, mailAccountId),
+            senderClause,
+          ),
+        )
+        .limit(1);
+      if (extraThread) heldThreadIds.push(extraThread.id);
+    }
   }
   if (heldThreadIds.length === 0) return;
 
