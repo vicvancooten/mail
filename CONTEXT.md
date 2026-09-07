@@ -61,10 +61,11 @@ _Avoid_: proxy, bridge, API server
 Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, never to a mail server directly.
 
 **App**:
-One of the personal-hub products a Client holds: Mail today, with Contacts, Calendar and Tasks
-named and reserved. An App is a whole product surface with its own navigation, not a screen inside
-Mail — which is why the Client's chrome makes room for four rather than treating Mail as the whole
-world.
+One of the personal-hub products a Client holds: Mail today, with Calendar, Contacts, Tasks and
+Notes named and reserved, in that order on the App Switcher. An App is a whole product surface with
+its own navigation, not a screen inside Mail — which is why the Client's chrome makes room for five
+rather than treating Mail as the whole world. Each App says whether it observes Account Scope and
+which of its collections the Local Cache holds whole.
 _Avoid_: module, section, tab
 
 **Account Scope**:
@@ -73,7 +74,8 @@ defaulting to all of them. Mail shows the Mail Facets in scope; Calendar and Con
 collections whose Origin is in scope; Local collections are always in scope. Chrome that belongs to
 the Client rather than to any App, because narrowing to one account is a question every App
 answers. Actions that can only mean one account — sending, or changing a Gatekeeper setting — ask
-for that account rather than inheriting the Scope.
+for that account rather than inheriting the Scope. An App whose data belongs to the User alone
+(Notes, Tasks) does not observe the Scope, and the Hub hides the control while it is shown.
 _Avoid_: account switcher, unified inbox, active account
 
 **App Switcher**:
@@ -90,7 +92,7 @@ reads as one continuous piece rather than a bar inside a page.
 _Avoid_: header, top bar, nav bar
 
 **Local Cache**:
-The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering. Unrelated to the Local Origin, which means this instance rather than the device.
+The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox, plus the whole of the User's small App collections (Notes, Contacts, Labels) and a rolling window of Events. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a source of truth for anything but rendering, even where it happens to hold everything. Unrelated to the Local Origin, which means this instance rather than the device.
 _Avoid_: local store, local database, replica, offline store
 
 **Notifier**:
@@ -100,6 +102,13 @@ _Avoid_: push service, notification service
 **Sync Hint**:
 A message telling a Client that something it holds has changed, carrying no mail state of its own. A Client that receives one pulls the actual changes; a Client that misses one finds them on its next poll, so a hint is always an accelerator and never the only route.
 _Avoid_: push event, change event, notification (when the User is not being told anything)
+
+**Sync Scope**:
+Whose thing a synced collection is, and therefore what the Client asks for it under: the User
+(Preferences, Labels, Notes, Tasks), a Mail Account (Threads, Correspondents), or a Connected
+Account (Calendars, Address Books). Every collection declares exactly one, and an App's data joins
+the one sync round the Client already runs rather than a channel of its own.
+_Avoid_: partition, tenant, namespace
 
 **System Mailer**:
 Optional sending credentials the operator configures so the instance can send mail *as itself* (account recovery). Belongs to no User and is never synced or shown as a mailbox.
@@ -217,8 +226,9 @@ say "this is about to happen to all of these" before it does.
 _Avoid_: timeline, rail, gutter line
 
 **Undo**:
-Reversing a Triage action or Gatekeeper decision within a short window after it, from the toast that
-announced it. Always a real inverse action (restore to Inbox, unsnooze, unblock and restore), so it
+Reversing a Triage action, a Gatekeeper decision or an App's own action (deleting a Note) within a
+short window after it, from the toast that announced it. Always a real inverse action (restore to
+Inbox, unsnooze, unblock and restore, restore a Note), so it
 works whether or not the Sync Backend has already applied the original; never a cancellation of a
 queued request. Actions taken in quick succession share one toast and one Undo.
 _Avoid_: revert, rollback (which is the Sync Backend rejecting an action, not the User reversing one)
@@ -236,7 +246,7 @@ The short plain-text opening of a message, with quoted and forwarded history str
 _Avoid_: preview, excerpt, teaser
 
 **Optimistic Action**:
-Any Triage action whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.
+Any action on synced data — Triage, a Gatekeeper decision, or an App's own action such as pinning or deleting a Note — whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.
 
 **Auto-advance**:
 After archiving or deleting, automatically opening the next thread or returning to the list (User-configurable).
@@ -264,10 +274,10 @@ Marking a Thread as important using the mail server's own `\Flagged` state. A Pr
 _Avoid_: flag, favourite, bookmark
 
 **Pin**:
-Keeping a thread prominently visible regardless of its age. An App Feature, and deliberately not the same thing as a Star: a Star says "this matters", a Pin says "keep this in front of me".
+Keeping a Thread or a Note prominently visible regardless of its age. An App Feature, and deliberately not the same thing as a Star: a Star says "this matters", a Pin says "keep this in front of me".
 
 **Label**:
-A user-defined tag a User applies to a Thread for organization. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels).
+A user-defined tag a User applies to a Thread or a Note for organization. Owned by the User, not by any one Mail Account, so one set of Labels spans all of a User's Mail Accounts and their Notes. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels).
 _Avoid_: tag, IMAP keyword
 
 ### Gatekeeper
@@ -344,13 +354,36 @@ _Avoid_: outbox, queued mail
 An address the User has actually exchanged mail with on a Mail Account, derived from message history and never hand-edited. The source of recipient suggestions while composing.
 _Avoid_: contact (reserved for the address-book entries a User manages), recipient
 
+### Notes
+
+**Note**:
+A rich-text document a User writes and keeps for themselves: a tree of blocks (headings, lists,
+checklists, tables, code, a Thread Link) with no separate title — the first block is the title. Owned
+by the User, never synced upstream, never shared. Sorted by when it was last edited, shown whole in
+the Local Cache, and edited where it is read: there is no separate reading mode.
+_Avoid_: page, document, memo
+
+**Thread Link**:
+A block inside a Note that stands for one Thread — its subject, participants and date — and opens
+that Thread in Mail. The one way mail enters a Note: "Add to Notes" on a Thread creates a Note
+titled with the subject whose first block is a Thread Link; the mail itself is never copied in.
+_Avoid_: mail embed, quote, attachment
+
+**Recently Deleted**:
+Where a deleted Note waits for thirty days before it is gone: a view of the Notes App showing the
+same cards greyed, each with Restore. Deleting a Note is an Optimistic Action with Restore as its
+Undo, so the toast and this view are two doors to the same inverse.
+_Avoid_: trash (reserved for mail), bin, archive
+
 ### Search
 
 **Command Palette**:
 The Client's one place to type. Opened from the Hub's search pill, from `/` or from ⌘K, it answers
-what the User types with commands and mail hits in a single list — commands first whenever the words
-match one, mail hits beneath. It is the only way a search starts, and "See all results" is the only
-way from it into the full result list. Client chrome, present over every App and every screen,
+what the User types with commands, mail hits and App hits in a single list — commands first whenever
+the words match one, mail hits beneath, then hits from the App collections the Local Cache holds
+whole (Notes, Contacts), found locally. It is the only way a search starts, and "See all results" is
+the only way from it into the full result list; an App's own chips and sections are filters on a
+view, never a second place to type. Client chrome, present over every App and every screen,
 including Stream.
 _Avoid_: search box, search bar, omnibar, quick switcher
 
