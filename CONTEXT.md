@@ -13,17 +13,36 @@ of it. (`docs/design/wicket-identity.html` is the prior identity, superseded and
 ### People & accounts
 
 **User**:
-A person signed in to a self-hosted instance. Owns one or more Mail Accounts.
+A person signed in to a self-hosted instance. Owns one or more Connected Accounts.
 _Avoid_: account (unqualified)
 
+**Connected Account**:
+One identity at one Provider that a User has signed in with or entered credentials for, held by the
+Sync Backend: a Google account, a Microsoft account, a CalDAV/CardDAV server login, or an Other IMAP
+login. Owned by exactly one User, holding exactly one Grant or password, and carrying one or more
+Facets. Unique per User, Provider and identity; two Users who connect the same upstream account each
+own a separate Connected Account.
+_Avoid_: account (unqualified), integration, connection, linked account
+
+**Facet**:
+One of the three kinds of data a Connected Account can be connected for: Mail, whose one Facet is
+the Mail Account; Calendar, which yields the Connected Account's Calendars; Contacts, which yields
+its Address Books. Turned on one at a time, each asking the Provider only for its own consent. The
+User sees the three names, never the word.
+_Avoid_: service, scope (when the thing rather than the Provider's permission is meant), sync type
+
 **Mail Account**:
-A connection to an external mail server (credentials + settings) owned by exactly one User. Two Users following the same mailbox each own a separate Mail Account.
+The Mail Facet of a Connected Account: its connection to a mail server, using the Connected
+Account's credential. At most one per Connected Account, owned by the same one User. Two Users
+following the same mailbox each own a separate Connected Account and Mail Account.
 _Avoid_: mailbox, inbox, account (unqualified)
 
 **Needs Reauth**:
-The state of a Mail Account whose stored credentials the mail server has rejected, or whose Grant the
-Provider has withdrawn: syncing stops until the User supplies new credentials or signs in again, and
-pending Optimistic Actions wait rather than fail.
+The state of a Connected Account whose credential the server has rejected or whose Grant the
+Provider has withdrawn, or of a single Facet whose consent alone the Provider refuses. Syncing stops
+for what is affected (every Facet, or that one) until the User signs in again or supplies new
+credentials; mirrored data stays readable and pending Optimistic Actions wait rather than fail.
+Always something the User can fix by signing in, never a problem only the Owner can fix.
 
 **Owner**:
 The User who set up the instance: the only role that can invite other Users and change instance settings.
@@ -49,10 +68,12 @@ world.
 _Avoid_: module, section, tab
 
 **Account Scope**:
-Which of the User's Mail Accounts the Client is currently showing: any non-empty subset, defaulting
-to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing to one
-account is a question every App answers. Actions that can only mean one account — sending, or
-changing a Gatekeeper setting — ask for that account rather than inheriting the Scope.
+Which of the User's Connected Accounts the Client is currently showing: any non-empty subset,
+defaulting to all of them. Mail shows the Mail Facets in scope; Calendar and Contacts show the
+collections whose Origin is in scope; Local collections are always in scope. Chrome that belongs to
+the Client rather than to any App, because narrowing to one account is a question every App
+answers. Actions that can only mean one account — sending, or changing a Gatekeeper setting — ask
+for that account rather than inheriting the Scope.
 _Avoid_: account switcher, unified inbox, active account
 
 **App Switcher**:
@@ -69,7 +90,7 @@ reads as one continuous piece rather than a bar inside a page.
 _Avoid_: header, top bar, nav bar
 
 **Local Cache**:
-The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering.
+The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering. Unrelated to the Local Origin, which means this instance rather than the device.
 _Avoid_: local store, local database, replica, offline store
 
 **Notifier**:
@@ -87,9 +108,10 @@ _Avoid_: system account, admin mailbox
 ### Providers
 
 **Provider**:
-Who runs a Mail Account's mail server as far as signing in is concerned: Google, Microsoft, or Other
-IMAP. Google and Microsoft accounts are added by signing in with the Provider rather than by
-entering a host and a password.
+Who runs a Connected Account's server as far as signing in is concerned: Google, Microsoft, Other
+IMAP, or CalDAV/CardDAV. Google and Microsoft accounts are added by signing in with the Provider;
+the other two by entering a server and credentials. A Connected Account added as Other IMAP may
+change Provider to Google by signing in with the same address, keeping everything it holds.
 _Avoid_: service, vendor, integration
 
 **Provider Registration**:
@@ -99,16 +121,33 @@ shown as unavailable on this instance.
 _Avoid_: OAuth app, client credentials, API keys
 
 **Grant**:
-One User's consent for one Mail Account to be read and sent from, obtained by signing in with the
-Provider and held by the Sync Backend. When a Provider withdraws a Grant, the Mail Account is Needs
+One User's consent for one Connected Account, obtained by signing in with the Provider and held by
+the Sync Backend, covering the Facets the User has turned on so far: adding a Facet widens the one
+Grant rather than making a second. When a Provider withdraws a Grant, the Connected Account is Needs
 Reauth, exactly as for a rejected password.
 _Avoid_: token, refresh token, connection
 
 **Provider Health**:
-The Owner's view of each Provider Registration: whether it exists, whether a Grant has ever been
-obtained through it, and whether Grants are currently being honoured. Part of the instance settings,
-never of any Mail Account.
+The Owner's view of each Provider Registration, per Facet: whether the Registration exists, whether a
+Grant has ever been obtained through it for that Facet, whether those Grants are currently being
+honoured, and whether the Provider-side API the Facet needs is enabled on the Registration. A Facet
+the Registration cannot serve is shown to Members as unavailable on this instance, never as Needs
+Reauth. Part of the instance settings, never of any Connected Account.
 _Avoid_: token status, admin health
+
+### Synced data
+
+**Origin**:
+Where a Calendar or Address Book comes from: exactly one Connected Account, whose upstream it
+mirrors, or Local. Every Event and Contact takes the Origin of its collection and never has one of
+its own. Tasks are Local in v1 and carry the same field.
+_Avoid_: source, backend, provider (when the collection's home rather than the sign-in is meant)
+
+**Local**:
+The Origin of a Calendar or Address Book that lives only on this instance's Sync Backend, with no
+upstream: created by the User, never synced, never Needs Reauth. Local means this instance, never
+the User's device; the Client's own copy of anything is the Local Cache.
+_Avoid_: on-device, offline (for this meaning), Wicket calendar, instance calendar
 
 ### Mail concepts
 

@@ -11,3 +11,4 @@ Two household members following the same mailbox each add their own Mail Account
 - Duplicate sync when two Users follow one mailbox: two IMAP connections, two synced copies. Irrelevant at single-household scale, and the reason a future reader should not "fix" this by de-duplicating Mail Accounts.
 - Ownership is the only authorization primitive: every query is scoped by User.
 - Credentials, Gatekeeper verdicts, pins, labels and Snooze all hang off the Mail Account, so none of them need a User dimension of their own.
+- Since [ADR-0022](0022-connected-account-owns-the-credential.md) the same rule covers the Connected Account the Mail Account is a Facet of: one User, no sharing, and two Users connecting the same upstream account each own a separate Connected Account.

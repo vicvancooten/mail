@@ -44,7 +44,9 @@ URI to copy and the setup steps beside the fields. Decided in the #91 grilling, 
 - **Redirect URIs derive from `PUBLIC_URL`**, already the declared single source of truth for
   cookies, WebAuthn and Web Push; Google rejects a plain-http, non-loopback redirect, and the
   Instance page already knows whether the URL is a secure context.
-- **Grants live on the Mail Account, in the existing `oauth` credential variant**, and a refresh
+- **Grants live on the Mail Account, in the existing `oauth` credential variant** (amended by
+  [ADR-0022](0022-connected-account-owns-the-credential.md): the Grant now lives on the Connected
+  Account the Mail Account is a Facet of, and its scope set grows per Facet), and a refresh
   failure that the Provider reports as a withdrawn grant is a second door into Needs Reauth
   beside a rejected login. Reauth for such an account is signing in again, never a password form,
   and a Gmail account added with an app password can switch to a Grant on the same Mail Account
