@@ -276,7 +276,9 @@ and remembers nothing about layout. Skip leaves the Thread in the Inbox and move
 _Avoid_: stream mode (as a view mode), reading mode, focus mode
 
 **Snooze**:
-Hiding a thread until a chosen time, after which it returns as new.
+Putting a Thread or a fired Reminder off until a chosen time: the Thread hides and returns as new,
+the Reminder rings again. Wicket's own state either way; a snoozed Reminder never reaches the upstream.
+_Avoid_: postpone, remind me later, defer
 
 **Star**:
 Marking a Thread as important using the mail server's own `\Flagged` state. A Protocol Feature, so it round-trips to every other IMAP client — the User's existing stars are there on first sync.
@@ -518,11 +520,19 @@ addressed to nobody the User is can only be added as a private copy, never answe
 _Avoid_: invite (the verb for adding Users), meeting request, ics, scheduling message, calendar email
 
 **Reminder**:
-A number of minutes before an Event's start at which the User is told about it. Held per Event,
-or inherited from the Calendar's defaults when the Event asks for those; delivery is the Notifier's
-job. Reminders that send email or fire at an absolute time are kept for round-tripping and never
-shown or fired.
+A number of minutes before an Event's start at which the User is told about it. Held per Event and
+mirrored with the upstream where it keeps one, or inherited from the Calendar's Reminder Default when
+the Event asks for that; ringing it is the Notifier's job, on every Calendar the User has not
+switched off, and never for an Occurrence the User declined. Reminders that send email or fire at an
+absolute time are kept for round-tripping and never shown or fired.
 _Avoid_: alarm, alert, notification (when the setting rather than the delivery is meant)
+
+**Reminder Default**:
+The Reminders a Calendar's Events get when they ask for the default: one list for timed Events and
+one for all-day Events, since minutes before midnight is meaningless for the latter. Wicket's own
+setting per Calendar, seeded once and never read from or written to the upstream again, because how
+Wicket rings is Wicket's to decide even when the upstream keeps a default of its own.
+_Avoid_: calendar reminders, default alarms, notification settings
 
 **Materialisation Window**:
 The span of time, about a year back and two years forward from today and rolling daily, for which
@@ -562,6 +572,13 @@ How far back a Mail Account's message bodies have been fetched and indexed. Head
 _Avoid_: backfill progress
 
 ### Preferences
+
+**Home Time Zone**:
+The User's own time zone, the one the Sync Backend uses wherever it must turn a date or a floating
+time into an instant on the User's behalf: an all-day Event's Reminder, a floating Event's Reminder,
+a Local Calendar's zone. A User-scoped preference, seeded from the first device the User signs in
+from and changed in Settings, never inferred from the server's clock.
+_Avoid_: server time zone, default time zone, user timezone
 
 **Device Preference**:
 A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout, list density, and appearance (light/dark/system; defaults to system; #72, ADR-0011 amended). Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
