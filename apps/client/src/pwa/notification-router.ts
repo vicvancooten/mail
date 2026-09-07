@@ -19,6 +19,7 @@ export type NotificationTarget =
   | { kind: "screener"; mailAccountId: string };
 
 const listeners = new Set<(target: NotificationTarget) => void>();
+const startedContainers = new WeakSet<MessageContainer>();
 
 /** `MailSection` calls this once, on mount. */
 export function subscribeNotificationTarget(
@@ -88,6 +89,8 @@ export function startNotificationRouter(
   container: MessageContainer | undefined = globalThis.navigator?.serviceWorker,
 ): void {
   if (!container) return;
+  if (startedContainers.has(container)) return;
+  startedContainers.add(container);
   container.addEventListener("message", (event) => {
     if (!isNotificationClickMessage(event.data)) return;
     publishNotificationTarget(event.data.target);

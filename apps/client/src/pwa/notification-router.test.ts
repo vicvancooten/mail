@@ -63,4 +63,19 @@ describe("startNotificationRouter", () => {
   it("is a no-op with no container to listen on", () => {
     expect(() => startNotificationRouter(undefined)).not.toThrow();
   });
+
+  it("does not register the same container twice", () => {
+    const container = fakeContainer();
+    startNotificationRouter(container);
+    startNotificationRouter(container);
+    const received: NotificationTarget[] = [];
+    unsubscribe = subscribeNotificationTarget((target) => received.push(target));
+
+    container.emit({
+      type: "notification-click",
+      target: { kind: "screener", mailAccountId: "acct-1" },
+    });
+
+    expect(received).toEqual([{ kind: "screener", mailAccountId: "acct-1" }]);
+  });
 });
