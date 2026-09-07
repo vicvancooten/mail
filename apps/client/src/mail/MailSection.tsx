@@ -932,6 +932,13 @@ export function MailSection({
   // needed).
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
 
+  // The phone folder Sheet (#155): controlled from here now rather than
+  // `Sidebar.tsx`'s own uncontrolled `openMobile`, so the bottom bar's
+  // Folders button (`router/BottomBar.tsx`, reached through the Action
+  // registry's `onOpenFolders` below) can open it from outside Mail's own
+  // rendered rail.
+  const [foldersOpen, setFoldersOpen] = useState(false);
+
   // Whichever Thread is actually open right now — the ordinary Inbox
   // pairing, Search's own results-view selection, or an opened search hit
   // (#100), matching the same branch the JSX below already takes — is what
@@ -1014,6 +1021,7 @@ export function MailSection({
       onBackToList: backToList,
       onOpenScreener: openScreener,
       screenerCount: screenerSenderCount,
+      onOpenFolders: () => setFoldersOpen(true),
       // `/` opens the Palette directly now (#147) — there is no field of
       // Mail's own left to focus.
       onFocusSearch: openPalette,
@@ -1088,6 +1096,8 @@ export function MailSection({
             screenerCount={screenerSenderCount}
             draftsCount={draftCompositions.length}
             onOpenStream={onOpenStream}
+            foldersOpen={foldersOpen}
+            onFoldersOpenChange={setFoldersOpen}
           />
           <div className="mail-body">
             {screenerOpen && accountScope.length > 0 ? (

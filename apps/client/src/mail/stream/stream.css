@@ -241,3 +241,33 @@
 .stream-empty-back:hover {
   background: var(--color-hover);
 }
+
+/* ============================================================================
+   NARROW VIEWPORT (#155)
+   Stream had no phone rules at all before this ticket — its desktop
+   padding (24px each side, a peek card inset by another 24px on top of
+   that) was never narrowed for a 390px card, wasting width the one reading
+   surface Stream shows needs. The route itself already sits inside
+   `.app-viewport`'s phone-reserved top/bottom space (`shell.css`'s own
+   header/bottom-bar reservation), so nothing here needs its own extra
+   safe-area accounting — only the horizontal padding, which that
+   reservation doesn't touch.
+   ========================================================================= */
+
+@media (max-width: 700px) {
+  .stream-topbar {
+    padding: 12px 16px;
+  }
+
+  .stream-cards {
+    padding: 0 12px 16px;
+  }
+
+  .stream-card-peek {
+    width: calc(100% - 24px);
+  }
+
+  .stream-skip {
+    margin: 0 0 12px;
+  }
+}

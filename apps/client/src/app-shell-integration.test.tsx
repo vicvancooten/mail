@@ -1,5 +1,5 @@
 import type { MailAccount } from "@mail/shared";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -377,6 +377,53 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(overlay).not.toBeNull();
       await user.click(overlay as Element);
       expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("at phone width, the header sheds to search and avatar and the bottom bar carries Folders, the App Switcher and Compose (#155)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+
+    try {
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      // The home mark, the header's own App Switcher instance and the
+      // appearance toggle are gone from the tree entirely — a real
+      // conditional (#155), not CSS-only visibility, so there's exactly
+      // one "Switch app" control to find, not a duplicate.
+      expect(screen.queryByLabelText("Wicket home")).toBeNull();
+      expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
+      expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
+
+      // The bottom bar itself: Folders, the App Switcher (captioned with
+      // the current App's name, "Mail" — its accessible name stays "Switch
+      // app" either way, the same one the header's own skin carries), and
+      // Compose — scoped to the bar itself, since jsdom (unlike a real
+      // browser) never hides the desktop folder rail's own same-named
+      // Compose pill for a width it can't apply `mail.css`'s CSS against.
+      const bottomBar = screen.getByRole("navigation", {
+        name: "Folders, switch app, and compose",
+      });
+      expect(within(bottomBar).getByRole("button", { name: "Folders" })).toBeDefined();
+      expect(within(bottomBar).getByText("Mail")).toBeDefined();
+      expect(within(bottomBar).getByRole("button", { name: "Compose" })).toBeDefined();
+
+      // Folders opens the same Sheet the desktop rail's entries live in.
+      await user.click(within(bottomBar).getByRole("button", { name: "Folders" }));
+      expect(await screen.findByRole("dialog")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Screener" })).toBeDefined();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      // Compose opens the Composer from the bottom bar directly.
+      await user.click(within(bottomBar).getByRole("button", { name: "Compose" }));
+      expect(await screen.findByPlaceholderText("Subject")).toBeDefined();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }

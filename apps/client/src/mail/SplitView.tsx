@@ -1,6 +1,7 @@
 import { Mark } from "../brand/Mark.js";
 import type { CachedThread } from "../store/index.js";
 import type { ListDensity } from "./device-preferences.js";
+import { ReaderNeighborRail } from "./ReaderNeighborRail.js";
 import type { MailtoLink } from "./reading/mailto.js";
 import type { OnReply } from "./ThreadDetailPane.js";
 import { ThreadDetailPane } from "./ThreadDetailPane.js";
@@ -83,16 +84,22 @@ export function SplitView({
       </div>
       <div className="split-pane">
         {selectedThread ? (
-          <ThreadDetailPane
-            key={selectedThread.id}
-            thread={selectedThread}
-            onBack={onClearSelection}
-            onPrev={prevId ? () => onSelect(prevId) : undefined}
-            onNext={nextId ? () => onSelect(nextId) : undefined}
-            triage={triage}
-            onReply={onReply}
-            onMailtoLink={onMailtoLink}
-          />
+          <>
+            <ThreadDetailPane
+              key={selectedThread.id}
+              thread={selectedThread}
+              onBack={onClearSelection}
+              onPrev={prevId ? () => onSelect(prevId) : undefined}
+              onNext={nextId ? () => onSelect(nextId) : undefined}
+              triage={triage}
+              onReply={onReply}
+              onMailtoLink={onMailtoLink}
+            />
+            <ReaderNeighborRail
+              onPrev={prevId ? () => onSelect(prevId) : undefined}
+              onNext={nextId ? () => onSelect(nextId) : undefined}
+            />
+          </>
         ) : (
           // The comp's `.caught-up`: an accent-soft disc, one line saying
           // where you are, and — the product's own addition, since the comp

@@ -6,6 +6,7 @@ import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { useIsMobile } from "../hooks/use-mobile.js";
 import { AccountScope } from "../mail/AccountScope.js";
 import { isTyping } from "../mail/actions/ActionsProvider.js";
 import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
@@ -18,7 +19,9 @@ import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { useMailAccounts } from "../store/index.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
+import { BottomBar } from "./BottomBar.js";
 import { rootRoute } from "./routes.js";
+import { useChromeRetract } from "./useChromeRetract.js";
 import "./shell.css";
 
 /**
@@ -50,6 +53,18 @@ import "./shell.css";
  * other Split/List layout switch in the app) and full-bleed on the phone —
  * `.app-viewport`'s padding and `.app-card`'s radius/shadow both toggle at
  * that width, rather than either route rendering two different trees.
+ *
+ * Phone chrome (#155, rescinding `DESIGN.md`'s earlier "no bottom tab bar"
+ * for phone): `HomeLink`, the header's own `AppSwitcher` instance and the
+ * appearance toggle all drop out of the header on phone — a real
+ * conditional (`isPhoneChrome` below), not CSS-only visibility, since a
+ * hidden-but-mounted "Switch app" control is a duplicate accessible
+ * control, not a neutral simplification. `BottomBar.tsx` picks up Folders,
+ * the App Switcher and Compose down there instead, and Appearance folds
+ * into `AvatarMenu`'s own radio group, which already had it. The header
+ * and the bottom bar retract together on scroll-down and return on
+ * scroll-up (`useChromeRetract.ts`), `data-chrome-hidden` below being what
+ * `shell.css`'s phone query reads to animate both.
  *
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
@@ -167,24 +182,53 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // Nothing Mail-scoped mounted (Settings, a placeholder App): the same
   // "nothing wired" context the Shortcut Sheet already renders against,
   // with `/`/⌘K's own callbacks still live so those two rows work from
-  // anywhere, and Stream still one command away.
+  // anywhere, and Stream still one command away. The phone bottom bar's
+  // Folders and Compose buttons (#155) read this same fallback — from
+  // Settings or a placeholder App, both navigate to Mail first rather than
+  // doing nothing, the same "navigate, then act" shape `paletteSearch`
+  // above already uses for a hit selected from outside `/mail`.
   const fallbackCtx = useMemo(
     () =>
       noopActionContext({
         onFocusSearch: openPalette,
         onOpenPalette: openPalette,
         onOpenStream: () => void navigate({ to: "/mail/stream" }),
+        onOpenFolders: () => void navigate({ to: "/mail" }),
+        onCompose: () => void navigate({ to: "/mail" }),
       }),
     [openPalette, navigate],
   );
 
+  // The Hub header and phone bottom bar retract on scroll-down, return on
+  // scroll-up (#155's own acceptance box) — `data-chrome-hidden` below is
+  // what `shell.css`'s phone query reads; see `useChromeRetract.ts` for why
+  // one hook here covers every scrollable pane any route renders.
+  const chromeHidden = useChromeRetract(pathname);
+  const activeCtx = activeHost?.ctx ?? fallbackCtx;
+
+  // The phone/desktop split for this chrome (#155): a real conditional, not
+  // CSS-only visibility, and deliberately `AppSwitcher.tsx`'s own
+  // `useIsMobile` (768px) rather than this app's other 700px breakpoint
+  // (`Sidebar.tsx`, `mail.css`'s Split/List switch) — `AppSwitcher` already
+  // branches its own Sheet-vs-inline rendering on this exact hook, and
+  // mounting *both* a header instance and a bottom-bar instance of it (each
+  // carrying the same "Switch app" accessible name) would be a real
+  // duplicate-control bug, not just a test inconvenience — CSS `display:
+  // none` hides one visually but leaves it in the accessibility tree and
+  // tab order. `shell.css`'s own phone query for this chrome matches this
+  // same 768px number for exactly that reason, accepting the narrow
+  // 701–767px seam against Sidebar's own breakpoint that already exists
+  // elsewhere in this app rather than reconciling every breakpoint in one
+  // pass.
+  const isPhoneChrome = useIsMobile();
+
   return (
     <TooltipProvider>
-      <div className="app-shell">
+      <div className="app-shell" data-chrome-hidden={chromeHidden}>
         <header className="app-header">
           <div className="header-left">
-            <HomeLink />
-            <AppSwitcher pathname={pathname} />
+            {!isPhoneChrome && <HomeLink />}
+            {!isPhoneChrome && <AppSwitcher pathname={pathname} />}
           </div>
           <div className="header-center">
             <button type="button" className="global-search" onClick={openPalette}>
@@ -195,15 +239,17 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
           </div>
           <div className="header-right">
             <AccountScope accounts={mailAccounts} scope={accountScope} onChange={setAccountScope} />
-            <button
-              type="button"
-              className="header-icon-btn"
-              title="Toggle appearance"
-              aria-label="Toggle appearance"
-              onClick={toggleAppearance}
-            >
-              {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
+            {!isPhoneChrome && (
+              <button
+                type="button"
+                className="header-icon-btn"
+                title="Toggle appearance"
+                aria-label="Toggle appearance"
+                onClick={toggleAppearance}
+              >
+                {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            )}
             <AvatarMenu
               username={user.username}
               role={user.role}
@@ -217,12 +263,13 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             <Outlet />
           </div>
         </div>
+        {isPhoneChrome && <BottomBar pathname={pathname} ctx={activeCtx} />}
         <Toaster />
       </div>
       <CommandPalette
         open={paletteOpen}
         onClose={closePalette}
-        ctx={activeHost?.ctx ?? fallbackCtx}
+        ctx={activeCtx}
         search={paletteSearch}
         searchOrigin={activeHost?.searchOrigin ?? { kind: "other" }}
         accounts={mailAccounts}

@@ -264,6 +264,12 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       onBackToList: onLeave,
       onOpenScreener: () => {},
       screenerCount: 0,
+      // Stream has no folder rail of its own — the phone bottom bar's
+      // Folders button (#155) exits the stack back to the list it's
+      // draining, the same "not now" `onLeave` already means for Escape and
+      // the close button, rather than trying to pop a Sheet Stream doesn't
+      // own.
+      onOpenFolders: onLeave,
       // `/` and ⌘K reach the Hub-level Palette from Stream too now (#147) —
       // it used to be a no-op here, the bug the epic named directly
       // ("the Command Palette appears behind [Stream] and is invisible

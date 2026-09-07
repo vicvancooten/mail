@@ -86,32 +86,61 @@ function AppTabs({
   );
 }
 
-function PhoneSwitcher({
+/**
+ * Exported as of #155: the phone bottom bar (`router/BottomBar.tsx`) renders
+ * this directly rather than going through `AppSwitcher`'s own `useIsMobile`
+ * branch — the bottom bar is already CSS-gated to the app's 700px phone
+ * breakpoint, so a second, differently-thresholded JS check here would just
+ * be a chance for the two to disagree.
+ *
+ * `variant="bottom-bar"` swaps the header's icon-plus-chevron trigger for
+ * one that matches its two siblings there (Folders, Compose) — the current
+ * App's name as a caption, no chevron, since a persistent tab item is never
+ * "expanded" the way the header's own disclosure toggle can read. The Sheet
+ * itself, and everything in it, is unchanged either way.
+ */
+export function PhoneSwitcher({
   current,
   CurrentIcon,
   open,
   setOpen,
+  variant = "header",
 }: {
   current: ReturnType<typeof appForPath>;
   CurrentIcon: ReturnType<typeof appIconFor>;
   open: boolean;
   setOpen: (open: boolean) => void;
+  variant?: "header" | "bottom-bar";
 }) {
   return (
     <>
-      <button
-        type="button"
-        className="switcher-compact-btn"
-        aria-label="Switch app"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen(true)}
-      >
-        <span className="app-tile">
-          <CurrentIcon size={15} />
-        </span>
-        <ChevronDown size={13} className="chev" />
-      </button>
+      {variant === "bottom-bar" ? (
+        <button
+          type="button"
+          className="bottom-bar-item"
+          aria-label="Switch app"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+        >
+          <CurrentIcon size={20} />
+          <span>{current?.name ?? "Apps"}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="switcher-compact-btn"
+          aria-label="Switch app"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+        >
+          <span className="app-tile">
+            <CurrentIcon size={15} />
+          </span>
+          <ChevronDown size={13} className="chev" />
+        </button>
+      )}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="bottom" className="switcher-sheet">
           <SheetHeader className="sr-only">

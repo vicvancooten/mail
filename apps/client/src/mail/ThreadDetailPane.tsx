@@ -1,17 +1,6 @@
 import type { Message } from "@mail/shared";
 import { labelNameFromId } from "@mail/shared";
-import {
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronUp,
-  Clock,
-  Pin,
-  Reply,
-  Star,
-  Tag,
-  Trash2,
-} from "lucide-react";
+import { CheckCircle2, ChevronLeft, Clock, Pin, Reply, Star, Tag, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { ReplyMode } from "../compose/reply.js";
@@ -230,34 +219,14 @@ export function ThreadDetailPane({
               <h1 className="reading-subject">{thread.subject || "(no subject)"}</h1>
             </div>
             <div className="reading-actions">
-              {/* Prev/next are not rendered at all on a touch-capable phone
-                (#143 user story 13) — swipe and Auto-advance carry the User
-                on instead, freeing the header for the subject. Desktop's own
-                placement of these once they leave this row is #155's call;
-                until then they stay exactly where they are here. */}
-              {!phone && (onPrev || onNext) ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={onPrev}
-                    disabled={!onPrev}
-                    aria-label="Previous thread"
-                    title={buttonTitle("prev-thread", "Previous thread")}
-                  >
-                    <ChevronUp size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onNext}
-                    disabled={!onNext}
-                    aria-label="Next thread"
-                    title={buttonTitle("next-thread", "Next thread")}
-                  >
-                    <ChevronDown size={15} />
-                  </button>
-                  <span className="reading-actions-gap" />
-                </>
-              ) : null}
+              {/* Prev/next are gone from this row entirely (#155): a
+                touch-capable phone never had them here (#143 user story
+                13 — swipe and Auto-advance carry the User on instead), and
+                desktop's own copy moved out to `ReaderNeighborRail.tsx`, a
+                floating rail beside the pane rather than a row of icons
+                fighting the subject for space. `SplitView.tsx` is what
+                renders that rail now; `onPrev`/`onNext` stay props here
+                purely for `useSwipeToNavigate` below. */}
               {/* The primary tier (#143): Reply, Done, Snooze, Trash — the
                 registry's `reader-primary` surface, visible on every surface
                 (Split, List, phone, Stream). Rendered by hand rather than a

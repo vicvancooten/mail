@@ -122,6 +122,15 @@ export interface ActionContext {
   onBackToList: () => void;
   onOpenScreener: () => void;
   screenerCount: number;
+  /**
+   * Opens the phone bottom bar's Folders sheet (#155) — the Sidebar's own
+   * `MobileSheet`, controlled from here rather than a floating in-body
+   * toggle now that the bottom bar is the one place that opens it. `null`
+   * nowhere: every publisher has *some* honest answer (Stream's exits back
+   * to the list, the Hub's own fallback navigates to Mail first), the same
+   * "always runnable" shape `onOpenStream` already has.
+   */
+  onOpenFolders: () => void;
   onFocusSearch: () => void;
   onOpenPalette: () => void;
   onOpenShortcutSheet: () => void;
@@ -248,6 +257,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onBackToList: () => {},
     onOpenScreener: () => {},
     screenerCount: 0,
+    onOpenFolders: () => {},
     onFocusSearch: () => {},
     onOpenPalette: () => {},
     onOpenShortcutSheet: () => {},

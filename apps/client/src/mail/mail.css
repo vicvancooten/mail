@@ -96,10 +96,6 @@
   min-height: 0;
 }
 
-.side-nav-toggle {
-  display: none;
-}
-
 .side-nav {
   flex: 0 0 auto;
   width: 216px;
@@ -355,6 +351,31 @@
   height: 100%;
   overflow-y: auto;
   background: var(--color-bg);
+}
+
+/* The Reader's prev/next (#155): a floating rail beside the pane, desktop
+   only — `.reader-neighbor-rail` itself, defined with the reading surfaces
+   below. `.split-pane` becomes a flex row exactly wide enough to hold
+   `ThreadDetailPane` (or the empty state) plus the rail; `.split-pane`'s own
+   `overflow-y: auto` above never actually triggers once this applies —
+   both children always compute to the pane's full `height: 100%`, so the
+   real scrolling stays inside `ThreadDetailPane`'s own `.reading-body`,
+   untouched by this. Scoped to the same ≥701px breakpoint as every other
+   Split/List switch, so the ≤700px "one pane, no rail" phone shape below is
+   unaffected. */
+@media (min-width: 701px) {
+  .split-pane {
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+    padding-right: 14px;
+  }
+
+  .split-pane > .thread-detail,
+  .split-pane > .pane-empty {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 /* Past 1100px the list has to clear the 520px fold, or the comp's
@@ -1545,6 +1566,60 @@
 .reading-actions-secondary button:hover:not(:disabled),
 .reading-actions-secondary button.on {
   opacity: 1;
+}
+
+/* The Reader's prev/next, desktop only (#155): a small floating rail beside
+   the pane, `.split-pane`'s own flex sibling of `ThreadDetailPane` (see
+   `.split-pane`'s ≥701px rule above) — vertically centered rather than
+   stretched full height, so it reads as a floating control and not a
+   second sidebar. Hidden by default; a touch-capable phone has swipe
+   instead (#150), and List's single pane has no "beside" to float this in
+   regardless — `ThreadDetailPane`'s own `phone` check already keeps the
+   old inline chevrons out of the way there, and `SplitView.tsx` is the
+   only caller that renders this component at all. */
+.reader-neighbor-rail {
+  display: none;
+}
+
+@media (min-width: 701px) {
+  .reader-neighbor-rail {
+    display: flex;
+    flex-direction: column;
+    align-self: center;
+    flex: none;
+    width: 40px;
+    padding: 4px;
+    gap: 2px;
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .reader-neighbor-rail button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    transition:
+      background var(--dur-press) var(--ease),
+      color var(--dur-press) var(--ease);
+  }
+
+  .reader-neighbor-rail button:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+
+  .reader-neighbor-rail button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
 }
 
 .reading-meta {
@@ -2839,30 +2914,29 @@ button.search-chip-toggle.on {
    NARROW VIEWPORT
    ========================================================================= */
 
+/* The list's own `padding-bottom: env(safe-area-inset-bottom)` (above,
+   width-unconditional) is now redundant on phone specifically: the bottom
+   bar's fixed height already carries that same inset
+   (`router/shell.css`'s own `.app-viewport` reservation, `RootLayout.tsx`'s
+   `isPhoneChrome`), so the list's box never actually reaches the safe area
+   any more there. A flat gap instead of double-counting it — breathing
+   room before the bar, not a second helping of the same inset. Its own
+   query, matching `isPhoneChrome`'s 768px exactly rather than this file's
+   other 700px breakpoint below, since it's the bottom bar's presence this
+   is compensating for, not the Split/List switch. */
+@media (max-width: 767px) {
+  .thread-list {
+    padding-bottom: 12px;
+  }
+}
+
 @media (max-width: 700px) {
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
-     becomes a `Sheet` bottom sheet instead (#93), opened from its own
-     toggle — the sheet's own overlay and slide-up chrome replace the
-     hand-rolled scrim/transform this used to be. */
+     becomes a `Sheet` bottom sheet instead (#93) — opened from the phone
+     bottom bar's own Folders button now (#155, `router/BottomBar.tsx`),
+     not an in-body toggle floating over the list. */
   .side-nav-desktop {
     display: none;
-  }
-
-  .side-nav-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    z-index: 2;
-    width: 32px;
-    height: 32px;
-    border: none;
-    border-radius: var(--radius-md);
-    background: var(--color-field);
-    color: var(--color-ink-muted);
-    cursor: pointer;
   }
 
   .side-nav-sheet {
