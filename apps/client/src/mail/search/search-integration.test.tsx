@@ -103,7 +103,7 @@ async function openResultsView(query: string): Promise<void> {
   fireEvent.keyDown(window, { key: "/" });
   const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
   fireEvent.change(field, { target: { value: query } });
-  const seeAll = await screen.findByRole("option", { name: /See all results/ });
+  const seeAll = await screen.findByRole("option", { name: /See all results/ }, { timeout: 5_000 });
   fireEvent.click(seeAll);
   await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
 }

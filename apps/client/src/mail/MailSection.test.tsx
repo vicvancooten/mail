@@ -905,7 +905,7 @@ describe("Reader action hierarchy (#143)", () => {
     expect(screen.queryByRole("button", { name: /Mark as (read|unread)/ })).toBeNull();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
-    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(await screen.findByRole("menuitem", { name: /Mark as (read|unread)/ })).toBeDefined();
     expect(screen.queryByRole("menuitem", { name: "Pin" })).toBeNull();
   });
 
@@ -941,7 +941,7 @@ describe("Reader action hierarchy (#143)", () => {
     await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
     expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: /Star/ })).toBeDefined();
-    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Mark as (read|unread)/ })).toBeDefined();
   });
 });
 

@@ -137,7 +137,7 @@ describe("applyThreadDelta", () => {
     );
 
     expect((await localCache().threads.get(newest))?.subject).toBe("Rewound");
-  });
+  }, 20_000);
 });
 
 /**

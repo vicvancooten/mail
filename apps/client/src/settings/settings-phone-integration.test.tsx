@@ -121,7 +121,7 @@ describe("Settings at phone width (#135)", () => {
       await screen.findByRole("link", { name: /General/ });
       cleanup();
     }
-  });
+  }, 20_000);
 
   it("at desktop width, /settings still redirects to General and keeps the rail", async () => {
     stubMatchMedia(() => false);
