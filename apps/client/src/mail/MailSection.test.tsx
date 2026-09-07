@@ -941,7 +941,10 @@ describe("Reader action hierarchy (#143)", () => {
     await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
     expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: /Star/ })).toBeDefined();
-    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    // Opening the thread marks it read asynchronously; the item's own label
+    // flips from "Mark as read" to "Mark as unread" once that settles, same
+    // race the desktop version of this menu (line 908, above) polls for.
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
   });
 });
 
