@@ -104,9 +104,17 @@ export default defineConfig({
     // lose the race varies run to run. Capping the fork pool keeps each
     // worker's jsdom+React actually scheduled promptly; verified stable
     // across repeated full runs at this cap where the uncapped default
-    // wasn't. 4 matches a GitHub Actions runner's vCPU count, so it uses
-    // the runner fully without oversubscribing it.
-    maxWorkers: 4,
+    // wasn't. Confirmed 4 was still *not* low enough: reproduced this same
+    // suite's exact remaining CI failures locally by pinning the process to
+    // 2 real cores (`taskset -c 0,1`) — 4 workers fighting over 2 cores
+    // reliably starved search-integration.test.tsx's prefilter-driven
+    // assertions past even the raised `asyncUtilTimeout` below, and dropping
+    // to 2 workers on that same 2-core pin fixed it outright, in roughly the
+    // same wall-clock time (4-on-2 bought no speedup, only contention). GitHub
+    // Actions' advertised vCPU count doesn't guarantee that much real,
+    // uncontended throughput, so 2 is the safe floor rather than a number
+    // matched to any specific runner.
+    maxWorkers: 2,
     // Belt-and-braces alongside the worker cap above: a busy CI runner (or
     // dev box) can still stretch an individual async assertion past
     // Testing Library's/Vitest's defaults by chance. Doubling both leaves
