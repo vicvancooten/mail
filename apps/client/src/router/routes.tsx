@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
+import { isPhoneWidth } from "../hooks/use-phone-width.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
@@ -73,6 +74,16 @@ export interface MailSearch {
   folder?: FolderKey;
   /** The selected Thread id. */
   thread?: string;
+  /**
+   * A notification deep-link's Mail Account (#151), *not* part of the
+   * restorable snapshot `onLocationChange` mirrors back: Account Scope is
+   * its own Device Preference (`useAccountScope.ts`), so this only ever
+   * seeds `MailSection`'s `initialAccountId` on a fresh mount — widening a
+   * previously-narrowed Scope so the `thread`/`screener` target above is
+   * actually visible. `MailRoute`'s own `onLocationChange` never writes it
+   * back, so it drops out of the URL the instant the mount settles.
+   */
+  account?: string;
 }
 
 export const mailRoute = createRoute({
@@ -83,6 +94,7 @@ export const mailRoute = createRoute({
     folder:
       parseFolderKey(typeof search.folder === "string" ? search.folder : undefined) ?? undefined,
     thread: typeof search.thread === "string" ? search.thread : undefined,
+    account: typeof search.account === "string" ? search.account : undefined,
   }),
   component: MailRoute,
 });
@@ -104,9 +116,9 @@ export const streamRoute = createRoute({
 /**
  * Settings' own sub-routes (#99): `settingsRoute` is now a layout route
  * (`SettingsLayout`'s side nav + `<Outlet/>`) rather than a single screen —
- * `/settings` itself carries no content of its own, redirecting to General
- * the same way `indexRoute` above forwards `/` to Mail. Each child is its
- * own bounded pane (`SettingsLayout`'s own doc comment).
+ * `/settings` itself carries no content of its own on desktop, redirecting
+ * to General the same way `indexRoute` above forwards `/` to Mail. Each
+ * child is its own bounded pane (`SettingsLayout`'s own doc comment).
  */
 export const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -114,11 +126,23 @@ export const settingsRoute = createRoute({
   component: SettingsLayout,
 });
 
+/**
+ * At phone width, `/settings` *is* the entry point (#135): the section list
+ * `SettingsLayout` renders full-width, with no rail and no section
+ * auto-selected. The redirect-to-General that always fired here only makes
+ * sense once a rail is beside the content it selects into — on desktop the
+ * redirect still holds, so `/settings` and `/settings/general` keep meaning
+ * the same thing there. `isPhoneWidth()` (not the reactive hook: a route's
+ * `beforeLoad` isn't a component) reads the same breakpoint `SettingsLayout`
+ * itself renders from, so the two never disagree about which one is current.
+ */
 const settingsIndexRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: "/settings/general" });
+    if (!isPhoneWidth()) {
+      throw redirect({ to: "/settings/general" });
+    }
   },
 });
 
@@ -134,9 +158,17 @@ export const settingsThisDeviceRoute = createRoute({
   component: ThisDeviceSection,
 });
 
+export interface SettingsMailAccountsSearch {
+  /** A `needs_reauth` notification's cold-start deep-link (#151) — `MailAccountsPage`'s own seam for `scrollToMailAccountSettings`, mirroring what `RootLayout.tsx`'s notification-target effect does for an already-open window. */
+  account?: string;
+}
+
 export const settingsMailAccountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/mail-accounts",
+  validateSearch: (search: Record<string, unknown>): SettingsMailAccountsSearch => ({
+    account: typeof search.account === "string" ? search.account : undefined,
+  }),
   component: MailAccountsPage,
 });
 

@@ -1,6 +1,10 @@
-import { MailAccountsSection } from "../mail-accounts/MailAccountsSection.js";
+import { useEffect } from "react";
+import {
+  MailAccountsSection,
+  scrollToMailAccountSettings,
+} from "../mail-accounts/MailAccountsSection.js";
 import { SignatureEditor } from "../mail-accounts/SignatureEditor.js";
-import { rootRoute } from "../router/routes.js";
+import { rootRoute, settingsMailAccountsRoute } from "../router/routes.js";
 import { enqueueMutation, useMailAccounts } from "../store/index.js";
 
 /**
@@ -14,7 +18,11 @@ import { enqueueMutation, useMailAccounts } from "../store/index.js";
  * (`mail-accounts/MailAccountsSection.tsx`) still name a row inside
  * `MailAccountsSection` itself, so a `needs_reauth` notification click still
  * lands on the right row once `router/RootLayout.tsx` navigates here
- * (`/settings/mail-accounts`).
+ * (`/settings/mail-accounts`) for an already-open window. A cold start
+ * (#151) has no open-window click to react to — the target rides `?account=`
+ * on the URL `sw.ts#focusOrOpenClient` opens instead, and this mount effect
+ * is what still gets it to the right row, best-effort the same way the
+ * open-window path is (a no-op if this hasn't rendered the row yet).
  */
 export function MailAccountsPage() {
   const mailAccounts = useMailAccounts() ?? [];
@@ -22,6 +30,11 @@ export function MailAccountsPage() {
   // ADR-0021): the Owner is told where to fix it, a Member whom to ask.
   // The same seam `SettingsLayout` reads the role through.
   const { user } = rootRoute.useRouteContext();
+  const { account } = settingsMailAccountsRoute.useSearch();
+
+  useEffect(() => {
+    if (account) scrollToMailAccountSettings(account);
+  }, [account]);
 
   return (
     <section className="settings-page">

@@ -167,6 +167,45 @@ describe("GatekeeperSection", () => {
     expect(await screen.findByText(/Spam/)).toBeDefined();
   });
 
+  it("renders the Load remote images Select at the account's current (already-resolved) value (#146)", async () => {
+    vi.mocked(gatekeeperApi.fetchGatekeeperStatus).mockResolvedValue(
+      status({ gatekeeper: { enabled: true, cutoff: "2026-06-01T00:00:00.000Z" } }),
+    );
+
+    // The Sync Backend resolves the read-time default before the wire ever
+    // carries it (`resolveRemoteImagesSetting`) — this component only ever
+    // sees one of the three real values, covered separately in
+    // `sync-backend`'s `messages.test.ts`/`sync.test.ts`.
+    render(
+      <GatekeeperSection account={makeMailAccount("acct-1", { remoteImages: "approved-only" })} />,
+    );
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", {
+      name: "Load remote images",
+    });
+    expect(select.value).toBe("approved-only");
+  });
+
+  it("changing Load remote images queues a setRemoteImages Optimistic Action (#146)", async () => {
+    vi.mocked(gatekeeperApi.fetchGatekeeperStatus).mockResolvedValue(
+      status({ gatekeeper: { enabled: true, cutoff: "2026-06-01T00:00:00.000Z" } }),
+    );
+
+    render(
+      <GatekeeperSection account={makeMailAccount("acct-1", { remoteImages: "approved-only" })} />,
+    );
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", {
+      name: "Load remote images",
+    });
+    fireEvent.change(select, { target: { value: "ask" } });
+
+    const queued = await waitFor(async () => {
+      const rows = await listQueuedMutations("acct-1");
+      expect(rows).toHaveLength(1);
+      return rows;
+    });
+    expect(queued[0]?.intent).toEqual({ type: "setRemoteImages", value: "ask" });
+  });
+
   it("Reset asks for confirmation before calling the API", async () => {
     vi.mocked(gatekeeperApi.fetchGatekeeperStatus).mockResolvedValue(
       status({ gatekeeper: { enabled: true, cutoff: "2026-06-01T00:00:00.000Z" } }),

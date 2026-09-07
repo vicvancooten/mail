@@ -272,6 +272,15 @@ export const mailAccounts = pgTable(
     // make. `sync/gatekeeper/settings.ts` is the only writer.
     gatekeeperEnabled: boolean("gatekeeper_enabled").notNull().default(false),
     gatekeeperCutoff: timestamp("gatekeeper_cutoff", { withTimezone: true }),
+    // The remote-images permission (#146, CONTEXT.md §Remote images) — a
+    // third Mail-Account-scoped preference alongside `signature`/
+    // `notificationsEnabled`, edited through the same mutation queue
+    // (`setRemoteImages`). Null until the User picks one explicitly: the
+    // effective setting is derived at read time from `gatekeeperEnabled`
+    // (`@mail/shared#resolveRemoteImagesSetting`) rather than baked in as a
+    // stored default, so turning Gatekeeper on or off keeps answering the
+    // question correctly for every account that never touched this control.
+    remoteImages: text("remote_images", { enum: ["always", "approved-only", "ask"] }),
     // The groundwork for ADR-0015's two-tier liveness (#35): the resident
     // sync loop (`sync/live-session.ts`) stamps `lastProgressAt` on every
     // IDLE keepalive or completed poll and `syncState` on every transition,
@@ -1145,7 +1154,11 @@ export const gatekeeperVerdicts = pgTable(
     // the flag that picks Junk over Trash as the destination
     // (`gatekeeper/decisions.ts#spamSender`, `gatekeeper/screening.ts`).
     spam: boolean("spam").notNull().default(false),
-    source: text("source", { enum: ["seed", "sent", "screener", "settings"] }).notNull(),
+    // `inbox` (#144): Spam/Approve/Block reached from an ordinary Inbox
+    // Thread rather than the Screener — same column, no migration needed
+    // (plain `text`, no DB-side check constraint; `@mail/shared`'s
+    // `gatekeeperVerdictSourceSchema` is the one place that enumerates it).
+    source: text("source", { enum: ["seed", "sent", "screener", "settings", "inbox"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

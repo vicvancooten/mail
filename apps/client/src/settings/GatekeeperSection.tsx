@@ -1,4 +1,9 @@
-import type { GatekeeperSender, GatekeeperStatusResponse, MailAccount } from "@mail/shared";
+import type {
+  GatekeeperSender,
+  GatekeeperStatusResponse,
+  MailAccount,
+  RemoteImagesSetting,
+} from "@mail/shared";
 import { useCallback, useEffect, useState } from "react";
 import {
   disableGatekeeper,
@@ -30,6 +35,19 @@ function senderKey(sender: Pick<GatekeeperSender, "scope" | "value">): string {
  * settings name the account they change; no setting inherits Scope") —
  * `account` always names one real account, never Account Scope (#73), so a
  * Verdict from here is never at risk of landing on the wrong mailbox.
+ *
+ * The "Load remote images" Select (#146, CONTEXT.md §Remote images) sits
+ * beside the Enabled switch by product decision — trust is answered per
+ * account, as a Verdict already is, and this is where that account's other
+ * trust knob lives. Unlike Enabled, it's a plain `setRemoteImages`
+ * Optimistic Action on `account` (the reactive, already-overlaid prop from
+ * `useMailAccounts()`), not a fetched-`status` field: there's no seeding job
+ * to wait on, so it rides the ordinary mutation queue like `signature`/
+ * `notificationsEnabled` do. `account.remoteImages` already reads as one of
+ * the three real values, never `null` — the Sync Backend resolves the
+ * read-time default before the wire ever carries it
+ * (`mail-accounts.ts#resolveRemoteImagesSetting`) — so the Select has
+ * nothing fourth to render here.
  */
 export function GatekeeperSection({ account }: { account: MailAccount }) {
   const [status, setStatus] = useState<GatekeeperStatusResponse | null>(null);
@@ -131,6 +149,23 @@ export function GatekeeperSection({ account }: { account: MailAccount }) {
           onChange={(event) => void toggle(event.target.checked)}
         />
         Enabled
+      </label>
+
+      <label>
+        Load remote images
+        <select
+          value={account.remoteImages}
+          onChange={(event) =>
+            void enqueueMutation(
+              { type: "setRemoteImages", value: event.target.value as RemoteImagesSetting },
+              account.id,
+            )
+          }
+        >
+          <option value="always">Always</option>
+          <option value="approved-only">Approved Senders only</option>
+          <option value="ask">Ask every time</option>
+        </select>
       </label>
 
       {status.gatekeeper.enabled && status.gatekeeper.cutoff ? (

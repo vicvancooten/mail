@@ -23,12 +23,25 @@ export type ActionSection = (typeof ACTION_SECTIONS)[number];
  * Where an action may appear beyond the Command Palette and the Shortcut
  * Sheet, which list *every* non-contextual action whether or not it can run
  * right now (#79). Menus, by contrast, never show an unavailable action.
+ *
+ * The three `reader-*` tags are the Reader's own tier (#143): `reader-primary`
+ * (Reply, Done, Snooze, Trash) is visible on every surface; `reader-secondary`
+ * (Pin, Star, Label) renders inline but quieter, desktop only; `reader-more`
+ * (Read/unread, Forward, Spam, Approve, Block — #144) lives
+ * in the Reader's "More" menu on every surface, joined there by the secondary
+ * tier too on a touch-capable phone, where there's no room to keep it inline
+ * (`ThreadDetailPane`, `registry.ts#moreReaderActions`). A new More-tier
+ * action is nothing more than adding `"reader-more"` to its `surfaces` array.
  */
 export type ActionSurface =
   /** The Thread row's hover cluster (`ThreadRow`'s reserved whitespace and `.row-actions`). */
   | "row-hover"
-  /** The reader toolbar's run of icon buttons (`ThreadDetailPane`). */
-  | "reader"
+  /** The Reader's inline, always-visible run — Reply, Done, Snooze, Trash. */
+  | "reader-primary"
+  /** The Reader's inline, visually quieter run — Pin, Star, Label. Desktop only; folds into the More menu on a touch-capable phone. */
+  | "reader-secondary"
+  /** The Reader's "More" menu — everything else that still needs to be reachable. */
+  | "reader-more"
   /** The right-click / long-press menu on a row, the reader, a Screener row or a Draft row. */
   | "menu";
 
@@ -109,6 +122,15 @@ export interface ActionContext {
   onBackToList: () => void;
   onOpenScreener: () => void;
   screenerCount: number;
+  /**
+   * Opens the phone bottom bar's Folders sheet (#155) — the Sidebar's own
+   * `MobileSheet`, controlled from here rather than a floating in-body
+   * toggle now that the bottom bar is the one place that opens it. `null`
+   * nowhere: every publisher has *some* honest answer (Stream's exits back
+   * to the list, the Hub's own fallback navigates to Mail first), the same
+   * "always runnable" shape `onOpenStream` already has.
+   */
+  onOpenFolders: () => void;
   onFocusSearch: () => void;
   onOpenPalette: () => void;
   onOpenShortcutSheet: () => void;
@@ -213,6 +235,9 @@ export const NOOP_TRIAGE: Triage = {
   togglePin: () => {},
   applyLabel: () => {},
   removeLabel: () => {},
+  spamSender: () => NOOP_UNDO,
+  blockSender: () => NOOP_UNDO,
+  approveSender: () => NOOP_UNDO,
 };
 
 /**
@@ -232,6 +257,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onBackToList: () => {},
     onOpenScreener: () => {},
     screenerCount: 0,
+    onOpenFolders: () => {},
     onFocusSearch: () => {},
     onOpenPalette: () => {},
     onOpenShortcutSheet: () => {},

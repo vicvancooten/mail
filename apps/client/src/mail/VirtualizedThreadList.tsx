@@ -16,6 +16,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet.js";
+import { useHoverCapable } from "../hooks/use-hover-capable.js";
 import type { CachedThread } from "../store/index.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
@@ -28,6 +29,7 @@ import {
   readGroupCollapsed,
   writeGroupCollapsed,
 } from "./device-preferences.js";
+import { readListScrollOffset, saveListScrollOffset } from "./scroll-restore.js";
 import { type RowHoverAction, ThreadRow } from "./ThreadRow.js";
 import { taperHeaderHeight, taperRowHeight, ungroupedRowHeight } from "./taper.js";
 import { groupThreadsByTime, PINNED_GROUP_LABEL, type TimeGroupTier } from "./time-groups.js";
@@ -123,6 +125,7 @@ export function VirtualizedThreadList({
   getRowExtra,
   keyboardDisabled = false,
   initialScrollThreadId = null,
+  scrollRestoreKey = null,
   density = DEFAULT_LIST_DENSITY,
   groupBulk,
 }: {
@@ -143,14 +146,39 @@ export function VirtualizedThreadList({
   getRowExtra?: (thread: CachedThread) => RowExtra | undefined;
   /** Keeps this list from publishing its selection mover (#94) — for a copy of the list left mounted-but-hidden behind another surface (#51's search route swap), which must not be what `j`/`k` moves through. */
   keyboardDisabled?: boolean;
-  /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. */
+  /** Scrolls this Thread into view once, on mount — #51's "leaving [search] restores... its scroll position" (search-ux-spec.md), approximated as "the Thread you had open is back in view" rather than a raw pixel offset. Also `scrollRestoreKey`'s own fallback (#142): tried only when that key is unset or has no saved offset yet, or the saved one no longer fits this list. */
   initialScrollThreadId?: string | null;
+  /** This list's own identity for `scroll-restore.ts` (#142) — Account Scope + folder + label, from `MailSection`. Unset (search's own ungrouped list, `group={false}`) opts out of both saving and restoring a pixel offset entirely, leaving `initialScrollThreadId` as the only behavior, same as before this ticket. */
+  scrollRestoreKey?: string | null;
   /** The `compact` List Density Device Preference (#54) — shifts every taper tier by a fixed delta (#75, `taper.ts`) rather than flattening it. */
   density?: ListDensity;
   /** The group header cluster's own Done all / Mark all read / true-count wiring (#66, #77) — omitted anywhere the current folder isn't a valid bulk-Triage target (`MailSection`'s own gating), same "every prop here defaults to exactly today's behavior" posture the rest of this component's props already have. */
   groupBulk?: GroupBulkController;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
+  // #142: a plain `ref` alone can't drive an effect's dependency array, and
+  // this list's empty state (`threads.length === 0`, below) renders a `<p>`
+  // with no scroll container at all — the first real commit of the
+  // container can land on a *later* render than this component's own first
+  // one (the Local Cache's read resolves asynchronously), after which a
+  // `useEffect(fn, [])` has already fired, once, against a `parentRef` that
+  // was still null. Mirroring the container node into state via this
+  // callback ref gives the restore/tracking effects below a value that
+  // actually changes on the render where the node first exists, so `[
+  // scrollContainer]` fires them at the right time regardless of which
+  // render that turns out to be.
+  const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
+  const setParentRef = useCallback((node: HTMLDivElement | null) => {
+    parentRef.current = node;
+    setScrollContainer(node);
+  }, []);
+
+  // Gates every hover-only affordance below — the row Done glyph, the
+  // Group Done node, bulk actions and the Timeline Spine — on input
+  // capability rather than viewport width (#134): read once here and
+  // threaded down, so a header and its rows never disagree about which set
+  // is on screen.
+  const hoverCapable = useHoverCapable();
 
   // Collapsed state (#78) lives in `localStorage`, not React state — it's
   // read fresh into `items` below on every pass, and `toggleCollapsed`
@@ -212,6 +240,33 @@ export function VirtualizedThreadList({
   // leak across a boundary the User can plainly read.
   const [previewGroupLabel, setPreviewGroupLabel] = useState<string | null>(null);
 
+  // The last known pointer position over this list, in viewport
+  // coordinates — kept in a ref, not state, since it changes on every
+  // `mousemove` and none of those by themselves should force a render (#152).
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+
+  // The Thread now sitting under that stationary pointer, force-armed the
+  // same way `previewArmed` forces a group's rows above — but recomputed
+  // off `items` changing (a Triage action removing a row), never off a real
+  // `mousemove`: a row sliding up under a pointer that never moved fires no
+  // `mouseenter` of its own, so without this it would sit unarmed until the
+  // User actually moves the mouse, and a same-spot click would open the
+  // mail that just arrived there instead of repeating Done (#152's "Hover
+  // re-arm"). A real `mousemove` clears it below — the row genuinely under
+  // the pointer by then has already fired its own `mouseenter`/`mouseleave`,
+  // so its own hover state is the one to trust from that point on.
+  const [pointerArmedThreadId, setPointerArmedThreadId] = useState<string | null>(null);
+
+  const trackPointer = useCallback((event: { clientX: number; clientY: number }) => {
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    setPointerArmedThreadId(null);
+  }, []);
+
+  const clearPointer = useCallback(() => {
+    lastPointerRef.current = null;
+    setPointerArmedThreadId(null);
+  }, []);
+
   // Every control this list draws that isn't structure comes from the
   // Action registry (#94): the row's Done check, its hover cluster, its
   // right-click menu, and the Time Group header's own menu. Without a
@@ -254,6 +309,24 @@ export function VirtualizedThreadList({
     [density],
   );
 
+  // Each item's own top offset, as a plain prefix sum over `itemHeight` — the
+  // same one number the virtualizer's `estimateSize` and each item's own
+  // rendered `style.height` both already use (#75's "not duplicated between
+  // code and CSS"), read here directly rather than through the virtualizer's
+  // own (ResizeObserver-corrected, in a real browser) measurement of the
+  // mounted DOM: #152's pointer math cares about intended layout, which this
+  // gives exactly, with no dependency on however a `<div>` happens to measure
+  // under whatever's currently rendering it (jsdom included).
+  const itemOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const item of items) {
+      offsets.push(offset);
+      offset += itemHeight(item);
+    }
+    return offsets;
+  }, [items, itemHeight]);
+
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
@@ -273,14 +346,85 @@ export function VirtualizedThreadList({
     if (lastVirtualIndex >= items.length - LOAD_MORE_THRESHOLD) onLoadMore();
   }, [lastVirtualIndex, items.length, complete, onLoadMore]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately once-on-mount — see the prop doc comment.
+  // #152: re-checked on every `items` change (a row removed by Done, most
+  // often) rather than on a `mousemove` — the whole bug is that the pointer
+  // never moves. Reads the container's current geometry fresh (`parentRef`
+  // isn't itself a dependency — a ref never changes identity) rather than
+  // closing over it, so it always judges the list exactly as it just
+  // rendered.
   useEffect(() => {
+    const pointer = lastPointerRef.current;
+    const container = parentRef.current;
+    if (!pointer || !container) return;
+    const rect = container.getBoundingClientRect();
+    if (
+      pointer.x < rect.left ||
+      pointer.x > rect.right ||
+      pointer.y < rect.top ||
+      pointer.y > rect.bottom
+    ) {
+      return;
+    }
+    const relativeY = pointer.y - rect.top + container.scrollTop;
+    const hitIndex = itemOffsets.findIndex(
+      (start, index) => relativeY >= start && relativeY < start + itemHeight(items[index]),
+    );
+    const item = hitIndex !== -1 ? items[hitIndex] : undefined;
+    setPointerArmedThreadId(item?.kind === "thread" ? item.thread.id : null);
+  }, [items, itemOffsets, itemHeight]);
+
+  // Runs once the scroll container actually exists, whichever render that
+  // is (`scrollContainer`'s own doc comment) — a `restoredRef` guard, not an
+  // empty dependency array, is what makes this "once per real mount" now,
+  // since `scrollRestoreKey`/`initialScrollThreadId` reasonably belong in
+  // the dependency array but must never re-trigger a second scroll partway
+  // through the same mount (a folder switch, say).
+  const restoredRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `restoredRef` guards this to exactly once per mount; re-running it for every later change to `scrollRestoreKey`/`initialScrollThreadId`/`items` would re-scroll the list out from under whoever is looking at it.
+  useEffect(() => {
+    if (!scrollContainer || restoredRef.current) return;
+    restoredRef.current = true;
+    // #142: a saved pixel offset wins over the Thread-into-view fallback
+    // whenever one exists *and* still fits this list — `<=` its current
+    // total size, so a saved offset the removal of Threads (Done,
+    // Auto-advance) has pushed past the end falls through to the fallback
+    // instead of leaving the list scrolled to a blank gap.
+    const savedOffset = scrollRestoreKey ? readListScrollOffset(scrollRestoreKey) : null;
+    if (savedOffset !== null && savedOffset <= virtualizer.getTotalSize()) {
+      virtualizer.scrollToOffset(savedOffset, { align: "start" });
+      return;
+    }
     if (!initialScrollThreadId) return;
     const itemIndex = items.findIndex(
       (item) => item.kind === "thread" && item.thread.id === initialScrollThreadId,
     );
     if (itemIndex !== -1) virtualizer.scrollToIndex(itemIndex, { align: "auto" });
-  }, []);
+  }, [scrollContainer]);
+
+  // The offset this list is scrolled to right now, tracked continuously
+  // rather than read from `scrollContainer` at unmount — a host ref/state
+  // value can already be cleared by the time a passive effect's cleanup
+  // runs, but a plain ref this component itself owns can't be.
+  const currentOffsetRef = useRef(0);
+  useEffect(() => {
+    if (!scrollContainer) return;
+    const handleScroll = () => {
+      currentOffsetRef.current = scrollContainer.scrollTop;
+    };
+    handleScroll();
+    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+  }, [scrollContainer]);
+
+  // Saves this list's own last-known offset under its key the moment it
+  // leaves — unmounting (the List layout's Reader taking its place) or
+  // `scrollRestoreKey` itself changing out from under it (a folder/label
+  // switch while mounted, e.g. in Split) both count as "left" (#142).
+  useEffect(() => {
+    return () => {
+      if (scrollRestoreKey) saveListScrollOffset(scrollRestoreKey, currentOffsetRef.current);
+    };
+  }, [scrollRestoreKey]);
 
   const threadIds = useMemo(
     () => items.filter((item) => item.kind === "thread").map((item) => item.thread.id),
@@ -349,9 +493,11 @@ export function VirtualizedThreadList({
   return (
     <div
       className={`thread-list${density === "compact" ? " thread-list--compact" : ""}`}
-      ref={parentRef}
+      ref={setParentRef}
       role="listbox"
       aria-label="Threads"
+      onMouseMove={trackPointer}
+      onMouseLeave={clearPointer}
     >
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualItems.map((virtualItem) => {
@@ -426,6 +572,7 @@ export function VirtualizedThreadList({
                       trueCount={groupBulk?.countFor(item.label) ?? null}
                       collapsed={item.collapsed}
                       onToggleCollapsed={() => toggleCollapsed(item.label)}
+                      hoverCapable={hoverCapable}
                       bulk={
                         groupBulk && item.label !== PINNED_GROUP_LABEL && item.label !== "Undated"
                           ? {
@@ -452,9 +599,11 @@ export function VirtualizedThreadList({
                         ? () => triage.archive(item.thread.id)
                         : undefined
                   }
+                  onTrash={triage ? () => triage.trash(item.thread.id) : undefined}
                   onSnooze={triage ? (until) => triage.snooze(item.thread.id, until) : undefined}
                   onTogglePin={triage ? () => triage.togglePin(item.thread.id) : undefined}
                   hoverActions={rowCtx ? rowHoverActions(rowCtx, item.thread) : undefined}
+                  hoverCapable={hoverCapable}
                   contextMenu={
                     rowCtx
                       ? (row) => (
@@ -476,6 +625,7 @@ export function VirtualizedThreadList({
                   tier={item.tier}
                   height={itemHeight(item)}
                   previewArmed={previewGroupLabel !== null && item.groupLabel === previewGroupLabel}
+                  pointerArmed={item.thread.id === pointerArmedThreadId}
                 />
               )}
             </div>
@@ -530,12 +680,14 @@ interface GroupHeaderClusterBulk {
  * `data-armed`, one hover target for the header's own spine and a
  * different one for every row's).
  *
- * Touch has no hover to reveal any of this, so phone gets its own entry
- * point instead of a tap-to-arm stand-in: `.gh-overflow`, always visible
- * below `mail.css`'s narrow-viewport breakpoint, opens a `Sheet` listing
- * Done all / Mark all read / Collapse as plain rows — previewing the group
- * (and its spine) for as long as the sheet stays open, the touch equivalent
- * of hovering the rail node.
+ * A touch-only pointer has no hover to reveal any of this (#134,
+ * `hoverCapable` — `useHoverCapable()`'s `(hover: hover) and (pointer:
+ * fine)`, not a viewport breakpoint), so the rail and the trailing actions
+ * go unrendered there — gutter included — and `.gh-overflow` takes their
+ * place instead, opening a `Sheet` listing Done all / Mark all read /
+ * Collapse as plain rows — previewing the group (and its spine) for as
+ * long as the sheet stays open, the touch equivalent of hovering the rail
+ * node. Exactly one of the two sets renders on any device.
  */
 function GroupHeaderCluster({
   label,
@@ -544,6 +696,7 @@ function GroupHeaderCluster({
   collapsed,
   onToggleCollapsed,
   bulk,
+  hoverCapable = true,
 }: {
   label: string;
   loadedCount: number;
@@ -551,6 +704,8 @@ function GroupHeaderCluster({
   collapsed: boolean;
   onToggleCollapsed: () => void;
   bulk?: GroupHeaderClusterBulk;
+  /** `useHoverCapable()` (#134): gates the rail's Done-all node and the trailing bulk actions (Mark all read, Collapse) — both hover-only — off in favor of `.gh-overflow`'s Sheet, touch's own entry to the same three actions. Defaults `true` for a caller with no capability read above it. */
+  hoverCapable?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -602,70 +757,75 @@ function GroupHeaderCluster({
       }}
       onClick={onToggleCollapsed}
     >
-      <span className="gh-rail">
-        {bulk ? (
-          <button
-            type="button"
-            className="gh-node"
-            aria-label={`Done with ${label}`}
-            title="Done all"
-            onMouseEnter={() => setPreviewing(true)}
-            onMouseLeave={() => setPreviewing(false)}
-            onFocus={() => setPreviewing(true)}
-            onBlur={() => setPreviewing(false)}
-            onClick={(event) => {
-              event.stopPropagation();
-              bulk.onDoneAll();
-            }}
-          >
-            <Check size={12} />
-          </button>
-        ) : null}
-      </span>
+      {hoverCapable ? (
+        <span className="gh-rail">
+          {bulk ? (
+            <button
+              type="button"
+              className="gh-node"
+              aria-label={`Done with ${label}`}
+              title="Done all"
+              onMouseEnter={() => setPreviewing(true)}
+              onMouseLeave={() => setPreviewing(false)}
+              onFocus={() => setPreviewing(true)}
+              onBlur={() => setPreviewing(false)}
+              onClick={(event) => {
+                event.stopPropagation();
+                bulk.onDoneAll();
+              }}
+            >
+              <Check size={12} />
+            </button>
+          ) : null}
+        </span>
+      ) : null}
       <span className="group-header-label">{label}</span>
       <span className="group-header-count">{count}</span>
       <span className="gh-spacer" />
-      <div className="bulk-actions">
-        {bulk ? (
+      {hoverCapable ? (
+        <div className="bulk-actions">
+          {bulk ? (
+            <button
+              type="button"
+              className="group-mark-read"
+              aria-label={`Mark ${label} read`}
+              title="Mark all read"
+              onClick={(event) => {
+                event.stopPropagation();
+                bulk.onMarkAllRead();
+              }}
+            >
+              <MailOpen size={13} />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="group-mark-read"
-            aria-label={`Mark ${label} read`}
-            title="Mark all read"
+            className="group-collapse"
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand" : "Collapse"}
             onClick={(event) => {
               event.stopPropagation();
-              bulk.onMarkAllRead();
+              onToggleCollapsed();
             }}
           >
-            <MailOpen size={13} />
+            {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
           </button>
-        ) : null}
+        </div>
+      ) : (
         <button
           type="button"
-          className="group-collapse"
-          aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-          aria-expanded={!collapsed}
-          title={collapsed ? "Expand" : "Collapse"}
+          className="gh-overflow"
+          aria-label={`More actions for ${label}`}
+          title="More"
           onClick={(event) => {
             event.stopPropagation();
-            onToggleCollapsed();
+            openSheet();
           }}
         >
-          {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+          <MoreHorizontal size={14} />
         </button>
-      </div>
-      <button
-        type="button"
-        className="gh-overflow"
-        aria-label={`More actions for ${label}`}
-        title="More"
-        onClick={(event) => {
-          event.stopPropagation();
-          openSheet();
-        }}
-      >
-        <MoreHorizontal size={14} />
-      </button>
+      )}
       <Sheet open={sheetOpen} onOpenChange={closeSheet}>
         <SheetContent side="bottom" className="group-header-sheet">
           <SheetHeader className="sr-only">

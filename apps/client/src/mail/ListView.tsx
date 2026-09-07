@@ -25,6 +25,7 @@ export function ListView({
   onReply,
   onMailtoLink,
   initialScrollThreadId,
+  scrollRestoreKey,
   density,
   groupBulk,
 }: {
@@ -40,6 +41,8 @@ export function ListView({
   onMailtoLink: (link: MailtoLink) => void;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
+  /** Passed straight through to `VirtualizedThreadList` (#142) — the list unmounts here the moment a Thread opens, which is exactly the case its own doc comment calls out. */
+  scrollRestoreKey?: string | null;
   /** Passed straight through to `VirtualizedThreadList` — the `compact` List Density Device Preference (#54, #75). */
   density?: ListDensity;
   /** Passed straight through to `VirtualizedThreadList` — the group header cluster (#66, #77). */
@@ -73,6 +76,7 @@ export function ListView({
       onLoadMore={onLoadMore}
       triage={triage}
       initialScrollThreadId={initialScrollThreadId}
+      scrollRestoreKey={scrollRestoreKey}
       density={density}
       groupBulk={groupBulk}
     />

@@ -11,6 +11,7 @@ import { Avatar } from "../Avatar.js";
 import { ActionMenu } from "../actions/ActionMenu.js";
 import { useActions } from "../actions/ActionsProvider.js";
 import { withScreenerSender } from "../actions/types.js";
+import { invalidateThreadMessages } from "../reading/useThreadMessages.js";
 import { announceUndoableAction } from "../undo-toast.js";
 import { BlockAliasDialog } from "./BlockAliasDialog.js";
 import { ScreenerActions } from "./ScreenerActions.js";
@@ -36,7 +37,7 @@ import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
  * convenience" poc-spec.md describes: Block's split menu (`ScreenerActions.
  * tsx`) offers *Block domain*, resolving the row's own address to its domain
  * (`blockDomain` below) rather than requiring a place that shows "these N
- * senders share a domain" first, and *Mark as spam* (CONTEXT.md's Spam) —
+ * senders share a domain" first, and *Spam* (CONTEXT.md's Spam) —
  * both a deliberate extra click behind Block's own default, never it.
  *
  * View (#102) opens `ScreenerViewDialog` on a row's held Threads, read
@@ -145,6 +146,12 @@ export function Screener({
       // else names the row's own address.
       const decidedSender: GatekeeperSender = sender ?? { scope: "address", value: group.address };
       void enqueueMutation({ type, sender: decidedSender }, group.mailAccountId);
+      // #145: the decision changes this sender's Verdict, so the next
+      // Reader open for any of their Threads must refetch rather than serve
+      // the per-tab cache's stale `remoteImagesAllowed` — invalidated here,
+      // at enqueue time, rather than waiting on the round trip that confirms
+      // it, per #133's "Remote images" decisions.
+      invalidateThreadMessages(group.threadIds);
       const verdict =
         type === "approveSender"
           ? "Approved"
@@ -160,28 +167,22 @@ export function Screener({
         VERDICT_HOLD_MS,
       );
 
-      // Undo (#95, ADR-0019): Deny, Block, and Mark as spam are the three
-      // undoable Screener decisions — Approve isn't (CONTEXT.md's Undo entry
-      // doesn't list it, and releasing a stranger's mail needs no second
-      // thoughts the way trashing it does). `group.threadIds` is exactly
-      // what this sender is holding *right now*, captured before the
-      // decision so Undo still names the right Threads however long the
-      // toast's window runs — by the time it fires this sender may be
-      // holding a fresh stranger's mail again.
+      // Undo (#95, ADR-0019): Deny, Block, and Spam are the three undoable
+      // Screener decisions — Approve isn't (CONTEXT.md's Undo entry doesn't
+      // list it, and releasing a stranger's mail needs no second thoughts
+      // the way trashing it does). `group.threadIds` is exactly what this
+      // sender is holding *right now*, captured before the decision so Undo
+      // still names the right Threads however long the toast's window runs
+      // — by the time it fires this sender may be holding a fresh
+      // stranger's mail again.
       //
-      // Spam folds into the "block" toast kind rather than a `"spam"` one
-      // of its own: `undo-toast.ts`'s `UndoableActionKind` union and its
-      // `LABELS` table are a second fix worker's own surface this batch
-      // (see this branch's own PR description), so this reuses the kind
-      // whose *reversal* is byte-for-byte identical — Spam's Verdict is a
-      // Blocked one (`spam: true` alongside it, CONTEXT.md's Spam) — rather
-      // than adding a fourth kind there. The one visible cost is the toast
-      // reading "Blocked" for a Spam decision rather than a Spam-specific
-      // label; the reversal itself (`unblockAndRestore`, which now also
-      // pulls a Thread back out of Junk) is the part #102's Acceptance box
-      // actually asks for.
+      // Spam gets its own `"spam"` toast kind, not `"block"` (#108, #144:
+      // each Gatekeeper decision now announces itself by name) — the
+      // reversal (`unblockAndRestore`, which also pulls a Thread back out of
+      // Junk) is identical either way, only the label differs.
       if (type === "denySender" || type === "blockSender" || type === "spamSender") {
-        announceUndoableAction(type === "denySender" ? "deny" : "block", () => {
+        const kind = type === "denySender" ? "deny" : type === "spamSender" ? "spam" : "block";
+        announceUndoableAction(kind, () => {
           void enqueueMutation(
             { type: "unblockAndRestore", sender: decidedSender, threadIds: group.threadIds },
             group.mailAccountId,
@@ -327,8 +328,8 @@ export function Screener({
           Mail Account and decides a sender, not a message (CONTEXT.md). */}
       <p className="screener-rule">
         One decision per sender, not per message. Approving lets their mail through and loads their
-        remote images; blocking sends future mail straight to Trash (Mark as spam moves it to Junk
-        instead). Either way it applies to the sender's own Mail Account only.
+        remote images; blocking sends future mail straight to Trash (Spam moves it to Junk instead).
+        Either way it applies to the sender's own Mail Account only.
       </p>
       <ScreenerViewDialog
         group={viewingGroup}

@@ -58,9 +58,10 @@ export function useMailAccounts(): MailAccount[] | undefined {
 /**
  * Ordered by `createdAt` so the account switcher and "first account" are
  * stable across reloads. Overlays any queued `setSignature`/
- * `setNotificationsEnabled` Optimistic Action (#54) the same way
- * `readThreadWindow` overlays a Thread's own queue — a signature edit shows
- * immediately, offline included, rather than waiting on a round trip.
+ * `setNotificationsEnabled`/`setRemoteImages` Optimistic Action (#54, #146)
+ * the same way `readThreadWindow` overlays a Thread's own queue — a
+ * signature edit shows immediately, offline included, rather than waiting
+ * on a round trip.
  */
 export async function readMailAccounts(): Promise<MailAccount[]> {
   const db = localCache();
@@ -80,7 +81,8 @@ async function overlayMailAccountMutations(
     .filter(
       (mutation) =>
         mutation.intent.type === "setSignature" ||
-        mutation.intent.type === "setNotificationsEnabled",
+        mutation.intent.type === "setNotificationsEnabled" ||
+        mutation.intent.type === "setRemoteImages",
     )
     .toArray();
   if (relevant.length === 0) return accounts;
@@ -102,6 +104,8 @@ async function overlayMailAccountMutations(
         overlaid = { ...overlaid, signature: mutation.intent.signature };
       } else if (mutation.intent.type === "setNotificationsEnabled") {
         overlaid = { ...overlaid, notificationsEnabled: mutation.intent.enabled };
+      } else if (mutation.intent.type === "setRemoteImages") {
+        overlaid = { ...overlaid, remoteImages: mutation.intent.value };
       }
     }
     return overlaid;
@@ -716,6 +720,20 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         };
         break;
       }
+      // #144: Spam/Block reached from an Inbox Thread rather than the
+      // Screener — the only two Gatekeeper decisions that carry a `threadId`
+      // and so ever reach this thread's overlay bucket at all (the
+      // Screener's own sender-only calls return no `referencedThreadIds`,
+      // `store/mutation-queue.ts#referencedThreadIds`). Same immediate-hide
+      // shape as `archive`/`trash` above, just landing in Junk for Spam —
+      // `unblockAndRestore` is already what reverses either one, offline
+      // included, via the `restoreToInbox`/`unblockAndRestore` case above.
+      case "blockSender":
+        overlaid = { ...overlaid, inInbox: false, folderRole: "trash", snoozeUntil: null };
+        break;
+      case "spamSender":
+        overlaid = { ...overlaid, inInbox: false, folderRole: "junk", snoozeUntil: null };
+        break;
     }
   }
   return overlaid;

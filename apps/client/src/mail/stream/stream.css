@@ -122,6 +122,62 @@
   z-index: 1;
 }
 
+/* Swipe-to-Triage on the card itself (#149, #133's "Swipe to Triage"
+   decision: "one gesture module serves list rows and Stream cards"). Same
+   reveal-then-commit shape as `mail.css`'s row swipe (`useSwipeToTriage.ts`
+   drives both): the surface holding `ThreadDetailPane` translates with the
+   drag, the tray behind it shows what releasing now would commit. `touch-
+   action: pan-y` on the surface, not the outer wrapper, so the reader body's
+   own vertical scroll still works exactly as it does without this. */
+.stream-card-swipe {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stream-card-swipe-reveal {
+  position: absolute;
+  inset: 0;
+  /* Decorative and `aria-hidden`; behind the surface it sits under, so it
+     never intercepts a tap on the reader beneath it (same reasoning as
+     `mail.css`'s `.swipe-reveal`). */
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  padding: 0 28px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-accent-foreground);
+}
+
+.stream-card-swipe-reveal.archive {
+  background: var(--color-accent);
+  justify-content: flex-start;
+}
+
+/* Trash is destructive (#149 — was never a Stream swipe outcome before this
+   ticket): the same saturated danger ground the row's own trash reveal uses
+   (`mail.css`'s `.swipe-reveal.trash`), not a tint. */
+.stream-card-swipe-reveal.trash {
+  background: var(--color-danger);
+  justify-content: flex-end;
+}
+
+.stream-card-swipe-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stream-card-swipe-surface {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-surface);
+  touch-action: pan-y;
+}
+
 .stream-skip {
   flex: none;
   align-self: center;
@@ -184,4 +240,34 @@
 
 .stream-empty-back:hover {
   background: var(--color-hover);
+}
+
+/* ============================================================================
+   NARROW VIEWPORT (#155)
+   Stream had no phone rules at all before this ticket — its desktop
+   padding (24px each side, a peek card inset by another 24px on top of
+   that) was never narrowed for a 390px card, wasting width the one reading
+   surface Stream shows needs. The route itself already sits inside
+   `.app-viewport`'s phone-reserved top/bottom space (`shell.css`'s own
+   header/bottom-bar reservation), so nothing here needs its own extra
+   safe-area accounting — only the horizontal padding, which that
+   reservation doesn't touch.
+   ========================================================================= */
+
+@media (max-width: 700px) {
+  .stream-topbar {
+    padding: 12px 16px;
+  }
+
+  .stream-cards {
+    padding: 0 12px 16px;
+  }
+
+  .stream-card-peek {
+    width: calc(100% - 24px);
+  }
+
+  .stream-skip {
+    margin: 0 0 12px;
+  }
 }

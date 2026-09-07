@@ -2,21 +2,25 @@ import type { SearchResponse } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthProvider } from "../../auth/AuthContext.js";
+import App from "../../App.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
-import { MailSection } from "../MailSection.js";
+import { resetActiveMailHost } from "../actions/active-mail-host.js";
+import { resetSurfaceHandles } from "../actions/surface-handles.js";
+import { addRecentSearch } from "../device-preferences.js";
 
 /**
- * #79's own end-to-end coverage: `⌘K`/`Ctrl-K` opening the Command Palette,
- * running a Command from it, typing a mail query and reaching the full
- * results pane through "See all results", and `?` opening the Shortcut
- * Sheet — driven the way `MailSection.test.tsx` and
- * `search/search-integration.test.tsx` already do: a real IndexedDB-backed
- * Local Cache and a stubbed `fetch`, never a mocked `useSearchState`.
+ * #79's own end-to-end coverage, driven over the full routed tree (#147:
+ * the Palette moved to Hub level, `router/RootLayout.tsx`, so a bare
+ * `MailSection` no longer mounts one at all) the way
+ * `app-shell-integration.test.tsx` already renders `<App/>`: `⌘K`/`Ctrl-K`
+ * opening the Command Palette, running a Command from it, typing a mail
+ * query and reaching the full results pane through "See all results", and
+ * `?` opening the Shortcut Sheet — a real IndexedDB-backed Local Cache and
+ * a stubbed `fetch`, never a mocked `useSearchState`.
  */
 
 /** The composer's own network calls — irrelevant here, mocked quiet like `MailSection.test.tsx` does. */
@@ -58,10 +62,19 @@ function stubFetch(search: () => Promise<Response> = never) {
 
 beforeEach(async () => {
   resetSyncStatus();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
+  // published by whichever Mail-family surface is mounted and cleared on its
+  // own unmount — but only once that unmount's effect cleanup has actually
+  // run, which the next test's mount can't guarantee. Their own "Test-only"
+  // reset exports drop a stale host/handle rather than let it survive.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `command-palette-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
+  // jsdom's `history`/`location` persist across tests in one file.
+  history.replaceState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -80,26 +93,24 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
-function renderMail() {
-  return render(
-    <AuthProvider>
-      <MailSection />
-    </AuthProvider>,
-  );
+function renderApp() {
+  return render(<App />);
 }
 
-describe("Command Palette (#79)", () => {
-  it("⌘K opens the Palette, listing commands grouped with their bindings, unbound ones included", async () => {
+describe("Command Palette (#79, lifted to Hub level by #147)", () => {
+  it("`>` lists every command with its binding, unbound ones included (#148)", async () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
 
-    const field = await screen.findByLabelText("Search commands and mail");
+    const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
     expect(field).toBeDefined();
+    fireEvent.change(field, { target: { value: ">" } });
+
     expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
     // "Mark as read/unread" lost its `u` key to "Back to list" (#79) — still
     // listed, marked unbound rather than missing outright.
@@ -107,11 +118,136 @@ describe("Command Palette (#79)", () => {
     expect(markReadRow.textContent).toContain("unbound");
   });
 
+  it("`>` narrows to commands only, hiding Mail hits and the three-command cap (#148)", async () => {
+    await seedOneThread();
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-great", "acct-1", { subject: "Great outcome" }),
+          matchedMessageId: "t-great-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
+
+    // "rea" matches four real, non-contextual commands (Mark as read/unread,
+    // Next thread, Previous thread, Open Stream, via "thread"/"Stream") and
+    // the seeded Mail hit ("Great outcome").
+    fireEvent.change(field, { target: { value: ">rea" } });
+
+    expect(screen.getByRole("option", { name: /Mark as (read|unread)/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Next thread/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Previous thread/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Open Stream/ })).toBeDefined();
+    expect(screen.queryByText("Great outcome")).toBeNull();
+    expect(screen.queryByRole("option", { name: /See all results/ })).toBeNull();
+  });
+
+  it("merges matching commands above Mail hits, capped at three once hits are present (#148)", async () => {
+    await seedOneThread();
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-great", "acct-1", { subject: "Great outcome" }),
+          matchedMessageId: "t-great-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "rea" } });
+
+    // Wait for the Mail hit to land first — the three-command cap only
+    // applies once a hit is actually on screen, and the fetch is async.
+    expect(
+      await screen.findByText("Great outcome", { selector: ".command-palette-hit-subject" }),
+    ).toBeDefined();
+    expect(screen.getByRole("option", { name: /See all results/ })).toBeDefined();
+
+    // Registry order caps to the first three of the four matches — "Open
+    // Stream" is the fourth and falls off.
+    expect(screen.getByRole("option", { name: /Mark as (read|unread)/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Next thread/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Previous thread/ })).toBeDefined();
+    expect(screen.queryByRole("option", { name: /Open Stream/ })).toBeNull();
+  });
+
+  it("the empty state shows the most-used commands, freshest device falling back to registry order (#148)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    renderApp();
+    await screen.findByText("Origin thread");
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await screen.findByLabelText("Search commands and mail");
+
+    // No usage recorded yet on this device — the top five in registry order.
+    expect(screen.getByRole("option", { name: /^Compose/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Snooze/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Pin/ })).toBeDefined();
+    // Sixth in registry order — outside the top five, so absent here (still
+    // reachable via `>`, tested above).
+    expect(screen.queryByRole("option", { name: /Mark as (read|unread)/ })).toBeNull();
+    expect(screen.queryByText("Recent searches")).toBeNull();
+  });
+
+  it("the empty state shows recent searches, clickable to re-run (#148)", async () => {
+    await seedOneThread();
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-invoice", "acct-1", { subject: "Invoice March" }),
+          matchedMessageId: "t-invoice-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+    addRecentSearch("invoice");
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await screen.findByLabelText("Search commands and mail");
+
+    expect(screen.getByText("Recent searches")).toBeDefined();
+    fireEvent.click(screen.getByRole("option", { name: /invoice/ }));
+
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+    expect(document.querySelector(".search-chip-row")).not.toBeNull();
+    expect(await screen.findByText("Invoice March")).toBeDefined();
+  });
+
   it("running Compose from the Palette opens the composer and closes the Palette", async () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     await screen.findByLabelText("Search commands and mail");
@@ -139,7 +275,7 @@ describe("Command Palette (#79)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText("Search commands and mail");
@@ -175,7 +311,7 @@ describe("Command Palette (#79)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText("Search commands and mail");
@@ -212,7 +348,7 @@ describe("Command Palette (#79)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
@@ -239,7 +375,7 @@ describe("Command Palette (#79)", () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
@@ -257,7 +393,7 @@ describe("Command Palette (#79)", () => {
     await seedOneThread();
     stubFetch();
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
     fireEvent.keyDown(window, { key: "?" });
@@ -265,5 +401,23 @@ describe("Command Palette (#79)", () => {
     const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
     expect(within(sheet).getByText("Compose", { selector: "dt" })).toBeDefined();
     expect(within(sheet).getAllByText("Command Palette only").length).toBeGreaterThan(0);
+  });
+
+  it("opens from the Hub's own search pill and from `/`, from outside `/mail` too (#147)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    renderApp();
+    await screen.findByText("Origin thread");
+
+    // The Hub pill, reachable from any App.
+    fireEvent.click(screen.getByRole("button", { name: /Search everything/ }));
+    expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+    // `/` opens the Palette directly — there is no Mail field left to focus.
+    fireEvent.keyDown(window, { key: "/" });
+    expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
   });
 });

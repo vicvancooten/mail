@@ -96,6 +96,14 @@ export interface SearchState {
   effectiveLabel: string | undefined;
   results: readonly CachedThread[];
   displayById: ReadonlyMap<string, DisplayResult>;
+  /**
+   * The full results view's own copy of `results`/`displayById` (#139): held
+   * at whatever last settled while `serverLoading` is true, rather than
+   * following a query whose server answer hasn't arrived yet. Use this,
+   * never `results`, to render the results view's row list.
+   */
+  viewResults: readonly CachedThread[];
+  viewDisplayById: ReadonlyMap<string, DisplayResult>;
   actedOnThreadIds: ReadonlySet<string>;
   usingServerResults: boolean;
   serverLoading: boolean;
@@ -235,6 +243,12 @@ export function useSearchState(
       setServerLoading(false);
       return;
     }
+    // Pending from the moment the request key changes (search-ux-spec.md
+    // §Search & commands, #139: "the results view shows a loading state ...
+    // while a request is pending") — set synchronously here rather than
+    // inside `run()` below so the debounce wait counts as pending too, not
+    // just the fetch itself.
+    setServerLoading(true);
     let cancelled = false;
     const requestedKey = requestKey;
     const run = () => {
@@ -243,7 +257,6 @@ export function useSearchState(
         setServerLoading(false);
         return;
       }
-      setServerLoading(true);
       runServerSearch({
         mailAccountId,
         additionalMailAccountIds: additionalScopeIds(accountScope),
@@ -258,9 +271,15 @@ export function useSearchState(
           if (!cancelled) setOffline(true);
         })
         .finally(() => {
-          // Unconditional (#100, bug 3): a superseded request must not leave
-          // loading stuck true just because its own response is discarded.
-          setServerLoading(false);
+          // Guarded on `cancelled` (#139): unlike bug 3's original fix, this
+          // effect instance now sets `serverLoading` true again the moment
+          // it starts (above), so a *newer* request is already the one
+          // responsible for clearing it — a superseded request's own late
+          // `.finally` must not clear a loading flag a request it isn't
+          // running is still counting on. The non-superseded branches above
+          // (`if (!overlay.engaged...)`, the offline early return) still
+          // clear it unconditionally, since nothing newer is coming.
+          if (!cancelled) setServerLoading(false);
         });
     };
     const delay = immediateRef.current ? 0 : SERVER_DEBOUNCE_MS;
@@ -300,11 +319,24 @@ export function useSearchState(
   const serverResponse =
     serverResponseState?.forKey === requestKey ? serverResponseState.response : null;
 
-  const usingServerResults = serverResponse !== null;
   const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
   const previousSourceRef = useRef<"server" | "prefilter" | null>(null);
-  const displayResults = useMemo(() => {
-    const next = serverResponse
+  const { results: displayResults, usingServerResults } = useMemo(() => {
+    // Bug 8: an empty server answer used to erase real local matches
+    // outright — the server can legitimately come back with nothing for a
+    // Thread the Local Cache already has (not yet server-indexed, or
+    // belonging to a Mail Account that currently `needsReauth` and so was
+    // never actually searched), and the prefilter's own copy is still real
+    // (the Needs Reauth test's own doc comment already assumed this: "the
+    // reauth banner still has to render alongside it even though the
+    // *server* response itself is empty"). Trust the server once it
+    // actually found something; otherwise stay on the prefilter's results
+    // (even after the server has answered) until the prefilter agrees
+    // there's truly nothing either.
+    const useServer =
+      serverResponse !== null &&
+      (serverResponse.results.length > 0 || prefilterThreads.length === 0);
+    const next = useServer
       ? serverResponse.results
       : prefilterThreads.map(
           (thread): SearchResult => ({
@@ -319,7 +351,7 @@ export function useSearchState(
             gatekeeper: thread.heldSender ? ("held" as const) : null,
           }),
         );
-    const nextSource = serverResponse ? "server" : "prefilter";
+    const nextSource = useServer ? "server" : "prefilter";
 
     // ADR-0016: the prefilter is "rendered identically to server results...
     // and replaced wholesale when they arrive (skipping the re-render when
@@ -338,11 +370,11 @@ export function useSearchState(
       previousSourceRef.current === nextSource &&
       previous.length === next.length &&
       previous.every((result, index) => result.thread.id === next[index]?.thread.id);
-    if (sameOrder) return previous;
+    const results = sameOrder ? previous : next;
 
-    previousDisplayResultsRef.current = next;
+    previousDisplayResultsRef.current = results;
     previousSourceRef.current = nextSource;
-    return next;
+    return { results, usingServerResults: useServer };
   }, [serverResponse, prefilterThreads]);
 
   const overlaidThreads = useSearchResultThreads(displayResults);
@@ -359,6 +391,29 @@ export function useSearchState(
     }
     return map;
   }, [displayResults, usingServerResults]);
+
+  // The full results view's own frozen snapshot (#139, `docs/search-ux-
+  // spec.md` §Search & commands: "the accepted server result set is
+  // retained on screen while a new request for a changed query is in
+  // flight"). `overlaidThreads`/`displayById` above recompute on every
+  // keystroke — including a bare prefilter recompute for a query whose
+  // server answer hasn't come back yet, which is exactly the "appear then
+  // disappear" flicker #139 fixes. That live recompute stays exactly as it
+  // is for the Command Palette's own inline hits (`CommandPalette.tsx`
+  // reads `results`/`displayById` directly, unchanged) — search-ux-spec.md
+  // still wants those fresh on every keystroke; only the full results view
+  // (`viewResults`/`viewDisplayById`, below) holds its breath while
+  // `serverLoading` is true, releasing to whatever just settled.
+  const acceptedViewRef = useRef<{
+    results: readonly CachedThread[];
+    displayById: ReadonlyMap<string, DisplayResult>;
+  }>({ results: [], displayById: new Map() });
+  const acceptedView = useMemo(() => {
+    if (!serverLoading) {
+      acceptedViewRef.current = { results: overlaidThreads, displayById };
+    }
+    return acceptedViewRef.current;
+  }, [serverLoading, overlaidThreads, displayById]);
 
   const open = useCallback(
     (origin: ViewOrigin) => {
@@ -420,8 +475,8 @@ export function useSearchState(
       onFieldChange("");
       return;
     }
-    // The field blurs right behind this (`search/SearchField.tsx`'s own Escape
-    // handler), which would otherwise re-commit the empty query and undo
+    // `CommandPalette.tsx`'s own Escape handler closes the Palette right
+    // behind this, which would otherwise re-commit the empty query and undo
     // the very `overlay.leave()` just made — `justLeftRef` is a ref rather
     // than state exactly so the very next synchronous call sees it, ahead
     // of any render.
@@ -509,6 +564,8 @@ export function useSearchState(
     effectiveLabel,
     results: overlaidThreads,
     displayById,
+    viewResults: acceptedView.results,
+    viewDisplayById: acceptedView.displayById,
     actedOnThreadIds: actedOn,
     usingServerResults,
     serverLoading,
@@ -593,6 +650,23 @@ export function wrapSearchTriage(
     removeLabel: (threadId, name) => {
       materialize(threadId);
       triage.removeLabel(threadId, name);
+    },
+    // #144: Spam and Block leave the Inbox exactly like Trash does, so they
+    // get the same `onActed` treatment; Approve changes nothing about where
+    // the row sits, same as Star/Pin/Label above.
+    spamSender: (threadId) => {
+      materialize(threadId);
+      onActed(threadId);
+      return triage.spamSender(threadId);
+    },
+    blockSender: (threadId) => {
+      materialize(threadId);
+      onActed(threadId);
+      return triage.blockSender(threadId);
+    },
+    approveSender: (threadId) => {
+      materialize(threadId);
+      return triage.approveSender(threadId);
     },
   };
 }

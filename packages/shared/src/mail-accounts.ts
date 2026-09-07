@@ -98,6 +98,41 @@ export const mailAccountAuthKindSchema = z.discriminatedUnion("kind", [
 export type MailAccountAuthKind = z.infer<typeof mailAccountAuthKindSchema>;
 
 /**
+ * The remote-images permission (#146, CONTEXT.md §Remote images): answers
+ * "when do this Mail Account's remote images load?" the same way a Verdict
+ * answers "is this sender trusted?". `always` loads unconditionally,
+ * `approved-only` loads only for an Approved Sender (today's behaviour, and
+ * the default while Gatekeeper is on), `ask` never loads automatically. A
+ * Gatekeeper-off account has no Approved Senders, so `approved-only` there
+ * yields the same `false` `ask` does — the option stays honest about there
+ * being nothing to approve.
+ */
+export const remoteImagesSettingSchema = z.enum(["always", "approved-only", "ask"]);
+export type RemoteImagesSetting = z.infer<typeof remoteImagesSettingSchema>;
+
+/**
+ * The read-time default (#146): unset (`null` in the stored column, nobody
+ * has touched the control yet) derives from the account's own Gatekeeper
+ * toggle rather than a stored default, so flipping Gatekeeper keeps
+ * answering correctly for every account that never set this explicitly —
+ * `approved-only` preserves today's behaviour while Gatekeeper screens,
+ * `always` while it doesn't (turning screening off must not leave a User in
+ * Gatekeeper's strictest posture). Called wherever the raw stored value is
+ * read: `mail-accounts/store.ts#toWireMailAccount` (so `MailAccount.remoteImages`
+ * below always carries the resolved value, never `null`, and Settings' own
+ * Select always shows one of the three real values, never a fourth "unset"
+ * option) and the Sync Backend's per-message `remoteImagesAllowed`
+ * (`routes/messages.ts`), which reads the raw column directly off its own
+ * already-fetched Mail Account row.
+ */
+export function resolveRemoteImagesSetting(
+  stored: RemoteImagesSetting | null,
+  gatekeeperEnabled: boolean,
+): RemoteImagesSetting {
+  return stored ?? (gatekeeperEnabled ? "approved-only" : "always");
+}
+
+/**
  * The wire projection of a Mail Account. Credentials are write-only across
  * the API (ADR-0003) — this shape has no field for them, ever, not even a
  * masked one; the Client shows "password set" from `status` alone.
@@ -129,6 +164,19 @@ export const mailAccountSchema = z.object({
    * push-worthy.
    */
   notificationsEnabled: z.boolean(),
+  /**
+   * The remote-images permission (#146, CONTEXT.md §Remote images): a third
+   * Mail-Account-scoped preference alongside `signature`/`notificationsEnabled`,
+   * edited via the `setRemoteImages` Optimistic Action
+   * (`sync.ts#mutationIntentSchema`). Unlike `signature`, this is never
+   * `null` on the wire — the stored column is nullable ("unset"), but
+   * `resolveRemoteImagesSetting` resolves it against `gatekeeper.enabled`
+   * before `toWireMailAccount` ever serializes it, so this always reads as
+   * one of the three real values (Settings' Select has nothing fourth to
+   * render) and stays correct the moment Gatekeeper is toggled, not just
+   * once a re-sync happens to run.
+   */
+  remoteImages: remoteImagesSettingSchema,
   /**
    * Gatekeeper's opt-in and its Cutoff (#55, CONTEXT.md §Gatekeeper) —
    * Mail-Account-scoped state riding this collection for the same reason

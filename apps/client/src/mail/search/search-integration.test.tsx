@@ -2,24 +2,31 @@ import type { SearchRequest, SearchResponse } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthProvider } from "../../auth/AuthContext.js";
-import { useMailAccounts } from "../../store/index.js";
+import App from "../../App.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../../store/mutation-queue.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
 import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
-import { AccountScope } from "../AccountScope.js";
-import { MailSection } from "../MailSection.js";
-import { useAccountScope } from "../useAccountScope.js";
+import { resetActiveMailHost } from "../actions/active-mail-host.js";
+import { resetSurfaceHandles } from "../actions/surface-handles.js";
 
 /**
- * End-to-end coverage of #51's acceptance boxes, driven the way
- * `MailSection.test.tsx` and `RollbackToast.test.tsx` already do: a real
- * IndexedDB-backed Local Cache, a stubbed `fetch`, and the real
- * `mutation-queue.ts`/`overlayPendingMutations` mechanism for rollback —
- * never a mocked `useTriage` or `useSearchState`.
+ * End-to-end coverage of #51's acceptance boxes, over the full routed tree
+ * (#147: the Palette — the only way in, now — moved to Hub level,
+ * `router/RootLayout.tsx`) the way `app-shell-integration.test.tsx` already
+ * renders `<App/>`: a real IndexedDB-backed Local Cache, a stubbed `fetch`,
+ * and the real `mutation-queue.ts`/`overlayPendingMutations` mechanism for
+ * rollback — never a mocked `useTriage` or `useSearchState`.
+ *
+ * `/` opens the Palette (#147's own single entry point) rather than
+ * focusing a field directly; typing there engages the search
+ * (search-ux-spec.md's own floor/debounce/prefilter, unchanged) without
+ * opening the results view (#100) — every test that needs the results view
+ * itself (the folder pill, the badges, acting on a row, cross-Account-Scope
+ * behavior) clicks "See all results" first, same as
+ * `command-palette-integration.test.tsx`'s own coverage.
  */
 
 let counter = 0;
@@ -56,10 +63,19 @@ function emptySearchResponse(): SearchResponse {
 
 beforeEach(async () => {
   resetSyncStatus();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
+  // published by whichever Mail-family surface is mounted and cleared on its
+  // own unmount — but only once that unmount's effect cleanup has actually
+  // run, which the next test's mount can't guarantee. Their own "Test-only"
+  // reset exports drop a stale host/handle rather than let it survive.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `search-integration-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
+  // jsdom's `history`/`location` persist across tests in one file.
+  history.replaceState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -78,30 +94,22 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
-/**
- * Account Scope's own control lives in the Hub now (#96,
- * `router/RootLayout.tsx`), a separate component from `MailSection` — this
- * stands in for it here, wired to the same reactive store
- * (`useAccountScope.ts`) `MailSection` itself reads (`MailSection.test.tsx`'s
- * own harness of the same shape). Renders nothing with 0-1 Mail Accounts.
- */
-function AccountScopeHarness() {
-  const mailAccounts = useMailAccounts() ?? [];
-  const { scope, setScope } = useAccountScope(mailAccounts);
-  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+function renderApp() {
+  return render(<App />);
 }
 
-function renderMail() {
-  return render(
-    <AuthProvider>
-      <AccountScopeHarness />
-      <MailSection />
-    </AuthProvider>,
-  );
+/** `/`, typing, then "See all results" — every test that needs the real results view (not just the Palette's own inline hits) starts here. */
+async function openResultsView(query: string): Promise<void> {
+  fireEvent.keyDown(window, { key: "/" });
+  const field = await screen.findByLabelText<HTMLInputElement>("Search commands and mail");
+  fireEvent.change(field, { target: { value: query } });
+  const seeAll = await screen.findByRole("option", { name: /See all results/ });
+  fireEvent.click(seeAll);
+  await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
 }
 
 describe("search (#51)", () => {
-  it("`/` opens search and focuses the field; typing renders results from POST /search", async () => {
+  it("`/` opens the Palette; 'See all results' renders results from POST /search", async () => {
     await seedOneThread();
     const searchResponse: SearchResponse = {
       results: [
@@ -118,14 +126,10 @@ describe("search (#51)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    expect(document.activeElement).toBe(field);
-
-    fireEvent.change(field, { target: { value: "invoice" } });
+    await openResultsView("invoice");
 
     // The server round trip replaces the list with its own result — the
     // folder pill and the `ts_headline` fragment are both server-only, so
@@ -139,12 +143,10 @@ describe("search (#51)", () => {
     await seedOneThread();
     stubFetch(() => Promise.reject(new TypeError("Failed to fetch")));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "origin" } });
+    await openResultsView("origin");
 
     // The Local Cache prefilter *is* the result set offline (search-ux-
     // spec.md §Degraded states) — the seeded Thread still renders.
@@ -153,24 +155,29 @@ describe("search (#51)", () => {
     expect(screen.queryByText("Load older results")).toBeNull();
   });
 
-  it("Needs Reauth: the reconnect banner names the account and persists even with zero results", async () => {
+  it("Needs Reauth: the reconnect banner names the account and persists regardless of the server response", async () => {
     await applyMailAccountDelta(
       delta({ created: [makeMailAccount("acct-1", { status: "needs_reauth" })] }),
       { replace: false },
     );
-    // Deliberately no seeded Thread — the banner must render even when the
-    // Local Cache prefilter itself comes back empty (search-ux-spec.md
-    // §Offline/degraded states: "a persistent strip").
+    // A seeded Thread — the Palette's own "See all results" only renders
+    // once it has at least one local prefilter hit to show (#147, unlike
+    // the pre-#147 header field's direct `search.open()`, which always
+    // opened the results view regardless of hit count) — so the reauth
+    // banner still has to render alongside it even though the *server*
+    // response itself is empty (search-ux-spec.md §Offline/degraded states:
+    // "a persistent strip").
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Pending thread" })] }),
+      { replace: false },
+    );
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
 
-    renderMail();
-    // No Thread to wait for (deliberately none seeded) — wait for the top
-    // bar itself to settle instead, or `/` can fire before `searchInputRef`
-    // is attached to anything and land on nothing.
-    await screen.findByRole("button", { name: "Compose" });
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "nothing matches this" } });
+    renderApp();
+    await screen.findByText("Pending thread");
+
+    await openResultsView("pending");
 
     expect(
       await screen.findByText("Reconnect acct-1@example.test to search all mail"),
@@ -178,25 +185,26 @@ describe("search (#51)", () => {
     expect(screen.getByRole("button", { name: "Reconnect" })).toBeDefined();
   });
 
-  it("Esc on an empty field leaves search and restores the origin's selection", async () => {
+  it("Esc on an empty Palette field leaves the Palette, restoring the origin's selection", async () => {
     await seedOneThread();
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
 
-    renderMail();
+    renderApp();
     const row = await screen.findByText("Origin thread");
     fireEvent.click(row); // select it in the origin (Split) view
 
     fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
+    const field = await screen.findByLabelText("Search commands and mail");
     expect(field).toBeDefined();
 
     // Esc on an empty field leaves outright — no text to clear first.
     fireEvent.keyDown(field, { key: "Escape" });
 
-    // Back in the origin view (the chip row is search-only) — still on the
-    // same Thread — `.thread-detail` rather than the row text alone, since
-    // the row also renders it.
-    await waitFor(() => expect(document.querySelector(".search-chip-row")).toBeNull());
+    // Back in the origin view (the chip row is search-only, and never
+    // appeared) — still on the same Thread — `.thread-detail` rather than
+    // the row text alone, since the row also renders it.
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+    expect(document.querySelector(".search-chip-row")).toBeNull();
     const detail = await screen.findByText("Origin thread", { selector: ".reading-subject" });
     expect(detail).toBeDefined();
   });
@@ -205,13 +213,16 @@ describe("search (#51)", () => {
     await seedOneThread();
     stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
 
-    renderMail();
+    renderApp();
     const row = await screen.findByText("Origin thread");
     fireEvent.click(row);
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "nothing" } });
+    // A query that locally matches — "See all results" only mounts once
+    // the Palette has at least one prefilter hit to offer (#147's own
+    // reachability constraint, see the Needs Reauth test above); the
+    // stubbed server response resolves empty regardless, which is what
+    // this test is actually about.
+    await openResultsView("origin");
     expect(document.querySelector(".search-chip-row")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Close search results" }));
@@ -243,12 +254,10 @@ describe("search (#51)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "remote" } });
+    await openResultsView("remote");
     await screen.findByText("Remote result");
 
     // Split mode: selecting a result opens it in the reading pane without
@@ -285,6 +294,95 @@ describe("search (#51)", () => {
     expect(screen.getAllByText("Remote result").length).toBeGreaterThan(0);
   });
 
+  it("#139: results stay on screen with a loading state while a changed query's request is in flight, and a stale response never replaces the current one", async () => {
+    await seedOneThread();
+
+    // Bootstrap: reach the results view through the Palette (#147) with a
+    // query that already matches "Origin thread" locally, so "See all
+    // results" has something to show — resolved with an immediate stub,
+    // unrelated to the deferred-response sequence this test is actually
+    // about, below.
+    stubFetch(() => Promise.resolve(jsonResponse(emptySearchResponse())));
+    renderApp();
+    await screen.findByText("Origin thread");
+    await openResultsView("origin");
+    await waitFor(() => expect(screen.queryByText("Searching…")).toBeNull());
+
+    // Each `/search` call from here gets its own deferred promise, resolved
+    // by hand below, and its own tagged response — the point of this test is
+    // controlling exactly when each request settles relative to the next
+    // keystroke, which a same-tick mock response can't exercise.
+    const deferred: Array<{ text: string; resolve: (response: SearchResponse) => void }> = [];
+    function response(subject: string): SearchResponse {
+      return {
+        results: [
+          {
+            thread: makeThread(subject, "acct-1", { subject }),
+            matchedMessageId: `${subject}-msg`,
+            headline: null,
+            folder: { id: "f1", name: "Inbox", role: "inbox" },
+            gatekeeper: null,
+          },
+        ],
+        cursor: null,
+        indexWatermark: { coveredSince: null, complete: true },
+      };
+    }
+    stubFetch(
+      (init) =>
+        new Promise((resolve) => {
+          const body = JSON.parse(init?.body as string) as SearchRequest;
+          deferred.push({ text: body.text ?? "", resolve: (r) => resolve(jsonResponse(r)) });
+        }),
+    );
+
+    // The results view stays open the whole time (`search.active` outlives
+    // the Palette closing, #147's shared session) — reopening it (`⌘K`) is
+    // just how a User keeps typing once it has closed; the Palette's own
+    // Close (not Escape, which would touch the query) leaves the session
+    // running so each assertion below reads the results view alone, with no
+    // ambiguity against the Palette's own inline hits.
+    function typeAndClosePalette(value: string) {
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      const field = screen.getByLabelText<HTMLInputElement>("Search commands and mail");
+      fireEvent.change(field, { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    }
+
+    // First query: nothing accepted yet, a request is in flight — a loading
+    // state, never "No matches" (search-ux-spec.md §Search & commands).
+    typeAndClosePalette("invoice");
+    await waitFor(() => expect(deferred).toHaveLength(1));
+    expect(await screen.findByText("Searching…")).toBeDefined();
+    expect(screen.queryByText(/No matches/)).toBeNull();
+
+    deferred[0]?.resolve(response("Invoice March"));
+    expect(await screen.findByText("Invoice March")).toBeDefined();
+
+    // Typing further characters: the previous result stays on screen while
+    // the new query's own request is in flight, with a non-blocking loading
+    // indicator alongside it rather than a swap to "No matches".
+    typeAndClosePalette("invoice2");
+    await waitFor(() => expect(deferred).toHaveLength(2));
+    expect(screen.getByText("Invoice March")).toBeDefined();
+    expect(await screen.findByText("Searching…")).toBeDefined();
+    expect(screen.queryByText(/No matches/)).toBeNull();
+
+    // Typing again before that second request settles supersedes it — its
+    // response, resolved after the fact, must not replace what's on screen.
+    typeAndClosePalette("invoice23");
+    await waitFor(() => expect(deferred).toHaveLength(3));
+    deferred[1]?.resolve(response("Should not appear"));
+    await waitFor(() => expect(screen.queryByText("Should not appear")).toBeNull());
+    expect(screen.getByText("Invoice March")).toBeDefined();
+
+    // The current query's own response replaces the held-over result.
+    deferred[2]?.resolve(response("Invoice April"));
+    expect(await screen.findByText("Invoice April")).toBeDefined();
+    expect(screen.queryByText("Invoice March")).toBeNull();
+    expect(screen.queryByText("Searching…")).toBeNull();
+  });
+
   it("badges Held and Blocked results (#56, poc-spec.md: 'search returns held and blocked mail badged')", async () => {
     await seedOneThread();
     const searchResponse: SearchResponse = {
@@ -309,12 +407,10 @@ describe("search (#51)", () => {
     };
     stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "result" } });
+    await openResultsView("result");
 
     const heldRow = (await screen.findByText("Held result")).closest(".thread-row");
     const blockedRow = (await screen.findByText("Blocked result")).closest(".thread-row");
@@ -371,12 +467,10 @@ describe("search across Account Scope (#80)", () => {
       return Promise.resolve(jsonResponse(twoAccountSearchResponse()));
     });
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "account" } });
+    await openResultsView("account");
 
     await screen.findByText("From account one");
     await screen.findByText("From account two");
@@ -405,19 +499,17 @@ describe("search across Account Scope (#80)", () => {
       return Promise.resolve(jsonResponse(twoAccountSearchResponse()));
     });
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "account" } });
+    await openResultsView("account");
     await screen.findByText("From account one");
     expect(bodies).toHaveLength(1);
     expect(bodies[0]?.additionalMailAccountIds).toEqual(["acct-2"]);
 
-    // Narrow Scope to just `acct-1` via the real control (`AccountScope.tsx`) — not by
-    // reaching into `useAccountScope` directly, so this exercises the same
-    // path a User's own click does.
+    // Narrow Scope to just `acct-1` via the real control (`AccountScope.tsx`,
+    // now in the Hub) — not by reaching into `useAccountScope` directly, so
+    // this exercises the same path a User's own click does.
     fireEvent.click(screen.getByTitle("Account Scope"));
     fireEvent.click(screen.getByLabelText(/acct-2@example\.test/));
 
@@ -431,12 +523,10 @@ describe("search across Account Scope (#80)", () => {
     await seedTwoAccounts();
     stubFetch(() => Promise.resolve(jsonResponse(twoAccountSearchResponse())));
 
-    renderMail();
+    renderApp();
     await screen.findByText("Origin thread");
 
-    fireEvent.keyDown(window, { key: "/" });
-    const field = await screen.findByLabelText<HTMLInputElement>("Search mail");
-    fireEvent.change(field, { target: { value: "account" } });
+    await openResultsView("account");
     await screen.findByText("From account two");
 
     fireEvent.click(screen.getByText("From account two"));

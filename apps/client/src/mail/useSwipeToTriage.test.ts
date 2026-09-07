@@ -19,8 +19,8 @@ function pointerEvent(overrides: {
 describe("useSwipeToTriage", () => {
   it("ignores non-touch pointers (a mouse drag must not trigger anything)", () => {
     const onArchive = vi.fn();
-    const onSnooze = vi.fn();
-    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onSnooze }));
+    const onTrash = vi.fn();
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onTrash }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ pointerType: "mouse", clientX: 0 }));
@@ -31,9 +31,7 @@ describe("useSwipeToTriage", () => {
   });
 
   it("tracks offsetX and reveals archive while dragging right of the dead zone", () => {
-    const { result } = renderHook(() =>
-      useSwipeToTriage({ onArchive: vi.fn(), onSnooze: vi.fn() }),
-    );
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive: vi.fn(), onTrash: vi.fn() }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
@@ -44,23 +42,21 @@ describe("useSwipeToTriage", () => {
     expect(result.current.revealing).toBe("archive");
   });
 
-  it("reveals snooze while dragging left", () => {
-    const { result } = renderHook(() =>
-      useSwipeToTriage({ onArchive: vi.fn(), onSnooze: vi.fn() }),
-    );
+  it("reveals trash while dragging left", () => {
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive: vi.fn(), onTrash: vi.fn() }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
       result.current.handlers.onPointerMove(pointerEvent({ clientX: -40 }));
     });
 
-    expect(result.current.revealing).toBe("snooze");
+    expect(result.current.revealing).toBe("trash");
   });
 
   it("commits archive on release past the threshold to the right", () => {
     const onArchive = vi.fn();
-    const onSnooze = vi.fn();
-    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onSnooze }));
+    const onTrash = vi.fn();
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onTrash }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
@@ -71,14 +67,14 @@ describe("useSwipeToTriage", () => {
     });
 
     expect(onArchive).toHaveBeenCalledTimes(1);
-    expect(onSnooze).not.toHaveBeenCalled();
+    expect(onTrash).not.toHaveBeenCalled();
     expect(result.current.offsetX).toBe(0); // snaps back to idle once the action is queued
   });
 
-  it("commits snooze on release past the threshold to the left", () => {
+  it("commits trash on release past the threshold to the left", () => {
     const onArchive = vi.fn();
-    const onSnooze = vi.fn();
-    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onSnooze }));
+    const onTrash = vi.fn();
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onTrash }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
@@ -87,14 +83,14 @@ describe("useSwipeToTriage", () => {
       );
     });
 
-    expect(onSnooze).toHaveBeenCalledTimes(1);
+    expect(onTrash).toHaveBeenCalledTimes(1);
     expect(onArchive).not.toHaveBeenCalled();
   });
 
   it("snaps back without committing when released short of the threshold", () => {
     const onArchive = vi.fn();
-    const onSnooze = vi.fn();
-    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onSnooze }));
+    const onTrash = vi.fn();
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onTrash }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
@@ -103,13 +99,13 @@ describe("useSwipeToTriage", () => {
     });
 
     expect(onArchive).not.toHaveBeenCalled();
-    expect(onSnooze).not.toHaveBeenCalled();
+    expect(onTrash).not.toHaveBeenCalled();
     expect(result.current.offsetX).toBe(0);
   });
 
   it("resets to idle on pointercancel (e.g. the browser claiming the gesture as a vertical scroll)", () => {
     const onArchive = vi.fn();
-    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onSnooze: vi.fn() }));
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive, onTrash: vi.fn() }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
@@ -122,9 +118,7 @@ describe("useSwipeToTriage", () => {
   });
 
   it("clamps offsetX so the reveal never outruns the row", () => {
-    const { result } = renderHook(() =>
-      useSwipeToTriage({ onArchive: vi.fn(), onSnooze: vi.fn() }),
-    );
+    const { result } = renderHook(() => useSwipeToTriage({ onArchive: vi.fn(), onTrash: vi.fn() }));
 
     act(() => {
       result.current.handlers.onPointerDown(pointerEvent({ clientX: 0 }));
