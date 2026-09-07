@@ -92,7 +92,7 @@ reads as one continuous piece rather than a bar inside a page.
 _Avoid_: header, top bar, nav bar
 
 **Local Cache**:
-The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox, plus the whole of the User's small App collections (Notes, Contacts, Labels) and a rolling window of Events. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a source of truth for anything but rendering, even where it happens to hold everything. Unrelated to the Local Origin, which means this instance rather than the device.
+The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox, plus the whole of the User's small App collections (Notes, Contacts, Labels) and the Event Window. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a source of truth for anything but rendering, even where it happens to hold everything. Unrelated to the Local Origin, which means this instance rather than the device.
 _Avoid_: local store, local database, replica, offline store
 
 **Notifier**:
@@ -248,6 +248,14 @@ _Avoid_: preview, excerpt, teaser
 **Optimistic Action**:
 Any action on synced data — Triage, a Gatekeeper decision, or an App's own action such as pinning or deleting a Note — whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.
 
+**Rollback**:
+The Sync Backend undoing an Optimistic Action it could not make stick, either at once (the store
+refused it) or later, when a synced collection's upstream refused the write or had already changed.
+The affected row visibly reverts and a toast names the action with Retry, on every device the User
+has open, however long after the action it happens. Always the system's doing, never the User's:
+the User reversing their own action is Undo.
+_Avoid_: revert, conflict (unqualified), failed sync
+
 **Auto-advance**:
 After archiving or deleting, automatically opening the next thread or returning to the list (User-configurable).
 
@@ -374,6 +382,78 @@ Where a deleted Note waits for thirty days before it is gone: a view of the Note
 same cards greyed, each with Restore. Deleting a Note is an Optimistic Action with Restore as its
 Undo, so the toast and this view are two doors to the same inverse.
 _Avoid_: trash (reserved for mail), bin, archive
+
+### Calendar
+
+**Calendar**:
+One named collection of Events with exactly one Origin: a Connected Account's upstream calendar
+mirrored whole, or a Local calendar this instance is the authority for. Its name, description and
+time zone are the upstream's where it has one; its colour and whether it is shown are the User's own
+and never leave Wicket. Every User has a Local Calendar from the first use of the App, and one
+Calendar across all Origins is the User's default for new Events, the Local one until they choose
+otherwise. A Calendar the upstream grants only reading of is shown and never offers editing.
+_Avoid_: agenda, calendar feed, subscription
+
+**Event**:
+What the User sees on the grid: one dated thing with a title, a time or a whole day, on one
+Calendar. The word for every Occurrence, recurring or not, in UI copy; the User is never asked to
+think in Series unless they choose an edit scope.
+_Avoid_: appointment, meeting (unless attendees are meant), entry, item
+
+**Series**:
+The unit a Calendar actually holds and syncs: one Event body plus, when it repeats, its recurrence
+rule, extra dates and removed dates in RFC 5545 form. A non-repeating Event is a Series with no rule
+and exactly one Occurrence, so there is one shape for everything. Identified by a Wicket id, and
+carrying the upstream's id, iCalendar `UID` and revision beside it.
+_Avoid_: recurring event, master, parent event
+
+**Occurrence**:
+One dated instance derived from a Series by the Sync Backend, keyed by the Series and the instance's
+original start. What the Client receives and renders; the Client never expands a rule itself. A
+removed Occurrence is only a date the Series no longer happens on, with nothing else remembered,
+because the poorest upstream cannot supply more.
+_Avoid_: instance, expanded event
+
+**Override**:
+An Occurrence whose fields differ from its Series because the User or the upstream changed that one
+instance, iCalendar's `RECURRENCE-ID` exception. Editing "this event" makes one; editing "this and
+following" splits the Series in two instead; editing "all events" changes the Series itself.
+_Avoid_: exception, modified instance, detached event
+
+**Organiser**:
+The address that owns an Event's invitations: the one whose changes attendees follow. On a Local
+Calendar it is the User, and the Sync Backend is its authority; on a synced Calendar it is whoever
+the upstream says. Marked as the User's own when it matches a Connected Account's identity, a Mail
+Account's address or an Alias.
+_Avoid_: owner, host, creator
+
+**Attendee**:
+An address invited to an Event, with a role (required, optional, or a room or resource) and an
+answer (no answer yet, accepted, tentative, declined), held on the Event itself rather than as a
+link to a Contact; any Contact or Correspondent with the same address is found at display time.
+One Attendee is marked as the User's own, the one whose answer the User can change.
+_Avoid_: guest, participant, invitee, recipient
+
+**Reminder**:
+A number of minutes before an Event's start at which the User is told about it. Held per Event,
+or inherited from the Calendar's defaults when the Event asks for those; delivery is the Notifier's
+job. Reminders that send email or fire at an absolute time are kept for round-tripping and never
+shown or fired.
+_Avoid_: alarm, alert, notification (when the setting rather than the delivery is meant)
+
+**Materialisation Window**:
+The span of time, about a year back and two years forward from today and rolling daily, for which
+the Sync Backend keeps every Series expanded into stored Occurrences. Outside it, Occurrences are
+computed on request and not kept. A Series that never ends is expanded to the edge, never
+enumerated.
+_Avoid_: expansion range, horizon
+
+**Event Window**:
+The slice of the Materialisation Window a Client's Local Cache holds and syncs, about three months
+back and a year forward from today, rolling daily. The Calendar's Candidate Window: the span the
+User actually lives in, rendered instantly and edited offline; any range outside it is fetched on
+demand and shown with a note that older Events load on request.
+_Avoid_: sync window, cache range, visible range
 
 ### Search
 
