@@ -11,6 +11,16 @@ import { vi } from "vitest";
  */
 export function stubMatchMedia(initialMatches: (query: string) => boolean) {
   const listenersByQuery = new Map<string, Set<(event: { matches: boolean }) => void>>();
+  const matchesByQuery = new Map<string, boolean>();
+
+  function currentMatches(query: string): boolean {
+    let matches = matchesByQuery.get(query);
+    if (matches === undefined) {
+      matches = initialMatches(query);
+      matchesByQuery.set(query, matches);
+    }
+    return matches;
+  }
 
   vi.stubGlobal(
     "matchMedia",
@@ -22,7 +32,9 @@ export function stubMatchMedia(initialMatches: (query: string) => boolean) {
       }
       const mql = {
         media: query,
-        matches: initialMatches(query),
+        get matches() {
+          return currentMatches(query);
+        },
         addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => {
           listeners.add(listener);
         },
@@ -42,6 +54,7 @@ export function stubMatchMedia(initialMatches: (query: string) => boolean) {
   return {
     /** Fires a synthetic `"change"` at every listener registered for `query`, with the new `matches` value. */
     setMatches(query: string, matches: boolean) {
+      matchesByQuery.set(query, matches);
       for (const listener of listenersByQuery.get(query) ?? []) {
         listener({ matches });
       }

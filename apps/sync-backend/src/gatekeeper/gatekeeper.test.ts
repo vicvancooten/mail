@@ -643,6 +643,60 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
     );
   });
 
+  it("ignores an Inbox Thread id from another Mail Account", async () => {
+    const otherAccount = await createTestMailAccount(db);
+    const [otherInbox] = await db
+      .insert(folders)
+      .values({
+        id: randomUUID(),
+        mailAccountId: otherAccount.id,
+        path: "INBOX",
+        name: "INBOX",
+        role: "inbox",
+      })
+      .returning();
+    if (!otherInbox) throw new Error("other inbox insert returned no row");
+
+    const receivedAt = new Date();
+    const otherThreadId = await resolveThread(db, {
+      mailAccountId: otherAccount.id,
+      threadingIds: ["foreign@example.test"],
+      subject: "Foreign thread",
+      receivedAt,
+    });
+    await db.insert(messages).values({
+      id: randomUUID(),
+      mailAccountId: otherAccount.id,
+      threadId: otherThreadId,
+      folderId: otherInbox.id,
+      uid: 1,
+      messageIdHeader: "foreign@example.test",
+      subject: "Foreign thread",
+      fromAddress: "stranger@example.test",
+      toAddresses: [{ name: null, address: otherAccount.emailAddress }],
+      sentAt: receivedAt,
+      receivedAt,
+      seen: false,
+    });
+    await refreshThreadRollups(db, [otherThreadId]);
+
+    expect(
+      await blockSender(
+        db,
+        account.id,
+        { scope: "address", value: "stranger@example.test" },
+        otherThreadId,
+      ),
+    ).toEqual({ ok: true });
+
+    const foreignThread = await threadRow(otherThreadId);
+    expect(foreignThread.inInbox).toBe(true);
+    expect(foreignThread.folderRole).toBe("inbox");
+    expect(
+      await db.select().from(protocolWrites).where(eq(protocolWrites.mailAccountId, account.id)),
+    ).toEqual([]);
+  });
+
   it("the Verdict persists and takes effect once Gatekeeper is turned on later", async () => {
     const { threadId } = await deliver({ from: "villain@example.test", subject: "First" });
     await spamSender(db, account.id, { scope: "address", value: "villain@example.test" }, threadId);

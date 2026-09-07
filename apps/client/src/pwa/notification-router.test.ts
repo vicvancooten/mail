@@ -48,6 +48,12 @@ describe("startNotificationRouter", () => {
     unsubscribe = subscribeNotificationTarget((target) => received.push(target));
 
     container.emit({ type: "new-mail-toast", payload: {} });
+    container.emit({ type: "notification-click", target: null });
+    container.emit({
+      type: "notification-click",
+      target: { kind: "thread", mailAccountId: "acct-1" },
+    });
+    container.emit({ type: "notification-click", target: { kind: "screener" } });
     container.emit(null);
     container.emit("not an object");
 

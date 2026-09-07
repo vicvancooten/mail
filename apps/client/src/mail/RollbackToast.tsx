@@ -102,7 +102,7 @@ function describeIntent(intent: MutationIntent): string | null {
     case "spamSender":
       return intent.threadId
         ? "Couldn't Spam — restored to the Inbox."
-        : "Couldn't mark as spam — the sender is still waiting in the Screener.";
+        : "Couldn't Spam — the sender is still waiting in the Screener.";
     case "unblockSender":
       return "Couldn't unblock — they are still blocked.";
     case "unblockAndRestore":

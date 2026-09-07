@@ -38,12 +38,35 @@ interface NotificationClickMessage {
   target: NotificationTarget;
 }
 
+function isNotificationTarget(data: unknown): data is NotificationTarget {
+  if (typeof data !== "object" || data === null) return false;
+  const target = data as {
+    kind?: unknown;
+    mailAccountId?: unknown;
+    threadId?: unknown;
+    compositionId?: unknown;
+  };
+  if (typeof target.mailAccountId !== "string") return false;
+  switch (target.kind) {
+    case "thread":
+      return typeof target.threadId === "string";
+    case "failed-send":
+      return typeof target.compositionId === "string";
+    case "needs-reauth":
+    case "screener":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Narrowed rather than typed against the untrusted `MessageEvent.data` directly — the same posture `NewMailToast.tsx`'s own message guard takes. */
 function isNotificationClickMessage(data: unknown): data is NotificationClickMessage {
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === "notification-click"
+    (data as { type?: unknown }).type === "notification-click" &&
+    isNotificationTarget((data as { target?: unknown }).target)
   );
 }
 
