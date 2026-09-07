@@ -453,7 +453,10 @@ mirrored whole, or a Local calendar this instance is the authority for. Its name
 time zone are the upstream's where it has one; its colour and whether it is shown are the User's own
 and never leave Wicket. Every User has a Local Calendar from the first use of the App, and one
 Calendar across all Origins is the User's default for new Events, the Local one until they choose
-otherwise. A Calendar the upstream grants only reading of is shown and never offers editing.
+otherwise. A Calendar the upstream grants only reading of is shown and never offers editing. A
+Local Calendar has one of the User's Mail Accounts (or none, while the User has none): the address
+that organises the Events it sends Invitations for, and the address whose arriving Invitations land
+on it. Several Local Calendars may share one Mail Account.
 _Avoid_: agenda, calendar feed, subscription
 
 **Event**:
@@ -484,17 +487,35 @@ _Avoid_: exception, modified instance, detached event
 
 **Organiser**:
 The address that owns an Event's invitations: the one whose changes attendees follow. On a Local
-Calendar it is the User, and the Sync Backend is its authority; on a synced Calendar it is whoever
-the upstream says. Marked as the User's own when it matches a Connected Account's identity, a Mail
+Calendar it is the Calendar's Mail Account's address, and the Sync Backend is its authority; on a
+synced Calendar it is whoever the upstream says. Marked as the User's own when it matches a Connected Account's identity, a Mail
 Account's address or an Alias.
 _Avoid_: owner, host, creator
 
 **Attendee**:
 An address invited to an Event, with a role (required, optional, or a room or resource) and an
-answer (no answer yet, accepted, tentative, declined), held on the Event itself rather than as a
-link to a Contact; any Contact or Correspondent with the same address is found at display time.
-One Attendee is marked as the User's own, the one whose answer the User can change.
+Answer, held on the Event itself rather than as a link to a Contact; any Contact or Correspondent
+with the same address is found at display time. One Attendee is marked as the User's own, the one
+whose Answer the User can change.
 _Avoid_: guest, participant, invitee, recipient
+
+**Answer**:
+Where an Attendee stands on an Event: no answer yet, accepted, tentative, or declined. The buttons
+read Accept, Maybe and Decline. On a synced Calendar the User's Answer travels through the upstream,
+which tells the Organiser; on a Local Calendar the Sync Backend tells the Organiser by email through
+the Mail Account the Invitation arrived at. Changing an Answer is always possible; taking a first
+Answer back is possible only while it has not yet left.
+_Avoid_: RSVP, response, response status, reply (when the Answer rather than the mail is meant)
+
+**Invitation**:
+A calendar message found inside an arriving mail, read once by the Sync Backend and kept beside the
+Message: a request to attend an Event, an Answer from an Attendee, or a cancellation, each naming
+the Event it concerns. The Reader shows one card per Thread per Event, reflecting the latest
+revision and, when the Event is on one of the User's Calendars, that Event's live state. An
+Invitation for an address the User owns lands on the Calendar matched to that address: the
+Connected Account's own Calendar when it has a Calendar Facet, otherwise a Local Calendar. One
+addressed to nobody the User is can only be added as a private copy, never answered.
+_Avoid_: invite (the verb for adding Users), meeting request, ics, scheduling message, calendar email
 
 **Reminder**:
 A number of minutes before an Event's start at which the User is told about it. Held per Event,
