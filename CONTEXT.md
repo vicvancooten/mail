@@ -226,9 +226,10 @@ say "this is about to happen to all of these" before it does.
 _Avoid_: timeline, rail, gutter line
 
 **Undo**:
-Reversing a Triage action, a Gatekeeper decision or an App's own action (deleting a Note) within a
-short window after it, from the toast that announced it. Always a real inverse action (restore to
-Inbox, unsnooze, unblock and restore, restore a Note), so it
+Reversing a Triage action, a Gatekeeper decision or an App's own action (deleting a Note, deleting
+or moving a Contact, importing a file) within a short window after it, from the toast that
+announced it. Always a real inverse action (restore to Inbox, unsnooze, unblock and restore, restore
+a Note, delete the imported batch), so it
 works whether or not the Sync Backend has already applied the original; never a cancellation of a
 queued request. Actions taken in quick succession share one toast and one Undo.
 _Avoid_: revert, rollback (which is the Sync Backend rejecting an action, not the User reversing one)
@@ -246,7 +247,7 @@ The short plain-text opening of a message, with quoted and forwarded history str
 _Avoid_: preview, excerpt, teaser
 
 **Optimistic Action**:
-Any action on synced data — Triage, a Gatekeeper decision, or an App's own action such as pinning or deleting a Note — whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.
+Any action on synced data — Triage, a Gatekeeper decision, or an App's own action such as pinning or deleting a Note, or editing a Contact that pushes to its upstream — whose result is shown instantly in the Client while the Sync Backend applies it in the background, rolling back visibly on failure. Durably queued in the Client: it survives a reload, is performable offline, and on Needs Reauth waits indefinitely rather than failing.
 
 **Rollback**:
 The Sync Backend undoing an Optimistic Action it could not make stick, either at once (the store
@@ -285,7 +286,7 @@ _Avoid_: flag, favourite, bookmark
 Keeping a Thread or a Note prominently visible regardless of its age. An App Feature, and deliberately not the same thing as a Star: a Star says "this matters", a Pin says "keep this in front of me".
 
 **Label**:
-A user-defined tag a User applies to a Thread or a Note for organization. Owned by the User, not by any one Mail Account, so one set of Labels spans all of a User's Mail Accounts and their Notes. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels).
+A user-defined tag a User applies to a Thread, a Note or a Contact for organization. Owned by the User, not by any one Mail Account, so one set of Labels spans all of a User's Mail Accounts, their Notes and their Contacts. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels) and never written to an upstream address book's groups, which are shown on a Contact read-only.
 _Avoid_: tag, IMAP keyword
 
 ### Gatekeeper
@@ -359,8 +360,66 @@ The state of a Composition from the moment a send is accepted until it is submit
 _Avoid_: outbox, queued mail
 
 **Correspondent**:
-An address the User has actually exchanged mail with on a Mail Account, derived from message history and never hand-edited. The source of recipient suggestions while composing.
+An address the User has actually exchanged mail with on a Mail Account, derived from message history and never hand-edited. The source of recipient suggestions while composing, ranked by how recently and how often mail was exchanged; a Contact whose address is also a Correspondent keeps that rank and lends it a name and photo. Shown in the Contacts App as People You've Mailed until it is saved as a Contact.
 _Avoid_: contact (reserved for the address-book entries a User manages), recipient
+
+### Contacts
+
+**Address Book**:
+One Origin's collection of Contacts: a Connected Account's address book mirrored through its
+Contacts Facet, or the User's one Local Address Book. Discovered from the upstream, never created,
+renamed or deleted upstream by Wicket, which manages the Contacts inside it. The Contacts App shows
+one list across every Address Book in Account Scope, with the Address Book as a filter, never as a
+separate screen.
+_Avoid_: contact list, contact folder, group
+
+**Contact**:
+A person or organisation the User keeps in an Address Book: names, emails, phones, addresses,
+organisations, birthday, websites, notes, photo, Labels and Custom Fields. Holds exactly the fields
+its Origin can hold, so everything on a synced Contact round-trips to its upstream; the Local
+Address Book holds the whole set. Identified by Wicket, never by its upstream's id. Distinct from a
+Correspondent, which is derived and never edited.
+_Avoid_: person (unqualified), entry, card (for the record rather than the rendering)
+
+**Default Address Book**:
+The Address Book a new Contact lands in when the User saves one without choosing: promoting a
+Correspondent, saving a sender from the Reader or Screener, importing a file. Local until the User
+picks another in Settings; every save sheet lets it be overridden once.
+_Avoid_: primary address book, main account
+
+**Person Page**:
+Where one Contact is read and edited, and where the mail history of every address on it is shown
+across Account Scope. That history is a search run for the Contact's addresses, bounded like any
+other, never a stored link between Contact and Thread. The Contact's photo, when it has one, is the
+avatar wherever that address appears in Mail.
+_Avoid_: contact detail, profile, contact view
+
+**Linked Contacts**:
+Two or more Contacts in different Address Books that the User has said are one person. Shown as one
+card and one Person Page whose fields are the union, each field staying in the record it came from
+and edited there; the record in the Default Address Book fronts the card unless the User picks
+another. Never merged across Origins, because two upstreams cannot hold each other's fields.
+Suggested on a shared email address or phone number, never linked automatically.
+_Avoid_: merged contact, unified contact, duplicate (for the linked pair)
+
+**Merge**:
+Combining two Contacts of the same Address Book into one: the older record survives and takes the
+other's fields, the other is deleted. Only offered within one Address Book; across Address Books the
+answer is Linked Contacts.
+_Avoid_: combine, dedupe, join
+
+**Custom Field**:
+A labelled, typed value the User adds to a Contact beyond the fixed families: text, date, number,
+phone, location or website. A standard value whose label falls outside the fixed vocabulary (a phone
+labelled "Boat", an anniversary) is a Custom Field of that type. Offered only where the Contact's
+Origin can hold it.
+_Avoid_: extra field, user-defined field, X- property
+
+**People You've Mailed**:
+The Contacts App filter listing the Correspondents from every Mail Account in Account Scope whose
+address is on no Contact, ranked as compose ranks them, each with Save. The one door from
+Correspondents into Contacts, and a filter on the one list rather than a second list.
+_Avoid_: suggestions, other contacts, recent people
 
 ### Notes
 
@@ -378,9 +437,12 @@ titled with the subject whose first block is a Thread Link; the mail itself is n
 _Avoid_: mail embed, quote, attachment
 
 **Recently Deleted**:
-Where a deleted Note waits for thirty days before it is gone: a view of the Notes App showing the
-same cards greyed, each with Restore. Deleting a Note is an Optimistic Action with Restore as its
-Undo, so the toast and this view are two doors to the same inverse.
+Where a deleted Note or Contact waits for thirty days before it is gone: a view of the Notes App or
+the Contacts App showing the same cards greyed, each with Restore. Deleting is an Optimistic Action
+with Restore as its Undo, so the toast and this view are two doors to the same inverse. A synced
+Contact is removed from its upstream at once and kept here as Wicket's copy; Restore creates it
+upstream again as a new record. Only deletions made in Wicket land here; a Contact deleted upstream
+simply disappears, because the mirror follows the upstream.
 _Avoid_: trash (reserved for mail), bin, archive
 
 ### Calendar
