@@ -319,11 +319,24 @@ export function useSearchState(
   const serverResponse =
     serverResponseState?.forKey === requestKey ? serverResponseState.response : null;
 
-  const usingServerResults = serverResponse !== null;
   const previousDisplayResultsRef = useRef<readonly SearchResult[]>([]);
   const previousSourceRef = useRef<"server" | "prefilter" | null>(null);
-  const displayResults = useMemo(() => {
-    const next = serverResponse
+  const { results: displayResults, usingServerResults } = useMemo(() => {
+    // Bug 8: an empty server answer used to erase real local matches
+    // outright — the server can legitimately come back with nothing for a
+    // Thread the Local Cache already has (not yet server-indexed, or
+    // belonging to a Mail Account that currently `needsReauth` and so was
+    // never actually searched), and the prefilter's own copy is still real
+    // (the Needs Reauth test's own doc comment already assumed this: "the
+    // reauth banner still has to render alongside it even though the
+    // *server* response itself is empty"). Trust the server once it
+    // actually found something; otherwise stay on the prefilter's results
+    // (even after the server has answered) until the prefilter agrees
+    // there's truly nothing either.
+    const useServer =
+      serverResponse !== null &&
+      (serverResponse.results.length > 0 || prefilterThreads.length === 0);
+    const next = useServer
       ? serverResponse.results
       : prefilterThreads.map(
           (thread): SearchResult => ({
@@ -338,7 +351,7 @@ export function useSearchState(
             gatekeeper: thread.heldSender ? ("held" as const) : null,
           }),
         );
-    const nextSource = serverResponse ? "server" : "prefilter";
+    const nextSource = useServer ? "server" : "prefilter";
 
     // ADR-0016: the prefilter is "rendered identically to server results...
     // and replaced wholesale when they arrive (skipping the re-render when
@@ -357,11 +370,11 @@ export function useSearchState(
       previousSourceRef.current === nextSource &&
       previous.length === next.length &&
       previous.every((result, index) => result.thread.id === next[index]?.thread.id);
-    if (sameOrder) return previous;
+    const results = sameOrder ? previous : next;
 
-    previousDisplayResultsRef.current = next;
+    previousDisplayResultsRef.current = results;
     previousSourceRef.current = nextSource;
-    return next;
+    return { results, usingServerResults: useServer };
   }, [serverResponse, prefilterThreads]);
 
   const overlaidThreads = useSearchResultThreads(displayResults);
