@@ -1,4 +1,4 @@
-import type { ConnectedAccount, MailAccount } from "@mail/shared";
+import type { ConnectedAccount, ConnectedAccountFacetKind, MailAccount } from "@mail/shared";
 import {
   Table,
   TableBody,
@@ -33,13 +33,15 @@ export function ConnectedAccountsTable({
   connectedAccounts,
   mailAccounts,
   isOwner,
-  focusMailAccountId,
+  focusConnectedAccountId,
+  focusFacet,
 }: {
   connectedAccounts: ConnectedAccount[];
   mailAccounts: MailAccount[];
   isOwner: boolean;
-  /** The notification/cold-start deep link's target Mail Account, if any (#53, ADR-0015). */
-  focusMailAccountId: string | null;
+  /** The notification/cold-start deep link's target Facet cell, if any (#53, ADR-0015; widened to Connected Account + Facet by #204). */
+  focusConnectedAccountId: string | null;
+  focusFacet: ConnectedAccountFacetKind | null;
 }) {
   const mailAccountByConnectedAccountId = new Map(
     mailAccounts.map((account) => [account.connectedAccountId, account]),
@@ -86,10 +88,7 @@ export function ConnectedAccountsTable({
                         facet={facet}
                         mailAccount={mailAccountByConnectedAccountId.get(account.id) ?? null}
                         isOwner={isOwner}
-                        autoFocus={
-                          facet === "mail" &&
-                          mailAccountByConnectedAccountId.get(account.id)?.id === focusMailAccountId
-                        }
+                        autoFocus={account.id === focusConnectedAccountId && facet === focusFacet}
                       />
                     ))}
                     <AddFacetControl

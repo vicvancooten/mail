@@ -22,8 +22,8 @@ import {
 } from "../connected-accounts/credential-crypto.js";
 import {
   attachFacetToConnectedAccount,
-  connectedAccountHasFacet,
   getConnectedAccountById,
+  getConnectedAccountFacet,
 } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import { buildProviderRedirectUri } from "../instance-info.js";
@@ -242,7 +242,13 @@ export async function oauthSignInRoutes(
         if (!facetGrantScopes) {
           return reply.code(409).send({ error: "facet_not_supported" });
         }
-        if (await connectedAccountHasFacet(db, account.id, facet)) {
+        // A Facet that doesn't exist yet is a fresh add; one that exists
+        // `active` is a duplicate. One that exists `needs_reauth` is a Fix
+        // (#204) — allowed through to the same consent flow, which
+        // `finishFacetGrant`'s `attachFacetToConnectedAccount` upserts back
+        // to `active` rather than inserting a second row.
+        const existingFacet = await getConnectedAccountFacet(db, account.id, facet);
+        if (existingFacet?.status === "active") {
           return reply.code(409).send({ error: "facet_already_connected" });
         }
         loginHint = account.identity;

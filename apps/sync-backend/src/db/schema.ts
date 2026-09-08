@@ -1638,9 +1638,18 @@ export const notifierOutbox = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    mailAccountId: text("mail_account_id")
-      .notNull()
-      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    // Nullable since #204: a `needs_reauth` notification for a Calendar or
+    // Contacts Facet has no `mail_accounts` row to name — every other kind
+    // is still Mail-only and always sets this.
+    mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
+      onDelete: "cascade",
+    }),
+    /** `needs_reauth` only (#204): which Connected Account parked, Mail Facet included — the deep link's own target. Null for every other kind. */
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
+    /** `needs_reauth` only (#204): which Facet parked. Null for every other kind. */
+    facet: text("facet", { enum: ["mail", "calendar", "contacts"] }),
     kind: text("kind", {
       enum: ["new_mail", "failed_send", "needs_reauth", "gatekeeper_digest"],
     }).notNull(),

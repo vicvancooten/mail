@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ConnectedAccountFacetKind } from "@mail/shared";
 import { and, asc, inArray, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { type NotifierOutboxPayload, notifierOutbox } from "../db/schema.js";
@@ -13,7 +14,11 @@ export type NotifierOutboxRow = typeof notifierOutbox.$inferSelect;
 
 export interface InsertOutboxEntryInput {
   userId: string;
-  mailAccountId: string;
+  /** Null for a `needs_reauth` notification on a Calendar or Contacts Facet (#204) — every other kind always sets this. */
+  mailAccountId: string | null;
+  /** `needs_reauth` only (#204): which Connected Account/Facet parked. Absent (null) for every other kind. */
+  connectedAccountId?: string | null;
+  facet?: ConnectedAccountFacetKind | null;
   kind: NotifierOutboxPayload["kind"];
   /** Unique within `kind` — see `db/schema.ts`'s doc comment for what each kind uses. */
   dedupKey: string;
@@ -33,6 +38,8 @@ export async function insertOutboxEntry(db: Db, input: InsertOutboxEntryInput): 
       id: randomUUID(),
       userId: input.userId,
       mailAccountId: input.mailAccountId,
+      connectedAccountId: input.connectedAccountId ?? null,
+      facet: input.facet ?? null,
       kind: input.kind,
       dedupKey: input.dedupKey,
       payload: input.payload,

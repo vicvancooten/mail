@@ -18,7 +18,7 @@ import {
   isSecureContext,
 } from "../instance-info.js";
 import { listMailAccountsForProvider, markNeedsReauth } from "../mail-accounts/store.js";
-import { recordNeedsReauthNotification } from "../notifier/record.js";
+import { recordMailFacetNeedsReauthNotification } from "../notifier/record.js";
 import type { VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
   countMailAccountsForProvider,
@@ -212,7 +212,11 @@ export async function instanceRoutes(
 
   // Confirm (#115, ADR-0021): parks every Mail Account on this Provider in
   // Needs Reauth via the existing atomic transition, then removes the
-  // Registration. `markNeedsReauth`'s own conditional update means an
+  // Registration. Account-level, explicitly (#204): removing the
+  // Registration kills the whole Grant (no client id/secret left to refresh
+  // or widen it with), not one Facet's own scope, so this passes
+  // `{ scope: "account" }` rather than relying on `markNeedsReauth`'s
+  // Facet-scoped default. `markNeedsReauth`'s own conditional update means an
   // account already in Needs Reauth is skipped rather than re-notified —
   // "one notification each" is per genuine transition, not per account.
   app.delete(
@@ -224,8 +228,8 @@ export async function instanceRoutes(
 
       const accounts = await listMailAccountsForProvider(db, provider);
       for (const account of accounts) {
-        const transitioned = await markNeedsReauth(db, account.id);
-        if (transitioned) await recordNeedsReauthNotification(db, transitioned);
+        const transitioned = await markNeedsReauth(db, account.id, { scope: "account" });
+        if (transitioned) await recordMailFacetNeedsReauthNotification(db, transitioned);
       }
       await deleteProviderRegistration(db, provider);
 

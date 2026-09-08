@@ -140,14 +140,17 @@ export const settingsThisDeviceRoute = createRoute({
 
 export interface ConnectedAccountsSearch {
   /**
-   * The needs-reauth notification/cold-start deep link's target Mail
-   * Account (#201, `connected-accounts/account-focus.ts`). Read directly
-   * off `window.location.search` by `ConnectedAccountsPage` itself, the
-   * same reasoning `mailRoute`'s own `?oauth=` sibling gives — this
+   * The needs-reauth notification/cold-start deep link's target Connected
+   * Account (#201, widened by #204 from a Mail Account id —
+   * `connected-accounts/account-focus.ts`), paired with `facet` below. Read
+   * directly off `window.location.search` by `ConnectedAccountsPage` itself,
+   * the same reasoning `mailRoute`'s own `?oauth=` sibling gives — this
    * `validateSearch` exists only so `RootLayout.tsx`'s own `navigate` call
    * type-checks, not because the page reads it through the router.
    */
   account?: string;
+  /** Which Facet cell on `account` to focus (#204) — always paired with `account` above. */
+  facet?: string;
   /** #116's OAuth callback outcome — same reasoning as `account` above. */
   oauth?: string;
 }
@@ -157,6 +160,7 @@ export const settingsConnectedAccountsRoute = createRoute({
   path: "/connected-accounts",
   validateSearch: (search: Record<string, unknown>): ConnectedAccountsSearch => ({
     account: typeof search.account === "string" ? search.account : undefined,
+    facet: typeof search.facet === "string" ? search.facet : undefined,
     oauth: typeof search.oauth === "string" ? search.oauth : undefined,
   }),
   component: ConnectedAccountsPage,

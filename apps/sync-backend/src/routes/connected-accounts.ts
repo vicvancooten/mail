@@ -3,7 +3,9 @@ import {
   addCalDavFacetRequestSchema,
   calDavFacetResponseSchema,
   connectedAccountFacetRemovalPreviewSchema,
+  connectedAccountResponseSchema,
   createCalDavAccountRequestSchema,
+  reauthConnectedAccountRequestSchema,
   removeConnectedAccountFacetResponseSchema,
 } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
@@ -27,6 +29,8 @@ import {
   getConnectedAccountForUserByIdentity,
   insertCalDavAccount,
   insertCalDavFacet,
+  listConnectedAccountFacets,
+  reactivateConnectedAccount,
 } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
@@ -165,6 +169,76 @@ export async function connectedAccountRoutes(
 
       await insertCalDavFacet(db, id, facet, result);
       return reply.send(toResponse(id, facet, result));
+    },
+  );
+
+  // The CalDAV/CardDAV half of #204's Fix flow: account-level only
+  // (ADR-0022: "a CalDAV/CardDAV 401 is always the account level, since both
+  // Facets share the password"), so this asks for the app password alone —
+  // never a username, which is this account's own unchanging identity — and
+  // verifies it by discovery against whichever Facet the account already
+  // carries before resuming the whole account. Mirrors `mail-accounts.ts`'s
+  // `POST /mail-accounts/:id/reauth`: verify-before-save, then
+  // `reactivateConnectedAccount`.
+  app.post(
+    "/connected-accounts/:id/reauth",
+    { preHandler: app.requireAuth },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = requireUser(request).id;
+      const account = await getConnectedAccountForUser(db, userId, id);
+      if (!account || account.provider !== "caldav_carddav") {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      if (account.serverAddress === null || account.daveUsername === null) {
+        throw new Error(
+          `Connected Account ${id} is caldav_carddav but missing serverAddress/daveUsername.`,
+        );
+      }
+
+      const body = reauthConnectedAccountRequestSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.code(400).send({ error: "invalid_request", issues: body.error.issues });
+      }
+      const { password } = body.data;
+
+      const facets = await listConnectedAccountFacets(db, id);
+      const anyFacet = facets[0];
+      if (!anyFacet) {
+        throw new Error(`Connected Account ${id} has no Facets to verify a reauth against.`);
+      }
+      const result = await discoverDav({
+        serverAddress: account.serverAddress,
+        username: account.daveUsername,
+        password,
+        facet: anyFacet.kind as "calendar" | "contacts",
+      });
+      if (!result.ok) {
+        return reply.code(discoveryStatusCode(result)).send({ error: result.reason });
+      }
+
+      await reactivateConnectedAccount(
+        db,
+        id,
+        "caldav_carddav",
+        sealPasswordCredential(password, id, key),
+      );
+
+      const updated = await getConnectedAccountForUser(db, userId, id);
+      if (!updated) {
+        throw new Error("Connected Account disappeared between reauth update and re-read.");
+      }
+      return connectedAccountResponseSchema.parse({
+        connectedAccount: {
+          id: updated.id,
+          userId: updated.userId,
+          provider: updated.provider,
+          identity: updated.identity,
+          status: updated.status,
+          facets: facets.map((facet) => ({ kind: facet.kind, status: "active" as const })),
+          createdAt: updated.createdAt.toISOString(),
+        },
+      });
     },
   );
 

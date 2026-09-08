@@ -111,20 +111,19 @@ export async function getConnectedAccountForUser(
 }
 
 /**
- * Whether a Connected Account already carries a given Facet, any status —
- * the guard `POST /connected-accounts/:id/caldav-facets` runs before
- * discovery (#203, so turning on an already-on Facet fails fast rather than
- * re-running discovery for nothing) and the guard the `add_facet` start
- * route runs before offering a consent flow (#202: re-granting an
- * already-connected Facet is a Fix flow, #204's, not this one).
+ * One Facet's own row, any status — the read `connectedAccountHasFacet`
+ * (below) and the `add_facet` start route's own Fix-vs-fresh-add guard
+ * (#204) both build on: a Facet that doesn't exist yet is a fresh add, one
+ * that exists `active` is a duplicate, one that exists `needs_reauth` is a
+ * Fix.
  */
-export async function connectedAccountHasFacet(
+export async function getConnectedAccountFacet(
   db: Db,
   connectedAccountId: string,
   kind: ConnectedAccountFacetRow["kind"],
-): Promise<boolean> {
+): Promise<ConnectedAccountFacetRow | null> {
   const [row] = await db
-    .select({ id: connectedAccountFacets.id })
+    .select()
     .from(connectedAccountFacets)
     .where(
       and(
@@ -133,7 +132,32 @@ export async function connectedAccountHasFacet(
       ),
     )
     .limit(1);
-  return row !== undefined;
+  return row ?? null;
+}
+
+/**
+ * Whether a Connected Account already carries a given Facet, any status —
+ * the guard `POST /connected-accounts/:id/caldav-facets` runs before
+ * discovery (#203, so turning on an already-on Facet fails fast rather than
+ * re-running discovery for nothing).
+ */
+export async function connectedAccountHasFacet(
+  db: Db,
+  connectedAccountId: string,
+  kind: ConnectedAccountFacetRow["kind"],
+): Promise<boolean> {
+  return (await getConnectedAccountFacet(db, connectedAccountId, kind)) !== null;
+}
+
+/** Every Facet a Connected Account carries — the scope-diff a Grant refresh runs (#204, `mail-accounts/grant-refresh.ts`) and this account's own CalDAV/CardDAV reauth verification both read every row rather than one Facet at a time. */
+export async function listConnectedAccountFacets(
+  db: Db,
+  connectedAccountId: string,
+): Promise<ConnectedAccountFacetRow[]> {
+  return db
+    .select()
+    .from(connectedAccountFacets)
+    .where(eq(connectedAccountFacets.connectedAccountId, connectedAccountId));
 }
 
 /** Discovery's own findings (`dav-discovery.ts#DavDiscoveryResult`'s `ok: true` branch) — what both CalDAV write paths below stamp onto a Facet row. */
@@ -238,15 +262,20 @@ export async function getConnectedAccountForUserByIdentity(
 }
 
 /**
- * Turning on a Facet's write path (#202, ADR-0022): lands the widened
- * credential (`credential-crypto.ts#widenOAuthCredential`) and the new
- * `active` Facet row in one transaction, so a Client can never observe a
- * credential that already covers the new scope without the Facet row that
- * says so, or vice versa. `id` follows `insertMailAccount`'s own
- * `${connectedAccountId}-${kind}` convention. `scopesLastGrantedAt` is
- * stamped `now` here — the one write path that ever sets it, since the
- * boot-time upgrade's own Mail Facet (#199) never ran a consent round to
- * stamp a time for.
+ * Turning on a Facet's write path (#202, ADR-0022), and — since #204 — the
+ * Fix flow's write path for a Facet already parked in Needs Reauth: lands
+ * the widened credential (`credential-crypto.ts#widenOAuthCredential`) and
+ * the Facet row back to `active` in one transaction, so a Client can never
+ * observe a credential that already covers the scope without the Facet row
+ * that says so, or vice versa. `onConflictDoUpdate` rather than a plain
+ * insert is exactly what makes both callers the same function: a fresh
+ * Facet inserts, an already-existing (`needs_reauth`) one updates in place,
+ * keeping its `id` and every other row this account already carries. `id`
+ * follows `insertMailAccount`'s own `${connectedAccountId}-${kind}`
+ * convention for the insert case. `scopesLastGrantedAt` is stamped `now` on
+ * both paths — the one write path that ever sets it, since the boot-time
+ * upgrade's own Mail Facet (#199) never ran a consent round to stamp a time
+ * for.
  */
 export async function attachFacetToConnectedAccount(
   db: Db,
@@ -259,13 +288,19 @@ export async function attachFacetToConnectedAccount(
       .update(connectedAccounts)
       .set({ credential, updatedAt: new Date() })
       .where(eq(connectedAccounts.id, connectedAccountId));
-    await tx.insert(connectedAccountFacets).values({
-      id: `${connectedAccountId}-${kind}`,
-      connectedAccountId,
-      kind,
-      status: "active",
-      scopesLastGrantedAt: new Date(),
-    });
+    await tx
+      .insert(connectedAccountFacets)
+      .values({
+        id: `${connectedAccountId}-${kind}`,
+        connectedAccountId,
+        kind,
+        status: "active",
+        scopesLastGrantedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [connectedAccountFacets.connectedAccountId, connectedAccountFacets.kind],
+        set: { status: "active", scopesLastGrantedAt: new Date(), updatedAt: new Date() },
+      });
   });
 }
 
@@ -289,8 +324,13 @@ export async function updateConnectedAccountCredential(
 /**
  * The seam a sync engine or a Provider Registration removal calls when the
  * mail server rejects the stored credential or the Grant is withdrawn
- * (ADR-0022: "on the Connected Account ... every Facet stops"): parks both
- * the account and every one of its Facets in Needs Reauth.
+ * (ADR-0022: "on the Connected Account ... every Facet stops") — the
+ * account-level half of Needs Reauth's two levels (#204). Parks both the
+ * account and every one of its Facets, even one already parked on its own
+ * for an unrelated reason (a Facet-level park is strictly subsumed by an
+ * account-level one). The Facet-level half, parking exactly one Facet and
+ * leaving the account and its other Facets untouched, is
+ * `markConnectedAccountFacetNeedsReauth` below.
  *
  * The `status != 'needs_reauth'` guard makes this an atomic check-and-set,
  * the same shape `mail-accounts/store.ts#markNeedsReauth` (pre-#199) always
@@ -348,4 +388,65 @@ export async function reactivateConnectedAccount(
     .update(connectedAccountFacets)
     .set({ status: "active", updatedAt: new Date() })
     .where(eq(connectedAccountFacets.connectedAccountId, connectedAccountId));
+}
+
+/**
+ * The Facet-level half of Needs Reauth's two levels (#204, ADR-0022: "on a
+ * single Facet when only its consent is refused ... that Facet stops, the
+ * others continue"): parks exactly one Facet, never touching the account
+ * row or any other Facet. `mail-accounts/store.ts#markNeedsReauth` is the
+ * caller for a Mail Facet's own rejection; `grant-refresh.ts` is the caller
+ * for a Grant refresh that comes back missing an active Facet's scope.
+ *
+ * Same atomic check-and-set shape as `markConnectedAccountNeedsReauth`:
+ * `status != 'needs_reauth'` makes this a genuine-transition-only update,
+ * returning the updated row only when one actually happened — the Notifier
+ * hook's "once per transition" guarantee (#53, ADR-0015).
+ */
+export async function markConnectedAccountFacetNeedsReauth(
+  db: Db,
+  connectedAccountId: string,
+  kind: ConnectedAccountFacetRow["kind"],
+): Promise<ConnectedAccountFacetRow | null> {
+  const [row] = await db
+    .update(connectedAccountFacets)
+    .set({ status: "needs_reauth", updatedAt: new Date() })
+    .where(
+      and(
+        eq(connectedAccountFacets.connectedAccountId, connectedAccountId),
+        eq(connectedAccountFacets.kind, kind),
+        ne(connectedAccountFacets.status, "needs_reauth"),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Resumes exactly one Facet, the Fix flow's write path for a Facet-level
+ * park (#204) — never touches the account row or any other Facet, unlike
+ * `reactivateConnectedAccount` above. The OAuth Fix (re-granting the Facet's
+ * own scope) resumes through `attachFacetToConnectedAccount`'s upsert
+ * instead, which lands the widened credential and the `active` status in
+ * one transaction; this function is for a Fix that never touches the
+ * credential at all — there is none today (every Facet-level park is
+ * OAuth-only, ADR-0022: "a CalDAV/CardDAV 401 is always the account
+ * level"), but it completes the pair the same way
+ * `markConnectedAccountFacetNeedsReauth` completes
+ * `markConnectedAccountNeedsReauth`.
+ */
+export async function reactivateConnectedAccountFacet(
+  db: Db,
+  connectedAccountId: string,
+  kind: ConnectedAccountFacetRow["kind"],
+): Promise<void> {
+  await db
+    .update(connectedAccountFacets)
+    .set({ status: "active", updatedAt: new Date() })
+    .where(
+      and(
+        eq(connectedAccountFacets.connectedAccountId, connectedAccountId),
+        eq(connectedAccountFacets.kind, kind),
+      ),
+    );
 }

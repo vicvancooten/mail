@@ -1,3 +1,4 @@
+import type { ConnectedAccountFacetKind } from "@mail/shared";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { messages, notifierOutbox } from "../db/schema.js";
@@ -138,27 +139,70 @@ export async function recordGatekeeperDigest(
   });
 }
 
+/** What `recordNeedsReauthNotification` needs to build one Facet's own notification — a Connected Account and Facet, plus the identity to name (#204). */
+export interface NeedsReauthNotificationInput {
+  userId: string;
+  connectedAccountId: string;
+  facet: ConnectedAccountFacetKind;
+  /** The Connected Account's signed-in address or entered username — what the notification names (`connected_accounts.identity`, or `mail_accounts.email_address`, the same value for a Mail Facet). */
+  identity: string;
+  /** Set only for a Mail Facet (#204) — a Calendar/Contacts Facet has no Mail Account to name. */
+  mailAccountId: string | null;
+  updatedAt: Date;
+}
+
 /**
- * "A Mail Account entering Needs Reauth" (ADR-0015), fired only on a genuine
- * transition — `mail-accounts/store.ts#markNeedsReauth` already does the
- * atomic conditional check ("`WHERE status != 'needs_reauth'`") and hands
- * back the updated row only when one actually happened, so this function's
- * job is just building the notification from it, never re-checking.
+ * "A Connected Account or one of its Facets entering Needs Reauth" (ADR-0015,
+ * widened by #204 to the Facet level): fired only on a genuine transition —
+ * every caller already ran the atomic conditional check
+ * (`connected-accounts/store.ts#markConnectedAccountNeedsReauth`/
+ * `#markConnectedAccountFacetNeedsReauth`, both `WHERE status !=
+ * 'needs_reauth'`) and hands this the row only when one actually happened,
+ * so this function's job is just building the notification from it, never
+ * re-checking.
  */
 export async function recordNeedsReauthNotification(
   db: Db,
-  account: Pick<MailAccountRow, "id" | "userId" | "emailAddress" | "updatedAt">,
+  input: NeedsReauthNotificationInput,
 ): Promise<void> {
   await insertOutboxEntry(db, {
-    userId: account.userId,
-    mailAccountId: account.id,
+    userId: input.userId,
+    mailAccountId: input.mailAccountId,
+    connectedAccountId: input.connectedAccountId,
+    facet: input.facet,
     kind: "needs_reauth",
-    // Not the bare Mail Account id: a *later*, separate transition into
-    // Needs Reauth for the same account (reauth, then rejected again) is a
+    // Not the bare Connected Account id: a *later*, separate transition into
+    // Needs Reauth for the same Facet (reauth, then rejected again) is a
     // genuine new event, not a repeat of the first — see the schema's doc
-    // comment on why the transition instant is part of the key.
-    dedupKey: `${account.id}:${account.updatedAt.toISOString()}`,
-    payload: { kind: "needs_reauth", emailAddress: account.emailAddress },
+    // comment on why the transition instant is part of the key. Scoped by
+    // Facet too, so an unrelated Facet on the same account parking at the
+    // same instant (unlikely, but not impossible) never collides.
+    dedupKey: `${input.connectedAccountId}:${input.facet}:${input.updatedAt.toISOString()}`,
+    payload: { kind: "needs_reauth", emailAddress: input.identity },
+  });
+}
+
+/**
+ * The Mail Facet's own shorthand for `recordNeedsReauthNotification` — every
+ * pre-#204 caller (`sync/imap-connection.ts`, `compose/send-sweeper.ts`,
+ * `routes/instance.ts`) already has exactly a `MailAccountRow` in hand from
+ * `mail-accounts/store.ts#markNeedsReauth`'s own transitioned-row return, so
+ * this is just the field mapping those three calls would otherwise repeat.
+ */
+export async function recordMailFacetNeedsReauthNotification(
+  db: Db,
+  transitioned: Pick<
+    MailAccountRow,
+    "id" | "userId" | "connectedAccountId" | "emailAddress" | "updatedAt"
+  >,
+): Promise<void> {
+  await recordNeedsReauthNotification(db, {
+    userId: transitioned.userId,
+    connectedAccountId: transitioned.connectedAccountId,
+    facet: "mail",
+    identity: transitioned.emailAddress,
+    mailAccountId: transitioned.id,
+    updatedAt: transitioned.updatedAt,
   });
 }
 

@@ -1,4 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  attachFacetToConnectedAccount,
+  getConnectedAccountById,
+} from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -53,5 +57,39 @@ describe("markNeedsReauth", () => {
     );
     const second = await markNeedsReauth(db, account.id);
     expect(second?.status).toBe("needs_reauth");
+  });
+
+  it("parks only the Mail Facet for an oauth account, leaving a sibling Facet and the account row active (#204)", async () => {
+    const account = await createTestMailAccount(db, { oauth: { accessToken: "token" } });
+    await attachFacetToConnectedAccount(
+      db,
+      account.connectedAccountId,
+      "calendar",
+      account.credential,
+    );
+
+    await markNeedsReauth(db, account.id);
+
+    expect((await getMailAccountById(db, account.id))?.status).toBe("needs_reauth");
+    const connectedAccount = await getConnectedAccountById(db, account.connectedAccountId);
+    expect(connectedAccount?.status).toBe("active");
+  });
+
+  it("parks the whole account for a password credential, since it's the only Facet Other IMAP ever has (#204)", async () => {
+    const account = await createTestMailAccount(db);
+
+    await markNeedsReauth(db, account.id);
+
+    const connectedAccount = await getConnectedAccountById(db, account.connectedAccountId);
+    expect(connectedAccount?.status).toBe("needs_reauth");
+  });
+
+  it('parks the whole account, not just Mail, when the caller passes scope: "account" explicitly (#204)', async () => {
+    const account = await createTestMailAccount(db, { oauth: { accessToken: "token" } });
+
+    await markNeedsReauth(db, account.id, { scope: "account" });
+
+    const connectedAccount = await getConnectedAccountById(db, account.connectedAccountId);
+    expect(connectedAccount?.status).toBe("needs_reauth");
   });
 });

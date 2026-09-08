@@ -10,7 +10,7 @@ import {
   markNeedsReauth,
   updateMailAccountServerKind,
 } from "../mail-accounts/store.js";
-import { recordNeedsReauthNotification } from "../notifier/record.js";
+import { recordMailFacetNeedsReauthNotification } from "../notifier/record.js";
 
 /**
  * The one IMAP connection a Mail Account gets (ADR-0005: "one IMAP
@@ -180,7 +180,7 @@ async function attemptConnect(
     }
 
     const transitioned = await markNeedsReauth(db, account.id);
-    if (transitioned) await recordNeedsReauthNotification(db, transitioned);
+    if (transitioned) await recordMailFacetNeedsReauthNotification(db, transitioned);
     throw new MailAccountNeedsReauthError(account.id, err.message);
   }
 

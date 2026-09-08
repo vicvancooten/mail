@@ -9,7 +9,11 @@ import {
   sealSecret,
   unsealOAuthAccessToken,
 } from "../connected-accounts/credential-crypto.js";
-import { getConnectedAccountById } from "../connected-accounts/store.js";
+import {
+  attachFacetToConnectedAccount,
+  getConnectedAccountById,
+  markConnectedAccountFacetNeedsReauth,
+} from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import {
   connectedAccountFacets,
@@ -1014,6 +1018,60 @@ describe("POST /auth/oauth/:provider/start — add_facet (#202)", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("409s facet_already_connected when the Facet already has an active row", async () => {
+    const app = buildTestApp({ adapter: facetAdapter() });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: true });
+    const account = await createTestMailAccount(db, {
+      userId,
+      oauth: { accessToken: "mail-token" },
+    });
+    await attachFacetToConnectedAccount(db, account.connectedAccountId, "calendar", {
+      ...account.credential,
+      scope:
+        account.credential.kind === "oauth"
+          ? [...account.credential.scope, "https://provider.test/calendar"]
+          : [],
+    } as never);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId: account.connectedAccountId, facet: "calendar" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "facet_already_connected" });
+  });
+
+  it("lets a needs_reauth Facet through as a Fix instead of a fresh add (#204)", async () => {
+    const app = buildTestApp({ adapter: facetAdapter() });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: true });
+    const account = await createTestMailAccount(db, {
+      userId,
+      oauth: { accessToken: "mail-token" },
+    });
+    await attachFacetToConnectedAccount(db, account.connectedAccountId, "calendar", {
+      ...account.credential,
+      scope:
+        account.credential.kind === "oauth"
+          ? [...account.credential.scope, "https://provider.test/calendar"]
+          : [],
+    } as never);
+    await markConnectedAccountFacetNeedsReauth(db, account.connectedAccountId, "calendar");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId: account.connectedAccountId, facet: "calendar" },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
   it("404s when the Connected Account doesn't belong to this User", async () => {
     const app = buildTestApp({ adapter: facetAdapter() });
     const { cookie } = await createUserWithCookie();
@@ -1117,6 +1175,46 @@ describe("GET /auth/oauth/:provider/callback — add_facet (#202)", () => {
         key,
       ),
     ).toBe("calendar-access-token");
+  });
+
+  it("resumes an existing needs_reauth Facet in place rather than inserting a second row (#204)", async () => {
+    const app = buildTestApp({
+      adapter: facetAdapter(async () =>
+        fakeGrant({
+          accessToken: "fresh-calendar-access-token",
+          scope: [CORE_SCOPE, "openid", "email"],
+          emailAddress: "vic@gmail.com",
+        }),
+      ),
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "vic@gmail.com",
+      oauth: { accessToken: "mail-access-token" },
+    });
+    await attachFacetToConnectedAccount(db, account.connectedAccountId, "calendar", {
+      ...account.credential,
+      scope: account.credential.kind === "oauth" ? [...account.credential.scope, CORE_SCOPE] : [],
+    } as never);
+    await markConnectedAccountFacetNeedsReauth(db, account.connectedAccountId, "calendar");
+    const state = await startFacetGrant(app, cookie, account.connectedAccountId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("facet_added");
+    const facets = await db
+      .select()
+      .from(connectedAccountFacets)
+      .where(eq(connectedAccountFacets.connectedAccountId, account.connectedAccountId));
+    // Still exactly one row per Facet — the same id, resumed, not a second one.
+    expect(facets.map((f) => f.kind).sort()).toEqual(["calendar", "mail"]);
+    expect(facets.find((f) => f.kind === "calendar")?.status).toBe("active");
   });
 
   it("refuses a mismatched identity distinctly from a reauth mismatch, changing nothing", async () => {

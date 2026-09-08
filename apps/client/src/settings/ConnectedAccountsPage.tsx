@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AddFacetControl } from "../connected-accounts/AddFacetControl.js";
-import { clearAccountFocus, readAccountFocus } from "../connected-accounts/account-focus.js";
+import {
+  type AccountFocus,
+  clearAccountFocus,
+  readAccountFocus,
+} from "../connected-accounts/account-focus.js";
 import { ConnectedAccountsTable } from "../connected-accounts/ConnectedAccountsTable.js";
 import { SignatureEditor } from "../mail-accounts/SignatureEditor.js";
 import {
@@ -43,20 +47,20 @@ export function ConnectedAccountsPage() {
   const isOwner = user.role === "owner";
 
   const [signInOutcome, setSignInOutcome] = useState<SignInOutcome | null>(null);
-  const [focusMailAccountId, setFocusMailAccountId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<AccountFocus | null>(null);
 
   // The two query-string arrivals this page has to read once and then
-  // scrub (#116's `?oauth=`, #201's own `?account=`) — both plain
-  // `window.location`/`history`, per each helper's own doc comment.
+  // scrub (#116's `?oauth=`, #201/#204's own `?account=&facet=`) — both
+  // plain `window.location`/`history`, per each helper's own doc comment.
   useEffect(() => {
     const outcome = readSignInOutcome(window.location.search);
     if (outcome) {
       setSignInOutcome(outcome);
       clearSignInOutcome();
     }
-    const focus = readAccountFocus(window.location.search);
-    if (focus) {
-      setFocusMailAccountId(focus);
+    const accountFocus = readAccountFocus(window.location.search);
+    if (accountFocus) {
+      setFocus(accountFocus);
       clearAccountFocus();
     }
   }, []);
@@ -88,7 +92,8 @@ export function ConnectedAccountsPage() {
             connectedAccounts={connectedAccounts}
             mailAccounts={mailAccounts}
             isOwner={isOwner}
-            focusMailAccountId={focusMailAccountId}
+            focusConnectedAccountId={focus?.connectedAccountId ?? null}
+            focusFacet={focus?.facet ?? null}
           />
           <div className="flex flex-wrap gap-2">
             <AddFacetControl

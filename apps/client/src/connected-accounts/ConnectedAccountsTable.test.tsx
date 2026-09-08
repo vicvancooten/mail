@@ -45,7 +45,8 @@ describe("the table's shape", () => {
         connectedAccounts={[]}
         mailAccounts={[]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -63,7 +64,8 @@ describe("the table's shape", () => {
         connectedAccounts={[]}
         mailAccounts={[]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -88,7 +90,8 @@ describe("the table's shape", () => {
         connectedAccounts={[]}
         mailAccounts={[]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -116,7 +119,8 @@ describe("an existing account's Facet Badge", () => {
         connectedAccounts={[connectedAccount]}
         mailAccounts={[mailAccount]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -141,7 +145,8 @@ describe("an existing account's Facet Badge", () => {
         connectedAccounts={[connectedAccount]}
         mailAccounts={[mailAccount]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -162,7 +167,8 @@ describe("an existing account's Facet Badge", () => {
         connectedAccounts={[connectedAccount]}
         mailAccounts={[mailAccount]}
         isOwner={false}
-        focusMailAccountId="acct-3"
+        focusConnectedAccountId="acct-3-connected"
+        focusFacet="mail"
       />,
     );
 
@@ -186,7 +192,8 @@ describe("the add control", () => {
         connectedAccounts={[]}
         mailAccounts={[]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -206,7 +213,8 @@ describe("the add control", () => {
         connectedAccounts={[]}
         mailAccounts={[]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 
@@ -245,7 +253,8 @@ describe("the add control", () => {
         connectedAccounts={[account]}
         mailAccounts={[]}
         isOwner={false}
-        focusMailAccountId={null}
+        focusConnectedAccountId={null}
+        focusFacet={null}
       />,
     );
 

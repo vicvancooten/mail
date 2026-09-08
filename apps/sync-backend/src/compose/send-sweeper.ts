@@ -5,7 +5,10 @@ import { type CompositionRow, compositions } from "../db/schema.js";
 import { approveSendRecipients } from "../gatekeeper/verdicts.js";
 import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { type MailAccountRow, markNeedsReauth } from "../mail-accounts/store.js";
-import { recordFailedSendNotification, recordNeedsReauthNotification } from "../notifier/record.js";
+import {
+  recordFailedSendNotification,
+  recordMailFacetNeedsReauthNotification,
+} from "../notifier/record.js";
 import { activityForSentComposition, recordCorrespondentActivity } from "../sync/correspondents.js";
 import { expungeDraftCopy } from "../sync/draft-push.js";
 import { findFolderByRole } from "../sync/folders.js";
@@ -96,7 +99,7 @@ export async function sweepOne(
   if (!result.ok) {
     if (result.kind === "reauth") {
       const transitioned = await markNeedsReauth(db, account.id);
-      if (transitioned) await recordNeedsReauthNotification(db, transitioned);
+      if (transitioned) await recordMailFacetNeedsReauthNotification(db, transitioned);
       await releaseForReauth(db, row, now);
       options.logger?.warn(
         { mailAccountId: account.id, compositionId },

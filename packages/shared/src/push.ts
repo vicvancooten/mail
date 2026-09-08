@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { connectedAccountFacetKindSchema } from "./connected-accounts.js";
 
 /**
  * Web Push & the Notifier (#53, ADR-0015, `docs/research/0006`). The wire
@@ -123,7 +124,11 @@ export const pushPayloadSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("needs_reauth"),
-    mailAccountId: z.string(),
+    /** Only set for the Mail Facet (#204) — a Calendar/Contacts Facet has no Mail Account to name. */
+    mailAccountId: z.string().nullable(),
+    /** The Connected Account this Facet belongs to, and which Facet parked (#204's own acceptance criterion: "the notification names the Facet"). Always set, Mail included. */
+    connectedAccountId: z.string(),
+    facet: connectedAccountFacetKindSchema,
     emailAddress: z.string(),
     badgeCount: z.int(),
   }),

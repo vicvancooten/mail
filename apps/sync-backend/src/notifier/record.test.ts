@@ -11,7 +11,7 @@ import { createTestMailAccount } from "../test-support/mail-account.js";
 import { listUndelivered } from "./outbox.js";
 import {
   recordFailedSendNotification,
-  recordNeedsReauthNotification,
+  recordMailFacetNeedsReauthNotification,
   recordNewMailNotifications,
 } from "./record.js";
 
@@ -177,12 +177,16 @@ describe("recordNewMailNotifications", () => {
   });
 });
 
-describe("recordNeedsReauthNotification", () => {
-  it("records a needs_reauth entry keyed on the account and its transition instant", async () => {
-    await recordNeedsReauthNotification(db, account);
+describe("recordMailFacetNeedsReauthNotification", () => {
+  it("records a needs_reauth entry keyed on the Connected Account, its Facet, and the transition instant", async () => {
+    await recordMailFacetNeedsReauthNotification(db, account);
     const [entry] = await listUndelivered(db);
     expect(entry?.kind).toBe("needs_reauth");
-    expect(entry?.dedupKey).toBe(`${account.id}:${account.updatedAt.toISOString()}`);
+    expect(entry?.connectedAccountId).toBe(account.connectedAccountId);
+    expect(entry?.facet).toBe("mail");
+    expect(entry?.dedupKey).toBe(
+      `${account.connectedAccountId}:mail:${account.updatedAt.toISOString()}`,
+    );
     expect(entry?.payload).toEqual({ kind: "needs_reauth", emailAddress: account.emailAddress });
   });
 });
