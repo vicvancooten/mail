@@ -536,6 +536,12 @@ async function applyUserIntent(
         .set({ undoSendDelaySeconds: intent.undoSendDelaySeconds, updatedAt: new Date() })
         .where(eq(users.id, userId));
       return { ok: true };
+    case "setHomeTimeZone":
+      await db
+        .update(users)
+        .set({ homeTimeZone: intent.homeTimeZone, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
   }
 }
 

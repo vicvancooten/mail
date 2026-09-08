@@ -675,6 +675,7 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
       autoAdvanceEnabled: true,
       autoAdvanceDirection: "older",
       undoSendDelaySeconds: 10,
+      homeTimeZone: "",
     });
   });
 
@@ -703,6 +704,7 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
             autoAdvanceEnabled: true,
             autoAdvanceDirection: "older",
             undoSendDelaySeconds: 10,
+            homeTimeZone: "",
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
         ],
@@ -714,5 +716,11 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
     expect(await readPreference()).toMatchObject({
       undoSendDelaySeconds: 30,
     });
+  });
+
+  it("overlays a queued Home Time Zone edit (#189)", async () => {
+    await enqueueUserMutation({ type: "setHomeTimeZone", homeTimeZone: "Europe/Amsterdam" });
+
+    expect(await readPreference()).toMatchObject({ homeTimeZone: "Europe/Amsterdam" });
   });
 });

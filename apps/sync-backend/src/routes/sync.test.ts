@@ -528,6 +528,7 @@ describe("POST /sync", () => {
         autoAdvanceEnabled: true,
         autoAdvanceDirection: "older",
         undoSendDelaySeconds: 10,
+        homeTimeZone: "",
       });
 
       const edited = await app.inject({
@@ -546,6 +547,10 @@ describe("POST /sync", () => {
                 id: "01DELAY",
                 intent: { type: "setUndoSendDelay", undoSendDelaySeconds: 30 },
               },
+              {
+                id: "01TIMEZONE",
+                intent: { type: "setHomeTimeZone", homeTimeZone: "Europe/Amsterdam" },
+              },
             ],
           },
         },
@@ -554,11 +559,13 @@ describe("POST /sync", () => {
       expect(editedBody.mutations).toEqual([
         { id: "01ADVANCE", status: "applied" },
         { id: "01DELAY", status: "applied" },
+        { id: "01TIMEZONE", status: "applied" },
       ]);
       expect(editedBody.Preference.updated[0]).toMatchObject({
         autoAdvanceEnabled: false,
         autoAdvanceDirection: "newer",
         undoSendDelaySeconds: 30,
+        homeTimeZone: "Europe/Amsterdam",
       });
 
       // A retried id (a dropped response over a flaky connection) replays the

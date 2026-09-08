@@ -253,6 +253,13 @@
       "when": 1788563461861,
       "tag": "0035_misty_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788870870462,
+      "tag": "0036_sleepy_sphinx",
+      "breakpoints": true
     }
   ]
 }
