@@ -1,9 +1,10 @@
 import { type AppDef, appIconFor } from "./apps.js";
 
 /**
- * The routed view for one of the three reserved Apps — Contacts, Calendar,
- * Tasks (#72, part of #66). "Finished chrome, not a stub" (the ticket's own
- * words): a name, one line of what the App will be, and a flat "Not built
+ * The routed view for one of the four reserved Apps — Contacts, Calendar,
+ * Tasks, Notes (#72, part of #66; Notes joined in #187). "Finished chrome,
+ * not a stub" (the ticket's own words): a name, one line of what the App
+ * will be, and a flat "Not built
  * yet" — no date, no waitlist, because neither would be true. The icon tile
  * is the comp's own `.ph-icon` (`docs/design/prototypes/the-instrument.html`)
  * — a rounded-square field-fill container the same App icon the Switcher's

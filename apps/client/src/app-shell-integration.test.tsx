@@ -134,7 +134,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
-  it("the App Switcher names all four Apps as reachable links, the reserved three marked SOON (#72, #86)", async () => {
+  it("the App Switcher names all five Apps as reachable links, the reserved four marked SOON (#72, #86, #187)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -147,7 +147,7 @@ describe("the app shell over a routed tree (#71)", () => {
     // The switcher expands into the comp's tab row: real `Link`s, so a
     // reserved App is a destination rather than a disabled menu entry.
     expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-    for (const name of ["Contacts", "Calendar", "Tasks"]) {
+    for (const name of ["Contacts", "Calendar", "Tasks", "Notes"]) {
       const tab = screen.getByRole("link", { name: new RegExp(name) });
       expect(tab).toBeDefined();
       expect(tab.textContent).toContain("SOON");
@@ -268,6 +268,79 @@ describe("the app shell over a routed tree (#71)", () => {
     // Still under the one shell — the header's App Switcher is
     // unconditional chrome, not something each route re-renders.
     expect(screen.getByLabelText("Switch app")).toBeDefined();
+  });
+
+  it("Account Scope hides on an App that doesn't observe it, and returns with the User's last Scope intact (#187)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    const scopeButton = await screen.findByRole("button", {
+      name: /Account Scope: All accounts/,
+    });
+    // Narrow to one account — the Scope this test expects to survive the
+    // round trip through Tasks below.
+    await user.click(scopeButton);
+    await user.click(screen.getByRole("checkbox", { name: "acct-2@example.test" }));
+    expect(
+      await screen.findByRole("button", { name: "Account Scope: acct-1@example.test" }),
+    ).toBeDefined();
+
+    // Tasks doesn't observe Account Scope (`apps/apps.ts`) — the Hub hides
+    // the control entirely rather than rendering it disabled.
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: /Tasks/ }));
+    await screen.findByLabelText("Tasks");
+    expect(screen.queryByRole("button", { name: /Account Scope/ })).toBeNull();
+
+    // Back to Mail: the control returns, still narrowed to acct-1 — hiding
+    // it never touched the underlying Scope state.
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Mail" }));
+    expect(
+      await screen.findByRole("button", { name: "Account Scope: acct-1@example.test" }),
+    ).toBeDefined();
+  });
+
+  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187)", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    window.dispatchEvent(new Event("resize"));
+
+    try {
+      await seedOneThread();
+      stubFetch();
+      const user = userEvent.setup();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      // The desktop's inline-expanding tab row isn't in the tree at all at
+      // this width — `useNarrowHeader` mounts the sheet trigger instead, not
+      // a CSS rule hiding the desktop row (`AppSwitcher.tsx`'s own doc
+      // comment on why the two share one accessible name and can't both be
+      // mounted at once).
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+
+      expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
+      for (const name of ["Contacts", "Calendar", "Tasks", "Notes"]) {
+        const tab = screen.getByRole("link", { name: new RegExp(name) });
+        expect(tab).toBeDefined();
+        expect(tab.textContent).toContain("SOON");
+      }
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      window.dispatchEvent(new Event("resize"));
+    }
   });
 
   it("the virtualized Thread list keeps its bounded-height ancestor chain at a phone width, not desktop only", async () => {
