@@ -4,6 +4,7 @@ import { protocolWrites } from "../db/schema.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
 import { withMailAccountConnection } from "./imap-connection.js";
+import { type PollLoopHandle, startPollLoop } from "./poll-loop.js";
 import { drainProtocolWrites } from "./protocol-writes.js";
 
 /**
@@ -16,7 +17,10 @@ import { drainProtocolWrites } from "./protocol-writes.js";
  * write-through that shares the IDLE connection would make a slow Archive
  * folder able to stall IDLE on INBOX. `main.ts` is the only real caller,
  * matching `sync/manager.ts`'s own pattern of "boot starts it, `SIGTERM`
- * stops it, tests never see it unless they ask".
+ * stops it, tests never see it unless they ask". A thin wrapper over
+ * `poll-loop.ts`'s shared shape (#188) — its first tick waits out one
+ * interval rather than running immediately, since an outbox row is only
+ * ever queued by a live request the process was already up for.
  */
 
 const DEFAULT_INTERVAL_MS = 3_000;
@@ -29,56 +33,37 @@ export interface ProtocolWriteLoopOptions {
   logger?: FastifyBaseLogger;
 }
 
-export interface ProtocolWriteLoopHandle {
-  /** Stops the loop, waiting out any tick already in flight. Idempotent. */
-  stop(): Promise<void>;
-}
+export type ProtocolWriteLoopHandle = PollLoopHandle;
 
 export function startProtocolWriteLoop(
   db: Db,
   { mailCredentialKey, intervalMs = DEFAULT_INTERVAL_MS, logger }: ProtocolWriteLoopOptions,
 ): ProtocolWriteLoopHandle {
   const credentialKey = deriveCredentialKey(mailCredentialKey);
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let running: Promise<void> = Promise.resolve();
 
-  const scheduleNext = () => {
-    if (stopped) return;
-    timer = setTimeout(() => {
-      running = tick().finally(scheduleNext);
-    }, intervalMs);
-    timer.unref?.();
-  };
-
-  const tick = async () => {
-    if (stopped) return;
-    let accountIds: string[];
-    try {
-      accountIds = await pendingMailAccountIds(db);
-    } catch (err) {
-      logger?.error({ err }, "protocol write loop: failed to list pending accounts");
-      return;
-    }
-    for (const accountId of accountIds) {
-      if (stopped) return;
+  return startPollLoop({
+    label: "protocol write loop",
+    intervalMs,
+    deferFirstTick: true,
+    logger,
+    async tick({ isStopped }) {
+      let accountIds: string[];
       try {
-        await drainAccount(db, accountId, credentialKey);
+        accountIds = await pendingMailAccountIds(db);
       } catch (err) {
-        logger?.error({ err, accountId }, "protocol write loop: drain failed");
+        logger?.error({ err }, "protocol write loop: failed to list pending accounts");
+        return;
       }
-    }
-  };
-
-  scheduleNext();
-
-  return {
-    async stop() {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await running;
+      for (const accountId of accountIds) {
+        if (isStopped()) return;
+        try {
+          await drainAccount(db, accountId, credentialKey);
+        } catch (err) {
+          logger?.error({ err, accountId }, "protocol write loop: drain failed");
+        }
+      }
     },
-  };
+  });
 }
 
 async function pendingMailAccountIds(db: Db): Promise<string[]> {

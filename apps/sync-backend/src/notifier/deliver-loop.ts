@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/client.js";
+import { type PollLoopHandle, startPollLoop } from "../sync/poll-loop.js";
 import { deliverPending, type SendPushFn } from "./deliver.js";
 
 /**
@@ -9,7 +10,8 @@ import { deliverPending, type SendPushFn } from "./deliver.js";
  * — this is what makes a container restart resumable rather than a silent
  * drop: whatever the outbox held when the process died is exactly what this
  * boot-time tick picks back up (`db/schema.ts`'s own doc comment on why the
- * outbox is durable in the first place).
+ * outbox is durable in the first place). A thin wrapper over
+ * `sync/poll-loop.ts`'s shared shape (#188).
  */
 const DEFAULT_INTERVAL_MS = 2_000;
 
@@ -19,47 +21,21 @@ export interface DeliverLoopOptions {
   logger?: FastifyBaseLogger;
 }
 
-export interface DeliverLoopHandle {
-  stop(): Promise<void>;
-}
+export type DeliverLoopHandle = PollLoopHandle;
 
 export function startNotifierDeliverLoop(
   db: Db,
   { sendPush, intervalMs = DEFAULT_INTERVAL_MS, logger }: DeliverLoopOptions,
 ): DeliverLoopHandle {
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  const tick = async () => {
-    if (stopped) return;
-    try {
+  return startPollLoop({
+    label: "notifier deliver loop",
+    intervalMs,
+    logger,
+    async tick() {
       const result = await deliverPending(db, { sendPush });
       if (result.sent > 0 || result.collapsed > 0 || result.pruned > 0) {
         logger?.info({ ...result }, "notifier delivery tick");
       }
-    } catch (err) {
-      logger?.error({ err }, "notifier delivery tick failed");
-    }
-  };
-
-  // Runs to completion before the next tick is scheduled — two ticks
-  // overlapping would double-attempt the same still-undelivered rows for no
-  // gain, the same reasoning `send-loop.ts` gives for its own interval.
-  let running: Promise<void> = tick().finally(scheduleNext);
-
-  function scheduleNext(): void {
-    if (stopped) return;
-    timer = setTimeout(() => {
-      running = tick().finally(scheduleNext);
-    }, intervalMs);
-    timer.unref?.();
-  }
-
-  return {
-    async stop() {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await running;
     },
-  };
+  });
 }
