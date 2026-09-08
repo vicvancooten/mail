@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ComposeSaveOutcome,
   CompositionDelta,
+  ConnectedAccountDelta,
   GmailLabelDelta,
   LabelDelta,
   MailAccountDelta,
@@ -15,11 +16,13 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
+import { markConnectedAccountNeedsReauth } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
   composeSaveLedger,
   compositions,
+  connectedAccountFacets,
   folders,
   mailAccounts,
   messages,
@@ -92,6 +95,16 @@ async function createOwnedMailAccount(
   });
   expect(response.statusCode).toBe(201);
   return (response.json().mailAccount as { id: string }).id;
+}
+
+/** The Connected Account (#199, ADR-0022) a Mail Account's own creation always mints alongside it. */
+async function connectedAccountIdFor(mailAccountId: string): Promise<string> {
+  const [row] = await db
+    .select({ connectedAccountId: mailAccounts.connectedAccountId })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.id, mailAccountId));
+  if (!row) throw new Error(`no Mail Account ${mailAccountId}`);
+  return row.connectedAccountId;
 }
 
 async function insertThread(
@@ -644,6 +657,134 @@ describe("POST /sync", () => {
       });
       const secondDelta = restored.json().user.Note as NoteDelta;
       expect(secondDelta.updated[0]?.deletedAt).toBeNull();
+    });
+  });
+
+  describe("ConnectedAccount (User-scoped, #200, ADR-0022)", () => {
+    it("bootstraps with the Connected Account a Mail Account add creates, then reports nothing on an unchanged token", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      const connectedAccountId = await connectedAccountIdFor(accountId);
+
+      const first = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: null } },
+      });
+      expect(first.statusCode).toBe(200);
+      const delta = first.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({
+        id: connectedAccountId,
+        provider: "other_imap",
+        status: "active",
+        facets: [{ kind: "mail", status: "active" }],
+      });
+      // Never a credential, not even a masked one (ADR-0003).
+      expect(delta.created[0]).not.toHaveProperty("credential");
+      expect(JSON.stringify(delta.created[0])).not.toContain("credential");
+      expect(delta.updated).toEqual([]);
+      expect(delta.destroyed).toEqual([]);
+      expect(delta.hasMore).toBe(false);
+
+      const second = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: delta.newState } },
+      });
+      expect(second.statusCode).toBe(200);
+      expect(second.json().user.ConnectedAccount).toBeUndefined();
+    });
+
+    it("answers reset: true for a token the server no longer knows", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      await createOwnedMailAccount(app, cookie);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: "this-is-not-a-real-token" } },
+      });
+      expect(response.statusCode).toBe(200);
+      const delta = response.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.reset).toBe(true);
+      expect(delta.created).toHaveLength(1);
+    });
+
+    it("carries an account-level Needs Reauth transition as an update, and a Client that missed the change picks it up next poll (#200's own acceptance line)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      const connectedAccountId = await connectedAccountIdFor(accountId);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: null } },
+      });
+      const token = (bootstrap.json().user.ConnectedAccount as ConnectedAccountDelta).newState;
+
+      await markConnectedAccountNeedsReauth(db, connectedAccountId);
+
+      const polled = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: token } },
+      });
+      const delta = polled.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.created).toEqual([]);
+      expect(delta.destroyed).toEqual([]);
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({
+        id: connectedAccountId,
+        status: "needs_reauth",
+        facets: [{ kind: "mail", status: "needs_reauth" }],
+      });
+    });
+
+    it("carries a Facet-only status change as an update — a Facet has no sync_rev of its own to bump", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      const connectedAccountId = await connectedAccountIdFor(accountId);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: null } },
+      });
+      const token = (bootstrap.json().user.ConnectedAccount as ConnectedAccountDelta).newState;
+
+      // A Facet-only write — no column on `connected_accounts` itself
+      // changes — still has to surface on the collection's own next delta
+      // round: the parent-bump trigger (`db/migrations/0042_*.sql`) is what
+      // makes that true.
+      await db
+        .update(connectedAccountFacets)
+        .set({ status: "needs_reauth" })
+        .where(eq(connectedAccountFacets.connectedAccountId, connectedAccountId));
+
+      const polled = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: token } },
+      });
+      const delta = polled.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({
+        id: connectedAccountId,
+        status: "active",
+        facets: [{ kind: "mail", status: "needs_reauth" }],
+      });
     });
   });
 

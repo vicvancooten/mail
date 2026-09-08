@@ -1,9 +1,14 @@
 import type { CollectionDelta } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { AnyPgTable } from "drizzle-orm/pg-core";
+import {
+  selectConnectedAccountsForUser,
+  toWireConnectedAccount,
+} from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import {
   compositions,
+  connectedAccounts,
   correspondents,
   gmailLabels,
   labels,
@@ -229,15 +234,19 @@ function mailAccountScopedCollection<Row extends SyncRevRow, Payload>(config: {
 }
 
 /**
- * The four User-scoped collections (ADR-0011). `MailAccount` and
+ * The five User-scoped collections (ADR-0011). `MailAccount` and
  * `Preference` are each a thin wrapper around `collection-sync.ts`'s own
  * hand-written query — see `userScopedCollection`'s doc comment for why
- * neither goes through it. `Label` (#186) and `Note` (#192, ADR-0023) both
- * do: each is a plain `userId`-filtered table replicating whole. `Label`
- * moved here from `mailAccountCollectionRegistry` by changing exactly its
- * declaration; `Note` (#192) is this registry's first **new** member rather
- * than a migrated one — the same one-declaration shape either way, which is
- * what #184 built the registry for.
+ * neither goes through it. `Label` (#186), `Note` (#192, ADR-0023) and
+ * `ConnectedAccount` (#200) all do: each is a plain `userId`-filtered table
+ * replicating whole. `Label` moved here from `mailAccountCollectionRegistry`
+ * by changing exactly its declaration; `Note` (#192) is this registry's
+ * first **new** member rather than a migrated one — the same one-declaration
+ * shape either way, which is what #184 built the registry for.
+ * `ConnectedAccount`'s own `selectRows` is the one that isn't a one-line
+ * `db.select().from(...)` — it joins each account to its own Facets
+ * (`connected-accounts/store.ts#selectConnectedAccountsForUser`), the wire
+ * shape ADR-0022 asks for — but is otherwise exactly this same shape.
  */
 export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[] = [
   {
@@ -277,6 +286,13 @@ export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[
         .orderBy(asc(notes.syncRev))
         .limit(PAGE_SIZE + 1),
     toPayload: toWireNote,
+  }),
+  userScopedCollection({
+    name: "ConnectedAccount",
+    table: connectedAccounts,
+    selectRows: (db, userId, cursorRev) =>
+      selectConnectedAccountsForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1),
+    toPayload: toWireConnectedAccount,
   }),
 ];
 

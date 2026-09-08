@@ -2,6 +2,7 @@ import type {
   AttachmentMeta,
   ComposeDocument,
   CompositionStatus,
+  ConnectedAccount,
   Correspondent,
   GmailLabel,
   Label,
@@ -35,7 +36,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 10; // #194: `notes` gets a `deletedAt` index for Recently Deleted
+export const CACHE_SCHEMA_VERSION = 11; // #200: `connectedAccounts` table added
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -297,6 +298,8 @@ export class LocalCache extends Dexie {
   correspondents!: EntityTable<Correspondent, "id">;
   /** `Note` (#192, ADR-0023), User-scoped, whole-replicated — `labels`' sibling, minus the "moved here from Mail Account scope" history. */
   notes!: EntityTable<Note, "id">;
+  /** `ConnectedAccount` (#199, #200, ADR-0022), User-scoped, whole-replicated — `notes`' sibling, no `deletedAt` (no soft delete on a Connected Account). */
+  connectedAccounts!: EntityTable<ConnectedAccount, "id">;
   pendingNoteSaves!: EntityTable<PendingNoteSave, "noteId">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
@@ -338,6 +341,7 @@ export class LocalCache extends Dexie {
       // the grid/Recently Deleted split doesn't need its own schema bump).
       notes: "id, userId, deletedAt",
       pendingNoteSaves: "noteId",
+      connectedAccounts: "id, userId",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -369,6 +373,7 @@ const DATA_TABLES = [
   "gmailLabels",
   "correspondents",
   "notes",
+  "connectedAccounts",
   "listWindows",
   "cachePins",
   "syncState",

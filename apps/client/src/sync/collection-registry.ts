@@ -2,6 +2,7 @@ import type { CollectionDelta } from "@mail/shared";
 import {
   type ApplyDeltaOptions,
   applyCompositionDelta,
+  applyConnectedAccountDelta,
   applyCorrespondentDelta,
   applyGmailLabelDelta,
   applyLabelDelta,
@@ -9,6 +10,7 @@ import {
   applyNoteDelta,
   applyPreferenceDelta,
   applyThreadDelta,
+  CONNECTED_ACCOUNT_TOKEN_KEY,
   compositionTokenKey,
   correspondentTokenKey,
   gmailLabelTokenKey,
@@ -48,7 +50,8 @@ export type CollectionTable =
   | "gmailLabels"
   | "compositions"
   | "correspondents"
-  | "notes";
+  | "notes"
+  | "connectedAccounts";
 
 type ApplyUserCollectionDelta = (
   delta: CollectionDelta<unknown>,
@@ -79,7 +82,7 @@ function asApplyMailAccountDelta<Payload>(
 
 /** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference`/`Label`/`Note` keys. */
 export interface UserCollectionEntry {
-  readonly wireKey: "MailAccount" | "Preference" | "Label" | "Note";
+  readonly wireKey: "MailAccount" | "Preference" | "Label" | "Note" | "ConnectedAccount";
   readonly table: CollectionTable;
   readonly tokenKey: string;
   readonly apply: ApplyUserCollectionDelta;
@@ -124,6 +127,14 @@ export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
     table: "notes",
     tokenKey: NOTE_TOKEN_KEY,
     apply: asApplyUserDelta(applyNoteDelta),
+  },
+  // `ConnectedAccount` (#199, #200, ADR-0022): `Note`'s sibling above — a
+  // plain whole-replicated User-scoped table, no merge rule of its own.
+  {
+    wireKey: "ConnectedAccount",
+    table: "connectedAccounts",
+    tokenKey: CONNECTED_ACCOUNT_TOKEN_KEY,
+    apply: asApplyUserDelta(applyConnectedAccountDelta),
   },
 ];
 
