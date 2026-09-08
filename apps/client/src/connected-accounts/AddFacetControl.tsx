@@ -1,4 +1,4 @@
-import type { ConnectedAccountFacetKind } from "@mail/shared";
+import type { ConnectedAccount, ConnectedAccountFacetKind } from "@mail/shared";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,30 +11,35 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { AddMailAccountForm } from "../mail-accounts/AddMailAccountForm.js";
+import { AddCalDavFacetForm } from "./AddCalDavFacetForm.js";
 import { FACET_LABEL, PROVIDER_TABLE_LABEL, providersServingFacet } from "./provider-table.js";
 
 /**
  * The add-a-Facet door (#201, #172 Variant C): a dashed "+" per table cell,
  * and — with `variant="button"` — the below-table entry point phrased in
  * Facets ("Add a mail account" / "Add a calendar" / "Add contacts") rather
- * than Provider or protocol names (#201's own acceptance criterion). Only
- * Mail has a working add flow today (`AddMailAccountForm`, unchanged since
- * #116/#119) — Calendar and Contacts are real columns with nothing behind
- * their "+" yet (the flows that fill them are the slices after this one,
- * per #201's own scope note), so their Popover just names which Providers
- * will eventually serve them.
+ * than Provider or protocol names (#201's own acceptance criterion). Neither
+ * a cell's Provider row nor the below-table button distinguishes which
+ * Provider actually serves the request — `AddMailAccountForm` always opens
+ * on its own Google/Microsoft/Other choice regardless of which Mail cell's
+ * "+" opened it, and Calendar/Contacts follow the same shape: CalDAV/CardDAV
+ * is the one real door today (#203); Google and Microsoft still render
+ * `ComingSoonFacetNotice`, the flow #202 fills in next.
  */
 export function AddFacetControl({
   facet,
   isOwner,
   variant = "badge",
   label,
+  connectedAccounts = [],
 }: {
   facet: ConnectedAccountFacetKind;
   isOwner: boolean;
   variant?: "badge" | "button";
   /** Only used by `variant="button"` — the below-table entry point's own wording. */
   label?: string;
+  /** CalDAV/CardDAV's own accounts already connected for this User (#203) — lets a Calendar/Contacts "+" offer attaching a second Facet instead of asking for a server and password again. Unused for `facet === "mail"`. */
+  connectedAccounts?: ConnectedAccount[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -54,30 +59,66 @@ export function AddFacetControl({
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent className={facet === "mail" ? "w-96" : undefined}>
+      <PopoverContent className="w-96">
         {facet === "mail" ? (
           <AddMailAccountForm isOwner={isOwner} onAdded={() => setOpen(false)} />
         ) : (
-          <ComingSoonFacetNotice facet={facet} />
+          <CalendarContactsFacetContent
+            facet={facet}
+            connectedAccounts={connectedAccounts}
+            onAdded={() => setOpen(false)}
+          />
         )}
       </PopoverContent>
     </Popover>
   );
 }
 
-function ComingSoonFacetNotice({ facet }: { facet: ConnectedAccountFacetKind }) {
-  const providers = providersServingFacet(facet)
-    .map((provider) => PROVIDER_TABLE_LABEL[provider])
-    .join(", ");
+/**
+ * Calendar/Contacts' own door (#203): a Provider choice, mirroring
+ * `ProviderSignInChoice`'s own shape for Mail — CalDAV/CardDAV is the one
+ * choice with a real flow behind it (`AddCalDavFacetForm`); Google and
+ * Microsoft still read "not available yet" until #202 lands.
+ */
+function CalendarContactsFacetContent({
+  facet,
+  connectedAccounts,
+  onAdded,
+}: {
+  facet: Extract<ConnectedAccountFacetKind, "calendar" | "contacts">;
+  connectedAccounts: ConnectedAccount[];
+  onAdded: () => void;
+}) {
+  const [chosenCalDav, setChosenCalDav] = useState(false);
+
+  if (chosenCalDav) {
+    return (
+      <AddCalDavFacetForm facet={facet} connectedAccounts={connectedAccounts} onAdded={onAdded} />
+    );
+  }
 
   return (
     <>
       <PopoverHeader>
         <PopoverTitle>Add {FACET_LABEL[facet].toLowerCase()}</PopoverTitle>
       </PopoverHeader>
-      <PopoverDescription>
-        Not available yet — {FACET_LABEL[facet]} will connect through {providers}.
-      </PopoverDescription>
+      {providersServingFacet(facet).map((provider) =>
+        provider === "caldav_carddav" ? (
+          <Button
+            key={provider}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setChosenCalDav(true)}
+          >
+            {PROVIDER_TABLE_LABEL[provider]}
+          </Button>
+        ) : (
+          <PopoverDescription key={provider}>
+            Not available yet — {PROVIDER_TABLE_LABEL[provider]} {FACET_LABEL[facet].toLowerCase()}.
+          </PopoverDescription>
+        ),
+      )}
     </>
   );
 }

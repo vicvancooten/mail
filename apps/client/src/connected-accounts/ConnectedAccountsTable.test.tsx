@@ -183,7 +183,7 @@ describe("the add control", () => {
     expect(await screen.findByRole("heading", { name: "Add a Mail Account" })).toBeDefined();
   });
 
-  it("names the future Providers for a Calendar cell instead of a working flow", async () => {
+  it("names the future Providers for a Calendar cell, alongside CalDAV/CardDAV's own working flow", async () => {
     const user = userEvent.setup();
     render(
       <ConnectedAccountsTable
@@ -200,6 +200,9 @@ describe("the add control", () => {
     if (!calendarAdd) throw new Error("expected an add control in the Calendar cell");
     await user.click(calendarAdd);
 
-    expect(await screen.findByText(/Not available yet/)).toBeDefined();
+    // Google and Microsoft aren't wired up yet (#202 is next); CalDAV/CardDAV
+    // is (#203) — its own choice, not a "not available yet" line.
+    expect(await screen.findAllByText(/Not available yet/)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "CalDAV/CardDAV" })).toBeDefined();
   });
 });

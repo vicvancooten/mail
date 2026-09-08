@@ -62,3 +62,75 @@ export const connectedAccountSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
+
+/**
+ * The two Facets CalDAV/CardDAV discovery (#203) ever runs for — never
+ * `mail`, which no CalDAV/CardDAV account carries (`provider-table.ts`'s own
+ * `FACET_SUPPORTED_BY_PROVIDER`).
+ */
+export const davFacetSchema = z.enum(["calendar", "contacts"]);
+export type DavFacet = z.infer<typeof davFacetSchema>;
+
+/**
+ * The three failures #203's acceptance criteria names distinctly, each its
+ * own plain message rather than one generic "couldn't add this account":
+ * `unreachable` — none of discovery's candidate hosts answered at all;
+ * `credentials_rejected` — a host answered but refused the username/app
+ * password; `no_home_set` — a host authenticated fine but has no
+ * calendar/address-book home for this Facet.
+ */
+export const davDiscoveryFailureReasonSchema = z.enum([
+  "unreachable",
+  "credentials_rejected",
+  "no_home_set",
+]);
+export type DavDiscoveryFailureReason = z.infer<typeof davDiscoveryFailureReasonSchema>;
+
+/**
+ * `POST /connected-accounts/caldav` (#203): a brand-new CalDAV/CardDAV
+ * identity — server or email address, username and app password — plus
+ * which Facet to run discovery for first. Refused (409) when this User
+ * already has a Connected Account at this `username`
+ * (`connected_accounts_user_provider_identity_key`) — turning on a second
+ * Facet on that account is `POST /connected-accounts/:id/caldav-facets`
+ * below, which never asks for the password again.
+ */
+export const createCalDavAccountRequestSchema = z.object({
+  serverAddress: z.string().trim().min(1, "Server or email address is required"),
+  username: z.string().trim().min(1, "Username is required"),
+  password: z.string().min(1, "App password is required"),
+  facet: davFacetSchema,
+});
+export type CreateCalDavAccountRequest = z.infer<typeof createCalDavAccountRequestSchema>;
+
+/**
+ * `POST /connected-accounts/:id/caldav-facets` (#203): turning on the second
+ * Facet on an already-connected CalDAV/CardDAV account — discovery only,
+ * against the credential already sealed on that Connected Account.
+ */
+export const addCalDavFacetRequestSchema = z.object({
+  facet: davFacetSchema,
+});
+export type AddCalDavFacetRequest = z.infer<typeof addCalDavFacetRequestSchema>;
+
+/**
+ * What discovery found, reported back rather than offered as a mirror
+ * checklist (#203's own scope note, ADR-0031 and the Calendar/Contacts
+ * epics own "choosing what to mirror") — a count and the discovered
+ * collections' own display names, e.g. "3 calendars, 1 address book".
+ */
+export const davDiscoverySummarySchema = z.object({
+  count: z.int().nonnegative(),
+  names: z.array(z.string()),
+});
+export type DavDiscoverySummary = z.infer<typeof davDiscoverySummarySchema>;
+
+/** Both CalDAV routes' success shape: the discovery feedback the Popover renders. */
+export const calDavFacetResponseSchema = z.object({
+  connectedAccountId: z.string(),
+  facet: davFacetSchema,
+  discovered: davDiscoverySummarySchema,
+  /** RFC 6638 scheduling — only ever true for `facet: "calendar"` (CardDAV has no scheduling concept). */
+  supportsScheduling: z.boolean(),
+});
+export type CalDavFacetResponse = z.infer<typeof calDavFacetResponseSchema>;
