@@ -1,4 +1,9 @@
-import type { ConnectedAccount, MailAccount, ProviderHealth } from "@mail/shared";
+import type {
+  ConnectedAccount,
+  ConnectedAccountFacetKind,
+  MailAccount,
+  ProviderHealth,
+} from "@mail/shared";
 import {
   Table,
   TableBody,
@@ -39,14 +44,16 @@ export function ConnectedAccountsTable({
   connectedAccounts,
   mailAccounts,
   isOwner,
-  focusMailAccountId,
+  focusConnectedAccountId,
+  focusFacet,
   providerHealth = null,
 }: {
   connectedAccounts: ConnectedAccount[];
   mailAccounts: MailAccount[];
   isOwner: boolean;
-  /** The notification/cold-start deep link's target Mail Account, if any (#53, ADR-0015). */
-  focusMailAccountId: string | null;
+  /** The notification/cold-start deep link's target Facet cell, if any (#53, ADR-0015; widened to Connected Account + Facet by #204). */
+  focusConnectedAccountId: string | null;
+  focusFacet: ConnectedAccountFacetKind | null;
   /**
    * Provider Health (#205, ADR-0022), Owner-only — `null` (the default) for
    * a Member, who gets no health dot at all, or while an Owner's own fetch
@@ -106,11 +113,7 @@ export function ConnectedAccountsTable({
                           facet={facet}
                           mailAccount={mailAccountByConnectedAccountId.get(account.id) ?? null}
                           isOwner={isOwner}
-                          autoFocus={
-                            facet === "mail" &&
-                            mailAccountByConnectedAccountId.get(account.id)?.id ===
-                              focusMailAccountId
-                          }
+                          autoFocus={account.id === focusConnectedAccountId && facet === focusFacet}
                         />
                       ))}
                       <AddFacetControl

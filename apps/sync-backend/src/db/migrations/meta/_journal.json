@@ -316,6 +316,13 @@
       "when": 1788893281378,
       "tag": "0044_provider_facet_health",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788894899417,
+      "tag": "0045_facet_scoped_needs_reauth_notifications",
+      "breakpoints": true
     }
   ]
 }

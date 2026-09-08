@@ -160,3 +160,23 @@ export const removeConnectedAccountFacetResponseSchema = z.object({
 export type RemoveConnectedAccountFacetResponse = z.infer<
   typeof removeConnectedAccountFacetResponseSchema
 >;
+
+/** `POST /connected-accounts/:id/reauth`'s success answer (#204) — the same "return the fresh row, the Client's own liveQuery already renders it" shape `mail-accounts.ts#mailAccountResponseSchema` uses for the Mail-scoped reauth route. */
+export const connectedAccountResponseSchema = z.object({
+  connectedAccount: connectedAccountSchema,
+});
+export type ConnectedAccountResponse = z.infer<typeof connectedAccountResponseSchema>;
+
+/**
+ * `POST /connected-accounts/:id/reauth` (#204): a CalDAV/CardDAV account's
+ * own Needs Reauth Fix — never a username (CalDAV/CardDAV's identity *is*
+ * its username, unchanged since the account was added,
+ * `db/schema.ts#connectedAccounts`'s own doc comment), only a fresh app
+ * password to re-verify by discovery. Account-level only (ADR-0022: "a
+ * CalDAV/CardDAV 401 is always the account level, since both Facets share
+ * the password") — there is no per-Facet CalDAV reauth.
+ */
+export const reauthConnectedAccountRequestSchema = z.object({
+  password: z.string().min(1, "App password is required"),
+});
+export type ReauthConnectedAccountRequest = z.infer<typeof reauthConnectedAccountRequestSchema>;

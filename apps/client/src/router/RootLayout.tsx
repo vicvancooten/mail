@@ -83,22 +83,24 @@ export function RootLayout() {
   const [resolvedDark, toggleAppearance] = useResolvedAppearance();
 
   // A `needs-reauth` notification click (#53, ADR-0015: "a click always
-  // lands where the next decision is") names a Mail Account's *Settings* —
-  // a route now (#71), unlike `thread`/`failed-send`, which stay inside
-  // Mail and are handled in `mail/MailSection.tsx` instead. Lives here, not
+  // lands where the next decision is") names a Facet's *Settings* cell — a
+  // route now (#71), unlike `thread`/`failed-send`, which stay inside Mail
+  // and are handled in `mail/MailSection.tsx` instead. Lives here, not
   // there, because this is what's mounted regardless of which route is
   // current when the click arrives. Lands on `/settings/connected-accounts`
-  // (#201, `/settings/mail-accounts`'s new address) carrying the target Mail
-  // Account's id in `?account=` — `connected-accounts/account-focus.ts`'s
-  // own doc comment on why this is a query param now rather than a DOM id
-  // to scroll to: a table cell can hold several accounts' Badges, so there
-  // is no longer one row per account.
+  // (#201, `/settings/mail-accounts`'s new address) carrying the target
+  // Connected Account's id and Facet in `?account=&facet=` (#204, widened
+  // from a Mail-Account-only `?account=`) —
+  // `connected-accounts/account-focus.ts`'s own doc comment on why this is a
+  // pair of query params now rather than a DOM id to scroll to: a table cell
+  // can hold several accounts' Badges, so there is no longer one row per
+  // account, and a Calendar/Contacts Facet has no Mail Account id to carry.
   useEffect(() => {
     return subscribeNotificationTarget((target) => {
       if (target.kind !== "needs-reauth") return;
       void navigate({
         to: "/settings/connected-accounts",
-        search: { account: target.mailAccountId },
+        search: { account: target.connectedAccountId, facet: target.facet },
       });
     });
   }, [navigate]);

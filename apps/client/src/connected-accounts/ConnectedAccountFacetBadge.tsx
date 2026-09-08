@@ -12,19 +12,23 @@ import {
 } from "@/components/ui/popover";
 import { ProviderReauthAction } from "../mail-accounts/ProviderReauthAction.js";
 import { ReauthMailAccountForm } from "../mail-accounts/ReauthMailAccountForm.js";
+import { FacetReauthAction } from "./FacetReauthAction.js";
 import { FACET_LABEL, PROVIDER_TABLE_LABEL } from "./provider-table.js";
+import { ReauthCalDavAccountForm } from "./ReauthCalDavAccountForm.js";
 import { RemoveFacetDialog } from "./RemoveFacetDialog.js";
 
 /**
  * One Connected Account's status-dot Badge in one Facet's cell (#201, #172
- * Variant C round 3): outline when that Facet is `active`, destructive with
- * a Needs Reauth Popover when it isn't. Only the Mail Facet has a working
- * Fix today (`mailAccount` is null for Calendar/Contacts, since neither has
- * an add or reauth flow yet — the slices after this one) — its Fix is
- * exactly `mail-accounts/MailAccountsSection.tsx`'s own branch, moved here
- * rather than duplicated: never a password form for an OAuth account
- * (#119), and a password Mail Account gets the switch-to-Google-sign-in
- * door regardless of status.
+ * Variant C round 3; the Fix branch below completed by #204): outline when
+ * that Facet is `active`, destructive with a Needs Reauth Popover when it
+ * isn't. Mail's own Fix is `mail-accounts/MailAccountsSection.tsx`'s old
+ * branch, moved here rather than duplicated: never a password form for an
+ * OAuth account (#119), and a password Mail Account gets the
+ * switch-to-Google-sign-in door regardless of status. Calendar/Contacts' own
+ * Fix is the same incremental-consent round `AddFacetControl.tsx` starts for
+ * a fresh Facet (`FacetReauthAction.tsx`) for an OAuth Connected Account, or
+ * `ReauthCalDavAccountForm.tsx`'s password-only form for CalDAV/CardDAV —
+ * never a password field for an OAuth account either.
  */
 export function ConnectedAccountFacetBadge({
   account,
@@ -106,6 +110,22 @@ export function ConnectedAccountFacetBadge({
                 />
               )
             ))}
+
+          {/* Calendar/Contacts' own Fix (#204) — CalDAV/CardDAV's password
+              form is account-level (never per Facet, ADR-0022) and OAuth's
+              is the same incremental-consent round a fresh Facet starts. */}
+          {facet !== "mail" &&
+            needsReauth &&
+            (account.provider === "caldav_carddav" ? (
+              <ReauthCalDavAccountForm connectedAccountId={account.id} onResumed={() => {}} />
+            ) : account.provider === "google" || account.provider === "microsoft" ? (
+              <FacetReauthAction
+                connectedAccountId={account.id}
+                provider={account.provider}
+                facet={facet}
+                label={`Sign in with ${PROVIDER_TABLE_LABEL[account.provider]} again`}
+              />
+            ) : null)}
 
           {/* Turning off a Facet, removing a Connected Account (#206,
               ADR-0029) — a confirmed act, so this only opens the dialog; the

@@ -3,9 +3,12 @@ import {
   type CalDavFacetResponse,
   type ConnectedAccountFacetKind,
   type ConnectedAccountFacetRemovalPreview,
+  type ConnectedAccountResponse,
   type CreateCalDavAccountRequest,
   calDavFacetResponseSchema,
   connectedAccountFacetRemovalPreviewSchema,
+  connectedAccountResponseSchema,
+  type ReauthConnectedAccountRequest,
   type RemoveConnectedAccountFacetResponse,
   removeConnectedAccountFacetResponseSchema,
 } from "@mail/shared";
@@ -27,6 +30,16 @@ export function addCalDavFacet(
 ): Promise<CalDavFacetResponse> {
   return postJson(`/connected-accounts/${connectedAccountId}/caldav-facets`, input, (data) =>
     calDavFacetResponseSchema.parse(data),
+  );
+}
+
+/** `POST /connected-accounts/:id/reauth` (#204): a CalDAV/CardDAV account's own Needs Reauth Fix — a fresh app password, re-verified by discovery, resuming the whole account. */
+export function reauthConnectedAccount(
+  connectedAccountId: string,
+  input: ReauthConnectedAccountRequest,
+): Promise<ConnectedAccountResponse> {
+  return postJson(`/connected-accounts/${connectedAccountId}/reauth`, input, (data) =>
+    connectedAccountResponseSchema.parse(data),
   );
 }
 

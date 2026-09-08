@@ -24,7 +24,7 @@ describe("registerPushSubscriptionRequestSchema", () => {
 });
 
 describe("pushPayloadSchema", () => {
-  it("accepts every one of the four kinds", () => {
+  it("accepts every one of the five kinds, needs_reauth with and without a Mail Account (#204)", () => {
     const payloads = [
       {
         kind: "new_mail",
@@ -48,6 +48,16 @@ describe("pushPayloadSchema", () => {
       {
         kind: "needs_reauth",
         mailAccountId: "acct-1",
+        connectedAccountId: "conn-1",
+        facet: "mail",
+        emailAddress: "vic@example.com",
+        badgeCount: 0,
+      },
+      {
+        kind: "needs_reauth",
+        mailAccountId: null,
+        connectedAccountId: "conn-1",
+        facet: "calendar",
         emailAddress: "vic@example.com",
         badgeCount: 0,
       },

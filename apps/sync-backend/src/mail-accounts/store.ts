@@ -2,6 +2,7 @@ import type { MailAccount, MailAccountConnection, Provider } from "@mail/shared"
 import { and, eq, getTableColumns, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { ConnectedAccountCredential } from "../connected-accounts/credential-crypto.js";
 import {
+  markConnectedAccountFacetNeedsReauth,
   markConnectedAccountNeedsReauth,
   reactivateConnectedAccount,
 } from "../connected-accounts/store.js";
@@ -283,21 +284,40 @@ export async function bumpThreadsEpoch(db: Db, id: string): Promise<void> {
 /**
  * The seam a sync engine (#9) calls when the mail server rejects the stored
  * credential: stops syncing and holds queued Optimistic Actions by parking
- * the account's Connected Account and Mail Facet in Needs Reauth (#199,
- * ADR-0022) — `id` here is still the **Mail Account's** id, the same
- * parameter every pre-#199 caller already passes; this resolves its
- * `connectedAccountId` and delegates to
- * `connected-accounts/store.ts#markConnectedAccountNeedsReauth`.
+ * the Mail Facet in Needs Reauth (#199, ADR-0022) — `id` here is still the
+ * **Mail Account's** id, the same parameter every pre-#199 caller already
+ * passes.
  *
+ * Needs Reauth's two levels (#204, ADR-0022) meet here: `scope` defaults to
+ * `"facet"` — a raw IMAP/SMTP rejection is "this Facet's own protocol
+ * answered 401", which stops only Mail, leaving a Calendar or Contacts
+ * Facet on the same Connected Account syncing. A `password` credential
+ * (Other IMAP) is escalated to `"account"` regardless of what the caller
+ * asked for: it has only ever had the one Facet, and ADR-0022's "a rejected
+ * password parks the account" is unconditional. Every oauth caller that
+ * knows the rejection is account-wide — a withdrawn Grant
+ * (`grant-refresh.ts`), a removed Provider Registration (`routes/instance.ts`)
+ * — passes `{ scope: "account" }` explicitly instead of relying on the
+ * default.
+ *
+ * Delegates to `connected-accounts/store.ts#markConnectedAccountFacetNeedsReauth`
+ * or `#markConnectedAccountNeedsReauth` depending on which level applies.
  * Returns the updated `MailAccountRow` only on a genuine transition, `null`
- * when the account was already parked — the distinction #53's Notifier hook
- * needs ("notifies once on entry and not again until reauth clears it",
- * ADR-0015).
+ * when the Facet (or account) was already parked — the distinction #53's
+ * Notifier hook needs ("notifies once on entry and not again until reauth
+ * clears it", ADR-0015).
  */
-export async function markNeedsReauth(db: Db, id: string): Promise<MailAccountRow | null> {
+export async function markNeedsReauth(
+  db: Db,
+  id: string,
+  opts: { scope?: "account" | "facet" } = {},
+): Promise<MailAccountRow | null> {
   const account = await getMailAccountById(db, id);
   if (!account) return null;
-  const transitioned = await markConnectedAccountNeedsReauth(db, account.connectedAccountId);
+  const accountLevel = opts.scope === "account" || account.credential.kind === "password";
+  const transitioned = accountLevel
+    ? await markConnectedAccountNeedsReauth(db, account.connectedAccountId)
+    : await markConnectedAccountFacetNeedsReauth(db, account.connectedAccountId, "mail");
   if (!transitioned) return null;
   return { ...account, status: "needs_reauth" };
 }

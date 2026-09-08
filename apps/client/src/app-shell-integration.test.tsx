@@ -277,7 +277,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
   });
 
-  it("a needs-reauth notification click navigates to Connected Accounts and opens that Mail Account's Facet Popover (#53, #201)", async () => {
+  it("a needs-reauth notification click navigates to Connected Accounts and opens that Facet's Popover (#53, #201, #204)", async () => {
     const account = makeMailAccount("acct-1", { status: "needs_reauth" });
     await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
     await applyConnectedAccountDelta(
@@ -297,14 +297,19 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(screen.queryByRole("heading", { name: "Connected Accounts", level: 2 })).toBeNull();
 
     act(() => {
-      publishNotificationTarget({ kind: "needs-reauth", mailAccountId: "acct-1" });
+      publishNotificationTarget({
+        kind: "needs-reauth",
+        connectedAccountId: "acct-1-connected",
+        facet: "mail",
+      });
     });
 
     // Lands on `/settings/connected-accounts` (#201, `/settings/mail-accounts`'s
-    // new address, via its own redirect route) with that Mail Account's own
-    // Facet Badge already open — there's no longer one row per account to
-    // scroll to, so the deep link opens the Popover instead
-    // (`connected-accounts/account-focus.ts`).
+    // new address, via its own redirect route) with that Facet's own Badge
+    // already open — there's no longer one row per account to scroll to, so
+    // the deep link opens the Popover instead
+    // (`connected-accounts/account-focus.ts`, widened by #204 to a Connected
+    // Account id + Facet pair).
     expect(
       await screen.findByRole("heading", { name: "Connected Accounts", level: 2 }),
     ).toBeDefined();

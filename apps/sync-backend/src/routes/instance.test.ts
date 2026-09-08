@@ -81,7 +81,13 @@ async function createOauthMailAccount(
     oauth: { provider, accessToken: "at" },
   });
   if (status === "needs_reauth") {
-    await markNeedsReauth(db, account.id);
+    // Account-level (#204) — this fixture models an account the
+    // `DELETE /instance/providers/:provider` route (or an earlier run of it)
+    // already parked, and that route's own park is always account-level
+    // (removing the Registration kills the whole Grant, not one Facet's
+    // scope), so the "already parked, skipped" test below only holds if
+    // this fixture parks the same level that route does.
+    await markNeedsReauth(db, account.id, { scope: "account" });
   }
   return account.id;
 }
