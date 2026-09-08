@@ -73,6 +73,7 @@ export {
   labelNote,
   listQueuedNoteSaves,
   newNoteId,
+  noteExists,
   pinNote,
   readDeletedNotes,
   readNote,

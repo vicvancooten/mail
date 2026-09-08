@@ -18,7 +18,7 @@ import { NotificationsPage } from "../settings/NotificationsPage.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
-import { ensureLocalCacheOpen, readNote } from "../store/index.js";
+import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
 import { MailRoute } from "./MailRoute.js";
 import { NoteDialogRoute } from "./NoteDialogRoute.js";
 import { NotesRoute } from "./NotesRoute.js";
@@ -215,8 +215,8 @@ export const notesRoute = createRoute({
 });
 
 /**
- * A `:noteId` that resolves to nothing — deleted, a wrong id, an old
- * bookmark — redirects silently to `/notes`, the same fallback an
+ * A `:noteId` that resolves to nothing — soft-deleted (#194), a wrong id,
+ * an old bookmark — redirects silently to `/notes`, the same fallback an
  * unrecognized `folder` search param on `/mail` already takes (this file's
  * own `mailRoute` above). `beforeLoad` rather than a `loader`: every other
  * redirect in this file already throws from `beforeLoad`, and this is the
@@ -228,14 +228,18 @@ export const notesRoute = createRoute({
  * territory — though a genuinely valid, not-yet-synced deep link (a cold
  * boot racing the first sync round) is a real gap this ticket accepts
  * rather than solves: there is no way to tell "not synced yet" apart from
- * "doesn't exist" from here.
+ * "doesn't exist" from here. Checked with `noteExists` rather than
+ * `readNote` directly, so a soft-deleted row (#194) takes this same
+ * redirect instead of mounting `NoteDialogRoute` first and leaning on its
+ * own `deletedAt` effect — that effect stays, but only as a defense for a
+ * delete arriving from sync while the dialog is already open.
  */
 export const notesNoteRoute = createRoute({
   getParentRoute: () => notesRoute,
   path: "/$noteId",
   beforeLoad: async ({ params }) => {
     await ensureLocalCacheOpen();
-    if ((await readNote(params.noteId)) === undefined) {
+    if (!(await noteExists(params.noteId))) {
       throw redirect({ to: "/notes" });
     }
   },
