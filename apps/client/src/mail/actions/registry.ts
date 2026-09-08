@@ -1,4 +1,3 @@
-import { labelNameFromId } from "@mail/shared";
 import {
   Ban,
   Check,
@@ -23,6 +22,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { labelNameForId } from "../../store/index.js";
 import { SNOOZE_PRESETS } from "../snooze-presets.js";
 import { currentReaderHandle } from "./surface-handles.js";
 import type { Action, ActionChoice, ActionContext } from "./types.js";
@@ -102,13 +102,13 @@ function snoozeChoices(ctx: ActionContext): ActionChoice[] {
   }));
 }
 
-/** Label's toggles as menu choices — the Mail Account's known Labels plus anything the Thread already carries that hasn't synced back yet, exactly as `LabelPicker` resolves them. Naming a brand-new Label needs a text field, so that stays on the Popover. */
+/** Label's toggles as menu choices — the User's known Labels (#186) plus anything the Thread already carries that hasn't synced back yet, exactly as `LabelPicker` resolves them. Naming a brand-new Label needs a text field, so that stays on the Popover. */
 function labelChoices(ctx: ActionContext): ActionChoice[] {
   const thread = ctx.thread;
   if (!thread) return [];
   const known = new Map(ctx.labels.map((label) => [label.id, label.name]));
   for (const id of thread.labelIds) {
-    if (!known.has(id)) known.set(id, labelNameFromId(thread.mailAccountId, id));
+    if (!known.has(id)) known.set(id, labelNameForId(id));
   }
   return [...known.entries()]
     .sort((left, right) => left[1].localeCompare(right[1]))

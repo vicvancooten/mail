@@ -1,5 +1,5 @@
 import type { CollectionDelta } from "@mail/shared";
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { AnyPgTable } from "drizzle-orm/pg-core";
 import type { Db } from "../db/client.js";
 import {
@@ -108,8 +108,67 @@ export type CollectionDescriptor<Payload = unknown> =
   | MailAccountCollectionDescriptor<Payload>;
 
 /**
+ * Declares one User-scoped collection off its source table —
+ * `mailAccountScopedCollection`'s sibling, and the shape `Label` (#186) is
+ * the first member of. Identical past `selectRows` and the tombstone scope:
+ * a User-scoped collection's tombstones are the ones with **no**
+ * `mailAccountId` (`db/schema.ts#syncTombstones`), the same filter
+ * `collection-sync.ts`'s hand-written `MailAccount`/`Preference` queries
+ * already use.
+ *
+ * `MailAccount` and `Preference` deliberately do *not* go through this
+ * factory: neither reads from a table with a `userId` column to filter on
+ * (`Preference` matches the User's own `users` row by `id`), which is the
+ * same "the registry constrains declaration and dispatch, not query shape"
+ * line `Thread` sits on the other side of.
+ */
+function userScopedCollection<Row extends SyncRevRow, Payload>(config: {
+  name: string;
+  table: AnyPgTable;
+  selectRows: (db: Db, userId: string, cursorRev: number) => Promise<Row[]>;
+  toPayload: (row: Row) => Payload;
+}): UserCollectionDescriptor<Payload> {
+  const { name, table, selectRows, toPayload } = config;
+  return {
+    name,
+    scope: "user",
+    table,
+    toPayload: toPayload as (row: never) => Payload,
+    async sync(db, { userId }, token) {
+      const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+      const rows = await selectRows(db, userId, cursorRev);
+
+      const tombstoneRows = needsReset
+        ? []
+        : await db
+            .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+            .from(syncTombstones)
+            .where(
+              and(
+                isNull(syncTombstones.mailAccountId),
+                eq(syncTombstones.collection, name),
+                gt(syncTombstones.syncRev, cursorRev),
+              ),
+            )
+            .orderBy(asc(syncTombstones.syncRev))
+            .limit(PAGE_SIZE + 1);
+
+      return buildDelta({
+        rows,
+        tombstones: tombstoneRows,
+        cursorRev,
+        needsReset,
+        token,
+        toPayload,
+      });
+    },
+  };
+}
+
+/**
  * Declares one Mail-Account-scoped collection off its source table:
- * `Label`, `GmailLabel`, `Correspondent` and `Composition` all share the
+ * `GmailLabel`, `Correspondent` and `Composition` all share the
  * exact same shape past `selectRows` — a page of tombstones from the shared
  * `syncTombstones` table filtered to this collection's name, merged through
  * `buildDelta` — so this factory is that shared shape lifted out once rather
@@ -167,7 +226,16 @@ function mailAccountScopedCollection<Row extends SyncRevRow, Payload>(config: {
   };
 }
 
-/** `MailAccount` and `Preference` (ADR-0011): User-scoped, each a thin wrapper around `collection-sync.ts`'s own hand-written query — Preference matches this User's own `users` row by `id`, not a `mailAccountId` column, so it is not this file's `mailAccountScopedCollection` shape. */
+/**
+ * The three User-scoped collections (ADR-0011). `MailAccount` and
+ * `Preference` are each a thin wrapper around `collection-sync.ts`'s own
+ * hand-written query — see `userScopedCollection`'s doc comment for why
+ * neither goes through it. `Label` (#186) does: it is a plain
+ * `userId`-filtered table, and it moved here from
+ * `mailAccountCollectionRegistry` by changing exactly this declaration —
+ * the route, the token plumbing and the delta merge never learned it
+ * happened, which is what #184 built the registry for.
+ */
 export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[] = [
   {
     name: "MailAccount",
@@ -183,11 +251,23 @@ export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[
     toPayload: toWirePreference as (row: never) => unknown,
     sync: (db, { userId }, token) => syncPreferenceCollection(db, userId, token),
   },
+  userScopedCollection({
+    name: "Label",
+    table: labels,
+    selectRows: (db, userId, cursorRev) =>
+      db
+        .select()
+        .from(labels)
+        .where(and(eq(labels.userId, userId), gt(labels.syncRev, cursorRev)))
+        .orderBy(asc(labels.syncRev))
+        .limit(PAGE_SIZE + 1),
+    toPayload: toWireLabel,
+  }),
 ];
 
 /**
- * The seven collections `POST /sync` answers for, minus the two User-scoped
- * ones above. `Thread` keeps its own windowed query (`collection-sync.ts`)
+ * The seven collections `POST /sync` answers for, minus the three
+ * User-scoped ones above. `Thread` keeps its own windowed query (`collection-sync.ts`)
  * rather than going through `mailAccountScopedCollection` — the registry
  * constrains declaration and dispatch, not query shape (#184).
  */
@@ -200,18 +280,6 @@ export const mailAccountCollectionRegistry: readonly MailAccountCollectionDescri
     sync: (db, { mailAccountId, account }, token) =>
       syncThreadCollection(db, mailAccountId, account.threadsEpoch, token),
   },
-  mailAccountScopedCollection({
-    name: "Label",
-    table: labels,
-    selectRows: (db, mailAccountId, cursorRev) =>
-      db
-        .select()
-        .from(labels)
-        .where(and(eq(labels.mailAccountId, mailAccountId), gt(labels.syncRev, cursorRev)))
-        .orderBy(asc(labels.syncRev))
-        .limit(PAGE_SIZE + 1),
-    toPayload: toWireLabel,
-  }),
   mailAccountScopedCollection({
     name: "GmailLabel",
     table: gmailLabels,

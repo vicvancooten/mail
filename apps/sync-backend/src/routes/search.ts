@@ -43,6 +43,7 @@ export async function searchRoutes(app: FastifyInstance, { db }: SearchRoutesOpt
 
     const { rows, cursor } = await runSearch(db, {
       mailAccountIds: scopeAccountIds,
+      userId,
       text: filters.text,
       from: filters.from,
       to: filters.to,

@@ -119,7 +119,7 @@ describe("the Action registry", () => {
   it("offers Label's choices as toggles, applying an unapplied one and removing an applied one", () => {
     const applyLabel = vi.fn();
     const removeLabel = vi.fn();
-    const workId = labelId("acct-1", "Work");
+    const workId = labelId("user-1", "Work");
     const base = noopActionContext();
     const ctx = withThread(
       noopActionContext({
@@ -127,7 +127,7 @@ describe("the Action registry", () => {
         labels: [
           {
             id: workId,
-            mailAccountId: "acct-1",
+            userId: "user-1",
             name: "Work",
             updatedAt: "2026-06-25T09:00:00.000Z",
           },

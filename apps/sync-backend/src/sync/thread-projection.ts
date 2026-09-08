@@ -30,11 +30,11 @@ export function toWireThread(row: ThreadRow): Thread {
   };
 }
 
-/** Maps a stored Label row (#43) to ADR-0011's wire projection. */
+/** Maps a stored Label row (#43) to ADR-0011's wire projection — User-scoped since #186, so it carries `userId` rather than a Mail Account's id. */
 export function toWireLabel(row: LabelRow): Label {
   return {
     id: row.id,
-    mailAccountId: row.mailAccountId,
+    userId: row.userId,
     name: row.name,
     updatedAt: row.updatedAt.toISOString(),
   };

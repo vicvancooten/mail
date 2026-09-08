@@ -17,6 +17,7 @@ import {
   applyMailAccountDelta,
   applyThreadDelta,
 } from "../store/server-writes.js";
+import { setSessionUserId } from "../store/session.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
 import {
   delta,
@@ -48,6 +49,7 @@ vi.mock("../api/attachments.js", () => ({
  * network to paint.
  */
 
+const USER = "user-1";
 let counter = 0;
 const names: string[] = [];
 
@@ -83,6 +85,10 @@ beforeEach(async () => {
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  // A Label id is derived from the signed-in User (#186). `AuthProvider`
+  // mirrors it in the real app; here `stubFetch` never answers
+  // `/auth/session`, so the tests state it directly.
+  setSessionUserId(USER);
   // View mode / last account are Device Preferences stored in `localStorage`
   // (device-preferences.ts) — never leak one test's choice into the next.
   localStorage.clear();
@@ -95,6 +101,7 @@ afterEach(async () => {
   // (its dismiss timer not yet due) would otherwise bleed into the next.
   toast.dismiss();
   vi.unstubAllGlobals();
+  setSessionUserId(null);
   localCache().close();
   for (const name of names.splice(0)) await Dexie.delete(name);
 });
@@ -777,8 +784,7 @@ describe("MailSection", () => {
     cleanup();
 
     await applyLabelDelta(
-      "acct-1",
-      delta({ created: [makeLabel(labelId("acct-1", "Work"), "acct-1", { name: "Work" })] }),
+      delta({ created: [makeLabel(labelId(USER, "Work"), USER, { name: "Work" })] }),
       { replace: false },
     );
     renderMail();

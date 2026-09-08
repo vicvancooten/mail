@@ -63,14 +63,11 @@ export function makeThread(
   };
 }
 
-export function makeLabel(
-  id: string,
-  mailAccountId: string,
-  overrides: Partial<Label> = {},
-): Label {
+/** A wire `Label` (#43) — User-scoped since #186, so the second argument is the owning User's id, not a Mail Account's. */
+export function makeLabel(id: string, userId: string, overrides: Partial<Label> = {}): Label {
   return {
     id,
-    mailAccountId,
+    userId,
     name: id,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,

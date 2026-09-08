@@ -13,7 +13,8 @@ import { mailAccountSchema } from "./mail-accounts.js";
  * `{collection → stateToken}`, scoped per Mail Account plus a set of
  * User-scoped collections, and answers with per-collection
  * `{created, updated, destroyed, newState, hasMore}`. `MailAccount` is
- * User-scoped; `Thread`, `Label` and `Composition` are per Mail Account —
+ * User-scoped, and so are `Preference` and `Label` (#186); `Thread` and
+ * `Composition` are per Mail Account —
  * the envelope below is additive-only, so `Preference`/etc. land in their
  * own tickets as new optional fields on the same request/response shapes,
  * never a reshape of them.
@@ -97,7 +98,9 @@ export const threadSchema = z.object({
    */
   pinned: z.boolean(),
   /**
-   * The Labels currently applied to this Thread, as `Label.id`s (#43). An
+   * The Labels currently applied to this Thread, as `Label.id`s (#43,
+   * User-scoped since #186 — an id here belongs to the owning User's one
+   * Label set, not to this Thread's Mail Account). An
    * App Feature, denormalized here the same way `starred` is — the
    * `Label` collection below carries the id→name mapping, this is the
    * per-Thread membership, kept on the Thread row (rather than requiring a
@@ -173,10 +176,17 @@ export type Thread = z.infer<typeof threadSchema>;
  * nesting at PoC scope. `id` is deterministic (`labelId` in
  * `packages/shared/src/labels.ts`) rather than server-minted, so applying a
  * brand-new Label is a single Optimistic Action with no id round trip first.
+ *
+ * **User-scoped** since #186 (ADR-0023): one set of Labels spans every Mail
+ * Account a User owns, so this carries `userId` and the collection rides the
+ * `user` half of the envelope rather than a per-Mail-Account bucket. A Thread
+ * of any of that User's accounts can therefore reference any of these ids in
+ * its `labelIds`. `GmailLabel` below did *not* move — it is genuinely one
+ * Gmail account's own read-only tag set, never a Wicket Label.
  */
 export const labelSchema = z.object({
   id: z.string(),
-  mailAccountId: z.string(),
+  userId: z.string(),
   name: z.string(),
   updatedAt: z.iso.datetime(),
 });
@@ -395,6 +405,8 @@ const requestedTokenSchema = z.string().nullable();
 export const userSyncRequestSchema = z.object({
   MailAccount: requestedTokenSchema.optional(),
   Preference: requestedTokenSchema.optional(),
+  /** `Label` (#186): User-scoped, one set spanning every Mail Account. */
+  Label: requestedTokenSchema.optional(),
   /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
   mutations: z.array(queuedUserMutationSchema).optional(),
 });
@@ -600,7 +612,6 @@ export type MutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 
 export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
-  Label: requestedTokenSchema.optional(),
   GmailLabel: requestedTokenSchema.optional(),
   Composition: requestedTokenSchema.optional(),
   Correspondent: requestedTokenSchema.optional(),
@@ -638,6 +649,7 @@ export type SyncRequest = z.infer<typeof syncRequestSchema>;
 export const userSyncResponseSchema = z.object({
   MailAccount: mailAccountDeltaSchema.optional(),
   Preference: preferenceDeltaSchema.optional(),
+  Label: labelDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
   /**
@@ -657,7 +669,6 @@ export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 
 export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
-  Label: labelDeltaSchema.optional(),
   GmailLabel: gmailLabelDeltaSchema.optional(),
   Composition: compositionDeltaSchema.optional(),
   Correspondent: correspondentDeltaSchema.optional(),

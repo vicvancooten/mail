@@ -45,13 +45,11 @@ export const THREAD_WINDOW_HIGH_WATER = 2 * THREAD_WINDOW_FLOOR;
 
 export const MAIL_ACCOUNT_TOKEN_KEY = "user:MailAccount";
 export const PREFERENCE_TOKEN_KEY = "user:Preference";
+/** `Label` is User-scoped since #186, so its token is keyed like `Preference`'s, not per Mail Account. */
+export const LABEL_TOKEN_KEY = "user:Label";
 
 export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
-}
-
-export function labelTokenKey(mailAccountId: string): string {
-  return `account:${mailAccountId}:Label`;
 }
 
 export function gmailLabelTokenKey(mailAccountId: string): string {
@@ -97,7 +95,6 @@ export async function applyMailAccountDelta(
     [
       db.mailAccounts,
       db.threads,
-      db.labels,
       db.gmailLabels,
       db.correspondents,
       db.compositions,
@@ -208,23 +205,24 @@ export async function applyThreadDelta(
 }
 
 /**
- * `Label`, scoped to one Mail Account (#43, ADR-0011). No windowing — unlike
- * `Thread` there is no bounded working set to maintain, a Mail Account has
- * at most a handful of Labels at PoC scope (no management UI to make many
- * of them), so every Label this account has is simply held in full.
+ * `Label`, User-scoped (#43, ADR-0011; #186, ADR-0023). One set spanning
+ * every Mail Account, so a `replace` clears the whole table rather than one
+ * account's rows. No windowing — unlike `Thread` there is no bounded working
+ * set to maintain, a User has at most a handful of Labels at PoC scope (no
+ * management UI to make many of them), so every Label they have is simply
+ * held in full.
  */
 export async function applyLabelDelta(
-  mailAccountId: string,
   delta: CollectionDelta<Label>,
   { replace }: ApplyDeltaOptions,
 ): Promise<void> {
   const db = localCache();
   await db.transaction("rw", [db.labels, db.syncState], async () => {
-    if (replace) await db.labels.where("mailAccountId").equals(mailAccountId).delete();
+    if (replace) await db.labels.clear();
     const upserts = [...delta.created, ...delta.updated];
     if (upserts.length > 0) await db.labels.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.labels.bulkDelete(delta.destroyed);
-    await db.syncState.put({ key: labelTokenKey(mailAccountId), token: delta.newState });
+    await db.syncState.put({ key: LABEL_TOKEN_KEY, token: delta.newState });
   });
 }
 
@@ -382,7 +380,6 @@ export async function pruneOrphanedMailAccountData(): Promise<void> {
     [
       db.mailAccounts,
       db.threads,
-      db.labels,
       db.gmailLabels,
       db.correspondents,
       db.compositions,
@@ -407,7 +404,9 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   if (mailAccountIds.length === 0) return;
   await db.mailAccounts.bulkDelete(mailAccountIds);
   await db.threads.where("mailAccountId").anyOf(mailAccountIds).delete();
-  await db.labels.where("mailAccountId").anyOf(mailAccountIds).delete();
+  // `labels` is deliberately absent: a Label belongs to the User, not to any
+  // one Mail Account (#186), so removing an account leaves the Label set
+  // whole — only the `labelIds` of the Threads going away with it disappear.
   await db.gmailLabels.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.correspondents.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.compositions.where("mailAccountId").anyOf(mailAccountIds).delete();
@@ -415,7 +414,6 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   await db.cachePins.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.syncState.bulkDelete([
     ...mailAccountIds.map(threadTokenKey),
-    ...mailAccountIds.map(labelTokenKey),
     ...mailAccountIds.map(gmailLabelTokenKey),
     ...mailAccountIds.map(correspondentTokenKey),
     ...mailAccountIds.map(compositionTokenKey),

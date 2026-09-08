@@ -167,6 +167,21 @@ export async function listAllMailAccounts(db: Db): Promise<MailAccountRow[]> {
  * row rather than opening a second connection. `null` for an unknown id,
  * same as every other single-row lookup here.
  */
+/**
+ * The User a Mail Account belongs to (ADR-0004: exactly one), `null` for an
+ * id with no row. `sync/mutations.ts` resolves it once per flush because
+ * `applyLabel`/`removeLabel` derive a **User-scoped** `Label` id (#186) from
+ * it, while the queue being drained names only the Mail Account.
+ */
+export async function getMailAccountOwnerId(db: Db | Tx, id: string): Promise<string | null> {
+  const [row] = await db
+    .select({ userId: mailAccounts.userId })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.id, id))
+    .limit(1);
+  return row?.userId ?? null;
+}
+
 export async function getMailAccountServerKind(
   db: Db | Tx,
   id: string,

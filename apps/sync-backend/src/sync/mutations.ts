@@ -28,6 +28,7 @@ import {
 } from "../gatekeeper/decisions.js";
 import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import {
+  getMailAccountOwnerId,
   getMailAccountServerKind,
   updateMailAccountNotificationsEnabled,
   updateMailAccountSignature,
@@ -59,9 +60,14 @@ export async function flushMutations(
   // "resolve the account once" shape) — `archive`/`trash`/`restoreToInbox`
   // are the only intents that read it (#124, ADR-0020).
   const serverKind = await getMailAccountServerKind(db, mailAccountId);
+  // A Label is owned by the **User**, not this Mail Account (#186,
+  // ADR-0023), but the queue being drained names only the account — so the
+  // owner is resolved once per flush too, for `applyLabel`/`removeLabel` to
+  // derive their `labelId` from.
+  const ownerUserId = await getMailAccountOwnerId(db, mailAccountId);
   const outcomes: MutationOutcome[] = [];
   for (const { id, intent } of queued) {
-    outcomes.push(await applyOne(db, mailAccountId, serverKind, id, intent));
+    outcomes.push(await applyOne(db, mailAccountId, ownerUserId, serverKind, id, intent));
   }
   return outcomes;
 }
@@ -69,6 +75,7 @@ export async function flushMutations(
 async function applyOne(
   db: Db,
   mailAccountId: string,
+  ownerUserId: string | null,
   serverKind: MailAccountServerKind,
   id: string,
   intent: MutationIntent,
@@ -76,7 +83,7 @@ async function applyOne(
   const existing = await ledgerRow(db, id);
   if (existing) return toOutcome(id, existing);
 
-  const result = await applyIntent(db, mailAccountId, serverKind, intent);
+  const result = await applyIntent(db, mailAccountId, ownerUserId, serverKind, intent);
   try {
     await db.insert(appliedMutations).values({
       id,
@@ -115,7 +122,8 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
  * Messages currently sit in the Inbox — a Sent self-copy elsewhere never
  * moves. A Thread the Mail Account no longer has (evicted, merged away, or
  * never this account's to begin with) is a permanent rejection — there is
- * nothing to retry it into. `setPinned`/`applyLabel`/`removeLabel` (#43) are
+ * nothing to retry it into. `setPinned`/`applyLabel`/`removeLabel` (#43;
+ * Labels User-scoped since #186 — see `ownerUserId`) are
  * App Features (ADR-0006): all three touch only the Thread row, and none
  * ever enqueues a protocol write — no IMAP-side trace for either feature.
  * `snooze` (#76) is the same shape, plus `archive`/`trash`'s own
@@ -136,6 +144,8 @@ type IntentResult = { ok: true } | { ok: false; reason: string };
 async function applyIntent(
   db: Db,
   mailAccountId: string,
+  /** The Mail Account's owning User (#186) — `null` only for an account row that vanished mid-flush, which the two Label intents reject on. */
+  ownerUserId: string | null,
   serverKind: MailAccountServerKind,
   intent: MutationIntent,
 ): Promise<IntentResult> {
@@ -291,14 +301,18 @@ async function applyIntent(
     case "applyLabel": {
       const name = normalizeLabelName(intent.name);
       if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
-      const id = labelId(mailAccountId, name);
+      if (!ownerUserId) return { ok: false, reason: "mail_account_not_found" };
+      // User-scoped (#186): the same name applied from any of this User's
+      // Mail Accounts resolves to the one Label row, so the id is derived
+      // from the owner rather than the account the intent arrived through.
+      const id = labelId(ownerUserId, name);
 
       // Find-or-create by the deterministic id (#43): a Client that already
       // predicted this id offline and one applying the same name for the
       // first time both land here, and `onConflictDoNothing` is what makes
       // two concurrent first-applies of the same brand-new name resolve to
       // one Label row instead of a unique-index error.
-      await db.insert(labels).values({ id, mailAccountId, name }).onConflictDoNothing({
+      await db.insert(labels).values({ id, userId: ownerUserId, name }).onConflictDoNothing({
         target: labels.id,
       });
 
@@ -312,7 +326,8 @@ async function applyIntent(
     }
 
     case "removeLabel": {
-      const id = labelId(mailAccountId, normalizeLabelName(intent.name));
+      if (!ownerUserId) return { ok: false, reason: "mail_account_not_found" };
+      const id = labelId(ownerUserId, normalizeLabelName(intent.name));
       if (thread.labelIds.includes(id)) {
         await db
           .update(threads)

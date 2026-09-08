@@ -1,5 +1,4 @@
 import type { Message } from "@mail/shared";
-import { labelNameFromId } from "@mail/shared";
 import {
   CheckCircle2,
   ChevronDown,
@@ -18,7 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { ReplyMode } from "../compose/reply.js";
 import type { CachedThread } from "../store/index.js";
-import { useLabels } from "../store/index.js";
+import { labelNameForId, useLabels } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
@@ -87,7 +86,7 @@ export function ThreadDetailPane({
   const participants =
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
   const unread = thread.unreadCount > 0;
-  const labels = useLabels(thread.mailAccountId) ?? [];
+  const labels = useLabels() ?? [];
   const { messages } = useThreadMessages(thread.id);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -312,8 +311,7 @@ export function ThreadDetailPane({
                   <span className="reading-labels">
                     {thread.labelIds.map((id) => (
                       <span key={id} className="label-chip">
-                        {labels.find((label) => label.id === id)?.name ??
-                          labelNameFromId(thread.mailAccountId, id)}
+                        {labels.find((label) => label.id === id)?.name ?? labelNameForId(id)}
                       </span>
                     ))}
                   </span>

@@ -11,7 +11,7 @@ import {
   compositionTokenKey,
   correspondentTokenKey,
   gmailLabelTokenKey,
-  labelTokenKey,
+  LABEL_TOKEN_KEY,
   MAIL_ACCOUNT_TOKEN_KEY,
   PREFERENCE_TOKEN_KEY,
   threadTokenKey,
@@ -74,17 +74,17 @@ function asApplyMailAccountDelta<Payload>(
   return apply as ApplyMailAccountCollectionDelta;
 }
 
-/** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference` keys. */
+/** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference`/`Label` keys. */
 export interface UserCollectionEntry {
-  readonly wireKey: "MailAccount" | "Preference";
+  readonly wireKey: "MailAccount" | "Preference" | "Label";
   readonly table: CollectionTable;
   readonly tokenKey: string;
   readonly apply: ApplyUserCollectionDelta;
 }
 
-/** A per-Mail-Account collection: `mailAccountSyncRequestSchema`/`mailAccountSyncResponseSchema`'s five keys. */
+/** A per-Mail-Account collection: `mailAccountSyncRequestSchema`/`mailAccountSyncResponseSchema`'s four keys. */
 export interface MailAccountCollectionEntry {
-  readonly wireKey: "Thread" | "Label" | "GmailLabel" | "Composition" | "Correspondent";
+  readonly wireKey: "Thread" | "GmailLabel" | "Composition" | "Correspondent";
   readonly table: CollectionTable;
   readonly tokenKey: (mailAccountId: string) => string;
   readonly apply: ApplyMailAccountCollectionDelta;
@@ -103,6 +103,16 @@ export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
     tokenKey: PREFERENCE_TOKEN_KEY,
     apply: asApplyUserDelta(applyPreferenceDelta),
   },
+  // `Label` moved here from `MAIL_ACCOUNT_COLLECTIONS` in #186 (ADR-0023) —
+  // one set of Labels per User rather than one per Mail Account. Moving it
+  // was this entry and its `apply`'s own signature; `sync-round.ts` never
+  // learned it happened, which is what #185 built this registry for.
+  {
+    wireKey: "Label",
+    table: "labels",
+    tokenKey: LABEL_TOKEN_KEY,
+    apply: asApplyUserDelta(applyLabelDelta),
+  },
 ];
 
 export const MAIL_ACCOUNT_COLLECTIONS: readonly MailAccountCollectionEntry[] = [
@@ -111,12 +121,6 @@ export const MAIL_ACCOUNT_COLLECTIONS: readonly MailAccountCollectionEntry[] = [
     table: "threads",
     tokenKey: threadTokenKey,
     apply: asApplyMailAccountDelta(applyThreadDelta),
-  },
-  {
-    wireKey: "Label",
-    table: "labels",
-    tokenKey: labelTokenKey,
-    apply: asApplyMailAccountDelta(applyLabelDelta),
   },
   {
     wireKey: "GmailLabel",

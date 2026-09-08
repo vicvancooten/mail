@@ -468,7 +468,9 @@ export const threads = pgTable(
     // a Star is a Protocol Feature mirroring IMAP's own `\Flagged`, a Pin
     // has zero IMAP-side trace (ADR-0006).
     pinned: boolean("pinned").notNull().default(false),
-    // Labels currently applied to this Thread (#43), as `labels.id`s —
+    // Labels currently applied to this Thread (#43), as `labels.id`s
+    // (User-scoped since #186 — the owning User's one Label set, not this
+    // account's) —
     // denormalized here the same way `inInbox`/`pinned` are, so the Client's
     // one Thread projection carries membership without a join. `sync/
     // mutations.ts` is the only writer; `labels` below is the id→name
@@ -596,20 +598,30 @@ export const threadMessageIds = pgTable(
 /**
  * A Label (#43, CONTEXT.md, ADR-0006): a User-defined tag, App Feature, no
  * management UI/colors/nesting at PoC scope. `id` is **deterministic**
- * (`labelId` in `packages/shared/src/labels.ts`, `(mailAccountId, name)`)
- * rather than minted here and handed back — `sync/mutations.ts`'s
- * `applyLabel` computes the same id a Client already predicted offline, so
- * creating a brand-new Label by applying it is one Optimistic Action, not
- * two. `threads.labelIds` is the membership side; this table is only the
- * id→name definition, synced as its own ADR-0011 collection.
+ * (`labelId` in `packages/shared/src/labels.ts`, `(userId, name)`) rather
+ * than minted here and handed back — `sync/mutations.ts`'s `applyLabel`
+ * computes the same id a Client already predicted offline, so creating a
+ * brand-new Label by applying it is one Optimistic Action, not two.
+ * `threads.labelIds` is the membership side; this table is only the id→name
+ * definition, synced as its own ADR-0011 collection.
+ *
+ * **Owned by the User, not a Mail Account** (#186, ADR-0023): one set of
+ * Labels spans every Mail Account a User owns, so a `threads.labelIds` entry
+ * on any of those accounts names a row here. That is the precondition for a
+ * Note carrying the same Labels mail does — a Note has no Mail Account to be
+ * scoped to. `gmailLabels` below deliberately did *not* move with it: a
+ * Gmail Label really is one Gmail account's own read-only tag, never a
+ * Wicket Label. Migration 0037 merged each User's pre-existing same-named
+ * per-account Labels (case-insensitively) into one row and remapped every
+ * `threads.labelIds` entry onto the survivor.
  */
 export const labels = pgTable(
   "labels",
   {
     id: text("id").primaryKey(),
-    mailAccountId: text("mail_account_id")
+    userId: text("user_id")
       .notNull()
-      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+      .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -619,8 +631,8 @@ export const labels = pgTable(
     syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
   (table) => [
-    uniqueIndex("labels_account_name_key").on(table.mailAccountId, table.name),
-    index("labels_sync_rev_idx").on(table.mailAccountId, table.syncRev),
+    uniqueIndex("labels_user_name_key").on(table.userId, table.name),
+    index("labels_sync_rev_idx").on(table.userId, table.syncRev),
   ],
 );
 export type LabelRow = typeof labels.$inferSelect;

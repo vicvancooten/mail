@@ -1,20 +1,20 @@
 import type { Label } from "@mail/shared";
-import { labelNameFromId } from "@mail/shared";
 import { Check, Tag } from "lucide-react";
 import { useState } from "react";
-import type { CachedThread } from "../store/index.js";
+import { type CachedThread, labelNameForId } from "../store/index.js";
 import type { Triage } from "./useTriage.js";
 
 /**
- * The apply/remove side of Label (#43): a small popover listing the Mail
- * Account's existing Labels as toggles, plus a text field for a brand-new
+ * The apply/remove side of Label (#43): a small popover listing the User's
+ * existing Labels as toggles (#186 — one set across every Mail Account),
+ * plus a text field for a brand-new
  * name. No management UI, colors, or nesting (poc-scope.md) — this is the
  * whole of Label's UI surface. Opened from `ThreadDetailPane` (mouse click
  * or the `L` key), closed on Escape or clicking its own toggle again.
  *
  * A Label a Thread already carries but that hasn't synced back into the
  * `Label` collection yet (a brand-new name, applied offline) still renders
- * correctly: `labelNameFromId` recovers the display name straight from the
+ * correctly: `labelNameForId` recovers the display name straight from the
  * id, no round trip required.
  */
 export function LabelPicker({
@@ -24,7 +24,7 @@ export function LabelPicker({
   onClose,
 }: {
   thread: CachedThread;
-  /** The Mail Account's known Labels (#43's `Label` collection) — may not include one just applied offline. */
+  /** The User's known Labels (#43's `Label` collection, User-scoped since #186) — may not include one just applied offline. */
   labels: Label[];
   triage: Triage;
   onClose: () => void;
@@ -36,7 +36,7 @@ export function LabelPicker({
   // of yet (offline-applied, not synced back) still gets a chip, via the
   // deterministic id → name fallback.
   for (const id of thread.labelIds) {
-    if (!known.has(id)) known.set(id, labelNameFromId(thread.mailAccountId, id));
+    if (!known.has(id)) known.set(id, labelNameForId(id));
   }
   const entries = [...known.entries()].sort((left, right) => left[1].localeCompare(right[1]));
 

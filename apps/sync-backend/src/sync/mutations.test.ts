@@ -592,7 +592,7 @@ describe("flushMutations — snooze (#76)", () => {
   });
 });
 
-describe("flushMutations — labels (#43)", () => {
+describe("flushMutations — labels (#43, User-scoped since #186)", () => {
   it("creates a Label on first apply and adds it to the Thread, with no protocol write", async () => {
     const threadId = await seedThread();
 
@@ -601,10 +601,10 @@ describe("flushMutations — labels (#43)", () => {
     ]);
 
     expect(outcomes).toEqual([{ id: "01APPLY", status: "applied" }]);
-    const id = labelId(account.id, "Work");
+    const id = labelId(account.userId, "Work");
     expect((await threadRow(threadId))?.labelIds).toEqual([id]);
     const [labelRow] = await db.select().from(labels).where(eq(labels.id, id));
-    expect(labelRow).toMatchObject({ mailAccountId: account.id, name: "Work" });
+    expect(labelRow).toMatchObject({ userId: account.userId, name: "Work" });
     expect(await outboxRows(account.id)).toHaveLength(0);
   });
 
@@ -627,10 +627,10 @@ describe("flushMutations — labels (#43)", () => {
       { id: "01B", intent: { type: "applyLabel", threadId: threadB, name: "Work" } },
     ]);
 
-    const rows = await db.select().from(labels).where(eq(labels.mailAccountId, account.id));
+    const rows = await db.select().from(labels).where(eq(labels.userId, account.userId));
     expect(rows).toHaveLength(1);
-    expect((await threadRow(threadA))?.labelIds).toEqual([labelId(account.id, "Work")]);
-    expect((await threadRow(threadB))?.labelIds).toEqual([labelId(account.id, "Work")]);
+    expect((await threadRow(threadA))?.labelIds).toEqual([labelId(account.userId, "Work")]);
+    expect((await threadRow(threadB))?.labelIds).toEqual([labelId(account.userId, "Work")]);
   });
 
   it("normalizes incidental whitespace so ' Work ' and 'Work' are the same Label", async () => {
@@ -640,7 +640,7 @@ describe("flushMutations — labels (#43)", () => {
       { id: "01APPLY", intent: { type: "applyLabel", threadId, name: "  Work  " } },
     ]);
 
-    const rows = await db.select().from(labels).where(eq(labels.mailAccountId, account.id));
+    const rows = await db.select().from(labels).where(eq(labels.userId, account.userId));
     expect(rows.map((row) => row.name)).toEqual(["Work"]);
   });
 
@@ -667,7 +667,7 @@ describe("flushMutations — labels (#43)", () => {
 
     expect(outcomes).toEqual([{ id: "01REMOVE", status: "applied" }]);
     expect((await threadRow(threadId))?.labelIds).toEqual([]);
-    const rows = await db.select().from(labels).where(eq(labels.mailAccountId, account.id));
+    const rows = await db.select().from(labels).where(eq(labels.userId, account.userId));
     expect(rows).toHaveLength(1); // still there — no management UI, no delete route (#43)
   });
 
@@ -682,15 +682,41 @@ describe("flushMutations — labels (#43)", () => {
     expect((await threadRow(threadId))?.labelIds).toEqual([]);
   });
 
-  it("scopes a Label to its Mail Account — the same name on two accounts is two Labels", async () => {
-    const other = await createTestMailAccount(db);
+  it("spans the User's Mail Accounts — the same name on two of their accounts is one Label (#186)", async () => {
+    const sibling = await createTestMailAccount(db, { userId: account.userId });
+    const threadHere = await seedThread();
+    const threadThere = await resolveThread(db, {
+      mailAccountId: sibling.id,
+      threadingIds: [randomUUID()],
+      subject: "Test",
+      receivedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+
+    await flushMutations(db, account.id, [
+      { id: "01A", intent: { type: "applyLabel", threadId: threadHere, name: "Follow up" } },
+    ]);
+    await flushMutations(db, sibling.id, [
+      { id: "01B", intent: { type: "applyLabel", threadId: threadThere, name: "Follow up" } },
+    ]);
+
+    const id = labelId(account.userId, "Follow up");
+    const rows = await db.select().from(labels).where(eq(labels.userId, account.userId));
+    expect(rows.map((row) => row.id)).toEqual([id]);
+    expect((await threadRow(threadHere))?.labelIds).toEqual([id]);
+    expect((await threadRow(threadThere))?.labelIds).toEqual([id]);
+  });
+
+  it("still scopes a Label to its User — two Users' 'Work' are two Labels (#186)", async () => {
+    const strangers = await createTestMailAccount(db);
     const threadHere = await seedThread();
 
     await flushMutations(db, account.id, [
       { id: "01A", intent: { type: "applyLabel", threadId: threadHere, name: "Work" } },
     ]);
-    // No `seedThread` for `other` — this asserts the id space, not another apply.
-    expect(labelId(account.id, "Work")).not.toBe(labelId(other.id, "Work"));
+    // No `seedThread` for `strangers` — this asserts the id space, not another apply.
+    expect(labelId(account.userId, "Work")).not.toBe(labelId(strangers.userId, "Work"));
+    const rows = await db.select().from(labels);
+    expect(rows).toHaveLength(1);
   });
 
   it("rejects an applyLabel naming a Thread this Mail Account does not have", async () => {

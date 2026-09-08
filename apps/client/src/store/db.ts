@@ -33,7 +33,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 7; // #126: `gmailLabels` (Gmail's own Labels, browsable and read-only, ADR-0020)
+export const CACHE_SCHEMA_VERSION = 8; // #186: `labels` re-keyed to User scope — the per-Mail-Account rows and their tokens are discarded and re-bootstrapped
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -271,6 +271,7 @@ export const SCHEMA_VERSION_META_KEY = "schemaVersion";
 export class LocalCache extends Dexie {
   mailAccounts!: EntityTable<MailAccount, "id">;
   threads!: EntityTable<CachedThread, "id">;
+  /** `Label` (#43), **User-scoped** since #186: one set spanning every Mail Account this User owns. */
   labels!: EntityTable<Label, "id">;
   /** `GmailLabel` (#126, ADR-0020): a Gmail Mail Account's own Labels, browsable and read-only — never merged into `labels`. */
   gmailLabels!: EntityTable<GmailLabel, "id">;
@@ -295,7 +296,13 @@ export class LocalCache extends Dexie {
     this.version(schemaVersion).stores({
       mailAccounts: "id, createdAt",
       threads: "id, mailAccountId, [mailAccountId+sortKey]",
-      labels: "id, mailAccountId",
+      // User-scoped since #186 (ADR-0023): one set per User, so there is no
+      // per-Mail-Account index to keep — every read wants all of them, and a
+      // `labelIds` entry on a Thread of any of the User's accounts resolves
+      // here. Re-keying is exactly what `CACHE_SCHEMA_VERSION`'s bump above
+      // discards: the stale account-scoped rows and their state tokens go,
+      // and the next sync round re-bootstraps the merged set.
+      labels: "id, userId",
       gmailLabels: "id, mailAccountId",
       // Sorted by score descending at read time (`reads.ts#readCorrespondents`)
       // — the `[mailAccountId+score]` index is what makes that a fast

@@ -33,6 +33,12 @@ export interface SyncRoutesOptions {
  * trip's Thread delta already reflects what those mutations just changed,
  * with no second poll needed to see it confirmed.
  *
+ * The User-scoped collections are answered **after every Mail Account's
+ * queue has drained**, for the same reason one step out: a
+ * Mail-Account-scoped intent can change a User-scoped row (`applyLabel`
+ * creates a `Label`, #186; `setSignature` moves a `MailAccount`), so reading
+ * them first would answer with state this very request has since changed.
+ *
  * `composeSaves` are flushed **before** `mutations`, and that order is
  * load-bearing rather than incidental: a `sendComposition` intent (#46) sends
  * whatever content the Composition row holds at the moment it is applied, and
@@ -67,18 +73,6 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     const userMutationResults =
       userMutations.length > 0 ? await flushUserMutations(db, userId, userMutations) : [];
     if (userMutationResults.length > 0) userResult.mutations = userMutationResults;
-
-    for (const descriptor of userCollectionRegistry) {
-      const token = readRequestedToken(user ?? {}, descriptor.name);
-      if (token === undefined) continue;
-      const delta = await descriptor.sync(db, { userId }, token);
-      if (delta) setCollectionDelta(userResult, descriptor.name, delta);
-    }
-    // The app-icon badge (#53, ADR-0015): unconditional, never gated on
-    // "something changed" — see `userSyncResponseSchema`'s own doc comment
-    // for why the visibility-change "snap the badge true" round depends on
-    // that.
-    userResult.unreadInboxCount = await computeUnreadInboxCount(db, userId);
 
     const mailAccountsResult: SyncResponse["mailAccounts"] = {};
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {
@@ -158,6 +152,26 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
         };
       }
     }
+
+    // The User-scoped collection deltas come **last**, after every Mail
+    // Account's queue has drained — the same "a mutation-flush response
+    // carries deltas too" ordering each account gets for its own `Thread`,
+    // extended across scopes because a Mail-Account-scoped mutation can
+    // change a User-scoped row: `applyLabel` (#186) creates a `Label`, and
+    // `setSignature`/`setNotificationsEnabled` move a `MailAccount`. Reading
+    // these before the flush would answer with the row as it was a moment
+    // before the intent this very request applied.
+    for (const descriptor of userCollectionRegistry) {
+      const token = readRequestedToken(user ?? {}, descriptor.name);
+      if (token === undefined) continue;
+      const delta = await descriptor.sync(db, { userId }, token);
+      if (delta) setCollectionDelta(userResult, descriptor.name, delta);
+    }
+    // The app-icon badge (#53, ADR-0015): unconditional, never gated on
+    // "something changed" — see `userSyncResponseSchema`'s own doc comment
+    // for why the visibility-change "snap the badge true" round depends on
+    // that.
+    userResult.unreadInboxCount = await computeUnreadInboxCount(db, userId);
 
     return syncResponseSchema.parse({ user: userResult, mailAccounts: mailAccountsResult });
   });

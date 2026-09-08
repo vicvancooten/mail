@@ -1,12 +1,19 @@
 /**
  * Deterministic Label identity (#43, ADR-0011: "Labels sync as their own
- * collection"). A Label's id is derived from its Mail Account and name
- * rather than minted server-side and handed back to the Client, so a Client
- * can predict it the instant the User types a name — applying a brand-new
- * Label works fully offline, with no round trip needed before the
+ * collection"; #186: User-scoped). A Label's id is derived from its **User**
+ * and name rather than minted server-side and handed back to the Client, so
+ * a Client can predict it the instant the User types a name — applying a
+ * brand-new Label works fully offline, with no round trip needed before the
  * Optimistic Action's overlay has an id to reference (ADR-0010). Both
  * `apps/sync-backend` and `apps/client` import this one function so they
- * never disagree about what a given (Mail Account, name) pair's id is.
+ * never disagree about what a given (User, name) pair's id is.
+ *
+ * The scope is the User, not the Mail Account (#186, ADR-0023): a User has
+ * one set of Labels spanning every Mail Account they own, which is the
+ * precondition for a Note carrying the same Labels mail does. The id shape
+ * is unchanged — one scope id, then the normalized name — so everything
+ * built on "the id is derivable from the name" still holds; only which
+ * scope id goes in front of it moved.
  */
 
 /** Collapses incidental whitespace so "Work" and "  Work " are the same Label, not two rows. */
@@ -22,9 +29,18 @@ export function isValidLabelName(name: string): boolean {
   return normalized.length > 0 && normalized.length <= LABEL_NAME_MAX_LENGTH;
 }
 
-/** A Label's id: stable, offline-derivable, and scoped to its Mail Account (two accounts' "Work" are different Labels). */
-export function labelId(mailAccountId: string, name: string): string {
-  return `${mailAccountId}:${normalizeLabelName(name)}`;
+/**
+ * A Label's id: stable, offline-derivable, and scoped to its **User** (#186)
+ * — one User's "Work" is the same Label on every Mail Account they own, and
+ * two Users' "Work" are still different Labels, which is what keeps the id
+ * globally unique (`labels`' primary key, `sync_tombstones.entity_id`).
+ *
+ * Case-sensitive, deliberately: the #186 migration merges pre-existing
+ * same-named Labels case-insensitively, but a User who deliberately keeps
+ * "OKR" and "okr" apart afterwards is not overruled here.
+ */
+export function labelId(userId: string, name: string): string {
+  return `${userId}:${normalizeLabelName(name)}`;
 }
 
 /**
@@ -32,11 +48,11 @@ export function labelId(mailAccountId: string, name: string): string {
  * its id, no `Label` collection row required. What lets the Client render a
  * Label chip on a Thread the instant an offline `applyLabel` overlay lands
  * (`store/reads.ts`) — before the synced `Label` row for a brand-new name
- * has ever arrived. Falls back to the id verbatim on a shape this Mail
- * Account's prefix doesn't match (defensive only; every id this codebase
- * produces does match).
+ * has ever arrived. Falls back to the id verbatim on a shape this User's
+ * prefix doesn't match (defensive only; every id this codebase produces does
+ * match).
  */
-export function labelNameFromId(mailAccountId: string, id: string): string {
-  const prefix = `${mailAccountId}:`;
+export function labelNameFromId(userId: string, id: string): string {
+  const prefix = `${userId}:`;
   return id.startsWith(prefix) ? id.slice(prefix.length) : id;
 }

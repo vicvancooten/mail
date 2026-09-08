@@ -37,6 +37,13 @@ export interface SearchFilters {
    * account crowd a quiet one out of its own results entirely.
    */
   mailAccountIds: string[];
+  /**
+   * The User every account in the Scope belongs to (ADR-0004), already
+   * checked by `routes/search.ts`. Only `label:` reads it: a Label is
+   * User-scoped (#186), so `in:`/`label:` no longer resolve the same way —
+   * a folder is a per-account row, a Label is one row for the whole Scope.
+   */
+  userId: string;
   text: string;
   from?: string;
   to?: string;
@@ -117,11 +124,16 @@ function decodeCursor(token: string): CursorWindows | null {
 
 /**
  * Runs one page of `POST /search` across the Account Scope. `filters.folder`
- * or `filters.label` naming something that does not exist for one in-scope
- * account is answered by that account contributing nothing to this page,
- * rather than failing the whole Scope — the same tolerance a single-account
- * search already has for "this account has no such folder yet", generalized
- * per account rather than all-or-nothing.
+ * naming something that does not exist for one in-scope account is answered
+ * by that account contributing nothing to this page, rather than failing the
+ * whole Scope — the same tolerance a single-account search already has for
+ * "this account has no such folder yet", generalized per account rather than
+ * all-or-nothing.
+ *
+ * `filters.label` is resolved **once for the Scope**, not per account (#186):
+ * a Label belongs to the User, so a name that matches none of theirs means
+ * the whole Scope contributes nothing, rather than each account deciding
+ * separately.
  */
 export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQueryResult> {
   const tsQuery = buildTsQuery(filters.text);
@@ -137,6 +149,12 @@ export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQ
   // carry — joined in only when actually asked for, so the common
   // free-text-only query keeps the exact shape `bench:shapes` measures.
   const needsMessageJoin = Boolean(filters.from || filters.to || filters.hasAttachment);
+  // Resolved ahead of the per-account loop: one User-scoped lookup, and a
+  // `label:` naming no Label of theirs short-circuits the whole page.
+  const labelIdFilter = filters.label
+    ? await resolveLabelId(db, filters.userId, filters.label)
+    : null;
+  if (filters.label && !labelIdFilter) return NO_RESULTS;
   const candJoinSql = needsMessageJoin ? sql`join messages fm on fm.id = ms.message_id` : sql``;
   const sharedConditions = buildSharedConditions(filters);
 
@@ -161,14 +179,12 @@ export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQ
         conditions.push(sql`ms.folder_id not in (${excludedFolderIds})`);
     }
 
-    if (filters.label) {
-      const labelId = await resolveLabelId(db, mailAccountId, filters.label);
-      if (!labelId) continue;
+    if (labelIdFilter) {
       // Filtered off the Sync Backend's own label join, not the Search Index
       // (#50's own resolution comment) — `threads.label_ids` is where Labels
       // live, `message_search` gains no column for this.
       conditions.push(
-        sql`exists (select 1 from threads t2 where t2.id = ms.thread_id and t2.label_ids @> ARRAY[${labelId}])`,
+        sql`exists (select 1 from threads t2 where t2.id = ms.thread_id and t2.label_ids @> ARRAY[${labelIdFilter}])`,
       );
     }
 
@@ -372,17 +388,13 @@ async function resolveExcludedFolderIds(db: Db, mailAccountId: string): Promise<
   return rows.map((row) => row.id);
 }
 
-async function resolveLabelId(db: Db, mailAccountId: string, name: string): Promise<string | null> {
+/** A Label by name, case-insensitively, within the searching User's own one set (#186). */
+async function resolveLabelId(db: Db, userId: string, name: string): Promise<string | null> {
   const normalized = name.trim().toLowerCase();
   const [row] = await db
     .select({ id: labels.id })
     .from(labels)
-    .where(
-      and(
-        eq(labels.mailAccountId, mailAccountId),
-        eq(sql<string>`lower(${labels.name})`, normalized),
-      ),
-    )
+    .where(and(eq(labels.userId, userId), eq(sql<string>`lower(${labels.name})`, normalized)))
     .limit(1);
   return row?.id ?? null;
 }

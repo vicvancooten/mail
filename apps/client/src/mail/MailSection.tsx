@@ -9,7 +9,6 @@ import {
   BULK_TRIAGE_UNDO_WINDOW_SECONDS,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
-  labelNameFromId,
 } from "@mail/shared";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,8 +22,10 @@ import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   EMPTY_COMPOSE_CONTENT,
+  labelNameForId,
   newCompositionId,
   saveComposition,
+  sessionUserId,
   THREAD_PAGE_SIZE,
   useDraftCompositions,
   useGmailLabels,
@@ -239,7 +240,7 @@ export function MailSection({
     initialLabelFilter !== null ? { kind: "label", labelId: initialLabelFilter } : NO_FILTER,
   );
   const labelFilter = filter.kind === "label" ? filter.labelId : null;
-  const labels = useLabels(accountId) ?? [];
+  const labels = useLabels() ?? [];
   // Gmail Labels (#126, ADR-0020): a Gmail Mail Account's own Labels,
   // browsable and read-only, `labelFilter`'s sibling — never merged into it,
   // and mutually exclusive with it (selecting one clears the other, `filter`
@@ -544,7 +545,7 @@ export function MailSection({
   // collection, plus any id the currently loaded page's Threads carry that
   // hasn't synced back yet — a Label applied offline is filterable the
   // instant it's applied, not once a round trip confirms it. See
-  // `labelNameFromId`'s doc comment for why decoding the name needs no
+  // `labelNameForId`'s doc comment for why decoding the name needs no
   // lookup.
   const labelsForPicker = useMemo(() => {
     if (!accountId) return [];
@@ -552,10 +553,13 @@ export function MailSection({
     for (const thread of threads) {
       for (const id of thread.labelIds) {
         if (!byId.has(id)) {
+          // A placeholder `Label` for a still-unsynced id: `userId` is
+          // cosmetic here (nothing reads it off a picker entry) and comes
+          // straight off the session (#186) rather than being invented.
           byId.set(id, {
             id,
-            mailAccountId: accountId,
-            name: labelNameFromId(accountId, id),
+            userId: sessionUserId() ?? "",
+            name: labelNameForId(id),
             updatedAt: "",
           });
         }
