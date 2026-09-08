@@ -34,14 +34,35 @@ export async function readNote(id: string | null): Promise<Note | undefined> {
   return localCache().notes.get(id);
 }
 
-/** Every Note the signed-in User holds, most recently updated first — the whole of what a minimal "demonstrate the collection" list needs; the real grid is #193's. */
+/** Every Note the signed-in User holds, most recently updated first, minus anything in Recently Deleted (#194) — the whole of what a minimal "demonstrate the collection" list needs; the real grid is #193's. */
 export function useNotes(): Note[] | undefined {
   return useLiveQuery(() => readNotes(), []);
 }
 
 export async function readNotes(): Promise<Note[]> {
   const rows = await localCache().notes.toArray();
-  return rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return rows
+    .filter((row) => row.deletedAt === null)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+/**
+ * Recently Deleted (#194): every Note this User has soft-deleted, most
+ * recently deleted first — `readNotes`' own mirror image, filtering the
+ * opposite way over the same `notes` table rather than a second synced
+ * collection. A purged row (`sync/note-purge.ts`, 30 days on) simply stops
+ * appearing here the next sync round, the same "tombstone removes the row"
+ * path any other destroyed entity takes.
+ */
+export function useDeletedNotes(): Note[] | undefined {
+  return useLiveQuery(() => readDeletedNotes(), []);
+}
+
+export async function readDeletedNotes(): Promise<Note[]> {
+  const rows = await localCache().notes.toArray();
+  return rows
+    .filter((row): row is Note & { deletedAt: string } => row.deletedAt !== null)
+    .sort((left, right) => right.deletedAt.localeCompare(left.deletedAt));
 }
 
 /**
@@ -63,6 +84,7 @@ export async function createNote(id: string): Promise<void> {
     document: EMPTY_NOTE_DOCUMENT,
     labelIds: [],
     pinned: false,
+    deletedAt: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -118,6 +140,37 @@ async function setPinnedLocally(id: string, pinned: boolean): Promise<void> {
   });
 }
 
+/**
+ * Soft-deletes a Note (#194): an Optimistic Action whose real inverse is
+ * `restoreNote` (ADR-0019), the same `pinNote`/`unpinNote` shape — only
+ * `deletedAt` flips, the row itself (and its Labels and `pinned` state)
+ * stays exactly as it was, which is what makes `restoreNote` an exact
+ * restore rather than a re-creation (a Note has no upstream to re-derive
+ * from). Callers raise the Undo toast themselves right after this resolves
+ * (`notes/NotesGrid.tsx`, `notes/NoteDialog.tsx`), the same split
+ * `useTriage.ts`'s own trash/archive calls draw between the store write and
+ * the toast.
+ */
+export async function trashNote(id: string): Promise<void> {
+  await enqueueUserMutation({ type: "trashNote", noteId: id });
+  await setDeletedLocally(id, new Date().toISOString());
+}
+
+/** Restores a Note out of Recently Deleted, the real inverse of `trashNote`. */
+export async function restoreNote(id: string): Promise<void> {
+  await enqueueUserMutation({ type: "restoreNote", noteId: id });
+  await setDeletedLocally(id, null);
+}
+
+async function setDeletedLocally(id: string, deletedAt: string | null): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", db.notes, async () => {
+    const row = await db.notes.get(id);
+    if (!row || row.deletedAt === deletedAt) return;
+    await db.notes.put({ ...row, deletedAt });
+  });
+}
+
 /** `session.ts#labelIdForName` is the Client's one place that derives `Label.id` from a name — reused here so a Note's optimistic overlay can never disagree with a Thread's. */
 async function addLabelLocally(id: string, name: string): Promise<void> {
   const db = localCache();
@@ -167,6 +220,7 @@ export async function saveNoteBody(id: string, document: NoteDocument): Promise<
         document,
         labelIds: existing?.labelIds ?? [],
         pinned: existing?.pinned ?? false,
+        deletedAt: existing?.deletedAt ?? null,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       });

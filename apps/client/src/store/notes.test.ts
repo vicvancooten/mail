@@ -10,11 +10,14 @@ import {
   listQueuedNoteSaves,
   newNoteId,
   pinNote,
+  readDeletedNotes,
   readNote,
   readNotes,
   resolveNoteSaveOutcomes,
+  restoreNote,
   saveNoteBody,
   toWireNoteSave,
+  trashNote,
   unlabelNote,
   unpinNote,
 } from "./notes.js";
@@ -358,5 +361,87 @@ describe("readNotes", () => {
     await localCache().notes.put({ ...row, updatedAt: "2099-01-01T00:00:00.000Z" });
 
     expect((await readNotes()).map((note) => note.id)).toEqual([b, a]);
+  });
+
+  it("excludes a soft-deleted Note (#194)", async () => {
+    const id = newNoteId();
+    await createNote(id);
+
+    await trashNote(id);
+
+    expect(await readNotes()).toEqual([]);
+  });
+});
+
+describe("trashNote / restoreNote (#194, soft delete and Recently Deleted)", () => {
+  it("sets deletedAt optimistically and enqueues the intent", async () => {
+    const id = newNoteId();
+    await createNote(id);
+
+    await trashNote(id);
+
+    const row = defined(await readNote(id));
+    expect(row.deletedAt).not.toBeNull();
+    const queued = await listQueuedUserMutations();
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "trashNote",
+      noteId: id,
+    });
+  });
+
+  it("restores optimistically and enqueues the inverse intent — Labels and pinned untouched", async () => {
+    const id = newNoteId();
+    await createNote(id);
+    await pinNote(id);
+    await labelNote(id, "Work");
+    await trashNote(id);
+    await listQueuedUserMutations().then((queued) =>
+      localCache().pendingUserMutations.bulkDelete(queued.map((mutation) => mutation.id)),
+    );
+
+    await restoreNote(id);
+
+    const row = defined(await readNote(id));
+    expect(row.deletedAt).toBeNull();
+    expect(row.pinned).toBe(true);
+    expect(row.labelIds).toHaveLength(1);
+    const queued = await listQueuedUserMutations();
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "restoreNote",
+      noteId: id,
+    });
+  });
+
+  it("cancels a still-queued trashNote when restoreNote follows for the same Note", async () => {
+    const id = newNoteId();
+    await createNote(id);
+    await listQueuedUserMutations().then((queued) =>
+      localCache().pendingUserMutations.bulkDelete(queued.map((mutation) => mutation.id)),
+    );
+
+    await trashNote(id);
+    await restoreNote(id);
+
+    const row = defined(await readNote(id));
+    expect(row.deletedAt).toBeNull();
+    expect(await listQueuedUserMutations()).toEqual([]);
+  });
+});
+
+describe("readDeletedNotes (Recently Deleted, #194)", () => {
+  it("lists only soft-deleted Notes, most recently deleted first", async () => {
+    const kept = newNoteId();
+    const a = newNoteId();
+    const b = newNoteId();
+    await createNote(kept);
+    await createNote(a);
+    await createNote(b);
+    await trashNote(a);
+    await trashNote(b);
+    // Bump b's deletedAt ahead of a's without depending on real clock ordering.
+    const row = defined(await readNote(b));
+    await localCache().notes.put({ ...row, deletedAt: "2099-01-01T00:00:00.000Z" });
+
+    expect((await readDeletedNotes()).map((note) => note.id)).toEqual([b, a]);
   });
 });

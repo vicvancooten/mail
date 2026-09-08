@@ -342,9 +342,8 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * is the Client-minted ULID (`notes.ts#noteSchema`'s own doc comment),
    * already known before this intent is ever enqueued. `deleteNote` here is
    * the **permanent** delete that undoes a still-queued or already-applied
-   * `createNote` — not the future soft-delete/Recently Deleted feature
-   * (#194), which arrives with its own intent in its own slice; this ticket
-   * only builds the queue path both will ride.
+   * `createNote` — not the soft-delete/Recently Deleted feature (#194)
+   * below, which arrives with its own intent pair.
    *
    * `labelNote`/`unlabelNote` carry the Label's `name`, the same
    * `applyLabel`/`removeLabel` shape — the id is deterministic
@@ -356,6 +355,14 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * deliberately not a Thread-style absolute `setPinned {pinned: boolean}`,
    * since that shape has no natural inverse for
    * `user-mutation-queue.ts#coalesceKey`'s cancel-pair trick to use.
+   *
+   * `trashNote`/`restoreNote` (#194) are Delete and Recently Deleted's own
+   * Restore: a genuine inverse pair too, the same shape as `pinNote`/
+   * `unpinNote` above, except the field they flip is `deletedAt`
+   * (`notes.ts#noteSchema`'s own doc comment) rather than a physical row —
+   * `deleteNote` above stays the permanent delete it always was, this pair
+   * is the undoable, then-recoverable-for-30-days one the User's own
+   * "Delete" control actually fires.
    */
   z.object({ type: z.literal("createNote"), noteId: z.string() }),
   z.object({ type: z.literal("deleteNote"), noteId: z.string() }),
@@ -363,6 +370,8 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("unlabelNote"), noteId: z.string(), name: z.string() }),
   z.object({ type: z.literal("pinNote"), noteId: z.string() }),
   z.object({ type: z.literal("unpinNote"), noteId: z.string() }),
+  z.object({ type: z.literal("trashNote"), noteId: z.string() }),
+  z.object({ type: z.literal("restoreNote"), noteId: z.string() }),
 ]);
 export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
 

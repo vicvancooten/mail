@@ -76,6 +76,14 @@ describe("announceUndoableAction", () => {
     expect(lastToastFor("undo-toast-trash").message).toBe("Moved to trash");
   });
 
+  it("Notes' own delete (#194) coalesces and labels the same way every other kind does", () => {
+    announceUndoableAction("noteDelete", vi.fn());
+    expect(lastToastFor("undo-toast-noteDelete").message).toBe("Note deleted");
+
+    announceUndoableAction("noteDelete", vi.fn());
+    expect(lastToastFor("undo-toast-noteDelete").message).toBe("2 Notes deleted");
+  });
+
   it("stacks at most two distinct kinds — a third evicts the oldest still-open toast", () => {
     announceUndoableAction("done", vi.fn());
     announceUndoableAction("trash", vi.fn());

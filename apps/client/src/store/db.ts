@@ -35,7 +35,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 9; // #192: `notes`/`pendingNoteSaves` added — a fresh table, no data to preserve
+export const CACHE_SCHEMA_VERSION = 10; // #194: `notes` gets a `deletedAt` index for Recently Deleted
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -332,7 +332,11 @@ export class LocalCache extends Dexie {
       // whole (bounded, ~500-row) top-500, which is the first-keystroke
       // <50ms budget's real headroom.
       correspondents: "id, mailAccountId, [mailAccountId+score]",
-      notes: "id, userId",
+      // `deletedAt` indexed for #194: `store/notes.ts#readNotes`/
+      // `readDeletedNotes` both filter on it (`toArray()` + JS `.filter`
+      // today, an index kept here regardless so a future range query over
+      // the grid/Recently Deleted split doesn't need its own schema bump).
+      notes: "id, userId, deletedAt",
       pendingNoteSaves: "noteId",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",

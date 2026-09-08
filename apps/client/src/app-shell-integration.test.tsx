@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { resetUndoToastsForTest } from "./mail/undo-toast.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import {
@@ -103,6 +104,7 @@ afterEach(async () => {
   cleanup();
   vi.unstubAllGlobals();
   localCache().close();
+  resetUndoToastsForTest();
   for (const nm of names.splice(0)) await Dexie.delete(nm);
 });
 
@@ -688,5 +690,95 @@ describe("Notes: the grid and dialog editing (#193)", () => {
 
     expect(await screen.findByRole("region", { name: "Notes" })).toBeDefined();
     expect(location.pathname).toBe("/notes");
+  });
+});
+
+describe("Notes: soft delete and Recently Deleted (#194)", () => {
+  it("Delete from the card removes the Note from the grid and raises an Undo toast", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Will be deleted") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Will be deleted" });
+
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Will be deleted"' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Will be deleted" })).toBeNull();
+    });
+    expect(await screen.findByText("Note deleted")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("Undo returns the Note to the grid, Pinned state and Labels intact", async () => {
+    const workId = labelId(NOTES_USER, "Work");
+    await seedNotesAndLabels(
+      [{ document: noteParagraph("Undo me"), pinned: true, labelIds: [workId] }],
+      ["Work"],
+    );
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Undo me" });
+
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Undo me"' }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Undo me" })).toBeNull();
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByRole("heading", { name: "Undo me" })).toBeDefined();
+    // Back in its previous section (Pinned) with its Label intact.
+    expect(screen.getByRole("heading", { name: "Pinned" })).toBeDefined();
+    expect(
+      screen.getByRole("heading", { name: "Undo me" }).closest(".note-card")?.textContent,
+    ).toContain("Work");
+  });
+
+  it("deleting the Note open in the dialog closes it and navigates back to /notes", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Open then deleted") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    const deleteButton = await screen.findByRole("button", { name: "Delete note" });
+
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("Recently Deleted lists a greyed card with Restore, and Restore brings the Note back to the grid", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Trashed note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Trashed note" });
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Trashed note"' }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Trashed note" })).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: "Recently Deleted" }));
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes/recently-deleted");
+    });
+    expect(await screen.findByRole("button", { name: 'Restore "Trashed note"' })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: 'Restore "Trashed note"' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: 'Restore "Trashed note"' })).toBeNull();
+    });
+    fireEvent.click(screen.getByRole("link", { name: "← Notes" }));
+    expect(await screen.findByRole("heading", { name: "Trashed note" })).toBeDefined();
   });
 });
