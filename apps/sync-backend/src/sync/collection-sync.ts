@@ -1,35 +1,11 @@
-import type {
-  CollectionDelta,
-  Composition,
-  Correspondent,
-  GmailLabel,
-  Label,
-  MailAccount,
-  Preference,
-  Thread,
-} from "@mail/shared";
+import type { CollectionDelta, MailAccount, Preference, Thread } from "@mail/shared";
 import { DEFAULT_UNDO_SEND_DELAY_SECONDS, UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import {
-  compositions,
-  correspondents,
-  gmailLabels,
-  labels,
-  mailAccounts,
-  syncTombstones,
-  threads,
-  users,
-} from "../db/schema.js";
+import { mailAccounts, syncTombstones, threads, users } from "../db/schema.js";
 import { toWireMailAccount } from "../mail-accounts/store.js";
 import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
-import {
-  toWireComposition,
-  toWireCorrespondent,
-  toWireGmailLabel,
-  toWireLabel,
-  toWireThread,
-} from "./thread-projection.js";
+import { toWireThread } from "./thread-projection.js";
 
 /**
  * Computes one collection's answer for `POST /sync` (#37, ADR-0011): the
@@ -43,9 +19,9 @@ import {
  */
 
 /** Entity cap per response (ADR-0011): generous enough an ordinary 30s poll never pages, bounded enough a first bootstrap can't return an 80k-thread account in one round trip. */
-const PAGE_SIZE = 500;
+export const PAGE_SIZE = 500;
 
-interface SyncRevRow {
+export interface SyncRevRow {
   syncRev: number;
   syncCreatedRev: number;
 }
@@ -76,7 +52,7 @@ type MergedItem<Row> =
  * the smallest `PAGE_SIZE + 1` of each individual stream, so this never has
  * to re-query to fill a page or to answer `hasMore` correctly.
  */
-function buildDelta<Row extends SyncRevRow, Payload>(args: {
+export function buildDelta<Row extends SyncRevRow, Payload>(args: {
   rows: Row[];
   tombstones: { entityId: string; syncRev: number }[];
   cursorRev: number;
@@ -174,7 +150,7 @@ export async function syncMailAccountCollection(
   });
 }
 
-function toWirePreference(row: typeof users.$inferSelect): Preference {
+export function toWirePreference(row: typeof users.$inferSelect): Preference {
   return {
     id: row.id,
     autoAdvanceEnabled: row.autoAdvanceEnabled,
@@ -282,197 +258,5 @@ export async function syncThreadCollection(
     token,
     epoch: currentEpoch,
     toPayload: toWireThread,
-  });
-}
-
-/**
- * `Label`, scoped to one Mail Account (#43, ADR-0011). No delete route
- * exists yet — `applyLabel`/`removeLabel` only ever touch `threads
- * .labelIds`, never this table's rows — so the tombstone query below is
- * queried defensively (like `MailAccount`'s) rather than never called at
- * all, and there is no rebuild-epoch concept to track (labels are never
- * bulk-invalidated the way a UIDVALIDITY change invalidates Threads).
- */
-export async function syncLabelCollection(
-  db: Db,
-  mailAccountId: string,
-  token: string | null,
-): Promise<CollectionDelta<Label> | null> {
-  const { rev: cursorRev, needsReset } = resolveCursor(token);
-
-  const rows = await db
-    .select()
-    .from(labels)
-    .where(and(eq(labels.mailAccountId, mailAccountId), gt(labels.syncRev, cursorRev)))
-    .orderBy(asc(labels.syncRev))
-    .limit(PAGE_SIZE + 1);
-
-  const tombstoneRows = needsReset
-    ? []
-    : await db
-        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
-        .from(syncTombstones)
-        .where(
-          and(
-            eq(syncTombstones.mailAccountId, mailAccountId),
-            eq(syncTombstones.collection, "Label"),
-            gt(syncTombstones.syncRev, cursorRev),
-          ),
-        )
-        .orderBy(asc(syncTombstones.syncRev))
-        .limit(PAGE_SIZE + 1);
-
-  return buildDelta({
-    rows,
-    tombstones: tombstoneRows,
-    cursorRev,
-    needsReset,
-    token,
-    toPayload: toWireLabel,
-  });
-}
-
-/**
- * `GmailLabel`, scoped to one Mail Account (#126, ADR-0020). Read-only and
- * browsable, never merged into `Label` — see `db/schema.ts#gmailLabels`'s own
- * doc comment. Real tombstones here, unlike `Label`'s defensive query:
- * `sync/gmail-labels.ts#persistGmailLabels` writes one every time a Gmail
- * Label is deleted or renamed in Gmail itself, which is exactly what makes a
- * rename or deletion "reflected after the next sync" without a special case.
- */
-export async function syncGmailLabelCollection(
-  db: Db,
-  mailAccountId: string,
-  token: string | null,
-): Promise<CollectionDelta<GmailLabel> | null> {
-  const { rev: cursorRev, needsReset } = resolveCursor(token);
-
-  const rows = await db
-    .select()
-    .from(gmailLabels)
-    .where(and(eq(gmailLabels.mailAccountId, mailAccountId), gt(gmailLabels.syncRev, cursorRev)))
-    .orderBy(asc(gmailLabels.syncRev))
-    .limit(PAGE_SIZE + 1);
-
-  const tombstoneRows = needsReset
-    ? []
-    : await db
-        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
-        .from(syncTombstones)
-        .where(
-          and(
-            eq(syncTombstones.mailAccountId, mailAccountId),
-            eq(syncTombstones.collection, "GmailLabel"),
-            gt(syncTombstones.syncRev, cursorRev),
-          ),
-        )
-        .orderBy(asc(syncTombstones.syncRev))
-        .limit(PAGE_SIZE + 1);
-
-  return buildDelta({
-    rows,
-    tombstones: tombstoneRows,
-    cursorRev,
-    needsReset,
-    token,
-    toPayload: toWireGmailLabel,
-  });
-}
-
-/**
- * `Correspondent`, scoped to one Mail Account (#49, ADR-0011). Like `Label`,
- * there is no windowing here — the table itself never holds more than the
- * top ~500 by score (`sync/correspondents.ts#capCorrespondents`), so "sync
- * everything this account has" already *is* "sync the top ~500".
- */
-export async function syncCorrespondentCollection(
-  db: Db,
-  mailAccountId: string,
-  token: string | null,
-): Promise<CollectionDelta<Correspondent> | null> {
-  const { rev: cursorRev, needsReset } = resolveCursor(token);
-
-  const rows = await db
-    .select()
-    .from(correspondents)
-    .where(
-      and(eq(correspondents.mailAccountId, mailAccountId), gt(correspondents.syncRev, cursorRev)),
-    )
-    .orderBy(asc(correspondents.syncRev))
-    .limit(PAGE_SIZE + 1);
-
-  const tombstoneRows = needsReset
-    ? []
-    : await db
-        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
-        .from(syncTombstones)
-        .where(
-          and(
-            eq(syncTombstones.mailAccountId, mailAccountId),
-            eq(syncTombstones.collection, "Correspondent"),
-            gt(syncTombstones.syncRev, cursorRev),
-          ),
-        )
-        .orderBy(asc(syncTombstones.syncRev))
-        .limit(PAGE_SIZE + 1);
-
-  return buildDelta({
-    rows,
-    tombstones: tombstoneRows,
-    cursorRev,
-    needsReset,
-    token,
-    toPayload: toWireCorrespondent,
-  });
-}
-
-/**
- * `Composition`, scoped to one Mail Account (#46, ADR-0011). This is what
- * makes a Pending Send "visible and cancellable from every device the User
- * has open" (ADR-0007) — without it the countdown would be a fact only the
- * sending tab knew.
- *
- * Unlike `Thread`, there is no rebuild-epoch and no bounded window: a User
- * has a handful of Drafts, not eighty thousand, so every one of them is
- * always in every Client. Tombstones are real here rather than defensive —
- * `compose/pending-send.ts#pruneSentCompositions` writes one for every
- * Composition it retires after a successful send.
- */
-export async function syncCompositionCollection(
-  db: Db,
-  mailAccountId: string,
-  token: string | null,
-): Promise<CollectionDelta<Composition> | null> {
-  const { rev: cursorRev, needsReset } = resolveCursor(token);
-
-  const rows = await db
-    .select()
-    .from(compositions)
-    .where(and(eq(compositions.mailAccountId, mailAccountId), gt(compositions.syncRev, cursorRev)))
-    .orderBy(asc(compositions.syncRev))
-    .limit(PAGE_SIZE + 1);
-
-  const tombstoneRows = needsReset
-    ? []
-    : await db
-        .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
-        .from(syncTombstones)
-        .where(
-          and(
-            eq(syncTombstones.mailAccountId, mailAccountId),
-            eq(syncTombstones.collection, "Composition"),
-            gt(syncTombstones.syncRev, cursorRev),
-          ),
-        )
-        .orderBy(asc(syncTombstones.syncRev))
-        .limit(PAGE_SIZE + 1);
-
-  return buildDelta({
-    rows,
-    tombstones: tombstoneRows,
-    cursorRev,
-    needsReset,
-    token,
-    toPayload: toWireComposition,
   });
 }
