@@ -10,6 +10,7 @@ import {
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
+  useConnectedAccounts,
   useLabels,
   useMailAccounts,
   useThreadWindow,
@@ -27,7 +28,7 @@ import { ThreadDetailPane } from "../ThreadDetailPane.js";
 import { findThread, neighborId } from "../thread-navigation.js";
 import { PINNED_GROUP_LABEL, timeGroupLabel } from "../time-groups.js";
 import { announceUndoableAction } from "../undo-toast.js";
-import { useAccountScope } from "../useAccountScope.js";
+import { deriveMailAccountScope, useAccountScope } from "../useAccountScope.js";
 import { useTriage } from "../useTriage.js";
 import "./stream.css";
 
@@ -57,8 +58,8 @@ function noop() {}
  * test), so reload restores it.
  *
  * The stack itself is every Inbox Thread in the current Account Scope
- * (`useAccountScope`, the same device-local scope Mail's own toolbar reads),
- * newest first — `folderToView("inbox")` already excludes Screening Holds
+ * (`useAccountScope`/`deriveMailAccountScope`, the same device-local scope
+ * Mail's own toolbar reads), newest first — `folderToView("inbox")` already excludes Screening Holds
  * (`store/reads.ts`'s own doc comment), so held mail is never in the stack.
  * `topId` is "whose card is on top" and `activeId` is `useTriage`'s own
  * selection: the two start equal and only ever diverge for the
@@ -92,7 +93,13 @@ export function StreamStack({
 }) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
-  const { scope: accountScope } = useAccountScope(mailAccounts);
+  const connectedAccounts = useConnectedAccounts();
+  const { scope: connectedAccountScope } = useAccountScope(connectedAccounts);
+  const accountScope = deriveMailAccountScope(
+    connectedAccounts,
+    connectedAccountScope,
+    mailAccounts ?? [],
+  );
   const accountId = accountScope[0] ?? null;
   const labels = useLabels() ?? [];
 

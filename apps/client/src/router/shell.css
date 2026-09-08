@@ -466,6 +466,47 @@
   white-space: nowrap;
 }
 
+.account-scope-identity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An account with nothing feeding the current App (#207) — listed and
+   checkable, just visibly dimmed, so narrowing to it doesn't read as a
+   broken Scope when the Thread list doesn't change. */
+.account-scope-muted {
+  opacity: 0.55;
+}
+
+/* Facet dots (#207's acceptance criteria: "small Facet dots so what an
+   account actually feeds is visible in the picker") — pinned to the row's
+   trailing edge, one per Facet the Connected Account has turned on. */
+.account-scope-facets {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.account-scope-facet-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.account-scope-facet-dot--mail {
+  background: var(--color-accent);
+}
+
+.account-scope-facet-dot--calendar {
+  background: var(--color-warn);
+}
+
+.account-scope-facet-dot--contacts {
+  background: var(--color-success);
+}
+
 /* ---------- header-right ---------- */
 
 .header-icon-btn {

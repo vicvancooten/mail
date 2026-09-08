@@ -335,6 +335,19 @@ describe("the app shell over a routed tree (#71)", () => {
       }),
       { replace: false },
     );
+    // The picker's own rows come from the Connected Accounts collection now
+    // (#207), not `MailAccount` — a matching row per Mail Account, same
+    // `${id}-connected` join `mail-fixtures.ts#makeConnectedAccount`'s own
+    // doc comment describes.
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected"),
+          makeConnectedAccount("acct-2-connected"),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch();
     const user = userEvent.setup();
 

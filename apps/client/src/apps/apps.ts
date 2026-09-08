@@ -1,3 +1,4 @@
+import type { ConnectedAccountFacetKind } from "@mail/shared";
 import type { LucideIcon } from "lucide-react";
 import { Calendar, ListChecks, Mail, NotebookText, Users } from "lucide-react";
 
@@ -97,6 +98,20 @@ export const APP_ICONS: Record<AppKey, LucideIcon> = {
 
 export function appForPath(pathname: string): AppDef | undefined {
   return APPS.find((app) => pathname.startsWith(app.path));
+}
+
+/**
+ * Which Connected Account Facet an `observesAccountScope` App's data rides
+ * (#207) — `mail`/`calendar`/`contacts` all share their `AppDef.key` with
+ * their `ConnectedAccountFacetKind`, so this is a lookup rather than a
+ * second table to keep in sync. Never called for Tasks/Notes
+ * (`observesAccountScope: false` already hides the picker for both), and
+ * falls back to `"mail"` for the one caller (`RootLayout.tsx`) that can
+ * still hand it `undefined` — a pathname matching no App, the same "show it
+ * anyway" default `observesAccountScope ?? true` already takes there.
+ */
+export function accountScopeFacetForApp(app: AppDef | undefined): ConnectedAccountFacetKind {
+  return app?.key === "calendar" || app?.key === "contacts" ? app.key : "mail";
 }
 
 /**

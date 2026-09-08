@@ -2,7 +2,7 @@ import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
-import { appForPath } from "../apps/apps.js";
+import { accountScopeFacetForApp, appForPath } from "../apps/apps.js";
 import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
@@ -10,7 +10,7 @@ import { AccountScope } from "../mail/AccountScope.js";
 import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
 import { useAccountScope } from "../mail/useAccountScope.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
-import { useMailAccounts } from "../store/index.js";
+import { useConnectedAccounts } from "../store/index.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
 import { rootRoute } from "./routes.js";
@@ -41,14 +41,17 @@ import "./shell.css";
  * the way the comp does.
  *
  * Account Scope is a per-App question (#187, `apps/apps.ts#AppDef.observesAccountScope`):
- * Mail, Calendar and Contacts read a Mail Account's data, so narrowing means
- * something on them; Tasks and Notes belong to the User alone, so the Hub
- * hides the control there rather than rendering it disabled or empty over
- * nothing to narrow. Hiding it never touches `accountScope` itself — the
- * hook's own state (and the Device Preference it rides,
+ * Mail, Calendar and Contacts read a Connected Account's data, so narrowing
+ * means something on them; Tasks and Notes belong to the User alone, so the
+ * Hub hides the control there rather than rendering it disabled or empty
+ * over nothing to narrow. Hiding it never touches `accountScope` itself —
+ * the hook's own state (and the Device Preference it rides,
  * `useAccountScope.ts`) lives independently of which App is current, so the
  * User's last Scope is exactly what's still selected on returning to an App
- * that observes it.
+ * that observes it. The rendered App's own Facet (`apps.ts#accountScopeFacetForApp`,
+ * #207) is what the picker mutes rows against — Mail open mutes a
+ * Calendar-only Connected Account's row, Calendar open would mute a
+ * Mail-only one's.
  *
  * The App itself renders inside `.app-card` (#96): a raised card on the
  * Hub's own ground at ≥701px (`shell.css`'s own breakpoint, matching every
@@ -63,12 +66,13 @@ import "./shell.css";
 export function RootLayout() {
   const { user, onLogout } = rootRoute.useRouteContext();
   const [signingOut, setSigningOut] = useState(false);
-  // Account Scope (#96): moved into the Hub, so it needs the same
-  // `mailAccounts`/`useAccountScope` pair `MailSection.tsx` reads — the two
-  // stay in sync through `device-preferences.ts#subscribeAccountScope`
+  // Account Scope (#96, repointed at Connected Accounts in #207): moved into
+  // the Hub, so it needs the same `connectedAccounts`/`useAccountScope` pair
+  // `MailSection.tsx` reads (via `useAccountScope.ts#deriveMailAccountScope`)
+  // — the two stay in sync through `device-preferences.ts#subscribeAccountScope`
   // (`useAccountScope.ts`'s own doc comment), not through a shared prop.
-  const mailAccounts = useMailAccounts() ?? [];
-  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(connectedAccounts);
   // `Link`'s own `data-status="active"` would do this, but only for exact
   // matches — `/mail` should still read as current while a Thread or label
   // is selected within it (`/mail?thread=…`), which `useRouterState` here
@@ -151,8 +155,9 @@ export function RootLayout() {
           <div className="header-right">
             {(currentApp?.observesAccountScope ?? true) ? (
               <AccountScope
-                accounts={mailAccounts}
+                accounts={connectedAccounts}
                 scope={accountScope}
+                activeFacet={accountScopeFacetForApp(currentApp)}
                 onChange={setAccountScope}
               />
             ) : null}

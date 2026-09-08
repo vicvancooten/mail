@@ -3,12 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
-import { useMailAccounts } from "../../store/index.js";
+import { useConnectedAccounts } from "../../store/index.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../../store/mutation-queue.js";
-import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
+import {
+  applyConnectedAccountDelta,
+  applyMailAccountDelta,
+  applyThreadDelta,
+} from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
-import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
+import {
+  delta,
+  makeConnectedAccount,
+  makeMailAccount,
+  makeThread,
+} from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { AccountScope } from "../AccountScope.js";
 import { MailSection } from "../MailSection.js";
@@ -83,12 +92,20 @@ async function seedOneThread(): Promise<void> {
  * `router/RootLayout.tsx`), a separate component from `MailSection` — this
  * stands in for it here, wired to the same reactive store
  * (`useAccountScope.ts`) `MailSection` itself reads (`MailSection.test.tsx`'s
- * own harness of the same shape). Renders nothing with 0-1 Mail Accounts.
+ * own harness of the same shape). Renders nothing with 0-1 Connected
+ * Accounts (#207).
  */
 function AccountScopeHarness() {
-  const mailAccounts = useMailAccounts() ?? [];
-  const { scope, setScope } = useAccountScope(mailAccounts);
-  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(connectedAccounts);
+  return (
+    <AccountScope
+      accounts={connectedAccounts}
+      scope={scope}
+      activeFacet="mail"
+      onChange={setScope}
+    />
+  );
 }
 
 function renderMail() {
@@ -328,6 +345,15 @@ describe("search across Account Scope (#80)", () => {
   async function seedTwoAccounts(): Promise<void> {
     await applyMailAccountDelta(
       delta({ created: [makeMailAccount("acct-1"), makeMailAccount("acct-2")] }),
+      { replace: false },
+    );
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected"),
+          makeConnectedAccount("acct-2-connected"),
+        ],
+      }),
       { replace: false },
     );
     await applyThreadDelta(
