@@ -2,6 +2,7 @@ import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
+import { appForPath } from "../apps/apps.js";
 import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
@@ -40,6 +41,16 @@ import "./shell.css";
  * signed-in User in prose any more — the avatar and its menu carry that,
  * the way the comp does.
  *
+ * Account Scope is a per-App question (#187, `apps/apps.ts#AppDef.observesAccountScope`):
+ * Mail, Calendar and Contacts read a Mail Account's data, so narrowing means
+ * something on them; Tasks and Notes belong to the User alone, so the Hub
+ * hides the control there rather than rendering it disabled or empty over
+ * nothing to narrow. Hiding it never touches `accountScope` itself — the
+ * hook's own state (and the Device Preference it rides,
+ * `useAccountScope.ts`) lives independently of which App is current, so the
+ * User's last Scope is exactly what's still selected on returning to an App
+ * that observes it.
+ *
  * The App itself renders inside `.app-card` (#96): a raised card on the
  * Hub's own ground at ≥701px (`shell.css`'s own breakpoint, matching every
  * other Split/List layout switch in the app) and full-bleed on the phone —
@@ -64,6 +75,7 @@ export function RootLayout() {
   // is selected within it (`/mail?thread=…`), which `useRouterState` here
   // (matched against the pathname alone) covers directly.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const currentApp = appForPath(pathname);
   const navigate = rootRoute.useNavigate();
   const [resolvedDark, toggleAppearance] = useResolvedAppearance();
 
@@ -134,7 +146,13 @@ export function RootLayout() {
             </button>
           </div>
           <div className="header-right">
-            <AccountScope accounts={mailAccounts} scope={accountScope} onChange={setAccountScope} />
+            {(currentApp?.observesAccountScope ?? true) ? (
+              <AccountScope
+                accounts={mailAccounts}
+                scope={accountScope}
+                onChange={setAccountScope}
+              />
+            ) : null}
             <button
               type="button"
               className="header-icon-btn"

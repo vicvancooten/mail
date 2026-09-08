@@ -195,6 +195,12 @@ export const tasksRoute = createRoute({
   component: () => <PlaceholderRoute app={APPS_BY_KEY.tasks} />,
 });
 
+export const notesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/notes",
+  component: () => <PlaceholderRoute app={APPS_BY_KEY.notes} />,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
@@ -212,6 +218,7 @@ export const routeTree = rootRoute.addChildren([
   contactsRoute,
   calendarRoute,
   tasksRoute,
+  notesRoute,
 ]);
 
 /**
