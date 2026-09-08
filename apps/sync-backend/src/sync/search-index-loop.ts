@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/client.js";
+import { type PollLoopHandle, startPollLoop } from "./poll-loop.js";
 import { runSearchIndexRebuildBatch } from "./search-index.js";
 
 /**
@@ -12,6 +13,10 @@ import { runSearchIndexRebuildBatch } from "./search-index.js";
  * independent of `sync/manager.ts`'s per-account sessions, matching
  * `sync/protocol-write-loop.ts`'s "boot starts it, `SIGTERM` stops it, tests
  * never see it unless they ask" shape.
+ *
+ * A thin wrapper over `poll-loop.ts`'s shared shape (#188): its variable
+ * pause — short while there's still stale rows, long once caught up — is
+ * exactly what `poll-loop.ts`'s `nextDelayMs` exists for.
  */
 
 const DEFAULT_BATCH_SIZE = 200;
@@ -27,21 +32,7 @@ export interface SearchIndexRebuildLoopOptions {
   logger?: FastifyBaseLogger;
 }
 
-export interface SearchIndexRebuildLoopHandle {
-  /** Stops the loop, waiting out any tick already in flight. Idempotent. */
-  stop(): Promise<void>;
-}
-
-/** A tiny sleep that also resolves early on `stopSignal` — same shape as `body-sweep.ts`'s own. */
-function sleep(ms: number, stopSignal: Promise<void>): Promise<void> {
-  return Promise.race([
-    new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      timer.unref?.();
-    }),
-    stopSignal,
-  ]);
-}
+export type SearchIndexRebuildLoopHandle = PollLoopHandle;
 
 export function startSearchIndexRebuildLoop(
   db: Db,
@@ -52,31 +43,19 @@ export function startSearchIndexRebuildLoop(
   const idlePollMs = options.idlePollMs ?? DEFAULT_IDLE_POLL_MS;
   const logger = options.logger;
 
-  let stopped = false;
-  let stopResolve: () => void;
-  const stopSignal = new Promise<void>((resolve) => {
-    stopResolve = resolve;
-  });
-
-  const running = (async () => {
-    while (!stopped) {
-      let complete = true;
-      try {
-        const result = await runSearchIndexRebuildBatch(db, batchSize);
-        complete = result.complete;
-      } catch (err) {
-        logger?.error({ err }, "search index rebuild sweep: batch failed");
-      }
-      if (stopped) return;
-      await sleep(complete ? idlePollMs : pauseMs, stopSignal);
-    }
-  })();
-
-  return {
-    async stop() {
-      stopped = true;
-      stopResolve();
-      await running;
+  return startPollLoop({
+    label: "search index rebuild loop",
+    // The very first delay is unused — the first tick is immediate — but a
+    // value is still required up front; `nextDelayMs` picks every delay
+    // after that from each tick's own result.
+    intervalMs: idlePollMs,
+    logger,
+    async tick() {
+      return runSearchIndexRebuildBatch(db, batchSize);
     },
-  };
+    // A tick that threw has no result (`poll-loop.ts` already logged it) —
+    // treated the same as "complete", matching the original sweep's own
+    // `let complete = true` default that a caught error never overwrites.
+    nextDelayMs: (result) => ((result?.complete ?? true) ? idlePollMs : pauseMs),
+  });
 }

@@ -8,6 +8,7 @@ import {
 } from "../mail-accounts/grant-refresh.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
 import { listActiveOAuthMailAccounts } from "../mail-accounts/store.js";
+import { type PollLoopHandle, startPollLoop } from "./poll-loop.js";
 
 /**
  * The scheduler for `mail-accounts/grant-refresh.ts` (#118, ADR-0021): the
@@ -18,7 +19,8 @@ import { listActiveOAuthMailAccounts } from "../mail-accounts/store.js";
  * expiry gets refreshed on its own schedule, independent of whether
  * `sync/manager.ts` currently has a live session open for that account.
  * `main.ts` starts it once at boot, independent of `sync/manager.ts`'s
- * per-account sessions, and stops it on `SIGTERM`.
+ * per-account sessions, and stops it on `SIGTERM`. A thin wrapper over
+ * `poll-loop.ts`'s shared shape (#188).
  *
  * **The first tick runs immediately**, same reasoning as `snooze-wake-
  * loop.ts`'s own boot-time sweep: a Grant that came due while the process
@@ -43,9 +45,7 @@ export interface GrantRefreshLoopOptions {
   logger?: FastifyBaseLogger;
 }
 
-export interface GrantRefreshLoopHandle {
-  stop(): Promise<void>;
-}
+export type GrantRefreshLoopHandle = PollLoopHandle;
 
 export function startGrantRefreshLoop(
   db: Db,
@@ -58,15 +58,14 @@ export function startGrantRefreshLoop(
   const credentialKey = deriveCredentialKey(options.mailCredentialKey);
   const adapters = options.providerAdapters;
 
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  const tick = async () => {
-    if (stopped) return;
-    try {
+  return startPollLoop({
+    label: "grant refresh loop",
+    intervalMs,
+    logger,
+    async tick({ isStopped }) {
       const accounts = await listActiveOAuthMailAccounts(db);
       for (const account of accounts) {
-        if (stopped) return;
+        if (isStopped()) return;
         if (account.credential.kind !== "oauth") continue; // the store query already filters; narrows for TS
         if (!needsGrantRefresh(account.credential, now(), safetyMarginMs)) continue;
 
@@ -78,30 +77,6 @@ export function startGrantRefreshLoop(
           );
         }
       }
-    } catch (err) {
-      logger?.error({ err }, "grant refresh loop: tick failed");
-    }
-  };
-
-  // Mirrors `snooze-wake-loop.ts`'s own "runs to completion before the next
-  // tick is scheduled" — two ticks overlapping would still be correct (every
-  // write here is a plain conditional/keyed update), just a wasted Provider
-  // round trip.
-  let running: Promise<void> = tick().finally(scheduleNext);
-
-  function scheduleNext(): void {
-    if (stopped) return;
-    timer = setTimeout(() => {
-      running = tick().finally(scheduleNext);
-    }, intervalMs);
-    timer.unref?.();
-  }
-
-  return {
-    async stop() {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await running;
     },
-  };
+  });
 }

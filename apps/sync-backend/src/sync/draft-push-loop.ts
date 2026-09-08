@@ -6,13 +6,16 @@ import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
 import { DRAFT_PUSH_IDLE_MS, expungeDiscardedDrafts, pushDraftsForAccount } from "./draft-push.js";
 import { withMailAccountConnection } from "./imap-connection.js";
+import { type PollLoopHandle, startPollLoop } from "./poll-loop.js";
 
 /**
  * The scheduler for `sync/draft-push.ts` (#45), matching
  * `sync/protocol-write-loop.ts`'s own shape: a short-lived connection per
  * Mail Account with anything idle-and-changed to export, independent of the
  * resident IDLE session — a slow Drafts push should never stall INBOX
- * IDLE, and vice versa. `main.ts` is the only real caller.
+ * IDLE, and vice versa. `main.ts` is the only real caller. A thin wrapper
+ * over `poll-loop.ts`'s shared shape (#188), also deferring its first tick
+ * the same way `protocol-write-loop.ts` does.
  *
  * Also the scheduler for Delete's own async half (#101): a discarded
  * Composition's IMAP Drafts copy is expunged over this same connection,
@@ -33,55 +36,37 @@ export interface DraftPushLoopOptions {
   logger?: FastifyBaseLogger;
 }
 
-export interface DraftPushLoopHandle {
-  stop(): Promise<void>;
-}
+export type DraftPushLoopHandle = PollLoopHandle;
 
 export function startDraftPushLoop(
   db: Db,
   { mailCredentialKey, intervalMs = DEFAULT_INTERVAL_MS, logger }: DraftPushLoopOptions,
 ): DraftPushLoopHandle {
   const credentialKey = deriveCredentialKey(mailCredentialKey);
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let running: Promise<void> = Promise.resolve();
 
-  const scheduleNext = () => {
-    if (stopped) return;
-    timer = setTimeout(() => {
-      running = tick().finally(scheduleNext);
-    }, intervalMs);
-    timer.unref?.();
-  };
-
-  const tick = async () => {
-    if (stopped) return;
-    let accountIds: string[];
-    try {
-      accountIds = await accountsWithPendingWork(db);
-    } catch (err) {
-      logger?.error({ err }, "draft push loop: failed to list pending accounts");
-      return;
-    }
-    for (const accountId of accountIds) {
-      if (stopped) return;
+  return startPollLoop({
+    label: "draft push loop",
+    intervalMs,
+    deferFirstTick: true,
+    logger,
+    async tick({ isStopped }) {
+      let accountIds: string[];
       try {
-        await pushAccount(db, accountId, credentialKey, logger);
+        accountIds = await accountsWithPendingWork(db);
       } catch (err) {
-        logger?.error({ err, accountId }, "draft push loop: push failed");
+        logger?.error({ err }, "draft push loop: failed to list pending accounts");
+        return;
       }
-    }
-  };
-
-  scheduleNext();
-
-  return {
-    async stop() {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await running;
+      for (const accountId of accountIds) {
+        if (isStopped()) return;
+        try {
+          await pushAccount(db, accountId, credentialKey, logger);
+        } catch (err) {
+          logger?.error({ err, accountId }, "draft push loop: push failed");
+        }
+      }
     },
-  };
+  });
 }
 
 /**
