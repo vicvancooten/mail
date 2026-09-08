@@ -9,6 +9,7 @@ export * from "./instance.js";
 export * from "./labels.js";
 export * from "./mail-accounts.js";
 export * from "./messages.js";
+export * from "./notes.js";
 export * from "./providers.js";
 export * from "./push.js";
 export * from "./routing.js";

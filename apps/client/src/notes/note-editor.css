@@ -1,0 +1,320 @@
+/*
+ * The Note editor's chrome (#191, ADR-0024). Two halves:
+ *
+ * 1. BlockNote's own `--bn-*` custom properties, retargeted at
+ *    `@mail/design-tokens` on `.bn-container` (the root class
+ *    `BlockNoteViewRaw` stamps) — this is what `@blocknote/core`'s and
+ *    `@blocknote/react`'s own shipped `style.css` read for the editable
+ *    content itself: block padding, the hovered/selected block tint, code
+ *    block borders, table borders. Neither stylesheet *defines* these
+ *    (an adapter package normally does, via inline styles) — left unset,
+ *    a background/border property simply falls back to `initial`
+ *    (transparent), so every one of these has to be given a real value
+ *    here, not just an override.
+ * 2. This app's own hand-rolled `.note-*` classes for the chrome this file
+ *    builds itself (`note-components.tsx`) — the toolbar, side menu, slash
+ *    menu, menu dropdowns, popovers — styled straight from the same design
+ *    tokens rather than through the `--bn-*` indirection, since nothing
+ *    else reads these classes.
+ *
+ * Only the highlight color BlockNote's own code-block error indicator
+ * reaches (`--bn-colors-highlights-red-*`) is defined — every other named
+ * highlight is unreachable in this app: `note-schema.ts` never registers a
+ * `textColor`/`backgroundColor` style, so `ColorStyleButton` (and the drag
+ * handle's own block-color item, deliberately left out of this app's
+ * `DragHandleMenu` override in `NoteEditor.tsx`) never mounts to ask for one.
+ */
+
+.bn-container {
+  --bn-font-family: var(--font-sans);
+
+  --bn-border-radius: var(--radius-md);
+  --bn-border-radius-small: var(--radius-sm);
+  --bn-border-radius-medium: var(--radius-md);
+  --bn-border-radius-large: var(--radius-panel);
+  --bn-border: var(--hairline) solid var(--color-border);
+  --bn-colors-border: var(--color-border);
+
+  --bn-colors-editor-text: var(--color-ink);
+  --bn-colors-editor-background: var(--color-surface);
+
+  --bn-colors-menu-text: var(--color-ink);
+  --bn-colors-menu-background: var(--color-surface);
+
+  --bn-colors-tooltip-text: var(--color-accent-foreground);
+  --bn-colors-tooltip-background: var(--color-ink);
+
+  --bn-colors-hovered-text: var(--color-ink);
+  --bn-colors-hovered-background: var(--color-hover);
+
+  --bn-colors-selected-text: var(--color-accent-foreground);
+  --bn-colors-selected-background: var(--color-accent);
+
+  --bn-colors-disabled-text: var(--color-ink-faint);
+  --bn-colors-disabled-background: var(--color-field);
+
+  --bn-colors-shadow: var(--color-border);
+  --bn-colors-side-menu: var(--color-ink-faint);
+
+  --bn-shadow-light: var(--shadow-card);
+  --bn-shadow-medium: var(--shadow-overlay);
+
+  --bn-colors-highlights-red-text: var(--color-danger);
+  --bn-colors-highlights-red-background: var(--color-danger);
+}
+
+/* The read-only variant (#191: "renders in a read-only, non-editable mode
+   from the same component", `NoteEditor.tsx`'s own `editable` prop) drops
+   the caret and the not-actually-clickable text cursor, but keeps a
+   Checklist's own tick fully legible. */
+.note-editor-readonly .bn-editor {
+  caret-color: transparent;
+  cursor: default;
+}
+
+/* ==========================================================================
+   This app's own chrome — the toolbar, side menu, slash menu, menu
+   dropdowns and popovers `note-components.tsx` renders.
+   ========================================================================== */
+
+.note-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  border: var(--hairline) solid var(--color-border);
+}
+
+.note-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+.note-toolbar-button:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+.note-toolbar-button.is-active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.note-toolbar-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.note-toolbar-select {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.note-toolbar-select:hover {
+  background: var(--color-hover);
+}
+
+.note-side-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.note-side-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-faint);
+  cursor: grab;
+}
+.note-side-menu-button:hover {
+  background: var(--color-hover);
+  color: var(--color-ink-muted);
+}
+
+.note-suggestion-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  min-width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  border: var(--hairline) solid var(--color-border);
+}
+.note-suggestion-empty {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--color-ink-faint);
+}
+.note-suggestion-label {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+.note-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.note-suggestion-item.is-selected {
+  background: var(--color-accent-soft);
+}
+.note-suggestion-item-icon {
+  display: flex;
+  color: var(--color-ink-muted);
+}
+.note-suggestion-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.note-suggestion-item-title {
+  font-size: 13px;
+  color: var(--color-ink);
+}
+.note-suggestion-item-subtext {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+.note-suggestion-item-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+.note-suggestion-loader {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--color-ink-faint);
+}
+
+.note-menu-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  min-width: 160px;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  border: var(--hairline) solid var(--color-border);
+}
+.note-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--color-ink);
+  cursor: pointer;
+  outline: none;
+}
+.note-menu-item:hover,
+.note-menu-item[data-highlighted] {
+  background: var(--color-hover);
+}
+.note-menu-divider {
+  height: var(--hairline);
+  margin: 4px 2px;
+  background: var(--color-border);
+}
+.note-menu-label {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+}
+.note-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+.note-menu-button:hover {
+  background: var(--color-hover);
+}
+
+.note-popover {
+  min-width: 260px;
+  padding: 10px;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+  border: var(--hairline) solid var(--color-border);
+}
+
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.note-form-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+}
+.note-form-field input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.note-tooltip {
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-accent-foreground);
+  padding: 4px 8px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.note-tooltip-shortcut {
+  color: var(--color-ink-faint);
+}
