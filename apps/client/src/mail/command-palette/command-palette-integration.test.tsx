@@ -1,12 +1,16 @@
-import type { SearchResponse } from "@mail/shared";
+import type { Note, SearchResponse } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
-import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
+import {
+  applyMailAccountDelta,
+  applyNoteDelta,
+  applyThreadDelta,
+} from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
-import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
+import { delta, makeMailAccount, makeNote, makeThread } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { MailSection } from "../MailSection.js";
 
@@ -80,10 +84,34 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
-function renderMail() {
+/** #79/#196's own stubbed User (`/auth/session` above) — Notes is User-scoped, so every seeded Note here is owned by it. */
+const NOTES_USER = "u1";
+
+function paragraph(text: string, id = "b1") {
+  return {
+    id,
+    type: "paragraph",
+    props: {},
+    content: [{ type: "text", text, styles: {} }],
+    children: [],
+  };
+}
+
+async function seedNotes(...notes: Partial<Note>[]): Promise<void> {
+  await applyNoteDelta(
+    delta({
+      created: notes.map((overrides, index) =>
+        makeNote(`note-${index + 1}`, NOTES_USER, overrides),
+      ),
+    }),
+    { replace: false },
+  );
+}
+
+function renderMail(onOpenLocalHit?: (to: string, params: Record<string, string>) => void) {
   return render(
     <AuthProvider>
-      <MailSection />
+      <MailSection onOpenLocalHit={onOpenLocalHit} />
     </AuthProvider>,
   );
 }
@@ -265,5 +293,112 @@ describe("Command Palette (#79)", () => {
     const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
     expect(within(sheet).getByText("Compose", { selector: "dt" })).toBeDefined();
     expect(within(sheet).getAllByText("Command Palette only").length).toBeGreaterThan(0);
+  });
+});
+
+describe("Notes in the Command Palette (#196)", () => {
+  it("shows a matching Note as a local hit, ranked beneath Commands and Mail", async () => {
+    await seedOneThread();
+    // Named to match the same query as the seeded mail hit below — proof
+    // the Notes group renders as a genuine third group under one query,
+    // not merely "the only thing showing" for a query nothing else matches.
+    await seedNotes({ document: [paragraph("Invoice notes")] });
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-invoice", "acct-1", { subject: "Invoice March" }),
+          matchedMessageId: "t-invoice-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderMail();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "invoice" } });
+
+    const mailHit = await screen.findByText("Invoice March", {
+      selector: ".command-palette-hit-subject",
+    });
+    const noteHit = await screen.findByText("Invoice notes", {
+      selector: ".command-palette-hit-subject",
+    });
+    // `compareDocumentPosition`'s `DOCUMENT_POSITION_FOLLOWING` bit (4) is
+    // set when the second node comes after the first — the ticket's own
+    // "ranked beneath commands and mail hits", checked as DOM order rather
+    // than assuming the Groups' render order never drifts from it.
+    expect(
+      mailHit.compareDocumentPosition(noteHit) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows the grid's own 'Untitled Note' fallback for a Note with no title text", async () => {
+    await seedOneThread();
+    // The first block carries no text (so the derived title falls back),
+    // but the second still matches — proof the fallback is a *display*
+    // rule, not a stand-in for "this Note has nothing to search on".
+    await seedNotes({ document: [paragraph("", "b1"), paragraph("Untitled but findable", "b2")] });
+    stubFetch();
+
+    renderMail();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "findable" } });
+
+    expect(
+      await screen.findByText("Untitled Note", { selector: ".command-palette-hit-subject" }),
+    ).toBeDefined();
+  });
+
+  it("matches a Note's flattened text from any block, not only the first", async () => {
+    await seedOneThread();
+    await seedNotes({
+      document: [paragraph("Grocery list", "b1"), paragraph("Buy oat milk", "b2")],
+    });
+    stubFetch();
+
+    renderMail();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "oat milk" } });
+
+    // The title shown is still the derived (first-block) title — matching
+    // reaches every block, but the hit's own display never does.
+    expect(
+      await screen.findByText("Grocery list", { selector: ".command-palette-hit-subject" }),
+    ).toBeDefined();
+  });
+
+  it("selecting a Note hit opens it via onOpenLocalHit and closes the Palette", async () => {
+    await seedOneThread();
+    await seedNotes({ document: [paragraph("Grocery list")] });
+    stubFetch();
+    const onOpenLocalHit = vi.fn();
+
+    renderMail(onOpenLocalHit);
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+    fireEvent.change(field, { target: { value: "grocery" } });
+    const noteHit = await screen.findByText("Grocery list", {
+      selector: ".command-palette-hit-subject",
+    });
+
+    fireEvent.click(noteHit);
+
+    expect(onOpenLocalHit).toHaveBeenCalledWith("/notes/$noteId", { noteId: "note-1" });
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
   });
 });

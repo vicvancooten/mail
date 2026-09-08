@@ -690,3 +690,53 @@ describe("Notes: the grid and dialog editing (#193)", () => {
     expect(location.pathname).toBe("/notes");
   });
 });
+
+/** `/search` never resolves in `stubFetch` above — irrelevant to a Palette test whose own hits are the Notes group, not Mail's. */
+function stubFetchWithSearch(mailAccounts: MailAccount[] = []): void {
+  const authResponsesForRole = authResponses("owner");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const auth = authResponsesForRole[url];
+      if (auth) return Promise.resolve(auth());
+      if (url === "/sync") return new Promise<Response>(() => {});
+      if (url === "/mail-accounts") return Promise.resolve(jsonResponse({ mailAccounts }));
+      if (url === "/search") {
+        return Promise.resolve(
+          jsonResponse({
+            results: [],
+            cursor: null,
+            indexWatermark: { coveredSince: null, complete: true },
+          }),
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+}
+
+describe("Notes in the Command Palette (#196)", () => {
+  it("selecting a Note hit navigates to /notes/:noteId and opens the dialog over the grid", async () => {
+    await seedOneThread();
+    await seedNotesAndLabels([{ document: noteParagraph("Grocery list") }]);
+    stubFetchWithSearch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+    fireEvent.change(field, { target: { value: "grocery" } });
+
+    fireEvent.click(
+      await screen.findByText("Grocery list", { selector: ".command-palette-hit-subject" }),
+    );
+
+    await waitFor(() => expect(location.pathname).toBe("/notes/note-1"));
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    // The grid underneath, same Note's own card — the ticket's own "opening
+    // the Note's dialog over the grid", not a screen that replaces it.
+    expect(cardTitleText("Grocery list")).toBeDefined();
+  });
+});

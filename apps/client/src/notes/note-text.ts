@@ -70,6 +70,28 @@ export function deriveNoteTitle(document: NoteDocument): string {
   return text.length > 0 ? text : UNTITLED_NOTE_PLACEHOLDER;
 }
 
+/**
+ * The whole document's own flattened text (#196, the Command Palette's local
+ * hits): every block's own text, in document order, `children` recursed into
+ * too — a match can come from a nested list item or a Checklist sub-item, not
+ * only a top-level block. Deliberately unlike `deriveNoteTitle`, which reads
+ * only `document[0]` on purpose; this is the ticket's own "a hit can come
+ * from any block, not only the first." Joined with a space so two adjacent
+ * blocks' text never runs together into one word.
+ */
+export function flattenDocumentText(document: NoteDocument): string {
+  const parts: string[] = [];
+  const visit = (blocks: NoteDocument) => {
+    for (const block of blocks) {
+      const text = flattenBlockText(block);
+      if (text) parts.push(text);
+      if (block.children.length > 0) visit(block.children);
+    }
+  };
+  visit(document);
+  return parts.join(" ");
+}
+
 /** #193's own default preview budget: "roughly the first six blocks or 280 characters of flattened text, whichever comes first." */
 export const PREVIEW_MAX_BLOCKS = 6;
 export const PREVIEW_MAX_CHARS = 280;

@@ -61,6 +61,20 @@ export function MailRoute() {
     [navigate],
   );
 
+  // A Command Palette local hit's own entry point (#196): `to`/`params` come
+  // from whichever App's own `LocalHitSource` produced the hit
+  // (`mail/command-palette/local-hits.ts`), which knows nothing of the route
+  // tree itself — this is the one place that trusts a hit's own declared
+  // path, the same "erase the per-collection type once, at the boundary"
+  // idiom `sync/collection-registry.ts#asApplyUserDelta` already uses for
+  // the sync side of the same ADR-0023 mechanism.
+  const onOpenLocalHit = useCallback(
+    (to: string, params: Record<string, string>) => {
+      void navigate({ to, params } as unknown as Parameters<typeof navigate>[0]);
+    },
+    [navigate],
+  );
+
   return (
     <MailSection
       initialLabelFilter={search.label ?? null}
@@ -69,6 +83,7 @@ export function MailRoute() {
       onLocationChange={onLocationChange}
       onOpenStream={onOpenStream}
       onNoteCreated={onNoteCreated}
+      onOpenLocalHit={onOpenLocalHit}
     />
   );
 }

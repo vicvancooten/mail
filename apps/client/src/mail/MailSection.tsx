@@ -174,6 +174,7 @@ export function MailSection({
   onLocationChange,
   onOpenStream = noop,
   onNoteCreated = noop,
+  onOpenLocalHit = noop,
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
@@ -187,6 +188,8 @@ export function MailSection({
   onOpenStream?: () => void;
   /** "Add to Notes" (#195)'s own navigation, fired once the new Note actually exists in the Local Cache (the internal `onAddToNotes` handler below awaits the store write first — `notesNoteRoute`'s own `beforeLoad` redirects a `/notes/$noteId` that doesn't resolve yet) — `router/MailRoute.tsx`'s navigation to that route; a no-op default for every unrouted caller (every test in this file included), same posture `onOpenStream` above takes. */
   onNoteCreated?: (noteId: string) => void;
+  /** A Command Palette local hit's own entry point (#196) — `router/MailRoute.tsx`'s navigation to whatever App the hit named (`/notes/:noteId` today); same no-op-default, router-agnostic posture as `onOpenStream`. */
+  onOpenLocalHit?: (to: string, params: Record<string, string>) => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
@@ -1167,6 +1170,7 @@ export function MailSection({
           searchOrigin={searchOrigin}
           accounts={mailAccounts ?? []}
           accountScope={accountScope}
+          onOpenLocalHit={onOpenLocalHit}
         />
         <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
         {composeId && accountId && (

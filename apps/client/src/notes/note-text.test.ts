@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveNoteTitle,
   flattenBlockText,
+  flattenDocumentText,
   notePreviewBlocks,
   UNTITLED_NOTE_PLACEHOLDER,
 } from "./note-text.js";
@@ -148,6 +149,32 @@ describe("deriveNoteTitle", () => {
 
   it("reads a table's first cell as the title, like any other block", () => {
     expect(deriveNoteTitle([tableWithFirstCell("Budget")])).toBe("Budget");
+  });
+});
+
+describe("flattenDocumentText", () => {
+  it("joins every top-level block's own text, in order (#196)", () => {
+    const document: NoteDocument = [paragraph("Grocery list", "b1"), paragraph("Buy milk", "b2")];
+
+    expect(flattenDocumentText(document)).toBe("Grocery list Buy milk");
+  });
+
+  it("reaches a nested block's text too, not only top-level blocks", () => {
+    const document: NoteDocument = [
+      { ...paragraph("Groceries", "b1"), children: [paragraph("Buy oat milk", "b2")] },
+    ];
+
+    expect(flattenDocumentText(document)).toBe("Groceries Buy oat milk");
+  });
+
+  it("skips a block with no text of its own rather than inserting a blank gap", () => {
+    const document: NoteDocument = [paragraph(""), paragraph("Milk", "b2")];
+
+    expect(flattenDocumentText(document)).toBe("Milk");
+  });
+
+  it("is empty for a genuinely empty document", () => {
+    expect(flattenDocumentText([])).toBe("");
   });
 });
 
