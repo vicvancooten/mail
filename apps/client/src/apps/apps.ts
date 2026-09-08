@@ -3,14 +3,15 @@ import { Calendar, ListChecks, Mail, NotebookText, Users } from "lucide-react";
 
 /**
  * The five Apps the App Switcher names (#72, part of #66; grown to five and
- * given per-App Account Scope in #187): Mail, live today, plus four reserved
- * Apps that are named and reachable — never hidden — long before anything is
- * built behind them. `available: false` is what routes a click to
- * `PlaceholderRoute` instead of a real screen; it is not a disabled state,
- * since the whole point of naming a reserved App is that it stays a real,
- * clickable destination. Notes is last (`docs/hub-apps-foundations-spec.md`'s
- * own App order) — reserved the same way Contacts/Calendar/Tasks were before
- * it, until Notes' own epic (`mail#190`) lands behind it.
+ * given per-App Account Scope in #187): Mail and, since #193, Notes are both
+ * live; Contacts, Calendar and Tasks stay reserved — named and reachable,
+ * never hidden — long before anything is built behind them. `available:
+ * false` is what routes a click to `PlaceholderRoute` instead of a real
+ * screen; it is not a disabled state, since the whole point of naming a
+ * reserved App is that it stays a real, clickable destination. Notes is last
+ * (`docs/hub-apps-foundations-spec.md`'s own App order) — it was reserved the
+ * same way Contacts/Calendar/Tasks still are, until its own epic (`mail#190`)
+ * landed behind it.
  */
 export interface AppDef {
   key: string;
@@ -68,7 +69,9 @@ export const APPS: readonly AppDef[] = [
     path: "/notes",
     name: "Notes",
     description: "Quick notes, alongside your mail.",
-    available: false,
+    // Real behind this since #193 — the grid and dialog editing, Notes'
+    // first built-out screen.
+    available: true,
     observesAccountScope: false,
   },
 ];

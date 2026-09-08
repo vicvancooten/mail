@@ -645,6 +645,29 @@ async function applyUserIntent(
       // same tolerance `removeLabel` already gives a Thread.
       return { ok: true };
     }
+    // `pinNote`/`unpinNote` (#193): the grid's Pinned/Others split, a genuine
+    // inverse pair like `createNote`/`deleteNote` above — not the Thread-style
+    // `setPinned` absolute set (`sync.ts#userMutationIntentSchema`'s own doc
+    // comment on why). Rejects the same `note_not_found` way `labelNote` does
+    // against a Note this User does not (or no longer) have.
+    case "pinNote": {
+      const note = await noteRow(db, userId, intent.noteId);
+      if (!note) return { ok: false, reason: "note_not_found" };
+      await db
+        .update(notes)
+        .set({ pinned: true, updatedAt: new Date() })
+        .where(eq(notes.id, intent.noteId));
+      return { ok: true };
+    }
+    case "unpinNote": {
+      const note = await noteRow(db, userId, intent.noteId);
+      if (!note) return { ok: false, reason: "note_not_found" };
+      await db
+        .update(notes)
+        .set({ pinned: false, updatedAt: new Date() })
+        .where(eq(notes.id, intent.noteId));
+      return { ok: true };
+    }
   }
 }
 

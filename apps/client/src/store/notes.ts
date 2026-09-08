@@ -62,6 +62,7 @@ export async function createNote(id: string): Promise<void> {
     userId,
     document: EMPTY_NOTE_DOCUMENT,
     labelIds: [],
+    pinned: false,
     createdAt: now,
     updatedAt: now,
   });
@@ -94,6 +95,27 @@ export async function labelNote(id: string, name: string): Promise<void> {
 export async function unlabelNote(id: string, name: string): Promise<void> {
   await enqueueUserMutation({ type: "unlabelNote", noteId: id, name });
   await removeLabelLocally(id, name);
+}
+
+/** Pins a Note (#193) — the grid's Pinned/Others split, `labelNote`'s shape: a real inverse (`unpinNote`), optimistic overlay on the row itself, no separate overlay table. */
+export async function pinNote(id: string): Promise<void> {
+  await enqueueUserMutation({ type: "pinNote", noteId: id });
+  await setPinnedLocally(id, true);
+}
+
+/** Unpins a Note, the real inverse of `pinNote`. */
+export async function unpinNote(id: string): Promise<void> {
+  await enqueueUserMutation({ type: "unpinNote", noteId: id });
+  await setPinnedLocally(id, false);
+}
+
+async function setPinnedLocally(id: string, pinned: boolean): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", db.notes, async () => {
+    const row = await db.notes.get(id);
+    if (!row || row.pinned === pinned) return;
+    await db.notes.put({ ...row, pinned });
+  });
 }
 
 /** `session.ts#labelIdForName` is the Client's one place that derives `Label.id` from a name — reused here so a Note's optimistic overlay can never disagree with a Thread's. */
@@ -144,6 +166,7 @@ export async function saveNoteBody(id: string, document: NoteDocument): Promise<
         userId,
         document,
         labelIds: existing?.labelIds ?? [],
+        pinned: existing?.pinned ?? false,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       });

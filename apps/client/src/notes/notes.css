@@ -1,0 +1,230 @@
+/*
+ * The Notes grid and dialog's own chrome (#193). `note-editor.css` covers
+ * the editor's own content styling — read-only or not — this file is only
+ * the grid layout, the card, the Label filter chips, and the dialog's own
+ * sizing, all styled from the same `@mail/design-tokens` every other screen
+ * reads.
+ */
+
+.notes-grid-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 24px 32px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.notes-label-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* A `<fieldset>` for its native grouping semantics (biome's own
+     `useSemanticElements` steers `role="group"` here) — none of its default
+     chrome (border, inset padding) belongs in a filter row. */
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notes-label-chip {
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease),
+    border-color var(--dur-press) var(--ease);
+}
+
+.notes-label-chip:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.notes-label-chip.selected {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.notes-grid-empty {
+  margin: 0;
+  padding: 32px 0;
+  color: var(--color-ink-faint);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.notes-grid-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notes-grid-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+/* ---------- the card ---------- */
+
+.note-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  overflow: hidden;
+  transition: box-shadow var(--dur-press) var(--ease);
+}
+
+.note-card:hover {
+  box-shadow: var(--shadow-card);
+}
+
+.note-card-link {
+  display: block;
+  padding: 12px 14px 8px;
+  color: inherit;
+  text-decoration: none;
+  min-height: 96px;
+}
+
+.note-card-title {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The preview renders through the real, read-only `NoteEditor` (#191) —
+   this just clips it to the card's own bounds and mutes pointer events, so
+   hovering a card never shows the editor's own (inert) cursor affordances. */
+.note-card-preview {
+  max-height: 110px;
+  overflow: hidden;
+  pointer-events: none;
+  font-size: 12.5px;
+  color: var(--color-ink-muted);
+  -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+}
+
+.note-card-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-press) var(--ease),
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.note-card:hover .note-card-pin,
+.note-card-pin:focus-visible,
+.note-card-pin.pinned {
+  opacity: 1;
+}
+
+.note-card-pin:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.note-card-pin.pinned {
+  color: var(--color-accent);
+}
+
+.note-card-labels {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0 14px 12px;
+}
+
+.note-card-label-badge {
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+}
+
+/* ---------- the dialog ---------- */
+
+.note-dialog {
+  max-width: min(760px, calc(100% - 2rem));
+  height: calc(100% - 4rem);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.note-dialog-pin {
+  position: absolute;
+  top: 10px;
+  right: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.note-dialog-pin:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.note-dialog-pin.pinned {
+  color: var(--color-accent);
+}
+
+.note-dialog-editor {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 44px 20px 20px;
+}

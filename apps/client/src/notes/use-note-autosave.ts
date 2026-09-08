@@ -21,16 +21,22 @@ export const AUTOSAVE_DEBOUNCE_MS = 400;
  * upsert (`store/notes.ts`'s doc comment) — this hook only owns the local
  * timing, not the coalescing.
  *
- * A pending debounce must never survive the component that owns it: the
- * cleanup effect below mirrors `Composer.tsx`'s own unmount guard so a
- * leftover timer can never fire against a Note the caller has since closed.
- * Unlike Composer's own `flushAndClose`, there is no final un-debounced
- * write on unmount here — a Note editor's own close path (#193) decides
- * whether that final flush is its job or this hook's; forcing one here would
- * assume a `document` this hook was never handed.
+ * `flush` (#193) is this ticket's own answer to the gap this file's earlier
+ * doc comment left open: the Note dialog's close path calls it before
+ * navigating away, so the last keystroke inside the debounce window is never
+ * silently dropped — "no 'done editing' step" (#193's own acceptance line)
+ * still holds, since this is a courtesy the *close* path takes, not a save
+ * button the User ever sees or waits on. Unmounting without calling `flush`
+ * (the cleanup effect below) still drops whatever was pending, unchanged
+ * from before — a leftover debounce must never fire against a Note the
+ * caller has already stopped rendering.
  */
-export function useNoteAutosave(noteId: string): (document: NoteDocument) => void {
+export function useNoteAutosave(noteId: string): {
+  onChange: (document: NoteDocument) => void;
+  flush: () => void;
+} {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<NoteDocument | null>(null);
 
   useEffect(
     () => () => {
@@ -39,14 +45,29 @@ export function useNoteAutosave(noteId: string): (document: NoteDocument) => voi
     [],
   );
 
-  return useCallback(
+  const onChange = useCallback(
     (document: NoteDocument) => {
+      pendingRef.current = document;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         debounceRef.current = null;
-        void saveNoteBody(noteId, document);
+        const scheduled = pendingRef.current;
+        pendingRef.current = null;
+        if (scheduled) void saveNoteBody(noteId, scheduled);
       }, AUTOSAVE_DEBOUNCE_MS);
     },
     [noteId],
   );
+
+  const flush = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    const scheduled = pendingRef.current;
+    pendingRef.current = null;
+    if (scheduled) void saveNoteBody(noteId, scheduled);
+  }, [noteId]);
+
+  return { onChange, flush };
 }

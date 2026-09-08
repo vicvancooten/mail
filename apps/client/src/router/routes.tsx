@@ -17,7 +17,10 @@ import { NotificationsPage } from "../settings/NotificationsPage.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
+import { ensureLocalCacheOpen, readNote } from "../store/index.js";
 import { MailRoute } from "./MailRoute.js";
+import { NoteDialogRoute } from "./NoteDialogRoute.js";
+import { NotesRoute } from "./NotesRoute.js";
 import { RootLayout } from "./RootLayout.js";
 import { StreamRoute } from "./StreamRoute.js";
 
@@ -195,10 +198,47 @@ export const tasksRoute = createRoute({
   component: () => <PlaceholderRoute app={APPS_BY_KEY.tasks} />,
 });
 
+/**
+ * Notes (#193, the App's real screen — no longer a `PlaceholderRoute`): a
+ * layout route the same shape `settingsRoute` gives Settings, except the
+ * parent itself renders the grid rather than only nav chrome — Foundations'
+ * path-param routing rule's first real caller (`docs`/mail#190's own
+ * framing). `/notes/:noteId` is `notesNoteRoute` below, not a route of its
+ * own declared inline here, so its dialog renders into `NotesRoute`'s own
+ * `<Outlet/>` over the always-mounted grid.
+ */
 export const notesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/notes",
-  component: () => <PlaceholderRoute app={APPS_BY_KEY.notes} />,
+  component: NotesRoute,
+});
+
+/**
+ * A `:noteId` that resolves to nothing — deleted, a wrong id, an old
+ * bookmark — redirects silently to `/notes`, the same fallback an
+ * unrecognized `folder` search param on `/mail` already takes (this file's
+ * own `mailRoute` above). `beforeLoad` rather than a `loader`: every other
+ * redirect in this file already throws from `beforeLoad`, and this is the
+ * same "gate the match, don't render a screen that has to unwind itself"
+ * shape, just checked against the Local Cache instead of route context.
+ * `ensureLocalCacheOpen()` is awaited first because nothing guarantees the
+ * cache has been opened yet — a User landing straight on this route without
+ * ever visiting `/mail` first is exactly Notes' own "first real caller"
+ * territory — though a genuinely valid, not-yet-synced deep link (a cold
+ * boot racing the first sync round) is a real gap this ticket accepts
+ * rather than solves: there is no way to tell "not synced yet" apart from
+ * "doesn't exist" from here.
+ */
+export const notesNoteRoute = createRoute({
+  getParentRoute: () => notesRoute,
+  path: "/$noteId",
+  beforeLoad: async ({ params }) => {
+    await ensureLocalCacheOpen();
+    if ((await readNote(params.noteId)) === undefined) {
+      throw redirect({ to: "/notes" });
+    }
+  },
+  component: NoteDialogRoute,
 });
 
 export const routeTree = rootRoute.addChildren([
@@ -218,7 +258,7 @@ export const routeTree = rootRoute.addChildren([
   contactsRoute,
   calendarRoute,
   tasksRoute,
-  notesRoute,
+  notesRoute.addChildren([notesNoteRoute]),
 ]);
 
 /**

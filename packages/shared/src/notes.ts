@@ -235,12 +235,18 @@ export const EMPTY_NOTE_DOCUMENT: NoteDocument = [
  * does). There is no `version`: unlike `Composition`, a Note's body never
  * rejects a write (see `noteSaveSchema` below), so there is nothing here for
  * a Client to have read stale.
+ *
+ * `pinned` (#193): the grid's own Pinned/Others split — a structural intent
+ * with a real inverse (`pinNote`/`unpinNote`, `sync.ts#userMutationIntentSchema`),
+ * the same "ordinary Optimistic Action" shape `labelNote`/`unlabelNote`
+ * already have, not the Thread-style absolute-boolean-set `setPinned`.
  */
 export const noteSchema = z.object({
   id: z.string(),
   userId: z.string(),
   document: noteDocumentSchema,
   labelIds: z.array(z.string()),
+  pinned: z.boolean(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
