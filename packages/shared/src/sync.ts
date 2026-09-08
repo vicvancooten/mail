@@ -267,11 +267,23 @@ export const DEFAULT_AUTO_ADVANCE_ENABLED = true;
  * same hour want different Appearances, so it moved to a Device Preference
  * (`apps/client/src/theme/device-theme.ts`) — `localStorage`, never synced.
  */
+/**
+ * The IANA zone the Sync Backend uses whenever it must turn a date or a
+ * floating time into a real instant on this User's behalf (#189) — Calendar
+ * reminders and Local Calendars are the first callers (ADR-0028), not yet
+ * landed. `""` is "not seeded yet", never a zone a picker can select: seeding
+ * is the signing-in device's job (`client/src/settings/use-seed-home-time-
+ * zone.ts`), not a server-side default, because the one thing this preference
+ * must never be is "inferred from the server's clock".
+ */
+export const HOME_TIME_ZONE_UNSET = "";
+
 export const preferenceSchema = z.object({
   id: z.string(),
   autoAdvanceEnabled: z.boolean(),
   autoAdvanceDirection: autoAdvanceDirectionSchema,
   undoSendDelaySeconds: undoSendDelaySchema,
+  homeTimeZone: z.string(),
   updatedAt: z.iso.datetime(),
 });
 export type Preference = z.infer<typeof preferenceSchema>;
@@ -294,6 +306,13 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
     direction: autoAdvanceDirectionSchema,
   }),
   z.object({ type: z.literal("setUndoSendDelay"), undoSendDelaySeconds: undoSendDelaySchema }),
+  /**
+   * Home Time Zone (#189): a raw IANA zone name, e.g. `"Europe/Amsterdam"`.
+   * The Client only ever sends a zone `Intl.supportedValuesOf("timeZone")`
+   * itself offered — the picker and the seeding effect are the validation,
+   * the same posture `setUndoSendDelay` takes on its own enum of seconds.
+   */
+  z.object({ type: z.literal("setHomeTimeZone"), homeTimeZone: z.string().min(1) }),
 ]);
 export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
 

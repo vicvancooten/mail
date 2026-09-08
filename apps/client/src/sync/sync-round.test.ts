@@ -578,6 +578,7 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
                   autoAdvanceEnabled: false,
                   autoAdvanceDirection: "newer",
                   undoSendDelaySeconds: 10,
+                  homeTimeZone: "",
                   updatedAt: "2026-01-01T00:00:00.000Z",
                 },
               ],

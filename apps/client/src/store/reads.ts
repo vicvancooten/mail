@@ -11,6 +11,7 @@ import {
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
+  HOME_TIME_ZONE_UNSET,
   labelId,
   normalizeSenderAddress,
   senderDomain,
@@ -122,6 +123,7 @@ function defaultPreference(): Preference {
     autoAdvanceEnabled: DEFAULT_AUTO_ADVANCE_ENABLED,
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
+    homeTimeZone: HOME_TIME_ZONE_UNSET,
     updatedAt: new Date(0).toISOString(),
   };
 }
@@ -158,6 +160,9 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
         break;
       case "setUndoSendDelay":
         overlaid = { ...overlaid, undoSendDelaySeconds: intent.undoSendDelaySeconds };
+        break;
+      case "setHomeTimeZone":
+        overlaid = { ...overlaid, homeTimeZone: intent.homeTimeZone };
         break;
     }
   }

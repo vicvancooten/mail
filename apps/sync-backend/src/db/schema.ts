@@ -84,6 +84,15 @@ export const users = pgTable("users", {
   autoAdvanceDirection: text("auto_advance_direction", { enum: ["older", "newer"] })
     .notNull()
     .default("older"),
+  /**
+   * Home Time Zone (#189, poc-spec.md §Preferences): the rest of `Preference`
+   * again, same posture as `autoAdvanceEnabled` above — one row per User, no
+   * separate table. `""` is "not seeded yet" (`@mail/shared`'s
+   * `HOME_TIME_ZONE_UNSET`), not a default zone: the signing-in device seeds
+   * its own IANA zone through the ordinary Optimistic Action queue rather
+   * than this column ever guessing one from the server's clock.
+   */
+  homeTimeZone: text("home_time_zone").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   // The delta sync API's (#37, #54) cursor pair for the `Preference`
