@@ -350,3 +350,77 @@
 .note-card-restore:hover {
   background: var(--color-hover);
 }
+
+/* ---------- the Thread Link picker (#195) ---------- */
+
+.thread-link-picker {
+  max-width: min(480px, calc(100% - 2rem));
+  max-height: min(520px, calc(100% - 4rem));
+  display: flex;
+  flex-direction: column;
+}
+
+.thread-link-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: var(--hairline) solid var(--color-border);
+  background: var(--color-field);
+  color: var(--color-ink-faint);
+}
+.thread-link-picker-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.thread-link-picker-empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--color-ink-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.thread-link-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thread-link-picker-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  cursor: pointer;
+}
+.thread-link-picker-list button:hover {
+  background: var(--color-hover);
+}
+
+.thread-link-picker-subject {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.thread-link-picker-meta {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}

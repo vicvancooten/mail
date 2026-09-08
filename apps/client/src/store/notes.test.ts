@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localCache, openLocalCache } from "./local-cache.js";
 import {
   createNote,
+  createNoteFromThreadLink,
   deleteNote,
   labelNote,
   listQueuedNoteSaves,
@@ -347,6 +348,59 @@ describe("resolveNoteSaveOutcomes", () => {
     const queued = await listQueuedNoteSaves();
     expect(queued).toHaveLength(1);
     expect(queued[0]?.document).toEqual(paragraph("second"));
+  });
+});
+
+describe('createNoteFromThreadLink (#195, "Add to Notes")', () => {
+  it("builds a paragraph carrying the subject, then a Thread Link snapshot", async () => {
+    const id = await createNoteFromThreadLink({
+      threadId: "t1",
+      subject: "Quarterly numbers",
+      participants: "Ada Lovelace, Grace Hopper",
+      date: "2026-06-25T09:00:00.000Z",
+    });
+
+    const row = defined(await readNote(id));
+    expect(row.userId).toBe(USER);
+    expect(row.document).toHaveLength(2);
+    expect(row.document[0]).toMatchObject({
+      type: "paragraph",
+      content: [{ type: "text", text: "Quarterly numbers", styles: {} }],
+    });
+    expect(row.document[1]).toMatchObject({
+      type: "threadLink",
+      props: {
+        threadId: "t1",
+        subject: "Quarterly numbers",
+        participants: "Ada Lovelace, Grace Hopper",
+        date: "2026-06-25T09:00:00.000Z",
+      },
+    });
+  });
+
+  it("rides createNote's own real-inverse queue entry (ADR-0019) — deleteNote undoes the whole thing", async () => {
+    const id = await createNoteFromThreadLink({
+      threadId: "t1",
+      subject: "Re: Launch",
+      participants: "Ada",
+      date: "2026-01-01T00:00:00.000Z",
+    });
+
+    await deleteNote(id);
+
+    expect(await readNote(id)).toBeUndefined();
+  });
+
+  it("gives an empty subject an empty paragraph rather than a stray empty text run", async () => {
+    const id = await createNoteFromThreadLink({
+      threadId: "t1",
+      subject: "",
+      participants: "",
+      date: "2026-01-01T00:00:00.000Z",
+    });
+
+    const row = defined(await readNote(id));
+    expect(row.document[0]).toMatchObject({ type: "paragraph", content: [] });
   });
 });
 

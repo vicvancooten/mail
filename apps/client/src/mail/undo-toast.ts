@@ -31,6 +31,9 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * despite this module living under `mail/`: it was already the one place
  * "render it through the same toast component" (#95's own words) means, and
  * a Note's delete is exactly as undoable as a Thread's.
+ *
+ * `"addToNotes"` (#195) is the inverse case — `mail/MailSection.tsx`'s
+ * `onAddToNotes` handler undoes itself by deleting the Note it just created.
  */
 export type UndoableActionKind =
   | "done"
@@ -39,7 +42,8 @@ export type UndoableActionKind =
   | "block"
   | "deny"
   | "discard"
-  | "noteDelete";
+  | "noteDelete"
+  | "addToNotes";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -56,6 +60,8 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   // Note delete (#194) — `notes/NotesGrid.tsx`'s card control and
   // `notes/NoteDialog.tsx`'s own Delete button.
   noteDelete: { one: "Note deleted", many: (count) => `${count} Notes deleted` },
+  // "Add to Notes" (#195) — `mail/MailSection.tsx`'s own `onAddToNotes` handler.
+  addToNotes: { one: "Added to Notes", many: (count) => `${count} added to Notes` },
 };
 
 interface Bucket {

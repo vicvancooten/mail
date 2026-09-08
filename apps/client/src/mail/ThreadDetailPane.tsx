@@ -7,6 +7,7 @@ import {
   Clock,
   Mail,
   MailOpen,
+  NotebookText,
   Pin,
   Reply,
   Star,
@@ -258,6 +259,20 @@ export function ThreadDetailPane({
                   />
                 </PopoverContent>
               </Popover>
+              {/* "Add to Notes" (#195) — creates a Note at once, no picker
+                of its own to open, unlike Snooze/Label above. There is no
+                Triage-level fallback for this (it isn't a Triage method at
+                all), so an unwired `ActionsProvider` — never the case in
+                the real app — just does nothing, the same as any other
+                registry action would with no context to run against. */}
+              <button
+                type="button"
+                onClick={() => runReader("add-to-notes", () => {})}
+                aria-label="Add to Notes"
+                title={buttonTitle("add-to-notes", "Add to Notes")}
+              >
+                <NotebookText size={15} />
+              </button>
               <button
                 type="button"
                 className={thread.pinned ? "on" : ""}

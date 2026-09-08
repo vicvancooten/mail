@@ -10,6 +10,7 @@ import {
   Keyboard,
   Layers,
   MailOpen,
+  NotebookText,
   PenSquare,
   Pin,
   Reply,
@@ -177,6 +178,23 @@ export const ACTIONS: readonly Action[] = [
     needsPicker: "label",
     run: (ctx) => ctx.openPicker?.("label"),
     choices: labelChoices,
+  },
+  // "Add to Notes" (#195): the Reader's own bridge into Notes — creates a
+  // Note at once (no intermediate sheet, unlike a future "Add to Tasks",
+  // which will sit beside this one once its own spec lands). Reader/menu
+  // only, matching Label's own surfaces: there is no row-hover cluster
+  // control for this any more than there is one for Label.
+  {
+    id: "add-to-notes",
+    label: "Add to Notes",
+    icon: NotebookText,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader", "menu"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.onAddToNotes(ctx.thread);
+    },
   },
   {
     id: "pin",

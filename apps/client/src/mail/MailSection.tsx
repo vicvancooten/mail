@@ -21,6 +21,9 @@ import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
+  type CachedThread,
+  createNoteFromThreadLink,
+  deleteNote,
   EMPTY_COMPOSE_CONTENT,
   labelNameForId,
   newCompositionId,
@@ -72,6 +75,7 @@ import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { timeGroupLabel } from "./time-groups.js";
+import { announceUndoableAction } from "./undo-toast.js";
 import { useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
 import { GROUP_STAGGER_ROW_CAP, type GroupBulkController } from "./VirtualizedThreadList.js";
@@ -169,6 +173,7 @@ export function MailSection({
   initialThreadId = null,
   onLocationChange,
   onOpenStream = noop,
+  onNoteCreated = noop,
   onOpenLocalHit = noop,
 }: {
   initialLabelFilter?: string | null;
@@ -181,6 +186,8 @@ export function MailSection({
   }) => void;
   /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
   onOpenStream?: () => void;
+  /** "Add to Notes" (#195)'s own navigation, fired once the new Note actually exists in the Local Cache (the internal `onAddToNotes` handler below awaits the store write first — `notesNoteRoute`'s own `beforeLoad` redirects a `/notes/$noteId` that doesn't resolve yet) — `router/MailRoute.tsx`'s navigation to that route; a no-op default for every unrouted caller (every test in this file included), same posture `onOpenStream` above takes. */
+  onNoteCreated?: (noteId: string) => void;
   /** A Command Palette local hit's own entry point (#196) — `router/MailRoute.tsx`'s navigation to whatever App the hit named (`/notes/:noteId` today); same no-op-default, router-agnostic posture as `onOpenStream`. */
   onOpenLocalHit?: (to: string, params: Record<string, string>) => void;
 } = {}) {
@@ -911,6 +918,38 @@ export function MailSection({
   );
 
   /**
+   * "Add to Notes" (#195): creates the Note at once — no intermediate
+   * sheet, unlike a future "Add to Tasks" — from a snapshot of `thread`, the
+   * same `participants`/`subject`/`date` derivation `ThreadDetailPane.tsx`'s
+   * own header already renders. `createNoteFromThreadLink` rides
+   * `createNote`'s own real-inverse Optimistic Action (ADR-0019); this is
+   * the "component wires the toast" half `DraftsView.tsx`'s own Delete
+   * already draws — `deleteNote` is the Undo. Awaited before
+   * `onNoteCreated` fires: `notesNoteRoute`'s own `beforeLoad` redirects a
+   * `/notes/$noteId` that doesn't resolve in the Local Cache yet, so the
+   * router must not be asked to navigate there before the write lands.
+   */
+  const onAddToNotes = useCallback(
+    (thread: CachedThread) => {
+      const subject = thread.subject || "(no subject)";
+      const participants =
+        thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
+      const date = thread.lastMessageAt ?? new Date().toISOString();
+      void (async () => {
+        const noteId = await createNoteFromThreadLink({
+          threadId: thread.id,
+          subject,
+          participants,
+          date,
+        });
+        announceUndoableAction("addToNotes", () => void deleteNote(noteId));
+        onNoteCreated(noteId);
+      })();
+    },
+    [onNoteCreated],
+  );
+
+  /**
    * The Action registry's context (#94) — built once, here, and handed both
    * to the single `keydown` listener and (through `ActionsProvider`) to
    * every surface that draws a control: the row cluster, the row/reader/
@@ -937,6 +976,7 @@ export function MailSection({
       onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream,
+      onAddToNotes,
       onMove: moveSelection,
       threadCount: activeIds.length,
       openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -958,6 +998,7 @@ export function MailSection({
       focusSearchField,
       openPalette,
       onOpenStream,
+      onAddToNotes,
       moveSelection,
       activeIds.length,
     ],

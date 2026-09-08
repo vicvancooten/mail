@@ -67,7 +67,16 @@ describe("the Action registry", () => {
 
   it("reports every Thread action unavailable, with a reason, when nothing is selected", () => {
     const ctx = noopActionContext();
-    for (const id of ["done", "trash", "star", "pin", "snooze", "label", "toggle-read"]) {
+    for (const id of [
+      "done",
+      "trash",
+      "star",
+      "pin",
+      "snooze",
+      "label",
+      "toggle-read",
+      "add-to-notes",
+    ]) {
       const action = ACTIONS.find((candidate) => candidate.id === id);
       const availability = action?.availability(ctx);
       expect(availability?.available, id).toBe(false);
@@ -87,8 +96,22 @@ describe("the Action registry", () => {
     expect(ids).toContain("snooze");
     expect(ids).toContain("label");
     expect(ids).toContain("trash");
+    expect(ids).toContain("add-to-notes");
     // No Message loaded for a row nobody has opened, so replying is out.
     expect(ids).not.toContain("reply");
+  });
+
+  it('"Add to Notes" (#195) forwards the Thread to ctx.onAddToNotes, nothing else', () => {
+    const onAddToNotes = vi.fn();
+    const thread = makeThread();
+    const ctx = withThread(noopActionContext({ onAddToNotes }), thread);
+    const action = ACTIONS.find((candidate) => candidate.id === "add-to-notes");
+
+    expect(action?.availability(ctx)).toEqual({ available: true });
+    action?.run(ctx);
+
+    expect(onAddToNotes).toHaveBeenCalledTimes(1);
+    expect(onAddToNotes).toHaveBeenCalledWith(thread);
   });
 
   it("flips its own label with the state it toggles", () => {

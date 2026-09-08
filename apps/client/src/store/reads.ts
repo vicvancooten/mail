@@ -895,3 +895,36 @@ export function useSearchResultThreads(results: readonly { thread: Thread }[]): 
   }, [ids.join(",")]);
   return overlaid ?? [...snapshots.values()];
 }
+
+/**
+ * The Thread Link picker's own listing (#195, `notes/ThreadLinkPickerDialog.tsx`):
+ * every cached Thread across every synced Mail Account, newest first,
+ * flatly capped — unlike `useThreadWindow` this reads no Account Scope at
+ * all, because Notes doesn't observe one (`apps/apps.ts`'s own `notes`
+ * entry, `observesAccountScope: false`) and linking a Thread from a Note
+ * isn't a folder-scoped Triage view to begin with, just "what's been synced,
+ * searchable by subject or participant". Trash and Junk are left out
+ * (`folderRole`, same "left every folder-scoped view" rule
+ * `readThreadWindow`'s own doc comment gives Sent/Pinned/Snoozed) — nothing
+ * stops a Thread Link naming a Thread that leaves Trash *after* linking, the
+ * same "the snapshot renders unchanged" acceptance line covers.
+ */
+const THREAD_LINK_PICKER_LIMIT = 50;
+
+export function useRecentThreadsForLinking(
+  limit: number = THREAD_LINK_PICKER_LIMIT,
+): CachedThread[] | undefined {
+  return useLiveQuery(() => readRecentThreadsForLinking(limit), [limit]);
+}
+
+export async function readRecentThreadsForLinking(
+  limit: number = THREAD_LINK_PICKER_LIMIT,
+): Promise<CachedThread[]> {
+  const db = localCache();
+  const all = await db.threads.toArray();
+  const overlaid = await overlayPendingMutations(db, all);
+  return overlaid
+    .filter((thread) => !hasLeftFolderScopedViews(thread))
+    .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
+    .slice(0, limit);
+}

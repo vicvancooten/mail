@@ -318,3 +318,53 @@
 .note-tooltip-shortcut {
   color: var(--color-ink-faint);
 }
+
+/* ==========================================================================
+   Thread Link (#195): the snapshot chip `thread-link-block.tsx` renders,
+   both in the dialog (clickable — an `a.thread-link` wrapper) and inert in
+   a grid card's read-only preview (a plain, unwrapped `span`).
+   ========================================================================== */
+
+.thread-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.thread-link-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: var(--hairline) solid var(--color-border);
+  background: var(--color-field);
+}
+.thread-link:hover .thread-link-chip {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.thread-link-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--color-ink-faint);
+}
+.thread-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.thread-link-subject {
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-link-meta {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

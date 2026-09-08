@@ -17,5 +17,15 @@ export function StreamRoute() {
     void navigate({ to: "/mail" });
   }, [navigate]);
 
-  return <StreamStack onLeave={onLeave} />;
+  // "Add to Notes" (#195) — `MailRoute.tsx`'s own `onNoteCreated` doc
+  // comment covers the shape; Stream's reader toolbar is the same
+  // `ThreadDetailPane`, so it needs the same real navigation, not a stub.
+  const onNoteCreated = useCallback(
+    (noteId: string) => {
+      void navigate({ to: "/notes/$noteId", params: { noteId } });
+    },
+    [navigate],
+  );
+
+  return <StreamStack onLeave={onLeave} onNoteCreated={onNoteCreated} />;
 }
