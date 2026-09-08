@@ -30,6 +30,7 @@ import {
   saveComposition,
   sessionUserId,
   THREAD_PAGE_SIZE,
+  useConnectedAccounts,
   useDraftCompositions,
   useGmailLabels,
   useLabels,
@@ -76,7 +77,7 @@ import type { ViewOrigin } from "./search/scope.js";
 import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { announceUndoableAction } from "./undo-toast.js";
-import { useAccountScope } from "./useAccountScope.js";
+import { deriveMailAccountScope, useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
 import { GROUP_STAGGER_ROW_CAP, type GroupBulkController } from "./VirtualizedThreadList.js";
 import "./mail.css";
@@ -146,9 +147,11 @@ const Composer = lazy(() =>
  * for why that's a client-side filter over the one synced window rather
  * than a second one.
  *
- * Account Scope (#73, `useAccountScope.ts`) is what `useThreadWindow` reads
- * *which* Mail Accounts from — merged into one newest-first list across
- * every account in Scope. `accountId` below stays a single id: the *primary*
+ * Account Scope (#73, `useAccountScope.ts`; the User-facing Scope itself is
+ * over Connected Accounts since #207 — `deriveMailAccountScope` is what
+ * turns that into this) is what `useThreadWindow` reads *which* Mail
+ * Accounts from — merged into one newest-first list across every account in
+ * Scope. `accountId` below stays a single id: the *primary*
  * in-scope account (Scope's first member), which several surfaces still need
  * one of — Search's account context, and (#81) a new Composition's
  * User-level default From, the last resort in the chain `openCompose` below
@@ -193,6 +196,7 @@ export function MailSection({
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
+  const connectedAccounts = useConnectedAccounts();
 
   // View mode and list density (#99): reactive Device Preferences now
   // (`device-preferences.ts#useViewMode`/`useListDensity`), so a change made
@@ -201,9 +205,18 @@ export function MailSection({
   // criterion ("changing density in Settings updates the list immediately").
   const [viewMode] = useViewMode();
   const [density] = useListDensity();
-  // Account Scope (#73): the Thread list's own accounts; `accountId` below
-  // is derived from it, not tracked separately — see the doc comment above.
-  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
+  // Account Scope (#73, repointed at Connected Accounts in #207): the
+  // Hub's own Scope, `deriveMailAccountScope`d down to the Thread list's own
+  // accounts — a Connected Account with no Mail Facet in Scope contributes
+  // nothing here. `accountId` below is derived from that, not tracked
+  // separately — see the doc comment above.
+  const { scope: connectedAccountScope, setScope: setConnectedAccountScope } =
+    useAccountScope(connectedAccounts);
+  const accountScope = deriveMailAccountScope(
+    connectedAccounts,
+    connectedAccountScope,
+    mailAccounts ?? [],
+  );
   const accountId = accountScope[0] ?? null;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
@@ -450,16 +463,26 @@ export function MailSection({
   // `previousPrimaryAccountRef` itself so that effect doesn't redo (and
   // re-fire a render behind) the same reset once `accountId` actually
   // catches up.
+  //
+  // Takes a Mail Account id — every caller's own target (`notification-router.ts`'s
+  // `mailAccountId`) — and writes the *Connected* Account Scope (#207) that
+  // actually persists, translating through `connectedAccountId`; a target
+  // whose parent Connected Account hasn't synced yet is a no-op rather than
+  // writing a Scope that would immediately fall back to "every account"
+  // (`resolveAccountScope`'s own rule).
   const narrowScopeTo = useCallback(
     (id: string) => {
-      setAccountScope([id]);
+      const connectedAccountId = mailAccounts?.find(
+        (account) => account.id === id,
+      )?.connectedAccountId;
+      if (connectedAccountId) setConnectedAccountScope([connectedAccountId]);
       previousPrimaryAccountRef.current = id;
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
       setFilter(NO_FILTER);
       setFolder(DEFAULT_FOLDER);
     },
-    [setAccountScope],
+    [mailAccounts, setConnectedAccountScope],
   );
 
   // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own

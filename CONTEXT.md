@@ -50,11 +50,13 @@ whether it observes Account Scope (see there).
 _Avoid_: module, section, tab
 
 **Account Scope**:
-Which of the User's Mail Accounts the Client is currently showing: any non-empty subset, defaulting
-to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing to one
-account is a question every App whose data rides a Mail Account answers — Mail, Calendar and
-Contacts do; Tasks and Notes, whose data belongs to the User alone, don't, and the Hub hides the
-control while one of those is current rather than showing it disabled. Actions that can only mean
+Which of the User's Connected Accounts the Client is currently showing: any non-empty subset,
+defaulting to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing
+to one account is a question every App whose data rides a Connected Account answers — Mail,
+Calendar and Contacts do; Tasks and Notes, whose data belongs to the User alone, don't, and the Hub
+hides the control while one of those is current rather than showing it disabled. A Connected
+Account with no Facet feeding the current App is still listed and checkable, just visibly muted —
+narrowing to it changes nothing for that App, and the muted state is why. Actions that can only mean
 one account — sending, or changing a Gatekeeper setting — ask for that account rather than
 inheriting the Scope.
 _Avoid_: account switcher, unified inbox, active account
