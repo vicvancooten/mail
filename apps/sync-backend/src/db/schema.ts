@@ -243,7 +243,7 @@ export const webauthnChallenges = pgTable("webauthn_challenges", {
  * rejected or the Grant withdrawn (every Facet stops)") — the Facet-level
  * half lives on `connected_account_facets` below.
  *
- * `serverAddress`/`daveUsername` exist for CalDAV/CardDAV only (discovery
+ * `serverAddress`/`davUsername` exist for CalDAV/CardDAV only (discovery
  * input, #203) — null for every other Provider, which enters nothing here
  * because Google/Microsoft's identity comes back from the Provider itself
  * and Other IMAP's own host/port live on its one Mail Facet
@@ -267,7 +267,7 @@ export const connectedAccounts = pgTable(
     /** CalDAV/CardDAV only (#203): the server or email address discovery started from. Null otherwise. */
     serverAddress: text("server_address"),
     /** CalDAV/CardDAV only (#203): the login entered alongside the app password. Null otherwise. */
-    daveUsername: text("dave_username"),
+    davUsername: text("dav_username"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // #200 (ADR-0023): `ConnectedAccount` joins the User-scoped collection

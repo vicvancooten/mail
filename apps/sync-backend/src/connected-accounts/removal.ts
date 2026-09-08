@@ -2,6 +2,8 @@ import type { ConnectedAccountFacetKind } from "@mail/shared";
 import { and, eq, gt, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.js";
 import {
+  type ConnectedAccountFacetRow,
+  type ConnectedAccountRow,
   compositions,
   connectedAccountFacets,
   connectedAccounts,
@@ -64,6 +66,55 @@ async function pendingSendBlockSeconds(
   return Math.ceil(remainingMs / 1000);
 }
 
+interface ConnectedAccountFacetLookup {
+  account: ConnectedAccountRow;
+  facets: ConnectedAccountFacetRow[];
+  facet: ConnectedAccountFacetRow;
+}
+
+/**
+ * The shape both `getConnectedAccountFacetRemovalPreview` and
+ * `removeConnectedAccountFacet` start from — the User's own Connected
+ * Account, every Facet it carries, and the one Facet `kind` names — `null`
+ * for any of the ways that doesn't exist (wrong User, wrong id, wrong
+ * kind), which both callers turn into a 404.
+ */
+async function findConnectedAccountFacet(
+  db: Db | Tx,
+  userId: string,
+  connectedAccountId: string,
+  kind: ConnectedAccountFacetKind,
+): Promise<ConnectedAccountFacetLookup | null> {
+  const [account] = await db
+    .select()
+    .from(connectedAccounts)
+    .where(and(eq(connectedAccounts.id, connectedAccountId), eq(connectedAccounts.userId, userId)))
+    .limit(1);
+  if (!account) return null;
+
+  const facets = await db
+    .select()
+    .from(connectedAccountFacets)
+    .where(eq(connectedAccountFacets.connectedAccountId, account.id));
+  const facet = facets.find((row) => row.kind === kind);
+  if (!facet) return null;
+
+  return { account, facets, facet };
+}
+
+/** The Mail Facet's own Mail Account row, `null` for a Facet that isn't Mail or whose Mail Account has somehow already gone. */
+async function findMailAccountForConnectedAccount(
+  db: Db | Tx,
+  connectedAccountId: string,
+): Promise<{ id: string } | null> {
+  const [mailAccount] = await db
+    .select({ id: mailAccounts.id })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.connectedAccountId, connectedAccountId))
+    .limit(1);
+  return mailAccount ?? null;
+}
+
 export interface ConnectedAccountFacetRemovalPreviewResult {
   threadCount: number;
   accountRemoved: boolean;
@@ -82,29 +133,15 @@ export async function getConnectedAccountFacetRemovalPreview(
   kind: ConnectedAccountFacetKind,
   now: Date = new Date(),
 ): Promise<ConnectedAccountFacetRemovalPreviewResult | null> {
-  const [account] = await db
-    .select({ id: connectedAccounts.id })
-    .from(connectedAccounts)
-    .where(and(eq(connectedAccounts.id, connectedAccountId), eq(connectedAccounts.userId, userId)))
-    .limit(1);
-  if (!account) return null;
-
-  const facets = await db
-    .select()
-    .from(connectedAccountFacets)
-    .where(eq(connectedAccountFacets.connectedAccountId, account.id));
-  const facet = facets.find((row) => row.kind === kind);
-  if (!facet) return null;
+  const lookup = await findConnectedAccountFacet(db, userId, connectedAccountId, kind);
+  if (!lookup) return null;
+  const { account, facets } = lookup;
 
   if (kind !== "mail") {
     return { threadCount: 0, accountRemoved: facets.length === 1, pendingSendBlockSeconds: null };
   }
 
-  const [mailAccount] = await db
-    .select({ id: mailAccounts.id })
-    .from(mailAccounts)
-    .where(eq(mailAccounts.connectedAccountId, account.id))
-    .limit(1);
+  const mailAccount = await findMailAccountForConnectedAccount(db, account.id);
   if (!mailAccount) {
     return { threadCount: 0, accountRemoved: facets.length === 1, pendingSendBlockSeconds: null };
   }
@@ -169,34 +206,20 @@ export async function removeConnectedAccountFacet(
   const now = params.now ?? new Date();
 
   return db.transaction(async (tx) => {
-    const [account] = await tx
-      .select()
-      .from(connectedAccounts)
-      .where(
-        and(
-          eq(connectedAccounts.id, params.connectedAccountId),
-          eq(connectedAccounts.userId, params.userId),
-        ),
-      )
-      .limit(1);
-    if (!account) return { status: "not_found" };
-
-    const facets = await tx
-      .select()
-      .from(connectedAccountFacets)
-      .where(eq(connectedAccountFacets.connectedAccountId, account.id));
-    const facet = facets.find((row) => row.kind === params.kind);
-    if (!facet) return { status: "not_found" };
+    const lookup = await findConnectedAccountFacet(
+      tx,
+      params.userId,
+      params.connectedAccountId,
+      params.kind,
+    );
+    if (!lookup) return { status: "not_found" };
+    const { account, facet, facets } = lookup;
 
     const accountRemoved = facets.length === 1;
 
     let mailAccountId: string | null = null;
     if (params.kind === "mail") {
-      const [mailAccount] = await tx
-        .select({ id: mailAccounts.id })
-        .from(mailAccounts)
-        .where(eq(mailAccounts.connectedAccountId, account.id))
-        .limit(1);
+      const mailAccount = await findMailAccountForConnectedAccount(tx, account.id);
       mailAccountId = mailAccount?.id ?? null;
       if (mailAccountId) {
         const blockSeconds = await pendingSendBlockSeconds(tx, mailAccountId, now);
