@@ -110,7 +110,14 @@ export async function getConnectedAccountForUser(
   return row ?? null;
 }
 
-/** Whether a Connected Account already carries a given Facet — the guard `POST /connected-accounts/:id/caldav-facets` runs before discovery, so turning on an already-on Facet fails fast rather than re-running discovery for nothing. */
+/**
+ * Whether a Connected Account already carries a given Facet, any status —
+ * the guard `POST /connected-accounts/:id/caldav-facets` runs before
+ * discovery (#203, so turning on an already-on Facet fails fast rather than
+ * re-running discovery for nothing) and the guard the `add_facet` start
+ * route runs before offering a consent flow (#202: re-granting an
+ * already-connected Facet is a Fix flow, #204's, not this one).
+ */
 export async function connectedAccountHasFacet(
   db: Db,
   connectedAccountId: string,
@@ -228,6 +235,38 @@ export async function getConnectedAccountForUserByIdentity(
     )
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Turning on a Facet's write path (#202, ADR-0022): lands the widened
+ * credential (`credential-crypto.ts#widenOAuthCredential`) and the new
+ * `active` Facet row in one transaction, so a Client can never observe a
+ * credential that already covers the new scope without the Facet row that
+ * says so, or vice versa. `id` follows `insertMailAccount`'s own
+ * `${connectedAccountId}-${kind}` convention. `scopesLastGrantedAt` is
+ * stamped `now` here — the one write path that ever sets it, since the
+ * boot-time upgrade's own Mail Facet (#199) never ran a consent round to
+ * stamp a time for.
+ */
+export async function attachFacetToConnectedAccount(
+  db: Db,
+  connectedAccountId: string,
+  kind: Exclude<ConnectedAccountFacetRow["kind"], "mail">,
+  credential: ConnectedAccountCredential,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(connectedAccounts)
+      .set({ credential, updatedAt: new Date() })
+      .where(eq(connectedAccounts.id, connectedAccountId));
+    await tx.insert(connectedAccountFacets).values({
+      id: `${connectedAccountId}-${kind}`,
+      connectedAccountId,
+      kind,
+      status: "active",
+      scopesLastGrantedAt: new Date(),
+    });
+  });
 }
 
 /**

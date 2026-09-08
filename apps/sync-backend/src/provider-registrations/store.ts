@@ -23,19 +23,38 @@ export async function getProviderRegistration(
  * ... pastes the client ID and secret into the Instance page", no restart,
  * no history of past registrations). `createdAt` is left untouched by the
  * conflict branch — a replace is still the same Registration, not a new one.
+ *
+ * `calendarApiEnabled`/`contactsApiEnabled` (#202, ADR-0022) are the same
+ * save form's own fields, not a separate flow — the Owner restates them on
+ * every replace exactly the way they restate the client ID and secret,
+ * rather than this silently carrying old values forward across a fresh
+ * client ID's worth of setup. Defaults both `false` so every test and
+ * seeding path that predates #202 — setting up a Registration only to
+ * exercise Mail — keeps working unchanged.
  */
 export async function upsertProviderRegistration(
   db: Db,
   provider: RegisteredProvider,
   clientId: string,
   clientSecret: SealedSecret,
+  facetApiFlags: { calendarApiEnabled: boolean; contactsApiEnabled: boolean } = {
+    calendarApiEnabled: false,
+    contactsApiEnabled: false,
+  },
 ): Promise<ProviderRegistrationRow> {
+  const { calendarApiEnabled, contactsApiEnabled } = facetApiFlags;
   const [row] = await db
     .insert(providerRegistrations)
-    .values({ provider, clientId, clientSecret })
+    .values({ provider, clientId, clientSecret, calendarApiEnabled, contactsApiEnabled })
     .onConflictDoUpdate({
       target: providerRegistrations.provider,
-      set: { clientId, clientSecret, updatedAt: new Date() },
+      set: {
+        clientId,
+        clientSecret,
+        calendarApiEnabled,
+        contactsApiEnabled,
+        updatedAt: new Date(),
+      },
     })
     .returning();
   if (!row) {

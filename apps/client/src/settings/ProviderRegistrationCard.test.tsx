@@ -20,6 +20,8 @@ function health(overrides: Partial<ProviderHealth> = {}): ProviderHealth {
     needsReauthCount: 0,
     lastRefreshAt: null,
     lastRefreshError: null,
+    calendarApiEnabled: false,
+    contactsApiEnabled: false,
     ...overrides,
   };
 }
@@ -57,6 +59,8 @@ describe("ProviderRegistrationCard", () => {
       expect(providersApi.saveProviderRegistration).toHaveBeenCalledWith("google", {
         clientId: "abc.apps.googleusercontent.com",
         clientSecret: "shh",
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
       }),
     );
     await waitFor(() => expect(onChanged).toHaveBeenCalled());

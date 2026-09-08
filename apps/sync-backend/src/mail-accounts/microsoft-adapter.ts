@@ -1,4 +1,4 @@
-import type { MailAccountConnection } from "@mail/shared";
+import type { GrantableFacetKind, MailAccountConnection } from "@mail/shared";
 import {
   classifyRefreshFailure,
   decodeIdTokenClaims,
@@ -54,6 +54,20 @@ export const MICROSOFT_SCOPES = [
   "email",
 ];
 
+/**
+ * Turning on a further Facet (#202, ADR-0022): each Facet's own Microsoft
+ * Graph permission. `offline_access` is repeated here (unlike Google's own
+ * `GOOGLE_FACET_SCOPES`) because Microsoft is additive per-resource rather
+ * than `include_granted_scopes`-based — this is its own, separate
+ * authorization round for a different resource (Graph, not `outlook.office.com`),
+ * and without asking for `offline_access` again this exchange would come
+ * back with no refresh token for `exchangeCode` to require.
+ */
+export const MICROSOFT_FACET_SCOPES: Record<GrantableFacetKind, string> = {
+  calendar: "https://graph.microsoft.com/Calendars.ReadWrite",
+  contacts: "https://graph.microsoft.com/Contacts.ReadWrite",
+};
+
 /** Outlook's fixed endpoints — the same host serves Outlook.com and Microsoft 365 alike, and a Mail Account added by signing in never runs autodiscover. */
 const OUTLOOK_CONNECTION: { imap: MailAccountConnection; smtp: MailAccountConnection } = {
   imap: { host: "outlook.office365.com", port: 993, security: "tls" },
@@ -99,18 +113,24 @@ export const microsoftProviderAdapter: ProviderAdapter = {
   connection: OUTLOOK_CONNECTION,
   scopes: MICROSOFT_SCOPES,
 
+  facetGrantScopes(facet) {
+    const coreScope = MICROSOFT_FACET_SCOPES[facet];
+    return { requestScopes: [coreScope, "offline_access", "openid", "email"], coreScope };
+  },
+
   authorizationUrl({
     clientId,
     redirectUri,
     state,
     codeChallenge,
     loginHint,
+    scope,
   }: AuthorizationUrlInput): string {
     const url = new URL(AUTHORIZATION_ENDPOINT);
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", MICROSOFT_SCOPES.join(" "));
+    url.searchParams.set("scope", (scope ?? MICROSOFT_SCOPES).join(" "));
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
@@ -131,6 +151,7 @@ export const microsoftProviderAdapter: ProviderAdapter = {
     redirectUri,
     code,
     codeVerifier,
+    scope,
   }: ExchangeCodeInput): Promise<ProviderGrant> {
     const payload = await postForm(TOKEN_EXCHANGE, {
       client_id: clientId,
@@ -139,7 +160,7 @@ export const microsoftProviderAdapter: ProviderAdapter = {
       code,
       code_verifier: codeVerifier,
       grant_type: "authorization_code",
-      scope: MICROSOFT_SCOPES.join(" "),
+      scope: (scope ?? MICROSOFT_SCOPES).join(" "),
     });
 
     const accessToken = requireString(TOKEN_EXCHANGE, payload, "access_token");

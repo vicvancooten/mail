@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GOOGLE_SCOPES, googleProviderAdapter } from "./google-adapter.js";
+import { GOOGLE_FACET_SCOPES, GOOGLE_SCOPES, googleProviderAdapter } from "./google-adapter.js";
 
 /**
  * The real Google `ProviderAdapter` (#116) — everything Google-shaped, and
@@ -172,5 +172,39 @@ describe("refresh", () => {
       reason: "transient",
       detail: "ECONNRESET",
     });
+  });
+});
+
+describe("facetGrantScopes (#202)", () => {
+  it("asks only for one Facet's own scope plus identity, never Mail's", () => {
+    const { requestScopes, coreScope } = googleProviderAdapter.facetGrantScopes?.("calendar") ?? {};
+    expect(coreScope).toBe(GOOGLE_FACET_SCOPES.calendar);
+    expect(requestScopes).toEqual([GOOGLE_FACET_SCOPES.calendar, "openid", "email"]);
+    expect(requestScopes).not.toContain("https://mail.google.com/");
+  });
+
+  it("includeGrantedScopesOnFacetGrant is true — Mail's own scope stays granted without re-asking", () => {
+    expect(googleProviderAdapter.includeGrantedScopesOnFacetGrant).toBe(true);
+  });
+});
+
+describe("authorizationUrl's facet-grant plumbing (#202)", () => {
+  it("requests the given scope instead of the Mail-only default, and sets include_granted_scopes", () => {
+    const url = new URL(
+      googleProviderAdapter.authorizationUrl({
+        ...AUTH_INPUT,
+        scope: [GOOGLE_FACET_SCOPES.calendar, "openid", "email"],
+        includeGrantedScopes: true,
+      }),
+    );
+    expect(url.searchParams.get("scope")).toBe(
+      [GOOGLE_FACET_SCOPES.calendar, "openid", "email"].join(" "),
+    );
+    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+  });
+
+  it("omits include_granted_scopes for the ordinary Mail sign-in", () => {
+    const url = new URL(googleProviderAdapter.authorizationUrl(AUTH_INPUT));
+    expect(url.searchParams.get("include_granted_scopes")).toBeNull();
   });
 });

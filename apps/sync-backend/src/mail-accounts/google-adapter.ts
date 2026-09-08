@@ -1,4 +1,4 @@
-import type { MailAccountConnection } from "@mail/shared";
+import type { GrantableFacetKind, MailAccountConnection } from "@mail/shared";
 import {
   classifyRefreshFailure,
   decodeIdTokenClaims,
@@ -37,6 +37,19 @@ const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
  */
 export const GOOGLE_SCOPES = ["https://mail.google.com/", "openid", "email"];
 
+/**
+ * Turning on a further Facet (#202, ADR-0022): each Facet's own resource
+ * scope, plus `openid`/`email` so `exchangeCode`'s `id_token` still carries
+ * the identity to verify against the Connected Account's own — `mail.
+ * google.com` is deliberately never repeated here, since `include_granted_scopes=true`
+ * (`includeGrantedScopesOnFacetGrant` below) is what keeps it true on
+ * Google's side without asking for it again.
+ */
+export const GOOGLE_FACET_SCOPES: Record<GrantableFacetKind, string> = {
+  calendar: "https://www.googleapis.com/auth/calendar",
+  contacts: "https://www.googleapis.com/auth/contacts",
+};
+
 /** Gmail's fixed endpoints — a Mail Account added by signing in never runs autodiscover. */
 const GMAIL_CONNECTION: { imap: MailAccountConnection; smtp: MailAccountConnection } = {
   imap: { host: "imap.gmail.com", port: 993, security: "tls" },
@@ -65,6 +78,12 @@ const REVOKE_EXCHANGE: TokenExchangeConfig = {
 export const googleProviderAdapter: ProviderAdapter = {
   connection: GMAIL_CONNECTION,
   scopes: GOOGLE_SCOPES,
+  includeGrantedScopesOnFacetGrant: true,
+
+  facetGrantScopes(facet) {
+    const coreScope = GOOGLE_FACET_SCOPES[facet];
+    return { requestScopes: [coreScope, "openid", "email"], coreScope };
+  },
 
   authorizationUrl({
     clientId,
@@ -72,12 +91,14 @@ export const googleProviderAdapter: ProviderAdapter = {
     state,
     codeChallenge,
     loginHint,
+    scope,
+    includeGrantedScopes,
   }: AuthorizationUrlInput): string {
     const url = new URL(AUTHORIZATION_ENDPOINT);
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", GOOGLE_SCOPES.join(" "));
+    url.searchParams.set("scope", (scope ?? GOOGLE_SCOPES).join(" "));
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
@@ -91,6 +112,12 @@ export const googleProviderAdapter: ProviderAdapter = {
     // Both values, space separated, is Google's documented way to ask for
     // both prompts.
     url.searchParams.set("prompt", "select_account consent");
+    if (includeGrantedScopes) {
+      // #202, ADR-0022: keeps every previously granted scope (Mail's) true
+      // alongside this request's narrower one, so turning on Calendar never
+      // re-asks for Mail and never risks losing it either.
+      url.searchParams.set("include_granted_scopes", "true");
+    }
     if (loginHint) {
       url.searchParams.set("login_hint", loginHint);
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveCredentialKey,
+  facetOAuthAudience,
   mailOAuthAudience,
   reAuthenticateOAuthCredential,
   sealOAuthCredential,
@@ -9,6 +10,7 @@ import {
   unsealOAuthAccessToken,
   unsealPasswordCredential,
   unsealSecret,
+  widenOAuthCredential,
 } from "./credential-crypto.js";
 
 const key = deriveCredentialKey("some-instance-held-key-material");
@@ -177,6 +179,120 @@ describe("reAuthenticateOAuthCredential", () => {
     const passwordCredential = sealPasswordCredential("swordfish", "connected-account-1", key);
     expect(() =>
       reAuthenticateOAuthCredential(
+        passwordCredential,
+        {
+          provider: "google",
+          accessToken: "at",
+          refreshToken: "rt",
+          expiresAt: "2026-01-01T00:00:00.000Z",
+          scope: [],
+        },
+        "default",
+        "connected-account-1",
+        key,
+      ),
+    ).toThrow();
+  });
+});
+
+describe("facetOAuthAudience", () => {
+  it("is Google's single 'default' audience regardless of Facet", () => {
+    expect(facetOAuthAudience("google", "mail")).toBe("default");
+    expect(facetOAuthAudience("google", "calendar")).toBe("default");
+    expect(facetOAuthAudience("google", "contacts")).toBe("default");
+  });
+
+  it("splits Microsoft's Mail Facet onto 'imap' and Calendar/Contacts onto the shared 'graph' audience", () => {
+    expect(facetOAuthAudience("microsoft", "mail")).toBe("imap");
+    expect(facetOAuthAudience("microsoft", "calendar")).toBe("graph");
+    expect(facetOAuthAudience("microsoft", "contacts")).toBe("graph");
+  });
+});
+
+describe("widenOAuthCredential", () => {
+  it("unions the new Facet's scope into what the credential already carried, rather than replacing it", () => {
+    const original = sealOAuthCredential(
+      {
+        provider: "google",
+        accessToken: "mail-access-token",
+        refreshToken: "original-refresh",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        scope: ["https://mail.google.com/", "openid", "email"],
+      },
+      "default",
+      "connected-account-1",
+      key,
+    );
+
+    const widened = widenOAuthCredential(
+      original,
+      {
+        provider: "google",
+        accessToken: "calendar-access-token",
+        refreshToken: "fresh-refresh",
+        expiresAt: "2026-02-01T00:00:00.000Z",
+        scope: ["https://www.googleapis.com/auth/calendar", "openid", "email"],
+      },
+      "default",
+      "connected-account-1",
+      key,
+    );
+
+    if (widened.kind !== "oauth") throw new Error("expected oauth");
+    expect(widened.scope.sort()).toEqual(
+      [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/calendar",
+        "openid",
+        "email",
+      ].sort(),
+    );
+    expect(unsealSecret(widened.refreshToken, "connected-account-1", key)).toBe("fresh-refresh");
+    expect(unsealOAuthAccessToken(widened, "default", "connected-account-1", key)).toBe(
+      "calendar-access-token",
+    );
+  });
+
+  it("adds the new audience's access token without disturbing another audience's — Mail keeps working (#202's own acceptance criterion)", () => {
+    const original = sealOAuthCredential(
+      {
+        provider: "microsoft",
+        accessToken: "imap-access-token",
+        refreshToken: "shared-refresh",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        scope: ["https://outlook.office.com/IMAP.AccessAsUser.All", "offline_access"],
+      },
+      "imap",
+      "connected-account-1",
+      key,
+    );
+
+    const widened = widenOAuthCredential(
+      original,
+      {
+        provider: "microsoft",
+        accessToken: "graph-access-token",
+        refreshToken: "shared-refresh",
+        expiresAt: "2026-01-01T02:00:00.000Z",
+        scope: ["https://graph.microsoft.com/Calendars.ReadWrite", "offline_access"],
+      },
+      "graph",
+      "connected-account-1",
+      key,
+    );
+
+    expect(unsealOAuthAccessToken(widened, "imap", "connected-account-1", key)).toBe(
+      "imap-access-token",
+    );
+    expect(unsealOAuthAccessToken(widened, "graph", "connected-account-1", key)).toBe(
+      "graph-access-token",
+    );
+  });
+
+  it("refuses to widen a password credential", () => {
+    const passwordCredential = sealPasswordCredential("swordfish", "connected-account-1", key);
+    expect(() =>
+      widenOAuthCredential(
         passwordCredential,
         {
           provider: "google",

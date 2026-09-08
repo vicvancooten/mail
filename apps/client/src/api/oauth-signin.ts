@@ -1,4 +1,5 @@
 import {
+  type GrantableFacetKind,
   type ProviderAvailabilityListResponse,
   providerAvailabilityListResponseSchema,
   type RegisteredProvider,
@@ -37,5 +38,22 @@ export function startProviderSignIn(
     `/auth/oauth/${provider}/start`,
     options?.mailAccountId ? { mailAccountId: options.mailAccountId } : {},
     (data) => startProviderSignInResponseSchema.parse(data),
+  );
+}
+
+/**
+ * `POST /auth/oauth/:provider/start` with `connectedAccountId`+`facet`
+ * (#202): starts an `add_facet` attempt for that already-connected identity.
+ * Like `startProviderSignIn`, the only thing to do with the result is
+ * navigate the browser to it — there is no "finish" call, the callback did
+ * the whole thing server-side before the browser landed back on this page.
+ */
+export function startFacetGrant(
+  provider: RegisteredProvider,
+  connectedAccountId: string,
+  facet: GrantableFacetKind,
+): Promise<StartProviderSignInResponse> {
+  return postJson(`/auth/oauth/${provider}/start`, { connectedAccountId, facet }, (data) =>
+    startProviderSignInResponseSchema.parse(data),
   );
 }

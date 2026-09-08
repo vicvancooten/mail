@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { RegisteredProvider } from "@mail/shared";
+import type { GrantableFacetKind, RegisteredProvider } from "@mail/shared";
 import { and, eq, lt } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { type OAuthSignInAttemptRow, oauthSignInAttempts } from "../db/schema.js";
@@ -15,7 +15,7 @@ import { type OAuthSignInAttemptRow, oauthSignInAttempts } from "../db/schema.js
 /** Long enough for a User to pick an account and read a consent screen, short enough that an abandoned attempt is not a lingering credential. */
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
 
-export type SignInPurpose = "add_mail_account" | "reauth";
+export type SignInPurpose = "add_mail_account" | "reauth" | "add_facet";
 
 export interface StartedSignInAttempt {
   /** Goes in the authorization URL and comes back in the callback; never stored as-is. */
@@ -44,6 +44,9 @@ export async function startSignInAttempt(
     purpose: SignInPurpose;
     /** Required (and only meaningful) for `purpose: "reauth"`. */
     mailAccountId?: string;
+    /** Required (and only meaningful) for `purpose: "add_facet"` (#202) — always given together. */
+    connectedAccountId?: string;
+    facet?: GrantableFacetKind;
   },
   now: Date = new Date(),
 ): Promise<StartedSignInAttempt> {
@@ -64,6 +67,8 @@ export async function startSignInAttempt(
     codeVerifier,
     purpose: input.purpose,
     mailAccountId: input.mailAccountId ?? null,
+    connectedAccountId: input.connectedAccountId ?? null,
+    facet: input.facet ?? null,
     expiresAt: new Date(now.getTime() + ATTEMPT_TTL_MS),
   });
 

@@ -1,12 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { OAUTH_SIGN_IN_OUTCOME_PARAM } from "@mail/shared";
+import { type GrantableFacetKind, OAUTH_SIGN_IN_OUTCOME_PARAM } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession } from "../auth/sessions.js";
-import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
+import {
+  deriveCredentialKey,
+  sealSecret,
+  unsealOAuthAccessToken,
+} from "../connected-accounts/credential-crypto.js";
+import { getConnectedAccountById } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
-import { mailAccounts, oauthSignInAttempts, users } from "../db/schema.js";
+import {
+  connectedAccountFacets,
+  connectedAccounts,
+  mailAccounts,
+  oauthSignInAttempts,
+  users,
+} from "../db/schema.js";
 import type {
   AuthorizationCallbackError,
   AuthorizationUrlInput,
@@ -70,12 +81,17 @@ interface FakeAdapterOptions {
   seen?: { authorization: AuthorizationUrlInput[]; exchange: ExchangeCodeInput[] };
   /** #117: lets a test drive the tenant_refused branch without naming Microsoft. */
   isTenantRefusal?: (failure: AuthorizationCallbackError) => boolean;
+  /** #202: omit to model an adapter with no Facet-grant support at all (`facet_not_supported`). */
+  facetGrantScopes?: (facet: GrantableFacetKind) => { requestScopes: string[]; coreScope: string };
+  includeGrantedScopesOnFacetGrant?: boolean;
 }
 
 function fakeAdapter({
   exchange,
   seen,
   isTenantRefusal,
+  facetGrantScopes,
+  includeGrantedScopesOnFacetGrant,
 }: FakeAdapterOptions = {}): ProviderAdapter {
   return {
     connection: {
@@ -88,10 +104,13 @@ function fakeAdapter({
       const url = new URL("https://provider.test/authorize");
       url.searchParams.set("client_id", input.clientId);
       url.searchParams.set("redirect_uri", input.redirectUri);
-      url.searchParams.set("scope", this.scopes.join(" "));
+      url.searchParams.set("scope", (input.scope ?? this.scopes).join(" "));
       url.searchParams.set("state", input.state);
       url.searchParams.set("code_challenge", input.codeChallenge);
       url.searchParams.set("prompt", "select_account");
+      if (input.includeGrantedScopes) {
+        url.searchParams.set("include_granted_scopes", "true");
+      }
       if (input.loginHint) {
         url.searchParams.set("login_hint", input.loginHint);
       }
@@ -105,6 +124,8 @@ function fakeAdapter({
       return { ok: false, reason: "transient", detail: "not exercised here" };
     },
     ...(isTenantRefusal ? { isTenantRefusal } : {}),
+    ...(facetGrantScopes ? { facetGrantScopes } : {}),
+    ...(includeGrantedScopesOnFacetGrant ? { includeGrantedScopesOnFacetGrant } : {}),
   };
 }
 
@@ -139,12 +160,18 @@ async function createUserWithCookie(): Promise<{ userId: string; cookie: string 
   return { userId, cookie: `mail_session=${token}` };
 }
 
-async function registerGoogle(): Promise<void> {
+async function registerGoogle(
+  facetApiFlags: { calendarApiEnabled: boolean; contactsApiEnabled: boolean } = {
+    calendarApiEnabled: false,
+    contactsApiEnabled: false,
+  },
+): Promise<void> {
   await upsertProviderRegistration(
     db,
     "google",
     "client-id-123",
     sealSecret("client-secret", "google", deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY)),
+    facetApiFlags,
   );
 }
 
@@ -202,6 +229,9 @@ describe("GET /auth/oauth/providers", () => {
       provider: "google",
       available: true,
       unavailableReason: null,
+      // #202: unset by `registerGoogle()` below, and false by default.
+      calendarApiEnabled: false,
+      contactsApiEnabled: false,
     });
   });
 
@@ -866,6 +896,311 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
     const account = await createTestMailAccount(db, { userId, emailAddress: "vic@gmail.com" });
     const state = await startReauth(app, cookie, account.id);
     await db.delete(mailAccounts).where(eq(mailAccounts.id, account.id));
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("invalid_state");
+  });
+});
+
+describe("POST /auth/oauth/:provider/start — add_facet (#202)", () => {
+  const facetAdapter = () =>
+    fakeAdapter({
+      facetGrantScopes: (facet: GrantableFacetKind) => ({
+        requestScopes: [`https://provider.test/${facet}`, "openid", "email"],
+        coreScope: `https://provider.test/${facet}`,
+      }),
+      includeGrantedScopesOnFacetGrant: true,
+    });
+
+  it("starts an add_facet attempt, pinning login_hint to the identity and asking only for that Facet's scope", async () => {
+    const seen: { authorization: AuthorizationUrlInput[]; exchange: ExchangeCodeInput[] } = {
+      authorization: [],
+      exchange: [],
+    };
+    const adapter = fakeAdapter({
+      facetGrantScopes: (facet: GrantableFacetKind) => ({
+        requestScopes: [`https://provider.test/${facet}`, "openid", "email"],
+        coreScope: `https://provider.test/${facet}`,
+      }),
+      includeGrantedScopesOnFacetGrant: true,
+      seen,
+    });
+    const app = buildTestApp({ adapter });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "vic@gmail.com",
+      oauth: { accessToken: "mail-token" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId: account.connectedAccountId, facet: "calendar" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const authorization = seen.authorization[0];
+    expect(authorization?.loginHint).toBe("vic@gmail.com");
+    expect(authorization?.scope).toEqual(["https://provider.test/calendar", "openid", "email"]);
+    expect(authorization?.includeGrantedScopes).toBe(true);
+  });
+
+  it("409s facet_not_available when the Owner hasn't declared the API enabled", async () => {
+    const app = buildTestApp({ adapter: facetAdapter() });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: false, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      oauth: { accessToken: "mail-token" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId: account.connectedAccountId, facet: "calendar" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "facet_not_available" });
+  });
+
+  it("409s facet_not_supported when the adapter has no facetGrantScopes at all", async () => {
+    const app = buildTestApp({ adapter: fakeAdapter() });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: true });
+    const account = await createTestMailAccount(db, {
+      userId,
+      oauth: { accessToken: "mail-token" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId: account.connectedAccountId, facet: "calendar" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "facet_not_supported" });
+  });
+
+  it("409s facet_already_connected when the Facet already has a row", async () => {
+    const app = buildTestApp({ adapter: facetAdapter() });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: true });
+    const account = await createTestMailAccount(db, {
+      userId,
+      oauth: { accessToken: "mail-token" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      // Mail is already a Facet on every Mail Account's own Connected Account.
+      payload: { connectedAccountId: account.connectedAccountId, facet: "mail" },
+    });
+
+    // `facet` isn't even a `GrantableFacetKind` — rejected at the wire boundary.
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("404s when the Connected Account doesn't belong to this User", async () => {
+    const app = buildTestApp({ adapter: facetAdapter() });
+    const { cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: true });
+    const otherUsersAccount = await createTestMailAccount(db, {
+      oauth: { accessToken: "mail-token" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId: otherUsersAccount.connectedAccountId, facet: "calendar" },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("GET /auth/oauth/:provider/callback — add_facet (#202)", () => {
+  function callbackUrl(params: Record<string, string>): string {
+    return `/auth/oauth/google/callback?${new URLSearchParams(params).toString()}`;
+  }
+
+  const CORE_SCOPE = "https://provider.test/calendar";
+
+  function facetAdapter(exchange?: (input: ExchangeCodeInput) => Promise<ProviderGrant>) {
+    return fakeAdapter({
+      facetGrantScopes: () => ({
+        requestScopes: [CORE_SCOPE, "openid", "email"],
+        coreScope: CORE_SCOPE,
+      }),
+      includeGrantedScopesOnFacetGrant: true,
+      exchange,
+    });
+  }
+
+  async function startFacetGrant(
+    app: ReturnType<typeof buildTestApp>,
+    cookie: string,
+    connectedAccountId: string,
+  ) {
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/oauth/google/start",
+      headers: { cookie },
+      payload: { connectedAccountId, facet: "calendar" },
+    });
+    return stateFrom(response.json().authorizationUrl);
+  }
+
+  it("widens the credential, adds an active Facet row, and reports facet_added — Mail's own token is untouched", async () => {
+    const app = buildTestApp({
+      adapter: facetAdapter(async () =>
+        fakeGrant({
+          accessToken: "calendar-access-token",
+          scope: [CORE_SCOPE, "openid", "email"],
+          emailAddress: "vic@gmail.com",
+        }),
+      ),
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "vic@gmail.com",
+      oauth: { accessToken: "mail-access-token" },
+    });
+    const state = await startFacetGrant(app, cookie, account.connectedAccountId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("facet_added");
+
+    const facets = await db
+      .select()
+      .from(connectedAccountFacets)
+      .where(eq(connectedAccountFacets.connectedAccountId, account.connectedAccountId));
+    expect(facets.map((f) => f.kind).sort()).toEqual(["calendar", "mail"]);
+    expect(facets.find((f) => f.kind === "calendar")?.status).toBe("active");
+
+    const connectedAccount = await getConnectedAccountById(db, account.connectedAccountId);
+    if (!connectedAccount) throw new Error("expected the Connected Account to still exist");
+    const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
+    // Google mints one access token good for every scope on the Grant, so
+    // the widen's fresh token *replaces* the "default" audience's own entry
+    // rather than adding a sibling — and, since it came from an
+    // `include_granted_scopes=true` exchange, it is still good for Mail too
+    // (ADR-0022's own "the account's mail keeps working across the whole
+    // flow"), just not something this fake-adapter test can observe beyond
+    // the fact that nothing threw unsealing it.
+    expect(
+      unsealOAuthAccessToken(
+        connectedAccount.credential,
+        "default",
+        account.connectedAccountId,
+        key,
+      ),
+    ).toBe("calendar-access-token");
+  });
+
+  it("refuses a mismatched identity distinctly from a reauth mismatch, changing nothing", async () => {
+    const app = buildTestApp({
+      adapter: facetAdapter(async () =>
+        fakeGrant({
+          scope: [CORE_SCOPE, "openid", "email"],
+          emailAddress: "someone-else@gmail.com",
+        }),
+      ),
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "vic@gmail.com",
+      oauth: { accessToken: "mail-access-token" },
+    });
+    const state = await startFacetGrant(app, cookie, account.connectedAccountId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("facet_grant_address_mismatch");
+    const facets = await db
+      .select()
+      .from(connectedAccountFacets)
+      .where(eq(connectedAccountFacets.connectedAccountId, account.connectedAccountId));
+    expect(facets.map((f) => f.kind)).toEqual(["mail"]);
+  });
+
+  it("writes no Facet row when the consent screen came back without the Facet's own scope — a partial decline", async () => {
+    const app = buildTestApp({
+      adapter: facetAdapter(async () =>
+        fakeGrant({
+          // The User unchecked Calendar at the consent screen — only identity scopes came back.
+          scope: ["openid", "email"],
+          emailAddress: "vic@gmail.com",
+        }),
+      ),
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "vic@gmail.com",
+      oauth: { accessToken: "mail-access-token" },
+    });
+    const state = await startFacetGrant(app, cookie, account.connectedAccountId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: callbackUrl({ code: "c", state }),
+      headers: { cookie },
+    });
+
+    expect(outcomeOf(response.headers.location as string)).toBe("facet_grant_incomplete");
+    const facets = await db
+      .select()
+      .from(connectedAccountFacets)
+      .where(eq(connectedAccountFacets.connectedAccountId, account.connectedAccountId));
+    expect(facets.map((f) => f.kind)).toEqual(["mail"]);
+  });
+
+  it("reports invalid_state when the Connected Account was deleted between starting and the callback", async () => {
+    const app = buildTestApp({
+      adapter: facetAdapter(async () =>
+        fakeGrant({ scope: [CORE_SCOPE, "openid", "email"], emailAddress: "vic@gmail.com" }),
+      ),
+    });
+    const { userId, cookie } = await createUserWithCookie();
+    await registerGoogle({ calendarApiEnabled: true, contactsApiEnabled: false });
+    const account = await createTestMailAccount(db, {
+      userId,
+      emailAddress: "vic@gmail.com",
+      oauth: { accessToken: "mail-access-token" },
+    });
+    const state = await startFacetGrant(app, cookie, account.connectedAccountId);
+    // Cascades: deletes the Mail Facet and Mail Account row too, the same
+    // way a Connected Account removal (#206) will.
+    await db.delete(connectedAccounts).where(eq(connectedAccounts.id, account.connectedAccountId));
 
     const response = await app.inject({
       method: "GET",

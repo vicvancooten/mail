@@ -30,12 +30,19 @@ const MESSAGES: Record<OAuthSignInOutcome, string> = {
   // ADR-0021: an M365 tenant blocked this — never worth a retry, so unlike
   // every failure above, this message doesn't invite one.
   tenant_refused: "Refused by your organisation. Ask your IT admin about IMAP access or consent.",
+  // #202: turning on a Calendar or Contacts Facet.
+  facet_added: "Connected. The Facet is turned on now.",
+  facet_grant_address_mismatch:
+    "That account doesn't match this identity. Sign in with the matching account instead.",
+  facet_grant_incomplete:
+    "The consent screen came back without full access — nothing was turned on. Try again and allow the full permission.",
 };
 
 /** The outcomes that leave the account list stale — a new row, or a replaced credential. */
 const SUCCESS_OUTCOMES: ReadonlySet<OAuthSignInOutcome> = new Set([
   "signed_in",
   "reauth_succeeded",
+  "facet_added",
 ]);
 
 export interface SignInOutcome {
