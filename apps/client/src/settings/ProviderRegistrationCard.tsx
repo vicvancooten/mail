@@ -83,6 +83,12 @@ export function ProviderRegistrationCard({
   const steps = PROVIDER_STEPS[provider];
   const registered = health.status !== "not_registered";
   const editing = !registered || replacing;
+  // #205: the flat Mail Account/Needs Reauth pair this card used to read
+  // straight off `health` now lives as the Mail Facet's own entry in
+  // `health.facets` — always present (`buildFacetHealth`'s own doc comment).
+  const mailFacet = health.facets.find((facet) => facet.facet === "mail");
+  const mailAccountCount = mailFacet?.connectedAccountCount ?? 0;
+  const needsReauthCount = mailFacet?.parkedCount ?? 0;
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
@@ -164,8 +170,8 @@ export function ProviderRegistrationCard({
 
       {registered && (
         <p className="provider-counts">
-          {health.mailAccountCount} Mail Account{health.mailAccountCount === 1 ? "" : "s"}
-          {health.needsReauthCount > 0 && `, ${health.needsReauthCount} Needs Reauth`}
+          {mailAccountCount} Mail Account{mailAccountCount === 1 ? "" : "s"}
+          {needsReauthCount > 0 && `, ${needsReauthCount} Needs Reauth`}
         </p>
       )}
 

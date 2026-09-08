@@ -1728,6 +1728,53 @@ export const providerRegistrations = pgTable("provider_registrations", {
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
 
 /**
+ * Provider Health's per-Facet reading (#205, ADR-0022's "Provider Health
+ * gains a per-Facet reading (ever granted, currently honoured, API
+ * enabled)") — one row per (Provider, Facet) that ever mattered, keyed
+ * `${provider}-${facet}` the same way `connected_account_facets` keys a
+ * Facet row to its account. Distinct from `providerRegistrations`'
+ * whole-Provider `lastRefreshAt`/`lastRefreshError` above: those stay the
+ * Mail Facet's own refresh loop's fact (#118, unchanged by this ticket),
+ * this is the per-Facet breakdown `routes/instance.ts#buildProviderHealth`
+ * now reports instead of a flat Mail-only pair.
+ *
+ * `firstGrantedAt` is stamped once, the first time this Facet is ever
+ * granted at this Provider — `routes/oauth-signin.ts`'s `signed_in` and
+ * `facet_added` outcomes — and never overwritten again, so it answers "has
+ * a Grant ever been obtained through this Facet" for good.
+ * `lastRefreshAt`/`lastRefreshError` mirror a refresh attempt the same way
+ * the whole-Provider pair does; today only the Mail Facet's refresh loop
+ * writes them (`mail-accounts/grant-refresh.ts`), so Calendar/Contacts stay
+ * null until a sync engine for either exists to attempt one.
+ * `apiNotEnabled` is the *runtime-detected* twin of
+ * `providerRegistrations.calendarApiEnabled`/`contactsApiEnabled` above —
+ * those are the Owner's own unvalidated declaration gating whether a
+ * consent flow is even offered; this is "a refresh actually came back
+ * 403-not-enabled", cleared the moment the next refresh succeeds, same
+ * convention as `lastRefreshError`. Nothing sets it yet — no Facet's sync
+ * loop calls the Provider's Calendar/People API today — so it stays `false`
+ * until one exists to report a 403 through it.
+ */
+export const providerFacetHealth = pgTable(
+  "provider_facet_health",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider", { enum: ["google", "microsoft"] }).notNull(),
+    facet: text("facet", { enum: ["mail", "calendar", "contacts"] }).notNull(),
+    firstGrantedAt: timestamp("first_granted_at", { withTimezone: true }),
+    lastRefreshAt: timestamp("last_refresh_at", { withTimezone: true }),
+    lastRefreshError: text("last_refresh_error"),
+    apiNotEnabled: boolean("api_not_enabled").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("provider_facet_health_provider_facet_key").on(table.provider, table.facet),
+  ],
+);
+export type ProviderFacetHealthRow = typeof providerFacetHealth.$inferSelect;
+
+/**
  * One in-flight "Sign in with Google" (#116, ADR-0021): the state that has
  * to survive the full-page round trip to the Provider and back, and nothing
  * more. Written by `POST /auth/oauth/:provider/start`, consumed — deleted —

@@ -23,6 +23,7 @@ import {
   oauthSignInAttempts,
   passkeyCredentials,
   protocolWrites,
+  providerFacetHealth,
   providerRegistrations,
   pushSubscriptions,
   sessions,
@@ -99,5 +100,6 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(connectedAccountFacets);
   await db.delete(connectedAccounts);
   await db.delete(providerRegistrations);
+  await db.delete(providerFacetHealth);
   await db.delete(users);
 }

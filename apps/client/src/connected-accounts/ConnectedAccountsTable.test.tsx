@@ -1,9 +1,33 @@
+import type { ProviderHealth } from "@mail/shared";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as oauthSigninApi from "../api/oauth-signin.js";
 import { makeConnectedAccount, makeMailAccount } from "../test-support/mail-fixtures.js";
 import { ConnectedAccountsTable } from "./ConnectedAccountsTable.js";
+
+function providerHealthFixture(overrides: Partial<ProviderHealth> = {}): ProviderHealth {
+  return {
+    provider: "google",
+    status: "working",
+    redirectUri: "https://mail.example.com/auth/oauth/google/callback",
+    clientIdPreview: "abc-client-id",
+    lastRefreshAt: null,
+    lastRefreshError: null,
+    calendarApiEnabled: false,
+    contactsApiEnabled: false,
+    facets: (["mail", "calendar", "contacts"] as const).map((facet) => ({
+      facet,
+      everGranted: facet === "mail",
+      connectedAccountCount: facet === "mail" ? 1 : 0,
+      parkedCount: 0,
+      lastRefreshAt: null,
+      lastRefreshError: null,
+      apiNotEnabled: false,
+    })),
+    ...overrides,
+  };
+}
 
 vi.mock("../api/oauth-signin.js", () => ({
   fetchProviderAvailability: vi.fn(async () => ({
@@ -98,6 +122,83 @@ describe("the table's shape", () => {
     const googleRow = screen.getByRole("rowheader", { name: "Google" }).closest("tr");
     if (!googleRow) throw new Error("expected a Google row");
     expect(within(googleRow).getAllByText("+")).toHaveLength(3);
+  });
+});
+
+/**
+ * The Owner-only Provider Health dot (#205, ADR-0022): "present, not
+ * prominent" beside a Provider's own name, never shown to a Member and
+ * never for CalDAV/CardDAV or Other IMAP, which have no Provider
+ * Registration to have health for.
+ */
+describe("the Provider Health dot", () => {
+  it("shows a dot for an Owner beside a Registered Provider's name", () => {
+    render(
+      <ConnectedAccountsTable
+        connectedAccounts={[]}
+        mailAccounts={[]}
+        isOwner
+        focusConnectedAccountId={null}
+        focusFacet={null}
+        providerHealth={new Map([["google", providerHealthFixture()]])}
+      />,
+    );
+
+    const googleRow = screen.getByRole("rowheader", { name: /Google/ }).closest("tr");
+    if (!googleRow) throw new Error("expected a Google row");
+    expect(within(googleRow).getByRole("button", { name: "Google Provider Health" })).toBeDefined();
+  });
+
+  it("shows no dot for a Member, even with Provider Health available", () => {
+    render(
+      <ConnectedAccountsTable
+        connectedAccounts={[]}
+        mailAccounts={[]}
+        isOwner={false}
+        focusConnectedAccountId={null}
+        focusFacet={null}
+        providerHealth={new Map([["google", providerHealthFixture()]])}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Google Provider Health" })).toBeNull();
+  });
+
+  it("shows no dot for a Provider that hasn't reported health yet, or for CalDAV/CardDAV and Other IMAP", () => {
+    render(
+      <ConnectedAccountsTable
+        connectedAccounts={[]}
+        mailAccounts={[]}
+        isOwner
+        focusConnectedAccountId={null}
+        focusFacet={null}
+        providerHealth={new Map([["google", providerHealthFixture()]])}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Microsoft Provider Health" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "CalDAV/CardDAV Provider Health" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Other IMAP Provider Health" })).toBeNull();
+  });
+
+  it("opens a Popover naming every Facet's own reading", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConnectedAccountsTable
+        connectedAccounts={[]}
+        mailAccounts={[]}
+        isOwner
+        focusConnectedAccountId={null}
+        focusFacet={null}
+        providerHealth={new Map([["google", providerHealthFixture()]])}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Google Provider Health" }));
+
+    expect(await screen.findByText("Google Provider Health")).toBeDefined();
+    expect(screen.getByText(/Granted · 1 connected/)).toBeDefined();
+    expect(screen.getAllByText(/Never granted/)).toHaveLength(2);
   });
 });
 

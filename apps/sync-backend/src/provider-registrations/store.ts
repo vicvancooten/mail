@@ -1,8 +1,9 @@
 import type { RegisteredProvider } from "@mail/shared";
-import { and, count, eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import type { SealedSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { connectedAccounts, providerRegistrations } from "../db/schema.js";
+import { recordFacetRefreshOutcome } from "./facet-health-store.js";
 
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
 
@@ -82,6 +83,11 @@ export async function deleteProviderRegistration(
  * Needs Reauth, not a fact about the Provider as a whole, and a single
  * revoked Grant shouldn't flip a whole Provider to Failing while every other
  * account on it keeps refreshing fine.
+ *
+ * Also stamps the Mail Facet's own `provider_facet_health` row (#205) —
+ * today's only refresh loop is Mail's, so this is the one call site that
+ * keeps the per-Facet breakdown `routes/instance.ts#buildProviderHealth`
+ * reports agreeing with the whole-Provider pair above for the Mail Facet.
  */
 export async function recordProviderRefreshOutcome(
   db: Db,
@@ -92,6 +98,7 @@ export async function recordProviderRefreshOutcome(
     .update(providerRegistrations)
     .set({ lastRefreshAt: new Date(), lastRefreshError: error, updatedAt: new Date() })
     .where(eq(providerRegistrations.provider, provider));
+  await recordFacetRefreshOutcome(db, provider, "mail", { error });
 }
 
 /**
@@ -111,18 +118,5 @@ export async function countMailAccountsForProvider(
     .select({ value: count() })
     .from(connectedAccounts)
     .where(eq(connectedAccounts.provider, provider));
-  return row?.value ?? 0;
-}
-
-export async function countNeedsReauthMailAccountsForProvider(
-  db: Db,
-  provider: RegisteredProvider,
-): Promise<number> {
-  const [row] = await db
-    .select({ value: count() })
-    .from(connectedAccounts)
-    .where(
-      and(eq(connectedAccounts.provider, provider), eq(connectedAccounts.status, "needs_reauth")),
-    );
   return row?.value ?? 0;
 }

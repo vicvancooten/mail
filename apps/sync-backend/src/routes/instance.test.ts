@@ -225,10 +225,13 @@ describe("GET /instance/health", () => {
           status: "not_registered",
           redirectUri: "https://mail.example.com/auth/oauth/google/callback",
           clientIdPreview: null,
-          mailAccountCount: 0,
-          needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+          facets: [
+            { facet: "mail", everGranted: false, connectedAccountCount: 0, parkedCount: 0 },
+            { facet: "calendar", everGranted: false, connectedAccountCount: 0, parkedCount: 0 },
+            { facet: "contacts", everGranted: false, connectedAccountCount: 0, parkedCount: 0 },
+          ],
         },
         {
           provider: "microsoft",

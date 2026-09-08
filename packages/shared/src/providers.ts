@@ -20,6 +20,17 @@ export const registeredProviderSchema = z.enum(REGISTERED_PROVIDERS);
 export type RegisteredProvider = z.infer<typeof registeredProviderSchema>;
 
 /**
+ * Which thing a Connected Account is turned on for (#199, ADR-0022,
+ * CONTEXT.md's Facet). `mail` is the one every Connected Account created by
+ * today's add-a-Mail-Account flows already carries; `calendar`/`contacts`
+ * are Calendar and Contacts' own doors (#201+). Lives here rather than
+ * `connected-accounts.ts` (which re-exports it) so `providerFacetHealthSchema`
+ * below can use it without a circular import.
+ */
+export const connectedAccountFacetKindSchema = z.enum(["mail", "calendar", "contacts"]);
+export type ConnectedAccountFacetKind = z.infer<typeof connectedAccountFacetKindSchema>;
+
+/**
  * `PUT /instance/providers/:provider` (#115, ADR-0021): the Owner pastes
  * these once, without a restart. `clientSecret` is write-only from here on —
  * it never comes back in any response (ADR-0003's same rule for a Mail
@@ -76,13 +87,42 @@ export const providerStatusSchema = z.enum([
 export type ProviderStatus = z.infer<typeof providerStatusSchema>;
 
 /**
+ * One Facet's own health at one Provider (#205, ADR-0022's "Provider Health
+ * gains a per-Facet reading") — `db/schema.ts#providerFacetHealth`'s wire
+ * shape, plus the two counts derived from `connected_account_facets`
+ * (`provider-registrations/facet-health-store.ts#countConnectedAccountsForProviderFacet`)
+ * that used to be `ProviderHealth`'s own flat `mailAccountCount`/
+ * `needsReauthCount` before this ticket — the Mail Facet's own entry here is
+ * where those two numbers now live. `everGranted` is `firstGrantedAt !==
+ * null`, so a Client never has to parse the timestamp just to answer "has
+ * this ever worked". `apiNotEnabled` is the runtime-detected twin of
+ * `ProviderHealth.calendarApiEnabled`/`contactsApiEnabled` below — always
+ * `false` for the Mail Facet, which needs no Provider-side API to be
+ * switched on.
+ */
+export const providerFacetHealthSchema = z.object({
+  facet: connectedAccountFacetKindSchema,
+  everGranted: z.boolean(),
+  connectedAccountCount: z.int().nonnegative(),
+  parkedCount: z.int().nonnegative(),
+  lastRefreshAt: z.iso.datetime().nullable(),
+  lastRefreshError: z.string().nullable(),
+  apiNotEnabled: z.boolean(),
+});
+export type ProviderFacetHealth = z.infer<typeof providerFacetHealthSchema>;
+
+/**
  * One Provider's entry in `GET /instance/health`'s `providers` section
- * (#115, #118, CONTEXT.md's Provider Health) — the same shape `PUT
+ * (#115, #118, #205, CONTEXT.md's Provider Health) — the same shape `PUT
  * /instance/providers/:provider` hands back for the one Provider it just
- * saved. `lastRefreshAt` is the last refresh attempt's time regardless of
- * outcome (`routes/instance.ts` derives `working`/`failing` from whether
- * `lastRefreshError` is set alongside it); both stay null until the first
- * attempt.
+ * saved. `lastRefreshAt`/`lastRefreshError` are the whole-Provider pair
+ * (#118: every Mail Facet refresh attempt across every Connected Account on
+ * it); `routes/instance.ts` derives `working`/`failing` from whether
+ * `lastRefreshError` is set alongside it, both stay null until the first
+ * attempt. `facets` is the per-Facet breakdown (#205), always carrying
+ * exactly `mail`, `calendar` and `contacts` in that order, replacing the
+ * flat `mailAccountCount`/`needsReauthCount` this shape used to carry — the
+ * Mail Facet's own entry in `facets` is where those two numbers live now.
  */
 export const providerHealthSchema = z.object({
   provider: registeredProviderSchema,
@@ -91,13 +131,12 @@ export const providerHealthSchema = z.object({
   redirectUri: z.string(),
   /** The registered client ID, verbatim — never the secret. Null before a Registration exists. */
   clientIdPreview: z.string().nullable(),
-  mailAccountCount: z.int().nonnegative(),
-  needsReauthCount: z.int().nonnegative(),
   lastRefreshAt: z.iso.datetime().nullable(),
   lastRefreshError: z.string().nullable(),
   /** ADR-0022's per-Facet Provider Health reading: the Owner's own declaration, `false` before a Registration exists. */
   calendarApiEnabled: z.boolean(),
   contactsApiEnabled: z.boolean(),
+  facets: z.array(providerFacetHealthSchema),
 });
 export type ProviderHealth = z.infer<typeof providerHealthSchema>;
 

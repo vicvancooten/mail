@@ -1,5 +1,7 @@
+import type { ProviderHealth } from "@mail/shared";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchInstanceInfo } from "../api/instance.js";
 import { AddFacetControl } from "../connected-accounts/AddFacetControl.js";
 import {
   type AccountFocus,
@@ -48,6 +50,11 @@ export function ConnectedAccountsPage() {
 
   const [signInOutcome, setSignInOutcome] = useState<SignInOutcome | null>(null);
   const [focus, setFocus] = useState<AccountFocus | null>(null);
+  // Provider Health (#205, ADR-0022): Owner-only, so never fetched for a
+  // Member — `GET /instance/health` itself 403s them anyway
+  // (`routes/instance.ts`), but there's no reason to even try. `null` while
+  // loading or on a Member; `ConnectedAccountsTable` renders no dot either way.
+  const [providerHealth, setProviderHealth] = useState<Map<string, ProviderHealth> | null>(null);
 
   // The two query-string arrivals this page has to read once and then
   // scrub (#116's `?oauth=`, #201/#204's own `?account=&facet=`) — both
@@ -64,6 +71,23 @@ export function ConnectedAccountsPage() {
       clearAccountFocus();
     }
   }, []);
+
+  useEffect(() => {
+    if (!isOwner) return;
+    let cancelled = false;
+    void fetchInstanceInfo()
+      .then((info) => {
+        if (cancelled) return;
+        setProviderHealth(new Map(info.providers.map((health) => [health.provider, health])));
+      })
+      .catch(() => {
+        // Provider Health is a nice-to-have dot, not a page-blocking fact —
+        // leaving it `null` just means no dot renders this load.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner]);
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
@@ -94,6 +118,7 @@ export function ConnectedAccountsPage() {
             isOwner={isOwner}
             focusConnectedAccountId={focus?.connectedAccountId ?? null}
             focusFacet={focus?.facet ?? null}
+            providerHealth={providerHealth}
           />
           <div className="flex flex-wrap gap-2">
             <AddFacetControl
