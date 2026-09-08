@@ -6,6 +6,7 @@ import {
   defaultStyleSpecs,
 } from "@blocknote/core";
 import { en } from "@blocknote/core/locales";
+import { createThreadLinkBlockSpec } from "./thread-link-block.js";
 
 /**
  * The Note editor's own BlockNote schema (#191, ADR-0024): exactly the "In"
@@ -43,9 +44,11 @@ export const noteSchema = BlockNoteSchema.create({
     // `tables.splitCells` editor option that merging (and un-merging)
     // requires, so a Note's tables can never grow one.
     table: defaultBlockSpecs.table,
-    // Thread Link (#195) isn't registered here — its props are declared in
-    // `packages/shared/src/notes.ts`, but the BlockNote block spec that
-    // renders and inserts it is #195's own slice.
+    // Thread Link (#195): the one block that references mail
+    // (`thread-link-block.tsx`'s own doc comment) — its props were declared
+    // in `packages/shared/src/notes.ts` by #191, this is the slice that
+    // renders and inserts it.
+    threadLink: createThreadLinkBlockSpec(),
   },
   styleSpecs: {
     bold: defaultStyleSpecs.bold,

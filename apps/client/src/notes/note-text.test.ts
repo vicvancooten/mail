@@ -98,6 +98,22 @@ describe("flattenBlockText", () => {
     expect(flattenBlockText(paragraph(""))).toBe("");
   });
 
+  it("reads a Thread Link's own subject as text, its snapshot's only text-like prop (#195)", () => {
+    const block: NoteBlock = {
+      id: "b1",
+      type: "threadLink",
+      props: {
+        threadId: "t1",
+        subject: "Quarterly numbers",
+        participants: "Ada Lovelace",
+        date: "2026-06-25T09:00:00.000Z",
+      },
+      children: [],
+    };
+
+    expect(flattenBlockText(block)).toBe("Quarterly numbers");
+  });
+
   it("is empty for an opaque block whose content this app doesn't recognise", () => {
     const block: NoteBlock = {
       id: "b1",

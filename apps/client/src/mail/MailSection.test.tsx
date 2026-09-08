@@ -8,7 +8,7 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
-import { enqueueUserMutation, useMailAccounts } from "../store/index.js";
+import { enqueueUserMutation, readNote, useMailAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
@@ -295,6 +295,33 @@ describe("MailSection", () => {
     // in production), landing on Stream's own route.
     expect(onOpenStream).toHaveBeenCalledOnce();
     expect(document.querySelector(".split-view")).not.toBeNull();
+  });
+
+  it('"Add to Notes" (#195) creates the Note at once and hands its id to onNoteCreated', async () => {
+    await seedCachedMail();
+    stubFetch(never);
+    const onNoteCreated = vi.fn();
+
+    renderMail({ onNoteCreated });
+    await screen.findByText("Last state");
+    fireEvent.keyDown(window, { key: "j" });
+    await screen.findByRole("button", { name: "Add to Notes" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Notes" }));
+
+    await waitFor(() => expect(onNoteCreated).toHaveBeenCalledOnce());
+    const noteId = onNoteCreated.mock.calls[0]?.[0] as string;
+    const note = await readNote(noteId);
+    expect(note?.document).toMatchObject([
+      { type: "paragraph", content: [{ type: "text", text: "Last state", styles: {} }] },
+      { type: "threadLink", props: { threadId: "t1", subject: "Last state" } },
+    ]);
+
+    // The same Undo path every other structural action gets (ADR-0019):
+    // Undo enqueues `deleteNote`'s own inverse intent, removing the row.
+    expect(await screen.findByText("Added to Notes")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(async () => expect(await readNote(noteId)).toBeUndefined());
   });
 
   it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {

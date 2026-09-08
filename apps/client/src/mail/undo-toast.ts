@@ -24,7 +24,14 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * visible toast to click in the meantime.
  */
 
-export type UndoableActionKind = "done" | "trash" | "snooze" | "block" | "deny" | "discard";
+export type UndoableActionKind =
+  | "done"
+  | "trash"
+  | "snooze"
+  | "block"
+  | "deny"
+  | "discard"
+  | "addToNotes";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -38,6 +45,8 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   deny: { one: "Returned", many: (count) => `${count} returned` },
   // Discard (#101) — `Composer.tsx`'s own explicit Discard button.
   discard: { one: "Draft discarded", many: (count) => `${count} drafts discarded` },
+  // "Add to Notes" (#195) — `mail/MailSection.tsx`'s own `onAddToNotes` handler.
+  addToNotes: { one: "Added to Notes", many: (count) => `${count} added to Notes` },
 };
 
 interface Bucket {

@@ -68,6 +68,7 @@ export {
 } from "./mutation-queue.js";
 export {
   createNote,
+  createNoteFromThreadLink,
   deleteNote,
   labelNote,
   listQueuedNoteSaves,
@@ -77,6 +78,7 @@ export {
   readNotes,
   resolveNoteSaveOutcomes,
   saveNoteBody,
+  type ThreadLinkSnapshot,
   toWireNoteSave,
   unlabelNote,
   unpinNote,
@@ -89,6 +91,7 @@ export {
   readLabels,
   readMailAccounts,
   readPreference,
+  readRecentThreadsForLinking,
   readScreenerSenders,
   readSearchPrefilter,
   readThreadWindow,
@@ -102,6 +105,7 @@ export {
   useLabels,
   useMailAccounts,
   usePreference,
+  useRecentThreadsForLinking,
   useScreenerSenders,
   useSearchPrefilter,
   useSearchResultThreads,

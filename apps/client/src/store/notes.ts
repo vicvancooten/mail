@@ -69,6 +69,57 @@ export async function createNote(id: string): Promise<void> {
   await enqueueUserMutation({ type: "createNote", noteId: id });
 }
 
+/** One Thread's worth of snapshot — `createNoteFromThreadLink`'s own input, already flattened to the primitive props a Thread Link block's `propSchema` can hold (`packages/shared/src/notes.ts`'s own doc comment: BlockNote prop types are primitives only). The caller (`mail/MailSection.tsx`'s `onAddToNotes`) derives these from a `CachedThread` the same way `ThreadDetailPane.tsx` already does for display — this function stays Thread-shape-agnostic. */
+export interface ThreadLinkSnapshot {
+  threadId: string;
+  subject: string;
+  participants: string;
+  date: string;
+}
+
+/**
+ * "Add to Notes" (#195): a Note created *around* a Thread Link, in one shot
+ * — no intermediate sheet, unlike a future "Add to Tasks" (the ticket's own
+ * framing). Rides `createNote`'s own optimistic-with-a-real-inverse shape
+ * (ADR-0019) for the structural half, then immediately overwrites the empty
+ * body through `saveNoteBody` (the `noteSaves` channel, #192) with the
+ * paragraph + Thread Link the ticket asks for — the paragraph carries the
+ * Thread's subject as its first block, editable, which is exactly what
+ * `note-text.ts#deriveNoteTitle` reads until the User changes it.
+ *
+ * The caller is still the one that announces Undo
+ * (`mail/undo-toast.ts#announceUndoableAction`, `deleteNote` as the
+ * inverse) — this function only builds the Note, the same "component wires
+ * the toast, the store stays store" split `DraftsView.tsx`'s own Delete
+ * already draws.
+ */
+export async function createNoteFromThreadLink(snapshot: ThreadLinkSnapshot): Promise<string> {
+  const id = newNoteId();
+  await createNote(id);
+  const document: NoteDocument = [
+    {
+      id: generateUlid(),
+      type: "paragraph",
+      props: {},
+      content: snapshot.subject ? [{ type: "text", text: snapshot.subject, styles: {} }] : [],
+      children: [],
+    },
+    {
+      id: generateUlid(),
+      type: "threadLink",
+      props: {
+        threadId: snapshot.threadId,
+        subject: snapshot.subject,
+        participants: snapshot.participants,
+        date: snapshot.date,
+      },
+      children: [],
+    },
+  ];
+  await saveNoteBody(id, document);
+  return id;
+}
+
 /**
  * Deletes a Note (#192): permanent, the real inverse of `createNote`
  * (ADR-0019) — not the future soft-delete/Recently Deleted feature (#194).

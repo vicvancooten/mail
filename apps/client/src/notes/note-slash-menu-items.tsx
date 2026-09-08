@@ -6,6 +6,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Link2,
   List,
   ListChecks,
   ListOrdered,
@@ -46,6 +47,16 @@ const ICONS: Record<string, ComponentType<{ size?: number }>> = {
  * the one item that isn't schema-conditional is `emoji` (it opens a `:`
  * suggestion menu unrelated to any block type), which this app doesn't wire
  * up at all, so it's dropped explicitly.
+ *
+ * Thread Link (#195) is the one entry BlockNote's own
+ * `getDefaultSlashMenuItems` can never produce — it only knows its own
+ * built-in block types, never a custom one this app registers
+ * (`note-schema.ts`) — so it's appended by hand here instead of picked up
+ * automatically. Unlike every other item, its `onItemClick` doesn't insert
+ * anything itself: a Thread Link's props are a whole Thread's snapshot,
+ * which nothing at slash-menu-click time knows yet, so this only opens the
+ * picker (`ThreadLinkPickerDialog.tsx`, mounted once by `NoteEditor.tsx`)
+ * that does the actual, deferred insert once a Thread is chosen.
  */
 export function getNoteSlashMenuItems(
   editor: BlockNoteEditor<
@@ -53,11 +64,28 @@ export function getNoteSlashMenuItems(
     typeof noteSchema.inlineContentSchema,
     typeof noteSchema.styleSchema
   >,
+  onOpenThreadLinkPicker: () => void,
 ): DefaultReactSuggestionItem[] {
-  return getDefaultSlashMenuItems(editor)
+  // Explicitly `DefaultReactSuggestionItem[]`, not inferred from the `.map`
+  // callback's own return type (`DefaultSuggestionItem & {icon}`, which
+  // still carries BlockNote's own dictionary-keyed `key`) — the
+  // hand-written Thread Link item below has no such `key` (there is no
+  // dictionary entry for a custom block), and `DefaultReactSuggestionItem`
+  // itself never requires one.
+  const items: DefaultReactSuggestionItem[] = getDefaultSlashMenuItems(editor)
     .filter((item) => item.key !== "emoji")
     .map((item) => {
       const Icon = ICONS[item.key];
       return { ...item, icon: Icon ? <Icon size={18} /> : undefined };
     });
+
+  items.push({
+    title: "Thread Link",
+    subtext: "Link a mail Thread",
+    aliases: ["thread", "mail", "link"],
+    icon: <Link2 size={18} />,
+    onItemClick: onOpenThreadLinkPicker,
+  });
+
+  return items;
 }

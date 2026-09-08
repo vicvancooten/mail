@@ -170,13 +170,23 @@ const tableBlockSchema = z.looseObject({
 });
 
 /**
- * Thread Link (#195): the block a Note's "Add to Notes" (Reader) inserts,
- * pointing back at a Thread. Its shape is declared here — this ticket's
- * prefactor role — but the BlockNote block spec that renders and inserts it
- * is #195's own; there is no `threadLink` entry in this app's editor schema
- * (`apps/client/src/notes/`) until that slice lands. A Note holding one
- * already still round-trips fine through the checked shape below regardless
- * of which slice wrote it.
+ * Thread Link (#195): the block "Add to Notes" (the Reader) inserts,
+ * pointing back at a Thread. `props` carries the whole **snapshot** —
+ * `subject`, `participants` (already flattened to one display string, the
+ * same join `ThreadDetailPane.tsx` renders) and `date` (the Thread's
+ * `lastMessageAt`, ISO) — plus `threadId` itself, so the block still reads
+ * correctly after the Thread it names is deleted: nothing here is ever
+ * re-read from mail to render (this ticket's own "never a live mail
+ * excerpt"). BlockNote's own prop types are primitives only (no nested
+ * array/object), which is what makes `participants` a pre-joined string
+ * rather than the Thread's own `ThreadParticipant[]`.
+ *
+ * `content` is `undefined` (BlockNote's own `content: "none"` blocks never
+ * carry one — `nodeToBlock.ts`'s own conversion), not the inline-content
+ * array every text-bearing block above has: there is nothing here for a
+ * User to type into, so there is nothing for BlockNote to serialise as this
+ * block's own content. The BlockNote block spec that renders and inserts it
+ * lives in `apps/client/src/notes/thread-link-block.tsx`.
  */
 const threadLinkBlockSchema = z.looseObject({
   id: z.string(),
@@ -184,8 +194,11 @@ const threadLinkBlockSchema = z.looseObject({
   props: z.looseObject({
     ...defaultBlockPropsShape,
     threadId: z.string(),
+    subject: z.string(),
+    participants: z.string(),
+    date: z.string(),
   }),
-  content: textBlockContent,
+  content: z.undefined().optional(),
   children: z.array(noteBlockSchema),
 });
 

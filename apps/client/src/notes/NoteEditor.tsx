@@ -1,5 +1,5 @@
 import type { PartialBlock } from "@blocknote/core";
-import { filterSuggestionItems } from "@blocknote/core/extensions";
+import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core/extensions";
 // BlockNote's own structural CSS (block layout, nesting, code/table
 // rendering) — the part of its chrome this app doesn't hand-write itself.
 // Loaded ahead of `note-editor.css`, which retargets the `--bn-*` custom
@@ -21,11 +21,13 @@ import {
 } from "@blocknote/react";
 import type { NoteDocument } from "@mail/shared";
 import { Tooltip } from "radix-ui";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { CachedThread } from "../store/index.js";
 import { noteComponents } from "./note-components.js";
 import "./note-editor.css";
 import { noteDictionary, noteSchema } from "./note-schema.js";
 import { getNoteSlashMenuItems } from "./note-slash-menu-items.js";
+import { ThreadLinkPickerDialog } from "./ThreadLinkPickerDialog.js";
 
 /**
  * The one place a Note's block document is opened or closed — never a
@@ -68,10 +70,35 @@ export function NoteEditor({ document, editable = true, onChange, className }: N
     >[],
   });
 
+  // The Thread Link slash item's own picker (#195, `ThreadLinkPickerDialog.tsx`'s
+  // own doc comment) — gated on `editable` the same way the picker itself
+  // is: a read-only preview (`NoteCard.tsx`'s grid) never opens a slash
+  // menu in the first place (typing is disabled), so mounting one live-query
+  // subscription per card on the grid would be pure waste.
+  const [threadLinkPickerOpen, setThreadLinkPickerOpen] = useState(false);
+
   const getSlashMenuItems = useMemo(
-    () => async (query: string) => filterSuggestionItems(getNoteSlashMenuItems(editor), query),
+    () => async (query: string) =>
+      filterSuggestionItems(
+        getNoteSlashMenuItems(editor, () => setThreadLinkPickerOpen(true)),
+        query,
+      ),
     [editor],
   );
+
+  const pickThreadLink = (thread: CachedThread) => {
+    insertOrUpdateBlockForSlashMenu(editor, {
+      type: "threadLink",
+      props: {
+        threadId: thread.id,
+        subject: thread.subject,
+        participants:
+          thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)",
+        date: thread.lastMessageAt ?? new Date().toISOString(),
+      },
+    });
+    setThreadLinkPickerOpen(false);
+  };
 
   return (
     <Tooltip.Provider delayDuration={300}>
@@ -87,6 +114,13 @@ export function NoteEditor({ document, editable = true, onChange, className }: N
           <SideMenuController sideMenu={NoteSideMenu} />
           <SuggestionMenuController triggerCharacter="/" getItems={getSlashMenuItems} />
         </BlockNoteViewRaw>
+        {editable ? (
+          <ThreadLinkPickerDialog
+            open={threadLinkPickerOpen}
+            onOpenChange={setThreadLinkPickerOpen}
+            onPick={pickThreadLink}
+          />
+        ) : null}
       </ComponentsContext.Provider>
     </Tooltip.Provider>
   );

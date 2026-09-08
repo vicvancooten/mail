@@ -16,6 +16,7 @@ import {
   readLabels,
   readMailAccounts,
   readPreference,
+  readRecentThreadsForLinking,
   readThreadWindow,
   THREAD_PAGE_SIZE,
 } from "./reads.js";
@@ -310,6 +311,57 @@ describe("readThreadWindow — Pin (#43)", () => {
     );
 
     expect((await readThreadWindow("acct-1", { view: "pinned" })).threads).toEqual([]);
+  });
+});
+
+describe("readRecentThreadsForLinking (#195, the Thread Link picker)", () => {
+  it("reads across every Mail Account at once, newest first — no Account Scope", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { lastMessageAt: minutesAfterEpoch(1) })] }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { lastMessageAt: minutesAfterEpoch(5) })] }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForLinking();
+
+    expect(threads.map((thread) => thread.id)).toEqual(["t2", "t1"]);
+  });
+
+  it("excludes Trash and Junk, the same 'left every folder-scoped view' rule readThreadWindow's other cross-folder views follow", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("kept", "acct-1"),
+          makeThread("trashed", "acct-1", { folderRole: "trash" }),
+          makeThread("junked", "acct-1", { folderRole: "junk" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForLinking();
+
+    expect(threads.map((thread) => thread.id)).toEqual(["kept"]);
+  });
+
+  it("caps at the given limit", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: Array.from({ length: 5 }, (_, index) =>
+          makeThread(`t${index}`, "acct-1", { lastMessageAt: minutesAfterEpoch(index) }),
+        ),
+      }),
+      { replace: false },
+    );
+
+    expect(await readRecentThreadsForLinking(2)).toHaveLength(2);
   });
 });
 

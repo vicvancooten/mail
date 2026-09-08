@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { noteDictionary, noteSchema } from "./note-schema.js";
 
 describe("noteSchema", () => {
-  it("registers exactly the In column's block types", () => {
+  it("registers exactly the In column's block types, plus Thread Link (#195)", () => {
     expect(Object.keys(noteSchema.blockSchema).sort()).toEqual(
       [
         "paragraph",
@@ -13,8 +13,13 @@ describe("noteSchema", () => {
         "quote",
         "codeBlock",
         "table",
+        "threadLink",
       ].sort(),
     );
+  });
+
+  it("gives Thread Link no editable content — a snapshot chip, never a live mail excerpt", () => {
+    expect(noteSchema.blockSchema.threadLink.content).toBe("none");
   });
 
   it("restricts headings to levels 1-3, with no toggle-heading prop", () => {

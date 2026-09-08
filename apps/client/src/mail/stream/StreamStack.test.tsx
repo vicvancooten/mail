@@ -92,10 +92,10 @@ async function seedTwoThreads(): Promise<void> {
   );
 }
 
-function renderStream(onLeave: () => void = () => {}) {
+function renderStream(onLeave: () => void = () => {}, onNoteCreated?: (noteId: string) => void) {
   return render(
     <AuthProvider>
-      <StreamStack onLeave={onLeave} />
+      <StreamStack onLeave={onLeave} onNoteCreated={onNoteCreated} />
       <Toaster />
     </AuthProvider>,
   );
@@ -178,5 +178,17 @@ describe("StreamStack (#105)", () => {
 
     expect(onLeave).toHaveBeenCalledOnce();
     expect(await listQueuedMutations("acct-1")).toEqual([]);
+  });
+
+  it('"Add to Notes" (#195) works from the top card, the same real wiring Mail\'s own reader gets — not a stub', async () => {
+    await seedTwoThreads();
+    const onNoteCreated = vi.fn();
+    renderStream(() => {}, onNoteCreated);
+    await screen.findByText("Newer thread");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Notes" }));
+
+    await waitFor(() => expect(onNoteCreated).toHaveBeenCalledOnce());
+    expect(await screen.findByText("Added to Notes")).toBeDefined();
   });
 });

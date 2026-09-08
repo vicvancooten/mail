@@ -75,8 +75,12 @@ describe("noteDocumentSchema", () => {
       {
         id: "b9",
         type: "threadLink",
-        props: { threadId: "thread-1" },
-        content: [],
+        props: {
+          threadId: "thread-1",
+          subject: "Quarterly numbers",
+          participants: "Ada Lovelace, Grace Hopper",
+          date: "2026-06-25T09:00:00.000Z",
+        },
         children: [],
       },
     ];

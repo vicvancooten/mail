@@ -45,6 +45,15 @@ function flattenInlineContent(content: readonly NoteInlineContent[]): string {
  * has no text of its own.
  */
 export function flattenBlockText(block: NoteBlock): string {
+  // Thread Link (#195) has no `content` at all (`content: "none"` — see
+  // `packages/shared/src/notes.ts`'s own doc comment) — its text-bearing
+  // equivalent is the snapshot's own `subject` prop, the same "reads as
+  // text like any block" the ticket asks of a Checklist item or a table's
+  // first cell.
+  if (block.type === "threadLink") {
+    const subject = block.props.subject;
+    return typeof subject === "string" ? subject : "";
+  }
   const { content } = block;
   if (Array.isArray(content)) return flattenInlineContent(content);
   if (isTableContent(content)) {
