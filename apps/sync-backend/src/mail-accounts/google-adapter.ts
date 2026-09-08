@@ -59,10 +59,20 @@ const GMAIL_CONNECTION: { imap: MailAccountConnection; smtp: MailAccountConnecti
 /** Google reports a revoked or expired refresh token as exactly this, and everything else as something else. */
 const WITHDRAWN_ERROR = "invalid_grant";
 
+/** Google's revoke endpoint (#206, ADR-0029): takes either the refresh or access token and answers 200 for both an active and an already-revoked Grant alike. */
+const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
+
 const TOKEN_EXCHANGE: TokenExchangeConfig = {
   providerName: "Google",
   tokenEndpoint: TOKEN_ENDPOINT,
   fallbackScopes: GOOGLE_SCOPES,
+};
+
+/** `postForm`'s own config shape, reused for the revoke endpoint even though nothing here ever reads `fallbackScopes` back out. */
+const REVOKE_EXCHANGE: TokenExchangeConfig = {
+  providerName: "Google",
+  tokenEndpoint: REVOKE_ENDPOINT,
+  fallbackScopes: [],
 };
 
 export const googleProviderAdapter: ProviderAdapter = {
@@ -164,6 +174,16 @@ export const googleProviderAdapter: ProviderAdapter = {
       expiresAt: expiresAtFrom(payload),
       scope: scopeFrom(TOKEN_EXCHANGE, payload),
     } satisfies ProviderRefreshResult;
+  },
+
+  /**
+   * Best-effort (#206, ADR-0029): the caller (`routes/connected-accounts.ts`)
+   * already treats a thrown `OAuthTokenError` — an already-revoked Grant, a
+   * network blip, Google being unreachable — as "nothing left to revoke",
+   * never as a reason to fail the removal itself.
+   */
+  async revoke(refreshToken) {
+    await postForm(REVOKE_EXCHANGE, { token: refreshToken });
   },
 };
 

@@ -171,11 +171,12 @@ describe("an existing account's Facet Badge", () => {
 });
 
 /**
- * The dashed "+" per cell (#201, #202): Mail's already has a working add
- * flow (`AddMailAccountForm`); Calendar and Contacts turn on for Google or
- * Microsoft by incremental consent against an already-connected identity
- * (#202) — CalDAV/CardDAV's own add flow is #203's separate door, so its
- * cells still only name what will eventually serve them.
+ * The dashed "+" per cell (#201, #202, #203): Mail's already has a working
+ * add flow (`AddMailAccountForm`); every Calendar/Contacts "+" — whichever
+ * row it sits in — opens the same Popover offering every Provider that can
+ * serve the Facet: Google/Microsoft turn on by incremental consent against
+ * an already-connected identity (#202), CalDAV/CardDAV opens its own
+ * server/username/password flow (#203).
  */
 describe("the add control", () => {
   it("opens the real Add a Mail Account flow in the Mail column", async () => {
@@ -198,7 +199,7 @@ describe("the add control", () => {
     expect(await screen.findByRole("heading", { name: "Add a Mail Account" })).toBeDefined();
   });
 
-  it("names the future Provider for the CalDAV/CardDAV row's Calendar cell instead of a working flow", async () => {
+  it("opens CalDAV/CardDAV's own working flow from the DAV row's Calendar cell", async () => {
     const user = userEvent.setup();
     render(
       <ConnectedAccountsTable
@@ -215,7 +216,7 @@ describe("the add control", () => {
     if (!calendarAdd) throw new Error("expected an add control in the Calendar cell");
     await user.click(calendarAdd);
 
-    expect(await screen.findByText(/Not available yet/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "CalDAV/CardDAV" })).toBeDefined();
   });
 
   it("offers Google's already-connected Mail identity as a Calendar candidate (#202)", async () => {
@@ -254,6 +255,9 @@ describe("the add control", () => {
     if (!calendarAdd) throw new Error("expected an add control in the Calendar cell");
     await user.click(calendarAdd);
 
+    // Google's own real flow (#202) lists the qualifying identity, alongside
+    // CalDAV/CardDAV's own working flow (#203) in the same Popover.
     expect(await screen.findByRole("button", { name: "vic@gmail.com" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "CalDAV/CardDAV" })).toBeDefined();
   });
 });

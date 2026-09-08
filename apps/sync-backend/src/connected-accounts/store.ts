@@ -1,4 +1,4 @@
-import type { ConnectedAccount } from "@mail/shared";
+import type { ConnectedAccount, DavFacet } from "@mail/shared";
 import { and, asc, eq, gt, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { connectedAccountFacets, connectedAccounts } from "../db/schema.js";
@@ -96,11 +96,27 @@ export async function getConnectedAccountById(
   return row ?? null;
 }
 
+/** Scoped by User — ownership is the only authorization primitive (ADR-0004), the same guard `mail-accounts/store.ts#getMailAccountForUser` applies. */
+export async function getConnectedAccountForUser(
+  db: Db,
+  userId: string,
+  id: string,
+): Promise<ConnectedAccountRow | null> {
+  const [row] = await db
+    .select()
+    .from(connectedAccounts)
+    .where(and(eq(connectedAccounts.id, id), eq(connectedAccounts.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
 /**
- * Whether a Connected Account already carries this Facet, any status (#202):
- * the guard the `add_facet` start route uses to refuse re-offering a consent
- * flow for a Facet already turned on — re-granting it is a Fix flow (#204),
- * not this one.
+ * Whether a Connected Account already carries a given Facet, any status —
+ * the guard `POST /connected-accounts/:id/caldav-facets` runs before
+ * discovery (#203, so turning on an already-on Facet fails fast rather than
+ * re-running discovery for nothing) and the guard the `add_facet` start
+ * route runs before offering a consent flow (#202: re-granting an
+ * already-connected Facet is a Fix flow, #204's, not this one).
  */
 export async function connectedAccountHasFacet(
   db: Db,
@@ -117,7 +133,82 @@ export async function connectedAccountHasFacet(
       ),
     )
     .limit(1);
-  return Boolean(row);
+  return row !== undefined;
+}
+
+/** Discovery's own findings (`dav-discovery.ts#DavDiscoveryResult`'s `ok: true` branch) — what both CalDAV write paths below stamp onto a Facet row. */
+export interface CalDavDiscoveryFields {
+  principalUrl: string;
+  homeSetUrl: string;
+  supportsScheduling: boolean;
+}
+
+export interface InsertCalDavAccountInput {
+  id: string;
+  userId: string;
+  /** The raw entered value, kept verbatim so turning on a second Facet re-runs discovery against the same input rather than a value discovery itself resolved (`serverAddress` on the Connected Account row, #203). */
+  serverAddress: string;
+  /** Also `connected_accounts.identity` — CalDAV/CardDAV's identity is the entered username, not the server address (`db/schema.ts#connectedAccounts`'s own doc comment). */
+  username: string;
+  credential: ConnectedAccountCredential;
+  facet: DavFacet;
+  discovery: CalDavDiscoveryFields;
+}
+
+/**
+ * Creates a brand-new CalDAV/CardDAV Connected Account and its first Facet,
+ * atomically (#203) — the "server address, username, app password, then
+ * discovery, then the account exists" flow's write path. Mirrors
+ * `mail-accounts/store.ts#insertMailAccount`'s shape (a fresh identity every
+ * time this is called); turning on a *second* Facet on an account this
+ * already created is `insertCalDavFacet` below, never this function again.
+ */
+export async function insertCalDavAccount(db: Db, input: InsertCalDavAccountInput): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.insert(connectedAccounts).values({
+      id: input.id,
+      userId: input.userId,
+      provider: "caldav_carddav",
+      identity: input.username,
+      credential: input.credential,
+      status: "active",
+      serverAddress: input.serverAddress,
+      daveUsername: input.username,
+    });
+    await tx.insert(connectedAccountFacets).values({
+      id: `${input.id}-${input.facet}`,
+      connectedAccountId: input.id,
+      kind: input.facet,
+      status: "active",
+      davPrincipalUrl: input.discovery.principalUrl,
+      davHomeSetUrl: input.discovery.homeSetUrl,
+      davSupportsScheduling: input.discovery.supportsScheduling,
+    });
+  });
+}
+
+/**
+ * Turning on the second Facet on an already-connected CalDAV/CardDAV account
+ * (#203's own acceptance criterion: "runs discovery only and never asks for
+ * the password again") — the caller has already re-run discovery against the
+ * account's existing `serverAddress`/`daveUsername` and its stored
+ * credential; this just writes the new Facet row.
+ */
+export async function insertCalDavFacet(
+  db: Db,
+  connectedAccountId: string,
+  facet: DavFacet,
+  discovery: CalDavDiscoveryFields,
+): Promise<void> {
+  await db.insert(connectedAccountFacets).values({
+    id: `${connectedAccountId}-${facet}`,
+    connectedAccountId,
+    kind: facet,
+    status: "active",
+    davPrincipalUrl: discovery.principalUrl,
+    davHomeSetUrl: discovery.homeSetUrl,
+    davSupportsScheduling: discovery.supportsScheduling,
+  });
 }
 
 /**

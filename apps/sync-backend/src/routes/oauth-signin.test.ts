@@ -438,6 +438,7 @@ describe("GET /auth/oauth/:provider/callback", () => {
     const syncManager: SyncManager = {
       start: startSync,
       restart: async () => {},
+      stop: async () => {},
       stopAll: async () => {},
     };
     const app = buildTestApp({ adapter: fakeAdapter({ seen }), syncManager });
@@ -778,7 +779,12 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
 
   it("replaces the credential on the same Mail Account id when the address matches, sets active, restarts sync, and reports reauth_succeeded", async () => {
     const restart = vi.fn(async () => {});
-    const syncManager: SyncManager = { start: vi.fn(), restart, stopAll: async () => {} };
+    const syncManager: SyncManager = {
+      start: vi.fn(),
+      restart,
+      stop: async () => {},
+      stopAll: async () => {},
+    };
     const app = buildTestApp({
       adapter: fakeAdapter({ exchange: async () => fakeGrant({ emailAddress: "vic@gmail.com" }) }),
       syncManager,
@@ -809,7 +815,7 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
     const restart = vi.fn(async () => {});
     const app = buildTestApp({
       adapter: fakeAdapter({ exchange: async () => fakeGrant({ emailAddress: "vic@gmail.com" }) }),
-      syncManager: { start: vi.fn(), restart, stopAll: async () => {} },
+      syncManager: { start: vi.fn(), restart, stop: async () => {}, stopAll: async () => {} },
     });
     const { userId, cookie } = await createUserWithCookie();
     await registerGoogle();
@@ -835,7 +841,7 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
       adapter: fakeAdapter({
         exchange: async () => fakeGrant({ emailAddress: "someone-else@gmail.com" }),
       }),
-      syncManager: { start: vi.fn(), restart, stopAll: async () => {} },
+      syncManager: { start: vi.fn(), restart, stop: async () => {}, stopAll: async () => {} },
     });
     const { userId, cookie } = await createUserWithCookie();
     await registerGoogle();

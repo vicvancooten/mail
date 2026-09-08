@@ -1,7 +1,6 @@
 import type {
   ConnectedAccount,
   ConnectedAccountFacetKind,
-  GrantableFacetKind,
   Provider,
   ProviderAvailability,
 } from "@mail/shared";
@@ -19,6 +18,7 @@ import {
 import { fetchProviderAvailability, startFacetGrant } from "../api/oauth-signin.js";
 import { AddMailAccountForm } from "../mail-accounts/AddMailAccountForm.js";
 import { PROVIDER_LABEL } from "../mail-accounts/provider-labels.js";
+import { AddCalDavFacetForm } from "./AddCalDavFacetForm.js";
 import { describeFacetUnavailable } from "./facet-unavailable.js";
 import { FACET_LABEL, PROVIDER_TABLE_LABEL, providersServingFacet } from "./provider-table.js";
 
@@ -30,21 +30,22 @@ function isOAuthProvider(provider: Provider): provider is OAuthProvider {
 
 /**
  * The add-a-Facet door (#201, #172 Variant C; #202's real Calendar/Contacts
- * flow). A dashed "+" per table cell, and — with `variant="button"` — the
- * below-table entry point phrased in Facets ("Add a mail account" / "Add a
- * calendar" / "Add contacts") rather than Provider or protocol names (#201's
- * own acceptance criterion). Mail keeps its own form (`AddMailAccountForm`,
- * unchanged since #116/#119); Calendar and Contacts turn on by incremental
- * consent against an identity the User has *already* connected — never a
- * second sign-in, per #202's own acceptance criteria — so this needs the
- * User's full Connected Account list to know which identities qualify.
+ * flow; #203's CalDAV/CardDAV flow): a dashed "+" per table cell, and — with
+ * `variant="button"` — the below-table entry point phrased in Facets ("Add a
+ * mail account" / "Add a calendar" / "Add contacts") rather than Provider or
+ * protocol names (#201's own acceptance criterion). Neither a cell's
+ * Provider row nor the below-table button distinguishes which Provider
+ * actually serves the request — `AddMailAccountForm` always opens on its
+ * own Google/Microsoft/Other choice regardless of which Mail cell's "+"
+ * opened it, and Calendar/Contacts follow the same shape
+ * (`CalendarContactsFacetContent`): every Provider that can serve the Facet
+ * gets its own section in the same Popover, whichever row's "+" opened it.
  */
 export function AddFacetControl({
   facet,
   isOwner,
   variant = "badge",
   label,
-  provider,
   connectedAccounts = [],
   navigate = (url) => window.location.assign(url),
 }: {
@@ -53,17 +54,9 @@ export function AddFacetControl({
   variant?: "badge" | "button";
   /** Only used by `variant="button"` — the below-table entry point's own wording. */
   label?: string;
-  /**
-   * Scopes the Popover to one Provider's own identities — always given by a
-   * table cell (its row is one Provider). Omitted by the below-table
-   * button, which shows every Provider serving this Facet at once. Ignored
-   * for `facet === "mail"`; a non-OAuth Provider (CalDAV/CardDAV) renders a
-   * not-yet-available notice instead of the real flow — #203's own door.
-   */
-  provider?: Provider;
-  /** The User's full Connected Account list (#202) — only read for Calendar/Contacts, to find identities that don't already carry the Facet. */
+  /** Every Connected Account this User has (#202, #203) — lets a Calendar/Contacts "+" list identities that qualify (Google/Microsoft: don't already carry the Facet; CalDAV/CardDAV: attach a second Facet) instead of asking for credentials again. Unused for `facet === "mail"`. */
   connectedAccounts?: ConnectedAccount[];
-  /** The one step that leaves the app, injectable the same way `ProviderSignInChoice` already is. */
+  /** The one step that leaves the app for a Google/Microsoft consent flow, injectable the same way `ProviderSignInChoice` already is. */
   navigate?: (url: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -84,18 +77,16 @@ export function AddFacetControl({
           </Button>
         )}
       </PopoverTrigger>
-      <PopoverContent className={facet === "mail" ? "w-96" : "w-80"}>
+      <PopoverContent className="w-96">
         {facet === "mail" ? (
           <AddMailAccountForm isOwner={isOwner} onAdded={() => setOpen(false)} />
-        ) : provider && !isOAuthProvider(provider) ? (
-          <NotYetAvailableFacetNotice facet={facet} provider={provider} />
         ) : (
-          <GrantFacetNotice
+          <CalendarContactsFacetContent
             facet={facet}
             isOwner={isOwner}
-            provider={provider}
             connectedAccounts={connectedAccounts}
             navigate={navigate}
+            onAdded={() => setOpen(false)}
           />
         )}
       </PopoverContent>
@@ -104,54 +95,28 @@ export function AddFacetControl({
 }
 
 /**
- * The CalDAV/CardDAV row's own Calendar/Contacts cell (#201's original
- * scope note, unchanged by #202): a real column, but nothing this ticket
- * can turn on — CalDAV/CardDAV discovery and consent are #203's separate
- * door.
+ * Calendar/Contacts' own door: a Provider choice, mirroring
+ * `ProviderSignInChoice`'s own shape for Mail. CalDAV/CardDAV (#203) is a
+ * button that swaps the whole Popover for `AddCalDavFacetForm`'s
+ * server/username/password flow; Google and Microsoft (#202) turn on by
+ * incremental consent against an identity the User has *already*
+ * connected — never a second sign-in — rendered inline, side by side with
+ * CalDAV/CardDAV's own button, since neither needs a form step first.
  */
-function NotYetAvailableFacetNotice({
-  facet,
-  provider,
-}: {
-  facet: GrantableFacetKind;
-  provider: Exclude<Provider, OAuthProvider>;
-}) {
-  return (
-    <>
-      <PopoverHeader>
-        <PopoverTitle>Add {FACET_LABEL[facet].toLowerCase()}</PopoverTitle>
-      </PopoverHeader>
-      <PopoverDescription>
-        Not available yet — {FACET_LABEL[facet]} will connect through{" "}
-        {PROVIDER_TABLE_LABEL[provider]}.
-      </PopoverDescription>
-    </>
-  );
-}
-
-/**
- * Calendar/Contacts' own Popover body (#202): one section per Provider that
- * can serve this Facet — Google and Microsoft only, CalDAV/CardDAV's own
- * add flow is #203's separate door — each listing the User's connected
- * identities at that Provider which don't already carry the Facet.
- * Fetches Provider availability itself (`fetchProviderAvailability`, the
- * same call `ProviderSignInChoice` makes) since a Member needs to see a
- * Facet as unavailable without being Owner-only Provider Health.
- */
-function GrantFacetNotice({
+function CalendarContactsFacetContent({
   facet,
   isOwner,
-  provider,
   connectedAccounts,
   navigate,
+  onAdded,
 }: {
-  facet: GrantableFacetKind;
+  facet: Extract<ConnectedAccountFacetKind, "calendar" | "contacts">;
   isOwner: boolean;
-  /** Non-OAuth Providers never reach here — `AddFacetControl` renders `NotYetAvailableFacetNotice` for those instead. */
-  provider?: Provider;
   connectedAccounts: ConnectedAccount[];
   navigate: (url: string) => void;
+  onAdded: () => void;
 }) {
+  const [chosenCalDav, setChosenCalDav] = useState(false);
   const [availability, setAvailability] = useState<ProviderAvailability[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -170,7 +135,11 @@ function GrantFacetNotice({
     };
   }, []);
 
-  const providers = (provider ? [provider] : providersServingFacet(facet)).filter(isOAuthProvider);
+  if (chosenCalDav) {
+    return (
+      <AddCalDavFacetForm facet={facet} connectedAccounts={connectedAccounts} onAdded={onAdded} />
+    );
+  }
 
   async function handlePick(pickedProvider: OAuthProvider, connectedAccountId: string) {
     setError(null);
@@ -198,81 +167,98 @@ function GrantFacetNotice({
         </p>
       )}
       <div className="flex flex-col gap-3">
-        {availability &&
-          providers.map((oneProvider) => {
-            const entry = availability.find((candidate) => candidate.provider === oneProvider);
-            const providerLabel = PROVIDER_LABEL[oneProvider];
-
-            if (!entry?.available) {
-              const unavailable = describeFacetUnavailable(
-                facet,
-                oneProvider,
-                entry?.unavailableReason ?? "not_registered",
-                isOwner,
-              );
-              return (
-                <FacetProviderSection
-                  key={oneProvider}
-                  label={providerLabel}
-                  unavailable={unavailable}
-                />
-              );
-            }
-
-            const apiEnabled =
-              facet === "calendar" ? entry.calendarApiEnabled : entry.contactsApiEnabled;
-            if (!apiEnabled) {
-              const unavailable = describeFacetUnavailable(
-                facet,
-                oneProvider,
-                "api_disabled",
-                isOwner,
-              );
-              return (
-                <FacetProviderSection
-                  key={oneProvider}
-                  label={providerLabel}
-                  unavailable={unavailable}
-                />
-              );
-            }
-
-            const atProvider = connectedAccounts.filter(
-              (account) => account.provider === oneProvider,
-            );
-            const candidates = atProvider.filter(
-              (account) => !account.facets.some((candidate) => candidate.kind === facet),
-            );
-
+        {providersServingFacet(facet).map((provider) => {
+          if (provider === "caldav_carddav") {
             return (
-              <section key={oneProvider} className="flex flex-col gap-1.5">
-                <h4 className="text-sm font-medium text-foreground">{providerLabel}</h4>
-                {atProvider.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Connect {providerLabel} for Mail first.
-                  </p>
-                ) : candidates.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Every {providerLabel} account already has {FACET_LABEL[facet].toLowerCase()}.
-                  </p>
-                ) : (
-                  candidates.map((account) => (
-                    <Button
-                      key={account.id}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="justify-start"
-                      disabled={startingId !== null}
-                      onClick={() => void handlePick(oneProvider, account.id)}
-                    >
-                      {account.identity}
-                    </Button>
-                  ))
-                )}
-              </section>
+              <Button
+                key={provider}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setChosenCalDav(true)}
+              >
+                {PROVIDER_TABLE_LABEL[provider]}
+              </Button>
             );
-          })}
+          }
+          if (!isOAuthProvider(provider) || !availability) {
+            return null;
+          }
+
+          const oneProvider = provider;
+          const entry = availability.find((candidate) => candidate.provider === oneProvider);
+          const providerLabel = PROVIDER_LABEL[oneProvider];
+
+          if (!entry?.available) {
+            const unavailable = describeFacetUnavailable(
+              facet,
+              oneProvider,
+              entry?.unavailableReason ?? "not_registered",
+              isOwner,
+            );
+            return (
+              <FacetProviderSection
+                key={oneProvider}
+                label={providerLabel}
+                unavailable={unavailable}
+              />
+            );
+          }
+
+          const apiEnabled =
+            facet === "calendar" ? entry.calendarApiEnabled : entry.contactsApiEnabled;
+          if (!apiEnabled) {
+            const unavailable = describeFacetUnavailable(
+              facet,
+              oneProvider,
+              "api_disabled",
+              isOwner,
+            );
+            return (
+              <FacetProviderSection
+                key={oneProvider}
+                label={providerLabel}
+                unavailable={unavailable}
+              />
+            );
+          }
+
+          const atProvider = connectedAccounts.filter(
+            (account) => account.provider === oneProvider,
+          );
+          const candidates = atProvider.filter(
+            (account) => !account.facets.some((candidate) => candidate.kind === facet),
+          );
+
+          return (
+            <section key={oneProvider} className="flex flex-col gap-1.5">
+              <h4 className="text-sm font-medium text-foreground">{providerLabel}</h4>
+              {atProvider.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Connect {providerLabel} for Mail first.
+                </p>
+              ) : candidates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Every {providerLabel} account already has {FACET_LABEL[facet].toLowerCase()}.
+                </p>
+              ) : (
+                candidates.map((account) => (
+                  <Button
+                    key={account.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="justify-start"
+                    disabled={startingId !== null}
+                    onClick={() => void handlePick(oneProvider, account.id)}
+                  >
+                    {account.identity}
+                  </Button>
+                ))
+              )}
+            </section>
+          );
+        })}
       </div>
     </>
   );

@@ -12,11 +12,13 @@ vi.mock("../api/oauth-signin.js", () => ({
 }));
 
 /**
- * Calendar/Contacts' real turn-on flow (#202): the "+" lists the User's
- * already-connected identities at a Provider and starts a consent flow for
- * one — never a second sign-in, never a speculative permission. Mail's own
- * flow (`AddMailAccountForm`) is unchanged and covered by
- * `ConnectedAccountsTable.test.tsx`.
+ * Calendar/Contacts' real turn-on flow (#202) alongside CalDAV/CardDAV's own
+ * (#203), both offered from the same Popover regardless of which row's "+"
+ * opened it (`ConnectedAccountsTable.test.tsx` covers that wiring). Google
+ * and Microsoft: the "+" lists the User's already-connected identities at a
+ * Provider and starts a consent flow for one — never a second sign-in,
+ * never a speculative permission. Mail's own flow (`AddMailAccountForm`) is
+ * unchanged and covered by `ConnectedAccountsTable.test.tsx`.
  */
 
 function available(overrides: Partial<ProviderAvailability> = {}): ProviderAvailability {
@@ -28,6 +30,10 @@ function available(overrides: Partial<ProviderAvailability> = {}): ProviderAvail
     contactsApiEnabled: true,
     ...overrides,
   } as ProviderAvailability;
+}
+
+function mockAvailability(...entries: ProviderAvailability[]) {
+  vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({ providers: entries });
 }
 
 afterEach(() => {
@@ -43,10 +49,11 @@ async function openPopover(triggerText = "+") {
 
 describe("a Provider that isn't set up on this instance", () => {
   it("shows the same ask-the-Owner wording a Member sees for Mail", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [{ provider: "google", available: false, unavailableReason: "not_registered" }],
-    });
-    render(<AddFacetControl facet="calendar" isOwner={false} provider="google" />);
+    mockAvailability(
+      { provider: "google", available: false, unavailableReason: "not_registered" },
+      available({ provider: "microsoft" }),
+    );
+    render(<AddFacetControl facet="calendar" isOwner={false} />);
     await openPopover();
 
     expect(
@@ -57,10 +64,11 @@ describe("a Provider that isn't set up on this instance", () => {
 
 describe("a Provider registered but not enabled for this Facet", () => {
   it("shows a Facet-specific ask-the-Owner message, distinct from an unregistered Provider", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [available({ calendarApiEnabled: false })],
-    });
-    render(<AddFacetControl facet="calendar" isOwner={false} provider="google" />);
+    mockAvailability(
+      available({ provider: "google", calendarApiEnabled: false }),
+      available({ provider: "microsoft" }),
+    );
+    render(<AddFacetControl facet="calendar" isOwner={false} />);
     await openPopover();
 
     expect(
@@ -69,10 +77,11 @@ describe("a Provider registered but not enabled for this Facet", () => {
   });
 
   it("gives the Owner a link to the Instance page instead", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [available({ contactsApiEnabled: false })],
-    });
-    render(<AddFacetControl facet="contacts" isOwner provider="google" />);
+    mockAvailability(
+      available({ provider: "google", contactsApiEnabled: false }),
+      available({ provider: "microsoft" }),
+    );
+    render(<AddFacetControl facet="contacts" isOwner />);
     await openPopover();
 
     const link = await screen.findByRole("link", { name: "set it up on the Instance page" });
@@ -82,21 +91,15 @@ describe("a Provider registered but not enabled for this Facet", () => {
 
 describe("a Facet whose API is enabled", () => {
   it("says to connect the Provider for Mail first when the User has no identity there yet", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [available()],
-    });
-    render(
-      <AddFacetControl facet="calendar" isOwner={false} provider="google" connectedAccounts={[]} />,
-    );
+    mockAvailability(available({ provider: "google" }), available({ provider: "microsoft" }));
+    render(<AddFacetControl facet="calendar" isOwner={false} connectedAccounts={[]} />);
     await openPopover();
 
     expect(await screen.findByText("Connect Google for Mail first.")).toBeDefined();
   });
 
   it("says every account already has the Facet when none qualify", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [available()],
-    });
+    mockAvailability(available({ provider: "google" }), available({ provider: "microsoft" }));
     const account: ConnectedAccount = {
       ...makeConnectedAccount("acct-1"),
       facets: [
@@ -104,40 +107,28 @@ describe("a Facet whose API is enabled", () => {
         { kind: "calendar", status: "active" },
       ],
     };
-    render(
-      <AddFacetControl
-        facet="calendar"
-        isOwner={false}
-        provider="google"
-        connectedAccounts={[account]}
-      />,
-    );
+    render(<AddFacetControl facet="calendar" isOwner={false} connectedAccounts={[account]} />);
     await openPopover();
 
     expect(await screen.findByText("Every Google account already has calendar.")).toBeDefined();
   });
 
   it("lists an identity that doesn't yet carry the Facet, and starts its consent flow on click", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [available()],
-    });
+    mockAvailability(available({ provider: "google" }), available({ provider: "microsoft" }));
     vi.mocked(oauthSigninApi.startFacetGrant).mockResolvedValue({
       authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar",
     });
     const navigate = vi.fn();
     const account = makeConnectedAccount("acct-1", { identity: "vic@gmail.com" });
-    const user = await (async () => {
-      render(
-        <AddFacetControl
-          facet="calendar"
-          isOwner={false}
-          provider="google"
-          connectedAccounts={[account]}
-          navigate={navigate}
-        />,
-      );
-      return openPopover();
-    })();
+    render(
+      <AddFacetControl
+        facet="calendar"
+        isOwner={false}
+        connectedAccounts={[account]}
+        navigate={navigate}
+      />,
+    );
+    const user = await openPopover();
 
     const identityButton = await screen.findByRole("button", { name: "vic@gmail.com" });
     await user.click(identityButton);
@@ -149,10 +140,12 @@ describe("a Facet whose API is enabled", () => {
   });
 });
 
-describe("the below-table button variant (no fixed Provider)", () => {
-  it("shows a section per Provider that can serve the Facet", async () => {
-    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValue({
-      providers: [available({ provider: "google" }), available({ provider: "microsoft" })],
+describe("every door in one Popover, regardless of which row's + opened it", () => {
+  it("shows a section per OAuth Provider plus CalDAV/CardDAV's own working flow", async () => {
+    mockAvailability(available({ provider: "google" }), {
+      provider: "microsoft",
+      available: false,
+      unavailableReason: "not_registered",
     });
     render(
       <AddFacetControl
@@ -166,15 +159,7 @@ describe("the below-table button variant (no fixed Provider)", () => {
     await openPopover("Add a calendar");
 
     expect(await screen.findByText("Connect Google for Mail first.")).toBeDefined();
-    expect(await screen.findByText("Connect Microsoft for Mail first.")).toBeDefined();
-  });
-});
-
-describe("a Provider that can never turn on this Facet through this door", () => {
-  it("names the future Provider for CalDAV/CardDAV instead of a working flow", async () => {
-    render(<AddFacetControl facet="calendar" isOwner={false} provider="caldav_carddav" />);
-    await openPopover();
-
-    expect(await screen.findByText(/Not available yet/)).toBeDefined();
+    expect(screen.getByText(/Microsoft isn't set up on this instance/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "CalDAV/CardDAV" })).toBeDefined();
   });
 });
