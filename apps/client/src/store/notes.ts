@@ -34,6 +34,19 @@ export async function readNote(id: string | null): Promise<Note | undefined> {
   return localCache().notes.get(id);
 }
 
+/**
+ * Whether `id` names a Note that's still live — a soft-deleted row (#194)
+ * counts as gone here even though `readNote` still hands it back (the Note
+ * Dialog's own `deletedAt` effect needs that undiminished read to notice a
+ * concurrent delete arriving while it's open). Route guards that must treat
+ * "deleted" the same as "never existed" — `notesNoteRoute`'s deep-link
+ * check in `routes.tsx` — want this instead of `readNote`.
+ */
+export async function noteExists(id: string): Promise<boolean> {
+  const note = await localCache().notes.get(id);
+  return note !== undefined && note.deletedAt === null;
+}
+
 /** Every Note the signed-in User holds, most recently updated first, minus anything in Recently Deleted (#194) — the whole of what a minimal "demonstrate the collection" list needs; the real grid is #193's. */
 export function useNotes(): Note[] | undefined {
   return useLiveQuery(() => readNotes(), []);
