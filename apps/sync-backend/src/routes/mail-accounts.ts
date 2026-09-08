@@ -9,9 +9,12 @@ import {
   updateMailAccountSignatureRequestSchema,
 } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
+import {
+  deriveCredentialKey,
+  sealPasswordCredential,
+} from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { discoverMailAccount } from "../mail-accounts/autodiscover.js";
-import { deriveCredentialKey, sealPasswordCredential } from "../mail-accounts/credential-crypto.js";
 import {
   getMailAccountForUser,
   insertMailAccount,
@@ -83,14 +86,23 @@ export async function mailAccountRoutes(
     }
 
     const id = randomUUID();
+    const connectedAccountId = randomUUID();
     const row = await insertMailAccount(db, {
       id,
+      connectedAccountId,
       userId: requireUser(request).id,
+      // Other IMAP (CONTEXT.md's glossary): every password Mail Account is
+      // this Provider, Gmail's own app-password door included — ADR-0021's
+      // "selection by server capability, not credential kind" already keeps
+      // `serverKind` off this decision, and ADR-0022 keeps Provider off it
+      // too, so switching to a Grant later is a Provider *change*, not a new
+      // Connected Account (`routes/oauth-signin.ts#finishReauth`).
+      provider: "other_imap",
       emailAddress,
       imap,
       smtp,
       username,
-      credential: sealPasswordCredential(password, id, key),
+      credential: sealPasswordCredential(password, connectedAccountId, key),
       serverKind: result.serverKind,
     });
     syncManager.start(row);
@@ -132,8 +144,9 @@ export async function mailAccountRoutes(
     await replaceMailAccountCredential(
       db,
       id,
+      row.connectedAccountId,
       username,
-      sealPasswordCredential(password, id, key),
+      sealPasswordCredential(password, row.connectedAccountId, key),
       result.serverKind,
     );
     const updated = await getMailAccountForUser(db, requireUser(request).id, id);

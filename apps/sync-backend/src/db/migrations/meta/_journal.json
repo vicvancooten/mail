@@ -288,6 +288,13 @@
       "when": 1788881466703,
       "tag": "0040_tidy_the_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788886205716,
+      "tag": "0041_connected_accounts_and_facets_tables",
+      "breakpoints": true
     }
   ]
 }

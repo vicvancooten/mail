@@ -2,22 +2,23 @@ import { randomUUID } from "node:crypto";
 import {
   OAUTH_SIGN_IN_OUTCOME_PARAM,
   type OAuthSignInOutcome,
-  PROVIDERS,
-  type Provider,
   type ProviderAvailability,
   providerAvailabilityListResponseSchema,
-  providerSchema,
+  REGISTERED_PROVIDERS,
+  type RegisteredProvider,
+  registeredProviderSchema,
   startProviderSignInRequestSchema,
   startProviderSignInResponseSchema,
 } from "@mail/shared";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Db } from "../db/client.js";
-import { buildProviderRedirectUri } from "../instance-info.js";
 import {
   deriveCredentialKey,
+  mailOAuthAudience,
   sealOAuthCredential,
   unsealSecret,
-} from "../mail-accounts/credential-crypto.js";
+} from "../connected-accounts/credential-crypto.js";
+import type { Db } from "../db/client.js";
+import { buildProviderRedirectUri } from "../instance-info.js";
 import { googleProviderAdapter } from "../mail-accounts/google-adapter.js";
 import { microsoftProviderAdapter } from "../mail-accounts/microsoft-adapter.js";
 import type {
@@ -103,7 +104,8 @@ export async function oauthSignInRoutes(
   const key = deriveCredentialKey(mailCredentialKey);
 
   /** The redirect URI must be byte-identical between the authorization request, the token exchange and the Provider's console (#115's `buildProviderRedirectUri`) — one call site, no chance of drift. */
-  const redirectUriFor = (provider: Provider) => buildProviderRedirectUri(publicUrl, provider);
+  const redirectUriFor = (provider: RegisteredProvider) =>
+    buildProviderRedirectUri(publicUrl, provider);
 
   function finish(reply: FastifyReply, outcome: OAuthSignInOutcome) {
     const target = new URL(MAIL_ACCOUNTS_SETTINGS_PATH, publicUrl);
@@ -112,7 +114,11 @@ export async function oauthSignInRoutes(
   }
 
   /** Seals a `ProviderGrant` the same way for a new Mail Account and a reauth'd one — one shape, one call site each. */
-  function sealGrant(grant: ProviderGrant, provider: Provider, id: string) {
+  function sealGrant(
+    grant: ProviderGrant,
+    provider: RegisteredProvider,
+    connectedAccountId: string,
+  ) {
     return sealOAuthCredential(
       {
         provider,
@@ -121,7 +127,8 @@ export async function oauthSignInRoutes(
         expiresAt: grant.expiresAt,
         scope: grant.scope,
       },
-      id,
+      mailOAuthAudience(provider),
+      connectedAccountId,
       key,
     );
   }
@@ -150,7 +157,7 @@ export async function oauthSignInRoutes(
    */
   app.get("/auth/oauth/providers", { preHandler: app.requireAuth }, async () => {
     const providers: ProviderAvailability[] = await Promise.all(
-      PROVIDERS.map(async (provider) => {
+      REGISTERED_PROVIDERS.map(async (provider) => {
         if (!providerAdapters[provider]) {
           return { provider, available: false, unavailableReason: "not_supported" as const };
         }
@@ -223,7 +230,9 @@ export async function oauthSignInRoutes(
     "/auth/oauth/:provider/callback",
     { config: { rateLimit: AUTHORIZATION_RATE_LIMIT } },
     async (request, reply) => {
-      const parsed = providerSchema.safeParse((request.params as { provider?: string }).provider);
+      const parsed = registeredProviderSchema.safeParse(
+        (request.params as { provider?: string }).provider,
+      );
       if (!parsed.success) {
         return finish(reply, "invalid_state");
       }
@@ -341,16 +350,19 @@ export async function oauthSignInRoutes(
       }
 
       const id = randomUUID();
+      const connectedAccountId = randomUUID();
       const row = await insertMailAccount(db, {
         id,
+        connectedAccountId,
         userId: user.id,
+        provider,
         emailAddress,
         imap,
         smtp,
         // Gmail's IMAP/SMTP login *is* the address, and there is no second
         // login to ask for — signing in is the only way this row is created.
         username: emailAddress,
-        credential: sealGrant(grant, provider, id),
+        credential: sealGrant(grant, provider, connectedAccountId),
         serverKind: result.serverKind,
       });
       // "back to the Mail Accounts settings page with the new Gmail account
@@ -372,7 +384,7 @@ export async function oauthSignInRoutes(
     request: FastifyRequest,
     reply: FastifyReply,
     input: {
-      provider: Provider;
+      provider: RegisteredProvider;
       mailAccountId: string | null;
       userId: string;
       emailAddress: string;
@@ -419,8 +431,9 @@ export async function oauthSignInRoutes(
     await replaceMailAccountCredential(
       db,
       account.id,
+      account.connectedAccountId,
       input.emailAddress,
-      sealGrant(input.grant, input.provider, account.id),
+      sealGrant(input.grant, input.provider, account.connectedAccountId),
       result.serverKind,
     );
     // Resumes syncing (#35), the same hook the password reauth route uses —

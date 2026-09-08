@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { ensureClaimToken } from "./auth/claim.js";
 import { startSendLoop } from "./compose/send-loop.js";
+import { upgradeMailAccountsToConnectedAccounts } from "./connected-accounts/boot-upgrade.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
@@ -27,6 +28,13 @@ const env = loadEnv();
 await runMigrations(env.DATABASE_URL, new URL("./db/migrations", import.meta.url).pathname);
 
 const { db, sql } = createDb(env);
+
+// Connected Accounts own the credential (#199, ADR-0022): the rest of this
+// boot's own upgrade, right after the schema migration above and before
+// anything else touches `mail_accounts` — see the function's own doc
+// comment for why this can't be a `.sql` migration file. Fails closed
+// (ADR-0009), same as `runMigrations` itself.
+await upgradeMailAccountsToConnectedAccounts(db, env.MAIL_CREDENTIAL_KEY);
 
 // ADR-0015's fanout: a dedicated `LISTEN` connection (never the pooled one
 // queries run on) turning `migration 0016`'s `pg_notify` into `GET

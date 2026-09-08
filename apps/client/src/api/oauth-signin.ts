@@ -1,7 +1,7 @@
 import {
-  type Provider,
   type ProviderAvailabilityListResponse,
   providerAvailabilityListResponseSchema,
+  type RegisteredProvider,
   type StartProviderSignInResponse,
   startProviderSignInResponseSchema,
 } from "@mail/shared";
@@ -30,7 +30,7 @@ export function fetchProviderAvailability(): Promise<ProviderAvailabilityListRes
  * on that Mail Account, or a password account switching to a Grant.
  */
 export function startProviderSignIn(
-  provider: Provider,
+  provider: RegisteredProvider,
   options?: { mailAccountId?: string },
 ): Promise<StartProviderSignInResponse> {
   return postJson(

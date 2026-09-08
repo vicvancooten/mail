@@ -4,9 +4,9 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession } from "../auth/sessions.js";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { mailAccounts, oauthSignInAttempts, users } from "../db/schema.js";
-import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import type {
   AuthorizationCallbackError,
   AuthorizationUrlInput,
@@ -15,6 +15,7 @@ import type {
   ProviderGrant,
 } from "../mail-accounts/provider-adapter.js";
 import { deriveCodeChallenge } from "../mail-accounts/sign-in-attempts.js";
+import { getMailAccountById, listMailAccountsForUser } from "../mail-accounts/store.js";
 import type { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
 import {
   deleteProviderRegistration,
@@ -423,7 +424,7 @@ describe("GET /auth/oauth/:provider/callback", () => {
     expect(response.statusCode).toBe(302);
     expect(outcomeOf(response.headers.location as string)).toBe("signed_in");
 
-    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.userId, userId));
+    const [row] = await listMailAccountsForUser(db, userId);
     expect(row).toMatchObject({
       // Never typed by the User — this is the fake's identity answer.
       emailAddress: "someone@gmail.com",
@@ -765,7 +766,7 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
 
     expect(outcomeOf(response.headers.location as string)).toBe("reauth_succeeded");
 
-    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    const row = await getMailAccountById(db, account.id);
     // Same id, same row — never a new Mail Account.
     expect(row?.id).toBe(account.id);
     expect(row?.status).toBe("active");
@@ -794,7 +795,7 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
     });
 
     expect(outcomeOf(response.headers.location as string)).toBe("reauth_succeeded");
-    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    const row = await getMailAccountById(db, account.id);
     expect(row?.credential).toMatchObject({ kind: "oauth" });
   });
 
@@ -818,7 +819,7 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
     });
 
     expect(outcomeOf(response.headers.location as string)).toBe("reauth_address_mismatch");
-    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    const row = await getMailAccountById(db, account.id);
     expect(row?.credential).toMatchObject({ kind: "password" });
     expect(row?.status).toBe("active");
     expect(restart).not.toHaveBeenCalled();
@@ -846,7 +847,7 @@ describe("GET /auth/oauth/:provider/callback (reauth, #119)", () => {
     });
 
     expect(outcomeOf(response.headers.location as string)).toBe("verification_failed");
-    const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, account.id));
+    const row = await getMailAccountById(db, account.id);
     expect(row?.credential).toMatchObject({ kind: "password" });
   });
 

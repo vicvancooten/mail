@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { VAPID_KEYS_ROW_ID, vapidKeys as vapidKeysTable } from "../db/schema.js";
-import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createVapidKeyStore, type VapidKeypair, type VapidKeyStoreOptions } from "./vapid-keys.js";
 

@@ -1,14 +1,15 @@
 import {
   generateVapidKeysResponseSchema,
   instanceInfoResponseSchema,
-  PROVIDERS,
-  type Provider,
   type ProviderHealth,
   providerMailAccountCountResponseSchema,
   providerRegistrationResponseSchema,
+  REGISTERED_PROVIDERS,
+  type RegisteredProvider,
   saveProviderRegistrationRequestSchema,
 } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import {
   buildProviderRedirectUri,
@@ -16,8 +17,7 @@ import {
   getAppVersion,
   isSecureContext,
 } from "../instance-info.js";
-import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
-import { markNeedsReauth } from "../mail-accounts/store.js";
+import { listMailAccountsForProvider, markNeedsReauth } from "../mail-accounts/store.js";
 import { recordNeedsReauthNotification } from "../notifier/record.js";
 import type { VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
@@ -25,7 +25,6 @@ import {
   countNeedsReauthMailAccountsForProvider,
   deleteProviderRegistration,
   getProviderRegistration,
-  listMailAccountsForProvider,
   type ProviderRegistrationRow,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
@@ -83,7 +82,7 @@ export async function instanceRoutes(
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
 
-  async function buildProviderHealth(provider: Provider): Promise<ProviderHealth> {
+  async function buildProviderHealth(provider: RegisteredProvider): Promise<ProviderHealth> {
     const [registration, mailAccountCount, needsReauthCount] = await Promise.all([
       getProviderRegistration(db, provider),
       countMailAccountsForProvider(db, provider),
@@ -102,7 +101,9 @@ export async function instanceRoutes(
   }
 
   app.get("/instance/health", { preHandler: app.requireOwner }, async () => {
-    const providers = await Promise.all(PROVIDERS.map((provider) => buildProviderHealth(provider)));
+    const providers = await Promise.all(
+      REGISTERED_PROVIDERS.map((provider) => buildProviderHealth(provider)),
+    );
     return instanceInfoResponseSchema.parse({
       version: getAppVersion(),
       imageTag,

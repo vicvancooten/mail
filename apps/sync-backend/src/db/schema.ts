@@ -14,7 +14,10 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { MailAccountCredential, SealedSecret } from "../mail-accounts/credential-crypto.js";
+import type {
+  ConnectedAccountCredential,
+  SealedSecret,
+} from "../connected-accounts/credential-crypto.js";
 
 /**
  * Postgres `bytea` (ADR-0012's Blob Store): drizzle-orm has no first-class
@@ -226,15 +229,115 @@ export const webauthnChallenges = pgTable("webauthn_challenges", {
 });
 
 /**
+ * A **Connected Account** (#199, ADR-0022, CONTEXT.md): one identity at one
+ * Provider, owned by one User, holding exactly one credential — the row the
+ * credential moved up to, out of `mail_accounts`. `provider` is the
+ * glossary's four values (`@mail/shared`'s `Provider`); `identity` is the
+ * signed-in address (Google/Microsoft) or the entered username (Other IMAP,
+ * CalDAV/CardDAV) that makes this row unique per User and Provider.
+ * `credential` is the AEAD-sealed tagged union
+ * (`connected-accounts/credential-crypto.ts`), `jsonb` for the same reason it
+ * always was on `mail_accounts` — a new `oauth` shape needs no migration of
+ * existing `password` rows. `status` is the account-level half of Needs
+ * Reauth (ADR-0022: "on the Connected Account when the credential is
+ * rejected or the Grant withdrawn (every Facet stops)") — the Facet-level
+ * half lives on `connected_account_facets` below.
+ *
+ * `serverAddress`/`daveUsername` exist for CalDAV/CardDAV only (discovery
+ * input, #203) — null for every other Provider, which enters nothing here
+ * because Google/Microsoft's identity comes back from the Provider itself
+ * and Other IMAP's own host/port live on its one Mail Facet
+ * (`mail_accounts`), not here.
+ */
+export const connectedAccounts = pgTable(
+  "connected_accounts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", {
+      enum: ["google", "microsoft", "other_imap", "caldav_carddav"],
+    }).notNull(),
+    identity: text("identity").notNull(),
+    credential: jsonb("credential").$type<ConnectedAccountCredential>().notNull(),
+    status: text("status", { enum: ["active", "needs_reauth"] })
+      .notNull()
+      .default("active"),
+    /** CalDAV/CardDAV only (#203): the server or email address discovery started from. Null otherwise. */
+    serverAddress: text("server_address"),
+    /** CalDAV/CardDAV only (#203): the login entered alongside the app password. Null otherwise. */
+    daveUsername: text("dave_username"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("connected_accounts_user_provider_identity_key").on(
+      table.userId,
+      table.provider,
+      table.identity,
+    ),
+    index("connected_accounts_user_id_idx").on(table.userId),
+  ],
+);
+export type ConnectedAccountRow = typeof connectedAccounts.$inferSelect;
+
+/**
+ * A **Facet** (#199, ADR-0022, CONTEXT.md): one thing (Mail, Calendar,
+ * Contacts) a Connected Account is turned on for, and the single register of
+ * which Facets an account has — Mail included, so the Mail Account it
+ * belongs to (`mail_accounts.connected_account_id`) always names exactly one
+ * row here of `kind: "mail"`. `status` is Needs Reauth's Facet-level half
+ * (ADR-0022: "on a single Facet when only its consent is refused ... that
+ * Facet stops, the others continue"). `scopesLastGrantedAt` is when this
+ * Facet's own consent was last (re-)granted — null until a Facet actually
+ * completes a consent round, which for the Mail Facet created by this
+ * ticket's boot-time upgrade is never (the existing Grant predates Facets).
+ *
+ * The `dav*` columns are CalDAV/CardDAV's own per-Facet discovery (#203) —
+ * discovery runs separately per Facet because iCloud serves each from a
+ * different host (ADR-0022) — and stay null for every other Provider and
+ * for Mail everywhere.
+ */
+export const connectedAccountFacets = pgTable(
+  "connected_account_facets",
+  {
+    id: text("id").primaryKey(),
+    connectedAccountId: text("connected_account_id")
+      .notNull()
+      .references(() => connectedAccounts.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["mail", "calendar", "contacts"] }).notNull(),
+    status: text("status", { enum: ["active", "needs_reauth"] })
+      .notNull()
+      .default("active"),
+    scopesLastGrantedAt: timestamp("scopes_last_granted_at", { withTimezone: true }),
+    /** CalDAV/CardDAV only (#203): the discovered principal URL. Null otherwise. */
+    davPrincipalUrl: text("dav_principal_url"),
+    /** CalDAV/CardDAV only (#203): the discovered calendar/address-book home-set URL. Null otherwise. */
+    davHomeSetUrl: text("dav_home_set_url"),
+    /** CalDAV/CardDAV only (#203): whether the server speaks RFC 6638 scheduling. Null otherwise. */
+    davSupportsScheduling: boolean("dav_supports_scheduling"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("connected_account_facets_account_kind_key").on(
+      table.connectedAccountId,
+      table.kind,
+    ),
+  ],
+);
+export type ConnectedAccountFacetRow = typeof connectedAccountFacets.$inferSelect;
+
+/**
  * A connection to an external mail server, owned by exactly one User
  * (CONTEXT.md, ADR-0004) — no join table, no sharing. `imap*`/`smtp*`
  * columns are the provider-agnostic host/port/TLS shape both autodiscover
- * and manual entry produce (docs/research/0004 §6); `credential` is the
- * AEAD-sealed tagged union from ADR-0003, `jsonb` so a future `oauth`
- * variant needs no migration of the existing `password` rows, only a new
- * shape for new ones. `status` is the Needs Reauth state machine
- * (CONTEXT.md): a rejected credential parks a row in `needs_reauth` until
- * `src/mail-accounts/store.ts`'s reauth path clears it back to `active`.
+ * and manual entry produce (docs/research/0004 §6). The credential and the
+ * Needs Reauth status moved up to `connected_accounts`/
+ * `connected_account_facets` in #199 (ADR-0022) — this row is now the Mail
+ * Facet, named by `connectedAccountId`, and carries everything about mail
+ * syncing that isn't the credential itself.
  */
 export const mailAccounts = pgTable(
   "mail_accounts",
@@ -243,6 +346,11 @@ export const mailAccounts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** The parent Connected Account (#199, ADR-0022) — always exactly one Mail Facet per Connected Account. */
+    connectedAccountId: text("connected_account_id")
+      .notNull()
+      .unique()
+      .references(() => connectedAccounts.id, { onDelete: "cascade" }),
     emailAddress: text("email_address").notNull(),
     imapHost: text("imap_host").notNull(),
     imapPort: integer("imap_port").notNull(),
@@ -253,10 +361,6 @@ export const mailAccounts = pgTable(
     // The IMAP/SMTP login, kept separate from `emailAddress`: not every
     // provider's login is the mailbox address itself.
     username: text("username").notNull(),
-    credential: jsonb("credential").$type<MailAccountCredential>().notNull(),
-    status: text("status", { enum: ["active", "needs_reauth"] })
-      .notNull()
-      .default("active"),
     // Whether this Mail Account's server speaks Gmail's IMAP extension
     // (`X-GM-EXT-1`), detected by `mail-accounts/server-kind.ts` — ADR-0020:
     // "selection by server capability, not credential kind", so an
@@ -1460,8 +1564,8 @@ export type AttachmentBlobRow = typeof attachmentBlobs.$inferSelect;
  * stored one can no longer be unsealed, which is the one case where it is
  * already unusable and re-minting is the repair).
  *
- * `privateKey` is sealed exactly like a Mail Account's password (ADR-0003,
- * `mail-accounts/credential-crypto.ts`), with this row's own id as the
+ * `privateKey` is sealed exactly like a Connected Account's password
+ * (ADR-0003, `connected-accounts/credential-crypto.ts`), with this row's own id as the
  * associated data: a stolen database alone cannot push to anyone's devices,
  * which is the same bar the rest of this schema holds.
  */

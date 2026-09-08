@@ -5,17 +5,11 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import {
-  folders,
-  type MessageAttachment,
-  mailAccounts,
-  messages,
-  threads,
-  users,
-} from "../db/schema.js";
+import { folders, type MessageAttachment, messages, threads, users } from "../db/schema.js";
 import { setVerdict } from "../gatekeeper/verdicts.js";
 import { buildImageProxyPath, deriveImageProxyKey } from "../sync/image-proxy.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
+import { createTestMailAccount } from "../test-support/mail-account.js";
 import { decodeQuotedPrintable, decodeTransferEncoding } from "./messages.js";
 
 const PUBLIC_URL = "http://localhost:3000";
@@ -176,23 +170,9 @@ describe("GET /threads/:threadId/messages", () => {
       passwordHash: "not-a-real-hash",
       role: "member",
     });
-    const otherAccountId = randomUUID();
-    await db.insert(mailAccounts).values({
-      id: otherAccountId,
-      userId: otherUserId,
-      emailAddress: "other@example.com",
-      imapHost: "imap.example.com",
-      imapPort: 993,
-      imapSecurity: "tls",
-      smtpHost: "smtp.example.com",
-      smtpPort: 587,
-      smtpSecurity: "starttls",
-      username: "other@example.com",
-      credential: {
-        kind: "password",
-        secret: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
-      },
-    });
+    const otherAccountId = (
+      await createTestMailAccount(db, { userId: otherUserId, emailAddress: "other@example.com" })
+    ).id;
     const threadId = randomUUID();
     await seedMessage({ mailAccountId: otherAccountId, threadId });
 

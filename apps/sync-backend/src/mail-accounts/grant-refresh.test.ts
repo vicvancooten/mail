@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { notifierOutbox } from "../db/schema.js";
 import {
@@ -8,7 +9,6 @@ import {
 } from "../provider-registrations/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
-import { deriveCredentialKey, sealSecret } from "./credential-crypto.js";
 import { needsGrantRefresh, refreshMailAccountGrant } from "./grant-refresh.js";
 import type { ProviderAdapter, ProviderRefreshResult } from "./provider-adapter.js";
 import { getMailAccountById } from "./store.js";
@@ -75,10 +75,14 @@ describe("needsGrantRefresh", () => {
     const credential = {
       kind: "oauth" as const,
       provider: "google" as const,
-      accessToken: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
       refreshToken: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       scope: [],
+      accessTokens: {
+        default: {
+          token: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
     };
     expect(needsGrantRefresh(credential, new Date(), 10 * 60_000)).toBe(true);
     expect(needsGrantRefresh(credential, new Date(), 30_000)).toBe(false);

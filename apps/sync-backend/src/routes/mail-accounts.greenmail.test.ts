@@ -2,11 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
-import type { Db } from "../db/client.js";
 import {
   deriveCredentialKey,
   unsealPasswordCredential,
-} from "../mail-accounts/credential-crypto.js";
+} from "../connected-accounts/credential-crypto.js";
+import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 
@@ -98,8 +98,9 @@ describe("Mail Account add flow against GreenMail", () => {
     // exists — unswept (no body-sweep batch has run yet) rather than absent.
     expect(body.mailAccount.indexWatermark).toEqual({ coveredSince: null, complete: false });
 
-    // The credential really is sealed at rest, under this Mail Account's id
-    // as associated data (ADR-0003) — not just absent from the API response.
+    // The credential really is sealed at rest, under this Mail Account's
+    // parent Connected Account id as associated data (ADR-0003, ADR-0022) —
+    // not just absent from the API response.
     const stored = await getMailAccountForUser(db, userId, body.mailAccount.id);
     if (!stored) {
       throw new Error("saved Mail Account row not found");
@@ -110,7 +111,9 @@ describe("Mail Account add flow against GreenMail", () => {
     // ADR-0020), so every GreenMail-backed account records `generic`.
     expect(stored.serverKind).toBe("generic");
     const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
-    expect(unsealPasswordCredential(stored.credential, stored.id, key)).toBe(password);
+    expect(unsealPasswordCredential(stored.credential, stored.connectedAccountId, key)).toBe(
+      password,
+    );
   });
 
   it("rejects a connection to a port nothing is listening on as a connection failure", async () => {

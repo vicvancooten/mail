@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { Db } from "../db/client.js";
-import { mailAccounts, users } from "../db/schema.js";
 import {
   deriveCredentialKey,
-  type MailAccountCredential,
+  mailOAuthAudience,
   sealOAuthCredential,
   sealPasswordCredential,
-} from "../mail-accounts/credential-crypto.js";
+} from "../connected-accounts/credential-crypto.js";
+import type { Db } from "../db/client.js";
+import { users } from "../db/schema.js";
 import { GOOGLE_SCOPES } from "../mail-accounts/google-adapter.js";
 import { MICROSOFT_SCOPES } from "../mail-accounts/microsoft-adapter.js";
 import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
-import type { MailAccountRow } from "../mail-accounts/store.js";
+import { insertMailAccount, type MailAccountRow } from "../mail-accounts/store.js";
 import { TEST_MAIL_CREDENTIAL_KEY } from "./db.js";
 
 export interface TestMailAccountInput {
@@ -40,10 +40,12 @@ export interface TestMailAccountInput {
 }
 
 /**
- * Inserts a User and a Mail Account straight into the database, sealed the
- * way `/mail-accounts` would seal it. Sync tests need a live account row but
- * not the HTTP flow that creates one — that path is #33's and has its own
- * coverage.
+ * Inserts a User, a Connected Account, its Mail Facet and a Mail Account
+ * straight into the database (#199, ADR-0022), sealed the way `/mail-accounts`
+ * would seal it — through `mail-accounts/store.ts#insertMailAccount` itself,
+ * so a test row carries exactly the same invariants a real write does. Sync
+ * tests need a live account row but not the HTTP flow that creates one —
+ * that path is #33's and has its own coverage.
  */
 export async function createTestMailAccount(
   db: Db,
@@ -64,9 +66,10 @@ export async function createTestMailAccount(
   }
 
   const id = randomUUID();
+  const connectedAccountId = randomUUID();
   const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
   const provider = input.oauth?.provider ?? "google";
-  const credential: MailAccountCredential = input.oauth
+  const credential = input.oauth
     ? sealOAuthCredential(
         {
           provider,
@@ -75,28 +78,22 @@ export async function createTestMailAccount(
           expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
           scope: provider === "microsoft" ? MICROSOFT_SCOPES : GOOGLE_SCOPES,
         },
-        id,
+        mailOAuthAudience(provider),
+        connectedAccountId,
         key,
       )
-    : sealPasswordCredential(password, id, key);
-  const [row] = await db
-    .insert(mailAccounts)
-    .values({
-      id,
-      userId,
-      emailAddress,
-      imapHost: host,
-      imapPort: input.imapPort ?? 3143,
-      imapSecurity: "none",
-      smtpHost: host,
-      smtpPort: input.smtpPort ?? 3025,
-      smtpSecurity: "none",
-      username: emailAddress,
-      credential,
-      serverKind: input.serverKind,
-    })
-    .returning();
+    : sealPasswordCredential(password, connectedAccountId, key);
 
-  if (!row) throw new Error("test Mail Account insert returned no row");
-  return row;
+  return insertMailAccount(db, {
+    id,
+    connectedAccountId,
+    userId,
+    provider: input.oauth ? provider : "other_imap",
+    emailAddress,
+    imap: { host, port: input.imapPort ?? 3143, security: "none" },
+    smtp: { host, port: input.smtpPort ?? 3025, security: "none" },
+    username: emailAddress,
+    credential,
+    serverKind: input.serverKind ?? null,
+  });
 }

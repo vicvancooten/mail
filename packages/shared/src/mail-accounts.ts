@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { gatekeeperSettingsSchema } from "./gatekeeper.js";
-import { providerSchema } from "./providers.js";
+import { registeredProviderSchema } from "./providers.js";
 
 /**
  * How a connection's transport is secured. `tls` is implicit TLS on connect
@@ -93,7 +93,7 @@ export type IndexWatermark = z.infer<typeof indexWatermarkSchema>;
  */
 export const mailAccountAuthKindSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("password") }),
-  z.object({ kind: z.literal("oauth"), provider: providerSchema }),
+  z.object({ kind: z.literal("oauth"), provider: registeredProviderSchema }),
 ]);
 export type MailAccountAuthKind = z.infer<typeof mailAccountAuthKindSchema>;
 

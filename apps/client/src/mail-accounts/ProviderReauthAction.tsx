@@ -1,4 +1,4 @@
-import type { Provider } from "@mail/shared";
+import type { RegisteredProvider } from "@mail/shared";
 import { useEffect, useState } from "react";
 import { fetchProviderAvailability, startProviderSignIn } from "../api/oauth-signin.js";
 import { describeProviderUnavailable } from "./provider-unavailable.js";
@@ -29,7 +29,7 @@ export function ProviderReauthAction({
   navigate = (url) => window.location.assign(url),
 }: {
   mailAccountId: string;
-  provider: Provider;
+  provider: RegisteredProvider;
   label: string;
   isOwner: boolean;
   navigate?: (url: string) => void;

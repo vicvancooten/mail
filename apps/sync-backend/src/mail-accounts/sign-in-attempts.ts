@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Provider } from "@mail/shared";
+import type { RegisteredProvider } from "@mail/shared";
 import { and, eq, lt } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { type OAuthSignInAttemptRow, oauthSignInAttempts } from "../db/schema.js";
@@ -40,7 +40,7 @@ export async function startSignInAttempt(
   db: Db,
   input: {
     userId: string;
-    provider: Provider;
+    provider: RegisteredProvider;
     purpose: SignInPurpose;
     /** Required (and only meaningful) for `purpose: "reauth"`. */
     mailAccountId?: string;
@@ -80,7 +80,7 @@ export async function startSignInAttempt(
  */
 export async function consumeSignInAttempt(
   db: Db,
-  input: { state: string; userId: string; provider: Provider },
+  input: { state: string; userId: string; provider: RegisteredProvider },
   now: Date = new Date(),
 ): Promise<OAuthSignInAttemptRow | null> {
   const [row] = await db

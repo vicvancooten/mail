@@ -1,5 +1,5 @@
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { discoverFolders, type FolderRole, type FolderRow, persistFolders } from "./folders.js";

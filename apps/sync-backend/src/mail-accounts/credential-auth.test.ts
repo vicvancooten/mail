@@ -1,23 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { toImapAuth, toSmtpAuth, unsealMailAccountSecret } from "./credential-auth.js";
 import {
   deriveCredentialKey,
   sealOAuthCredential,
   sealPasswordCredential,
-} from "./credential-crypto.js";
+} from "../connected-accounts/credential-crypto.js";
+import { toImapAuth, toSmtpAuth, unsealMailAccountSecret } from "./credential-auth.js";
 
 const key = deriveCredentialKey("some-instance-held-key-material");
 
 describe("unsealMailAccountSecret", () => {
   it("unseals a password credential to a password secret", () => {
-    const credential = sealPasswordCredential("swordfish", "mail-account-1", key);
-    expect(unsealMailAccountSecret(credential, "mail-account-1", key)).toEqual({
+    const credential = sealPasswordCredential("swordfish", "connected-account-1", key);
+    expect(unsealMailAccountSecret(credential, "connected-account-1", key)).toEqual({
       kind: "password",
       password: "swordfish",
     });
   });
 
-  it("unseals an oauth credential to an access-token secret", () => {
+  it("unseals an oauth credential to the Mail Facet's own audience access token", () => {
     const credential = sealOAuthCredential(
       {
         provider: "google",
@@ -26,10 +26,11 @@ describe("unsealMailAccountSecret", () => {
         expiresAt: "2026-01-01T00:00:00.000Z",
         scope: ["https://mail.google.com/"],
       },
-      "mail-account-1",
+      "default",
+      "connected-account-1",
       key,
     );
-    expect(unsealMailAccountSecret(credential, "mail-account-1", key)).toEqual({
+    expect(unsealMailAccountSecret(credential, "connected-account-1", key)).toEqual({
       kind: "oauth",
       accessToken: "ya29.the-access-token",
     });

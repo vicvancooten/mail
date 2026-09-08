@@ -1,16 +1,18 @@
+import {
+  type ConnectedAccountCredential,
+  mailOAuthAudience,
+  reAuthenticateOAuthCredential,
+  unsealSecret,
+} from "../connected-accounts/credential-crypto.js";
+import { updateConnectedAccountCredential } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import { recordNeedsReauthNotification } from "../notifier/record.js";
 import {
   getProviderRegistration,
   recordProviderRefreshOutcome,
 } from "../provider-registrations/store.js";
-import {
-  type MailAccountCredential,
-  sealOAuthCredential,
-  unsealSecret,
-} from "./credential-crypto.js";
 import type { ProviderAdapters } from "./provider-adapter.js";
-import { type MailAccountRow, markNeedsReauth, updateMailAccountGrant } from "./store.js";
+import { type MailAccountRow, markNeedsReauth } from "./store.js";
 
 /**
  * #118's single seam for "refresh this Mail Account's Grant" — the resident
@@ -18,6 +20,10 @@ import { type MailAccountRow, markNeedsReauth, updateMailAccountGrant } from "./
  * and the standalone background loop (`sync/grant-refresh-loop.ts`) are its
  * only two callers, so the "withdrawn is Needs Reauth, transient is a
  * Provider Health fact" split (ADR-0021) lives in exactly one place.
+ *
+ * Refreshes the Mail Facet's own audience only (ADR-0022: "a Grant refresh
+ * refreshes one audience and leaves the others alone") — turning on a second
+ * Facet and refreshing *its* audience is a later ticket's own seam.
  */
 
 /**
@@ -29,14 +35,17 @@ import { type MailAccountRow, markNeedsReauth, updateMailAccountGrant } from "./
  */
 export const GRANT_REFRESH_SAFETY_MARGIN_MS = 10 * 60_000;
 
-/** Whether an oauth credential is due for a proactive refresh — `false` for anything else. */
+/** Whether the Mail Facet's oauth access token is due for a proactive refresh — `false` for anything else. */
 export function needsGrantRefresh(
-  credential: MailAccountCredential,
+  credential: ConnectedAccountCredential,
   now: Date,
   safetyMarginMs: number = GRANT_REFRESH_SAFETY_MARGIN_MS,
 ): boolean {
   if (credential.kind !== "oauth") return false;
-  return new Date(credential.expiresAt).getTime() - now.getTime() <= safetyMarginMs;
+  const audience = mailOAuthAudience(credential.provider);
+  const entry = credential.accessTokens[audience];
+  if (!entry) return false;
+  return new Date(entry.expiresAt).getTime() - now.getTime() <= safetyMarginMs;
 }
 
 export type GrantRefreshOutcome =
@@ -57,13 +66,13 @@ export interface GrantRefreshOptions {
  * *when* (`needsGrantRefresh`'s near-expiry check, or "the mail server just
  * rejected the current token") and this decides *what happens next*:
  *
- * - `ok: true` reseals the new tokens onto the Mail Account and records a
- *   success on the Provider Registration.
+ * - `ok: true` reseals the new tokens onto the Connected Account and records
+ *   a success on the Provider Registration.
  * - `withdrawn` takes the existing atomic `markNeedsReauth` transition —
  *   notifying exactly once, same as a rejected password (ADR-0021) — and
  *   touches nothing on the Registration.
- * - `transient` leaves the Mail Account exactly as it was and records the
- *   failure on the Registration, for Provider Health's Failing state.
+ * - `transient` leaves the Connected Account exactly as it was and records
+ *   the failure on the Registration, for Provider Health's Failing state.
  */
 export async function refreshMailAccountGrant(
   db: Db,
@@ -83,7 +92,11 @@ export async function refreshMailAccountGrant(
     return { result: "skipped", reason: `no Provider Registration for ${provider}` };
 
   const clientSecret = unsealSecret(registration.clientSecret, provider, credentialKey);
-  const refreshToken = unsealSecret(credential.refreshToken, account.id, credentialKey);
+  const refreshToken = unsealSecret(
+    credential.refreshToken,
+    account.connectedAccountId,
+    credentialKey,
+  );
 
   const result = await adapter.refresh({
     clientId: registration.clientId,
@@ -92,7 +105,9 @@ export async function refreshMailAccountGrant(
   });
 
   if (result.ok) {
-    const refreshed = sealOAuthCredential(
+    const audience = mailOAuthAudience(provider);
+    const refreshed = reAuthenticateOAuthCredential(
+      credential,
       {
         provider,
         accessToken: result.accessToken,
@@ -100,10 +115,11 @@ export async function refreshMailAccountGrant(
         expiresAt: result.expiresAt,
         scope: result.scope,
       },
-      account.id,
+      audience,
+      account.connectedAccountId,
       credentialKey,
     );
-    await updateMailAccountGrant(db, account.id, refreshed);
+    await updateConnectedAccountCredential(db, account.connectedAccountId, refreshed);
     await recordProviderRefreshOutcome(db, provider, null);
     return { result: "refreshed" };
   }

@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { messages, threads } from "../db/schema.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById, type MailAccountRow } from "../mail-accounts/store.js";
 import { listUndelivered } from "../notifier/outbox.js";
 import { applyFolderDelta } from "../sync/delta.js";
