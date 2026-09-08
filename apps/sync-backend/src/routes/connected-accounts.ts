@@ -31,6 +31,7 @@ import {
   insertCalDavFacet,
   listConnectedAccountFacets,
   reactivateConnectedAccount,
+  type ConnectedAccountRow,
 } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
@@ -141,14 +142,7 @@ export async function connectedAccountRoutes(
       if (!account || account.provider !== "caldav_carddav") {
         return reply.code(404).send({ error: "not_found" });
       }
-      // Invariant, not user input: every `caldav_carddav` row carries both
-      // (`insertCalDavAccount` never writes one without them) — a mismatch
-      // means the row itself is corrupt, not that the request was bad.
-      if (account.serverAddress === null || account.daveUsername === null) {
-        throw new Error(
-          `Connected Account ${id} is caldav_carddav but missing serverAddress/daveUsername.`,
-        );
-      }
+      const { serverAddress, davUsername } = requireCalDavIdentity(account, id);
       if (await connectedAccountHasFacet(db, id, facet)) {
         return reply.code(409).send({ error: "facet_already_exists" });
       }
@@ -158,8 +152,8 @@ export async function connectedAccountRoutes(
       // is what discovery runs against — nothing from the request body.
       const password = unsealPasswordCredential(account.credential, account.id, key);
       const result = await discoverDav({
-        serverAddress: account.serverAddress,
-        username: account.daveUsername,
+        serverAddress,
+        username: davUsername,
         password,
         facet,
       });
@@ -190,11 +184,7 @@ export async function connectedAccountRoutes(
       if (!account || account.provider !== "caldav_carddav") {
         return reply.code(404).send({ error: "not_found" });
       }
-      if (account.serverAddress === null || account.daveUsername === null) {
-        throw new Error(
-          `Connected Account ${id} is caldav_carddav but missing serverAddress/daveUsername.`,
-        );
-      }
+      const { serverAddress, davUsername } = requireCalDavIdentity(account, id);
 
       const body = reauthConnectedAccountRequestSchema.safeParse(request.body);
       if (!body.success) {
@@ -208,8 +198,8 @@ export async function connectedAccountRoutes(
         throw new Error(`Connected Account ${id} has no Facets to verify a reauth against.`);
       }
       const result = await discoverDav({
-        serverAddress: account.serverAddress,
-        username: account.daveUsername,
+        serverAddress,
+        username: davUsername,
         password,
         facet: anyFacet.kind as "calendar" | "contacts",
       });
@@ -322,6 +312,26 @@ export async function connectedAccountRoutes(
       });
     },
   );
+}
+
+/**
+ * Every `caldav_carddav` row carries both `serverAddress` and `davUsername`
+ * (`insertCalDavAccount` never writes one without them) — a mismatch means
+ * the row itself is corrupt, not that the request was bad, so this throws
+ * rather than returning an error response. Shared by the `caldav-facets`
+ * and `reauth` routes above, which both need the pair narrowed past `null`
+ * before running discovery against it.
+ */
+function requireCalDavIdentity(
+  account: ConnectedAccountRow,
+  connectedAccountId: string,
+): { serverAddress: string; davUsername: string } {
+  if (account.serverAddress === null || account.davUsername === null) {
+    throw new Error(
+      `Connected Account ${connectedAccountId} is caldav_carddav but missing serverAddress/davUsername.`,
+    );
+  }
+  return { serverAddress: account.serverAddress, davUsername: account.davUsername };
 }
 
 /** `credentials_rejected`/`no_home_set` are definitive negative answers from a real server (422, like `mail-accounts.ts`'s own `credentials_rejected`); `unreachable` is transient (502). */

@@ -197,7 +197,7 @@ export async function insertCalDavAccount(db: Db, input: InsertCalDavAccountInpu
       credential: input.credential,
       status: "active",
       serverAddress: input.serverAddress,
-      daveUsername: input.username,
+      davUsername: input.username,
     });
     await tx.insert(connectedAccountFacets).values({
       id: `${input.id}-${input.facet}`,
@@ -215,7 +215,7 @@ export async function insertCalDavAccount(db: Db, input: InsertCalDavAccountInpu
  * Turning on the second Facet on an already-connected CalDAV/CardDAV account
  * (#203's own acceptance criterion: "runs discovery only and never asks for
  * the password again") — the caller has already re-run discovery against the
- * account's existing `serverAddress`/`daveUsername` and its stored
+ * account's existing `serverAddress`/`davUsername` and its stored
  * credential; this just writes the new Facet row.
  */
 export async function insertCalDavFacet(

@@ -178,7 +178,7 @@ describe("POST /connected-accounts/caldav", () => {
       provider: "caldav_carddav",
       identity: "vic",
       serverAddress: "dav.example.com",
-      daveUsername: "vic",
+      davUsername: "vic",
     });
     const facets = await db.query.connectedAccountFacets.findMany();
     expect(facets).toMatchObject([
