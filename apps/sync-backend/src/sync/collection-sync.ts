@@ -3,7 +3,7 @@ import { DEFAULT_UNDO_SEND_DELAY_SECONDS, UNDO_SEND_DELAY_OPTIONS } from "@mail/
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mailAccounts, syncTombstones, threads, users } from "../db/schema.js";
-import { toWireMailAccount } from "../mail-accounts/store.js";
+import { mailAccountRowsQuery, toWireMailAccount } from "../mail-accounts/store.js";
 import { encodeSyncToken, resolveCursor } from "./sync-tokens.js";
 import { toWireThread } from "./thread-projection.js";
 
@@ -115,9 +115,7 @@ export async function syncMailAccountCollection(
 ): Promise<CollectionDelta<MailAccount> | null> {
   const { rev: cursorRev, needsReset } = resolveCursor(token);
 
-  const rows = await db
-    .select()
-    .from(mailAccounts)
+  const rows = await mailAccountRowsQuery(db)
     .where(and(eq(mailAccounts.userId, userId), gt(mailAccounts.syncRev, cursorRev)))
     .orderBy(asc(mailAccounts.syncRev))
     .limit(PAGE_SIZE + 1);

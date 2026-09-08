@@ -132,7 +132,11 @@ async function attemptConnect(
   allowGrantRetry: boolean,
 ): Promise<ImapFlow> {
   const { credentialKey, logger = false, qresync = false, autoIdleDelay } = options;
-  const secret = unsealMailAccountSecret(account.credential, account.id, credentialKey);
+  const secret = unsealMailAccountSecret(
+    account.credential,
+    account.connectedAccountId,
+    credentialKey,
+  );
   const client = new ImapFlow({
     host: account.imapHost,
     port: account.imapPort,

@@ -68,7 +68,7 @@ beforeEach(async () => {
     .set({ imapSecurity: "tls", username: EMAIL })
     .where(eq(mailAccounts.id, account.id))
     .returning();
-  if (updated) account = updated;
+  if (updated) account = { ...account, ...updated };
 });
 
 afterAll(async () => {

@@ -46,6 +46,7 @@ describe("markNeedsReauth", () => {
     await replaceMailAccountCredential(
       db,
       account.id,
+      account.connectedAccountId,
       account.username,
       account.credential,
       "generic",

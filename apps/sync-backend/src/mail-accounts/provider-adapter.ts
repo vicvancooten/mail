@@ -1,4 +1,4 @@
-import type { MailAccountConnection, Provider } from "@mail/shared";
+import type { MailAccountConnection, RegisteredProvider } from "@mail/shared";
 
 /**
  * The one new seam this ticket introduces (#116, ADR-0021): everything that
@@ -122,4 +122,4 @@ export interface ProviderAdapter {
  * unavailable ... never hidden" applies to a missing adapter as much as to a
  * missing Registration.
  */
-export type ProviderAdapters = Partial<Record<Provider, ProviderAdapter>>;
+export type ProviderAdapters = Partial<Record<RegisteredProvider, ProviderAdapter>>;

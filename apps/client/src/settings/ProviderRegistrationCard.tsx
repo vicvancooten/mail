@@ -1,4 +1,4 @@
-import type { Provider, ProviderHealth, ProviderStatus } from "@mail/shared";
+import type { ProviderHealth, ProviderStatus, RegisteredProvider } from "@mail/shared";
 import { type FormEvent, useState } from "react";
 import {
   deleteProviderRegistration,
@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<ProviderStatus, string> = {
 };
 
 /** The in-app setup steps (ADR-0021's own summary of each Provider's console) — no live UI to link deeper into, since neither console is ours to drive. */
-const PROVIDER_STEPS: Record<Provider, { consoleName: string; steps: string[] }> = {
+const PROVIDER_STEPS: Record<RegisteredProvider, { consoleName: string; steps: string[] }> = {
   google: {
     consoleName: "Google Cloud console",
     steps: [
@@ -38,7 +38,7 @@ const PROVIDER_STEPS: Record<Provider, { consoleName: string; steps: string[] }>
 };
 
 /** #120: each Provider's card links to its own anchor in the walkthrough, not just the section top. */
-const INSTALLATION_DOCS_URL: Record<Provider, string> = {
+const INSTALLATION_DOCS_URL: Record<RegisteredProvider, string> = {
   google: "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#google",
   microsoft: "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#microsoft",
 };

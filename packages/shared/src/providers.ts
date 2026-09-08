@@ -1,13 +1,23 @@
 import { z } from "zod";
 
 /**
- * The two Providers a Provider Registration exists for (CONTEXT.md, ADR-0021)
- * — Other IMAP needs no Registration at all, so it never appears here. Also
- * the display order the Instance page's Providers section lists them in.
+ * The glossary's **Provider** (CONTEXT.md, ADR-0022): one of four identity
+ * kinds a Connected Account can hold. Only Google and Microsoft ever need a
+ * Provider Registration (below) — Other IMAP and CalDAV/CardDAV never do,
+ * since a password or app password needs nothing an Owner registers.
  */
-export const PROVIDERS = ["google", "microsoft"] as const;
+export const PROVIDERS = ["google", "microsoft", "other_imap", "caldav_carddav"] as const;
 export const providerSchema = z.enum(PROVIDERS);
 export type Provider = z.infer<typeof providerSchema>;
+
+/**
+ * The two Providers a Provider Registration exists for (CONTEXT.md, ADR-0021)
+ * — the subset of `Provider` above that needs one. Also the display order
+ * the Instance page's Providers section lists them in.
+ */
+export const REGISTERED_PROVIDERS = ["google", "microsoft"] as const;
+export const registeredProviderSchema = z.enum(REGISTERED_PROVIDERS);
+export type RegisteredProvider = z.infer<typeof registeredProviderSchema>;
 
 /**
  * `PUT /instance/providers/:provider` (#115, ADR-0021): the Owner pastes
@@ -49,7 +59,7 @@ export type ProviderStatus = z.infer<typeof providerStatusSchema>;
  * attempt.
  */
 export const providerHealthSchema = z.object({
-  provider: providerSchema,
+  provider: registeredProviderSchema,
   status: providerStatusSchema,
   /** Derived from `PUBLIC_URL`, exact — what to paste into the Provider's own console (ADR-0021). */
   redirectUri: z.string(),
@@ -98,13 +108,13 @@ export type ProviderUnavailableReason = z.infer<typeof providerUnavailableReason
 
 export const providerAvailabilitySchema = z.discriminatedUnion("available", [
   z.object({
-    provider: providerSchema,
+    provider: registeredProviderSchema,
     available: z.literal(true),
     /** Null exactly when `available` is true. */
     unavailableReason: z.null(),
   }),
   z.object({
-    provider: providerSchema,
+    provider: registeredProviderSchema,
     available: z.literal(false),
     unavailableReason: providerUnavailableReasonSchema,
   }),

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
-import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
 import type { ProviderAdapter } from "../mail-accounts/provider-adapter.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
 import {
