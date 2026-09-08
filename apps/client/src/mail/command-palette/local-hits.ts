@@ -47,10 +47,6 @@ interface LocalHitSource<Row> {
   /**
    * False for a row that must never surface as a hit. Checked before
    * `matchText`, so an ineligible row's text is never even compared.
-   * Notes has no soft-delete field yet (#194, running alongside this
-   * ticket, lands it) — `NOTES_SOURCE` below always returns `true` until
-   * then; once `deletedAt` exists this is the one line that starts
-   * excluding it, not a redesign of this mechanism.
    */
   isEligible: (row: Row) => boolean;
   /** The row's whole searchable text (the ticket's "a hit can come from any block", not only the title). */
@@ -82,7 +78,7 @@ function registerLocalHitSource<Row>(source: LocalHitSource<Row>): RegisteredLoc
 const NOTES_SOURCE: LocalHitSource<Note> = {
   section: "Notes",
   rows: readNotes,
-  isEligible: () => true,
+  isEligible: (note) => note.deletedAt === null,
   matchText: (note) => flattenDocumentText(note.document),
   toHit: (note) => ({
     key: `notes:${note.id}`,
