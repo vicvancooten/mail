@@ -42,6 +42,7 @@ import {
   replaceMailAccountCredential,
 } from "../mail-accounts/store.js";
 import { verifyMailAccountCredentials } from "../mail-accounts/verify.js";
+import { recordFacetFirstGrant } from "../provider-registrations/facet-health-store.js";
 import { getProviderRegistration } from "../provider-registrations/store.js";
 import { noopSyncManager, type SyncManager } from "../sync/manager.js";
 import { AUTHORIZATION_RATE_LIMIT } from "./rate-limit.js";
@@ -447,6 +448,9 @@ export async function oauthSignInRoutes(
       // "back to the Mail Accounts settings page with the new Gmail account
       // already syncing" (#116): the same call `POST /mail-accounts` makes.
       syncManager.start(row);
+      // #205: the Mail Facet's first grant at this Provider, if it's the
+      // first Connected Account this instance has ever signed in with it.
+      await recordFacetFirstGrant(db, provider, "mail");
 
       return finish(reply, "signed_in");
     },
@@ -600,6 +604,9 @@ export async function oauthSignInRoutes(
       key,
     );
     await attachFacetToConnectedAccount(db, account.id, facet, widened);
+    // #205: this Facet's first grant at this Provider, if it's the first
+    // Connected Account to have turned it on here.
+    await recordFacetFirstGrant(db, input.provider, facet);
 
     return finish(reply, "facet_added");
   }

@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { providerSchema } from "./providers.js";
+import {
+  type ConnectedAccountFacetKind,
+  connectedAccountFacetKindSchema,
+  providerSchema,
+} from "./providers.js";
+
+export type { ConnectedAccountFacetKind };
+export { connectedAccountFacetKindSchema };
 
 /**
  * `active` syncs normally. `needs_reauth` (ADR-0022, CONTEXT.md) is what a
@@ -12,16 +19,6 @@ import { providerSchema } from "./providers.js";
  */
 export const connectedAccountStatusSchema = z.enum(["active", "needs_reauth"]);
 export type ConnectedAccountStatus = z.infer<typeof connectedAccountStatusSchema>;
-
-/**
- * Which thing a Connected Account is turned on for (#199, ADR-0022,
- * CONTEXT.md's Facet). `mail` is the one every Connected Account created by
- * today's add-a-Mail-Account flows already carries; `calendar`/`contacts`
- * are Calendar and Contacts' own doors (#201+), not yet reachable from this
- * app but already real values a Connected Account's `facets` can hold.
- */
-export const connectedAccountFacetKindSchema = z.enum(["mail", "calendar", "contacts"]);
-export type ConnectedAccountFacetKind = z.infer<typeof connectedAccountFacetKindSchema>;
 
 /**
  * One Facet's wire projection (#200): just enough for a label or a Needs

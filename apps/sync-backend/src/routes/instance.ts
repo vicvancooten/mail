@@ -1,6 +1,8 @@
 import {
+  type ConnectedAccountFacetKind,
   generateVapidKeysResponseSchema,
   instanceInfoResponseSchema,
+  type ProviderFacetHealth,
   type ProviderHealth,
   providerMailAccountCountResponseSchema,
   providerRegistrationResponseSchema,
@@ -21,8 +23,11 @@ import { listMailAccountsForProvider, markNeedsReauth } from "../mail-accounts/s
 import { recordNeedsReauthNotification } from "../notifier/record.js";
 import type { VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
+  countConnectedAccountsForProviderFacet,
+  getProviderFacetHealth,
+} from "../provider-registrations/facet-health-store.js";
+import {
   countMailAccountsForProvider,
-  countNeedsReauthMailAccountsForProvider,
   deleteProviderRegistration,
   getProviderRegistration,
   type ProviderRegistrationRow,
@@ -30,6 +35,9 @@ import {
 } from "../provider-registrations/store.js";
 import { AUTHORIZATION_RATE_LIMIT } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
+
+/** `providerHealthSchema.facets`' fixed order (#205) — every Provider row always carries exactly these three, `providersServingFacet`/`FACET_COLUMNS` in the Client's own table share the same order. */
+const HEALTH_FACET_KINDS: readonly ConnectedAccountFacetKind[] = ["mail", "calendar", "contacts"];
 
 export interface InstanceRoutesOptions {
   db: Db;
@@ -82,23 +90,51 @@ export async function instanceRoutes(
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
 
+  /**
+   * The per-Facet breakdown (#205, ADR-0022) — always the same three
+   * `HEALTH_FACET_KINDS` in order, so a Client never has to guess which
+   * Facets are missing. `everGranted`/refresh fields come from
+   * `provider_facet_health` (missing entirely until something's happened
+   * for that Facet, hence the `?? null`/`?? false` defaults); the counts
+   * come straight from `connected_account_facets`, independent of whether a
+   * health row exists yet.
+   */
+  async function buildFacetHealth(provider: RegisteredProvider): Promise<ProviderFacetHealth[]> {
+    const facetHealthByKind = await getProviderFacetHealth(db, provider);
+    return Promise.all(
+      HEALTH_FACET_KINDS.map(async (facet) => {
+        const [health, counts] = await Promise.all([
+          Promise.resolve(facetHealthByKind.get(facet) ?? null),
+          countConnectedAccountsForProviderFacet(db, provider, facet),
+        ]);
+        return {
+          facet,
+          everGranted: health?.firstGrantedAt != null,
+          connectedAccountCount: counts.connectedAccountCount,
+          parkedCount: counts.parkedCount,
+          lastRefreshAt: health?.lastRefreshAt?.toISOString() ?? null,
+          lastRefreshError: health?.lastRefreshError ?? null,
+          apiNotEnabled: health?.apiNotEnabled ?? false,
+        };
+      }),
+    );
+  }
+
   async function buildProviderHealth(provider: RegisteredProvider): Promise<ProviderHealth> {
-    const [registration, mailAccountCount, needsReauthCount] = await Promise.all([
+    const [registration, facets] = await Promise.all([
       getProviderRegistration(db, provider),
-      countMailAccountsForProvider(db, provider),
-      countNeedsReauthMailAccountsForProvider(db, provider),
+      buildFacetHealth(provider),
     ]);
     return {
       provider,
       status: providerStatus(registration),
       redirectUri: buildProviderRedirectUri(publicUrl, provider),
       clientIdPreview: registration?.clientId ?? null,
-      mailAccountCount,
-      needsReauthCount,
       lastRefreshAt: registration?.lastRefreshAt?.toISOString() ?? null,
       lastRefreshError: registration?.lastRefreshError ?? null,
       calendarApiEnabled: registration?.calendarApiEnabled ?? false,
       contactsApiEnabled: registration?.contactsApiEnabled ?? false,
+      facets,
     };
   }
 
