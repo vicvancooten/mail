@@ -1,4 +1,5 @@
 import type {
+  ConnectedAccount,
   Correspondent,
   GatekeeperSender,
   GmailLabel,
@@ -107,6 +108,27 @@ async function overlayMailAccountMutations(
     }
     return overlaid;
   });
+}
+
+/**
+ * Every Connected Account this User owns (#199, #200, ADR-0022), the
+ * Connected Accounts settings table's whole data source (#201) and — once
+ * Calendar/Contacts pick up Account Scope — the picker's own source too
+ * (#166). No overlay: nothing mutates a Connected Account through the
+ * Optimistic Action queue yet, so this is a plain read of the whole-
+ * replicated collection, `useMailAccounts`' own doc comment's simpler
+ * cousin.
+ */
+export function useConnectedAccounts(): ConnectedAccount[] | undefined {
+  return useLiveQuery(() => readConnectedAccounts(), []);
+}
+
+export async function readConnectedAccounts(): Promise<ConnectedAccount[]> {
+  // `createdAt` isn't an indexed field (`db.ts`'s schema: "id, userId"), so
+  // this sorts in JS rather than via `orderBy`, the same trade `readLabels`
+  // above makes for its own unindexed sort key.
+  const accounts = await localCache().connectedAccounts.toArray();
+  return accounts.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 /**

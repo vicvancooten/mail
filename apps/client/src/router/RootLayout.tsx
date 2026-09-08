@@ -9,7 +9,6 @@ import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AccountScope } from "../mail/AccountScope.js";
 import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
 import { useAccountScope } from "../mail/useAccountScope.js";
-import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { useMailAccounts } from "../store/index.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
@@ -82,17 +81,21 @@ export function RootLayout() {
   // A `needs-reauth` notification click (#53, ADR-0015: "a click always
   // lands where the next decision is") names a Mail Account's *Settings* —
   // a route now (#71), unlike `thread`/`failed-send`, which stay inside
-  // Mail and are handled in `mail/MailSection.tsx` instead. Lives here,
-  // not there, because this is what's mounted regardless of which route is
-  // current when the click arrives. Lands on `/settings/mail-accounts`
-  // directly (#99) — that's the one sub-route `MailAccountsSection`, and so
-  // the row `scrollToMailAccountSettings` targets, actually renders on.
+  // Mail and are handled in `mail/MailSection.tsx` instead. Lives here, not
+  // there, because this is what's mounted regardless of which route is
+  // current when the click arrives. Lands on `/settings/connected-accounts`
+  // (#201, `/settings/mail-accounts`'s new address) carrying the target Mail
+  // Account's id in `?account=` — `connected-accounts/account-focus.ts`'s
+  // own doc comment on why this is a query param now rather than a DOM id
+  // to scroll to: a table cell can hold several accounts' Badges, so there
+  // is no longer one row per account.
   useEffect(() => {
     return subscribeNotificationTarget((target) => {
       if (target.kind !== "needs-reauth") return;
-      void navigate({ to: "/settings/mail-accounts" }).then(() =>
-        scrollToMailAccountSettings(target.mailAccountId),
-      );
+      void navigate({
+        to: "/settings/connected-accounts",
+        search: { account: target.mailAccountId },
+      });
     });
   }, [navigate]);
 

@@ -91,6 +91,7 @@ export {
   useNotes,
 } from "./notes.js";
 export {
+  readConnectedAccounts,
   readCorrespondents,
   readGmailLabels,
   readLabels,
@@ -105,6 +106,7 @@ export {
   type SearchPrefilterFilters,
   THREAD_PAGE_SIZE,
   type ThreadWindowPage,
+  useConnectedAccounts,
   useCorrespondents,
   useGmailLabels,
   useLabels,

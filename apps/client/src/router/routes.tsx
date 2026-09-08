@@ -10,10 +10,10 @@ import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { NotesRecentlyDeleted } from "../notes/NotesRecentlyDeleted.js";
+import { ConnectedAccountsPage } from "../settings/ConnectedAccountsPage.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";
-import { MailAccountsPage } from "../settings/MailAccountsPage.js";
 import { NotificationsPage } from "../settings/NotificationsPage.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
@@ -138,10 +138,46 @@ export const settingsThisDeviceRoute = createRoute({
   component: ThisDeviceSection,
 });
 
+export interface ConnectedAccountsSearch {
+  /**
+   * The needs-reauth notification/cold-start deep link's target Mail
+   * Account (#201, `connected-accounts/account-focus.ts`). Read directly
+   * off `window.location.search` by `ConnectedAccountsPage` itself, the
+   * same reasoning `mailRoute`'s own `?oauth=` sibling gives — this
+   * `validateSearch` exists only so `RootLayout.tsx`'s own `navigate` call
+   * type-checks, not because the page reads it through the router.
+   */
+  account?: string;
+  /** #116's OAuth callback outcome — same reasoning as `account` above. */
+  oauth?: string;
+}
+
+export const settingsConnectedAccountsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/connected-accounts",
+  validateSearch: (search: Record<string, unknown>): ConnectedAccountsSearch => ({
+    account: typeof search.account === "string" ? search.account : undefined,
+    oauth: typeof search.oauth === "string" ? search.oauth : undefined,
+  }),
+  component: ConnectedAccountsPage,
+});
+
+/**
+ * `/settings/mail-accounts` (#201): the Connected Accounts settings page's
+ * old address, kept as a silent redirect rather than removed outright — the
+ * needs-reauth notification deep link, the cold-start focus link and every
+ * OAuth callback outcome all still name it from wherever they were minted
+ * before this ticket landed. `search: true` carries every query param
+ * across unchanged (`?account=`, `?oauth=`, and anything else) rather than
+ * naming the ones known today, so a future param this redirect was never
+ * updated for still survives it.
+ */
 export const settingsMailAccountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/mail-accounts",
-  component: MailAccountsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/connected-accounts", search: true });
+  },
 });
 
 export const settingsGatekeeperRoute = createRoute({
@@ -272,6 +308,7 @@ export const routeTree = rootRoute.addChildren([
     settingsIndexRoute,
     settingsGeneralRoute,
     settingsThisDeviceRoute,
+    settingsConnectedAccountsRoute,
     settingsMailAccountsRoute,
     settingsGatekeeperRoute,
     settingsNotificationsRoute,

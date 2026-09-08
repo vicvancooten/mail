@@ -34,7 +34,7 @@ import "./settings.css";
 const NAV_ITEMS = [
   { to: "/settings/general", label: "General", Icon: SlidersHorizontal },
   { to: "/settings/this-device", label: "This device", Icon: Monitor },
-  { to: "/settings/mail-accounts", label: "Mail Accounts", Icon: AtSign },
+  { to: "/settings/connected-accounts", label: "Connected Accounts", Icon: AtSign },
   { to: "/settings/gatekeeper", label: "Gatekeeper", Icon: ShieldCheck },
   { to: "/settings/notifications", label: "Notifications", Icon: Bell },
   { to: "/settings/security", label: "Security", Icon: Lock },
