@@ -1,4 +1,9 @@
-import { type RegisteredProvider, registeredProviderSchema } from "@mail/shared";
+import {
+  type ConnectedAccountFacetKind,
+  connectedAccountFacetKindSchema,
+  type RegisteredProvider,
+  registeredProviderSchema,
+} from "@mail/shared";
 import type { FastifyReply } from "fastify";
 
 /**
@@ -16,6 +21,21 @@ export function parseProviderParam(
   );
   if (!result.success) {
     reply.code(400).send({ error: "invalid_provider" });
+    return undefined;
+  }
+  return result.data;
+}
+
+/** Parses `:kind` on a Connected Account Facet route, replying 400 for anything but `mail`/`calendar`/`contacts` (#206). */
+export function parseFacetKindParam(
+  request: { params: unknown },
+  reply: FastifyReply,
+): ConnectedAccountFacetKind | undefined {
+  const result = connectedAccountFacetKindSchema.safeParse(
+    (request.params as { kind?: string }).kind,
+  );
+  if (!result.success) {
+    reply.code(400).send({ error: "invalid_facet_kind" });
     return undefined;
   }
   return result.data;

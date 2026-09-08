@@ -111,6 +111,15 @@ export interface ProviderAdapter {
    * failure of its stays `provider_error` (#117).
    */
   isTenantRefusal?(failure: AuthorizationCallbackError): boolean;
+  /**
+   * Best-effort Grant revocation on Connected Account removal (#206,
+   * ADR-0029: "Google's Grant is revoked best-effort ... a failure never
+   * fails the removal"). Optional: Microsoft's identity platform has no
+   * programmatic revoke endpoint a confidential client can call on the
+   * User's behalf, so its adapter leaves this out and the removal route
+   * shows the User a link to their own Microsoft account page instead.
+   */
+  revoke?(refreshToken: string): Promise<void>;
 }
 
 /**

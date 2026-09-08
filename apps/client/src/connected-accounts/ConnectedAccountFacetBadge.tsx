@@ -1,6 +1,7 @@
 import type { ConnectedAccount, ConnectedAccountFacetKind, MailAccount } from "@mail/shared";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -12,6 +13,7 @@ import {
 import { ProviderReauthAction } from "../mail-accounts/ProviderReauthAction.js";
 import { ReauthMailAccountForm } from "../mail-accounts/ReauthMailAccountForm.js";
 import { FACET_LABEL, PROVIDER_TABLE_LABEL } from "./provider-table.js";
+import { RemoveFacetDialog } from "./RemoveFacetDialog.js";
 
 /**
  * One Connected Account's status-dot Badge in one Facet's cell (#201, #172
@@ -42,65 +44,93 @@ export function ConnectedAccountFacetBadge({
   const facetStatus = account.facets.find((candidate) => candidate.kind === facet)?.status;
   const needsReauth = facetStatus === "needs_reauth";
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [popoverOpen, setPopoverOpen] = useState(autoFocus);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const accountRemoved = account.facets.length === 1;
 
   useEffect(() => {
     if (autoFocus) triggerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [autoFocus]);
 
   return (
-    <Popover defaultOpen={autoFocus}>
-      <PopoverTrigger asChild>
-        <Badge
-          ref={triggerRef}
-          variant={needsReauth ? "destructive" : "outline"}
-          className="cursor-pointer gap-1.5"
-        >
-          <span
-            className={`size-1.5 rounded-full ${needsReauth ? "bg-destructive" : "bg-[var(--color-success)]"}`}
-            aria-hidden
-          />
-          {account.identity}
-        </Badge>
-      </PopoverTrigger>
-      <PopoverContent>
-        <PopoverHeader>
-          <PopoverTitle>{account.identity}</PopoverTitle>
-          <PopoverDescription>
-            {PROVIDER_TABLE_LABEL[account.provider]} · {FACET_LABEL[facet]}
-          </PopoverDescription>
-        </PopoverHeader>
+    <>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <PopoverTrigger asChild>
+          <Badge
+            ref={triggerRef}
+            variant={needsReauth ? "destructive" : "outline"}
+            className="cursor-pointer gap-1.5"
+          >
+            <span
+              className={`size-1.5 rounded-full ${needsReauth ? "bg-destructive" : "bg-[var(--color-success)]"}`}
+              aria-hidden
+            />
+            {account.identity}
+          </Badge>
+        </PopoverTrigger>
+        <PopoverContent>
+          <PopoverHeader>
+            <PopoverTitle>{account.identity}</PopoverTitle>
+            <PopoverDescription>
+              {PROVIDER_TABLE_LABEL[account.provider]} · {FACET_LABEL[facet]}
+            </PopoverDescription>
+          </PopoverHeader>
 
-        {needsReauth ? (
-          <p role="status" className="text-sm text-destructive">
-            Needs Reauth — the server rejected the stored credential.
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">Connected.</p>
-        )}
-
-        {mailAccount &&
-          (needsReauth ? (
-            mailAccount.authKind.kind === "oauth" ? (
-              <ProviderReauthAction
-                mailAccountId={mailAccount.id}
-                provider={mailAccount.authKind.provider}
-                label={`Sign in with ${PROVIDER_TABLE_LABEL[mailAccount.authKind.provider]} again`}
-                isOwner={isOwner}
-              />
-            ) : (
-              <ReauthMailAccountForm mailAccountId={mailAccount.id} onResumed={() => {}} />
-            )
+          {needsReauth ? (
+            <p role="status" className="text-sm text-destructive">
+              Needs Reauth — the server rejected the stored credential.
+            </p>
           ) : (
-            mailAccount.authKind.kind === "password" && (
-              <ProviderReauthAction
-                mailAccountId={mailAccount.id}
-                provider="google"
-                label="Switch to Google sign-in"
-                isOwner={isOwner}
-              />
-            )
-          ))}
-      </PopoverContent>
-    </Popover>
+            <p className="text-sm text-muted-foreground">Connected.</p>
+          )}
+
+          {mailAccount &&
+            (needsReauth ? (
+              mailAccount.authKind.kind === "oauth" ? (
+                <ProviderReauthAction
+                  mailAccountId={mailAccount.id}
+                  provider={mailAccount.authKind.provider}
+                  label={`Sign in with ${PROVIDER_TABLE_LABEL[mailAccount.authKind.provider]} again`}
+                  isOwner={isOwner}
+                />
+              ) : (
+                <ReauthMailAccountForm mailAccountId={mailAccount.id} onResumed={() => {}} />
+              )
+            ) : (
+              mailAccount.authKind.kind === "password" && (
+                <ProviderReauthAction
+                  mailAccountId={mailAccount.id}
+                  provider="google"
+                  label="Switch to Google sign-in"
+                  isOwner={isOwner}
+                />
+              )
+            ))}
+
+          {/* Turning off a Facet, removing a Connected Account (#206,
+              ADR-0029) — a confirmed act, so this only opens the dialog; the
+              Popover closes with it rather than staying open behind it. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="justify-start text-destructive hover:text-destructive"
+            onClick={() => {
+              setPopoverOpen(false);
+              setRemoveDialogOpen(true);
+            }}
+          >
+            {accountRemoved ? "Remove account" : `Turn off ${FACET_LABEL[facet].toLowerCase()}`}
+          </Button>
+        </PopoverContent>
+      </Popover>
+
+      <RemoveFacetDialog
+        account={account}
+        facet={facet}
+        open={removeDialogOpen}
+        onOpenChange={setRemoveDialogOpen}
+      />
+    </>
   );
 }

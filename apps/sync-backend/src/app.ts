@@ -154,17 +154,19 @@ export function buildApp({
     discover: mailAccountDiscover,
     syncManager,
   });
-  app.register(connectedAccountRoutes, {
-    db,
-    mailCredentialKey,
-    discoverDav: connectedAccountDiscoverDav,
-  });
   app.register(oauthSignInRoutes, {
     db,
     publicUrl,
     mailCredentialKey,
     providerAdapters,
     verify: mailAccountVerify,
+    syncManager,
+  });
+  app.register(connectedAccountRoutes, {
+    db,
+    mailCredentialKey,
+    discoverDav: connectedAccountDiscoverDav,
+    providerAdapters,
     syncManager,
   });
   app.register(syncRoutes, { db });
