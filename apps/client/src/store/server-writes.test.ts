@@ -4,6 +4,7 @@ import { closeStaleThreadNotification } from "../pwa/close-stale-notifications.j
 import {
   delta,
   makeComposition,
+  makeCorrespondent,
   makeGmailLabel,
   makeLabel,
   makeMailAccount,
@@ -14,14 +15,16 @@ import { pinThreadIntoCache } from "./cache-pins.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition, sendComposition } from "./compositions.js";
 import { listWindowKey } from "./db.js";
 import { localCache, openLocalCache } from "./local-cache.js";
-import { readGmailLabels, readLabels, readThreadWindow } from "./reads.js";
+import { readCorrespondents, readGmailLabels, readLabels, readThreadWindow } from "./reads.js";
 import {
   applyCompositionDelta,
+  applyCorrespondentDelta,
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
   compositionTokenKey,
+  correspondentTokenKey,
   flushScheduledWindowTrims,
   getSyncToken,
   gmailLabelTokenKey,
@@ -430,6 +433,48 @@ describe("applyGmailLabelDelta (#126, ADR-0020)", () => {
     await applyGmailLabelDelta(ACCOUNT, delta({ destroyed: ["g1"] }), { replace: false });
 
     expect(await readGmailLabels(ACCOUNT)).toEqual([]);
+  });
+});
+
+describe("applyCorrespondentDelta (#49)", () => {
+  it("stores Correspondents and advances the state token", async () => {
+    await applyCorrespondentDelta(
+      ACCOUNT,
+      delta({
+        created: [makeCorrespondent("c1", ACCOUNT, { address: "ada@example.test", score: 5 })],
+        newState: "correspondent-state-1",
+      }),
+      { replace: false },
+    );
+
+    expect((await readCorrespondents(ACCOUNT)).map((c) => c.address)).toEqual(["ada@example.test"]);
+    expect(await getSyncToken(correspondentTokenKey(ACCOUNT))).toBe("correspondent-state-1");
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyCorrespondentDelta(
+      ACCOUNT,
+      delta({ created: [makeCorrespondent("stale", ACCOUNT)] }),
+      { replace: false },
+    );
+
+    await applyCorrespondentDelta(
+      ACCOUNT,
+      delta({ created: [makeCorrespondent("fresh", ACCOUNT)], reset: true }),
+      { replace: true },
+    );
+
+    expect((await readCorrespondents(ACCOUNT)).map((c) => c.id)).toEqual(["fresh"]);
+  });
+
+  it("removes destroyed Correspondents", async () => {
+    await applyCorrespondentDelta(ACCOUNT, delta({ created: [makeCorrespondent("c1", ACCOUNT)] }), {
+      replace: false,
+    });
+
+    await applyCorrespondentDelta(ACCOUNT, delta({ destroyed: ["c1"] }), { replace: false });
+
+    expect(await readCorrespondents(ACCOUNT)).toEqual([]);
   });
 });
 

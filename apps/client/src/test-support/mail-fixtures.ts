@@ -1,6 +1,7 @@
 import type {
   CollectionDelta,
   Composition,
+  Correspondent,
   GmailLabel,
   Label,
   MailAccount,
@@ -87,6 +88,26 @@ export function makeGmailLabel(
     mailAccountId,
     name: id,
     path: id,
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Correspondent` (#49, compose-spec §Recipient autocomplete). */
+export function makeCorrespondent(
+  id: string,
+  mailAccountId: string,
+  overrides: Partial<Correspondent> = {},
+): Correspondent {
+  return {
+    id,
+    mailAccountId,
+    address: `${id}@example.test`,
+    name: null,
+    sentCount: 0,
+    receivedCount: 0,
+    lastSeenAt: "2026-06-01T12:00:00.000Z",
+    score: 0,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };
