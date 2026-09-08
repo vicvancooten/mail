@@ -1,6 +1,7 @@
 import type {
   CollectionDelta,
   Composition,
+  ConnectedAccount,
   Correspondent,
   GmailLabel,
   Label,
@@ -27,6 +28,29 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     signature: null,
     notificationsEnabled: true,
     gatekeeper: { enabled: false, cutoff: null },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * A wire `ConnectedAccount` (#199, #200) — `makeMailAccount`'s own sibling.
+ * `id` defaults to `${id}-connected` to match `makeMailAccount`'s own
+ * default `connectedAccountId`, so `makeConnectedAccount(makeMailAccount("acct-1").connectedAccountId)`
+ * (or just `makeConnectedAccount("acct-1-connected")`) is the matching row a
+ * Connected Accounts table test seeds alongside it.
+ */
+export function makeConnectedAccount(
+  id: string,
+  overrides: Partial<ConnectedAccount> = {},
+): ConnectedAccount {
+  return {
+    id,
+    userId: "user-1",
+    provider: "google",
+    identity: `${id.replace(/-connected$/, "")}@example.test`,
+    status: "active",
+    facets: [{ kind: "mail", status: "active" }],
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
