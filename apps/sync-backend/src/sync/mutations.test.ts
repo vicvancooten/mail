@@ -1218,4 +1218,43 @@ describe("flushUserMutations — Note structural intents (#192, ADR-0023)", () =
 
     expect(outcomes).toEqual([{ id: "01LABEL", status: "rejected", reason: "invalid_label_name" }]);
   });
+
+  it("pins a Note (#193), the grid's Pinned/Others split", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01PIN", intent: { type: "pinNote", noteId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01PIN", status: "applied" }]);
+    expect((await noteRow(noteId))?.pinned).toBe(true);
+  });
+
+  it("unpins a Note, the real inverse of pinNote", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+      { id: "01PIN", intent: { type: "pinNote", noteId } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01UNPIN", intent: { type: "unpinNote", noteId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNPIN", status: "applied" }]);
+    expect((await noteRow(noteId))?.pinned).toBe(false);
+  });
+
+  it("rejects pinNote/unpinNote against a Note this User does not have", async () => {
+    const missingId = randomUUID();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01PIN", intent: { type: "pinNote", noteId: missingId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01PIN", status: "rejected", reason: "note_not_found" }]);
+  });
 });

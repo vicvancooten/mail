@@ -329,12 +329,13 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    */
   z.object({ type: z.literal("setHomeTimeZone"), homeTimeZone: z.string().min(1) }),
   /**
-   * A Note's structural actions (#192, ADR-0023): ordinary Optimistic Action
-   * intents on the User-scoped queue, real inverses per ADR-0019, exactly
-   * like a Thread's `applyLabel`/`removeLabel` — the difference is only
-   * which queue they ride, since a Note has no Mail Account to scope to.
-   * Body edits are the different half (`notes.ts#noteSaveSchema`'s own doc
-   * comment); these four never touch a Note's `document`.
+   * A Note's structural actions (#192, ADR-0023; `pinNote`/`unpinNote` joined
+   * in #193): ordinary Optimistic Action intents on the User-scoped queue,
+   * real inverses per ADR-0019, exactly like a Thread's
+   * `applyLabel`/`removeLabel` — the difference is only which queue they
+   * ride, since a Note has no Mail Account to scope to. Body edits are the
+   * different half (`notes.ts#noteSaveSchema`'s own doc comment); none of
+   * these six ever touch a Note's `document`.
    *
    * `createNote`/`deleteNote` are a genuine inverse pair (ADR-0019, the same
    * shape `discardComposition`/`undiscardComposition` already have): `noteId`
@@ -349,11 +350,19 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * `applyLabel`/`removeLabel` shape — the id is deterministic
    * (`labels.ts#labelId`) from `(userId, name)`, so both sides derive it
    * independently rather than one minting it and handing it to the other.
+   *
+   * `pinNote`/`unpinNote` (#193) are the grid's Pinned/Others split, a
+   * genuine inverse pair the same way `createNote`/`deleteNote` are —
+   * deliberately not a Thread-style absolute `setPinned {pinned: boolean}`,
+   * since that shape has no natural inverse for
+   * `user-mutation-queue.ts#coalesceKey`'s cancel-pair trick to use.
    */
   z.object({ type: z.literal("createNote"), noteId: z.string() }),
   z.object({ type: z.literal("deleteNote"), noteId: z.string() }),
   z.object({ type: z.literal("labelNote"), noteId: z.string(), name: z.string() }),
   z.object({ type: z.literal("unlabelNote"), noteId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("pinNote"), noteId: z.string() }),
+  z.object({ type: z.literal("unpinNote"), noteId: z.string() }),
 ]);
 export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
 

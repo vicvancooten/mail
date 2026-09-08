@@ -52,7 +52,7 @@ describe("useNoteAutosave", () => {
     await createNote(id);
     const { result } = renderHook(() => useNoteAutosave(id));
 
-    result.current(paragraph("hello"));
+    result.current.onChange(paragraph("hello"));
 
     await waitFor(
       async () => {
@@ -68,8 +68,8 @@ describe("useNoteAutosave", () => {
     await createNote(id);
     const { result } = renderHook(() => useNoteAutosave(id));
 
-    result.current(paragraph("first"));
-    result.current(paragraph("second"));
+    result.current.onChange(paragraph("first"));
+    result.current.onChange(paragraph("second"));
 
     await waitFor(
       async () => {
@@ -86,11 +86,52 @@ describe("useNoteAutosave", () => {
     await createNote(id);
     const { result, unmount } = renderHook(() => useNoteAutosave(id));
 
-    result.current(paragraph("typed then closed"));
+    result.current.onChange(paragraph("typed then closed"));
     unmount();
 
     // Long past the debounce window: nothing should have landed.
     await new Promise((resolve) => setTimeout(resolve, AUTOSAVE_DEBOUNCE_MS + 200));
     expect(await listQueuedNoteSaves()).toEqual([]);
+  });
+
+  describe("flush (#193)", () => {
+    it("writes immediately, without waiting for the debounce — the Note dialog's own close path", async () => {
+      const id = newNoteId();
+      await createNote(id);
+      const { result } = renderHook(() => useNoteAutosave(id));
+
+      result.current.onChange(paragraph("typed then closed"));
+      result.current.flush();
+
+      await waitFor(async () => {
+        expect((await readNote(id))?.document).toEqual(paragraph("typed then closed"));
+      });
+      expect(await listQueuedNoteSaves()).toHaveLength(1);
+    });
+
+    it("does nothing when nothing is pending", async () => {
+      const id = newNoteId();
+      await createNote(id);
+      const { result } = renderHook(() => useNoteAutosave(id));
+
+      result.current.flush();
+
+      expect(await listQueuedNoteSaves()).toEqual([]);
+    });
+
+    it("a flushed change doesn't also fire again once the (now-cleared) debounce would have elapsed", async () => {
+      const id = newNoteId();
+      await createNote(id);
+      const { result } = renderHook(() => useNoteAutosave(id));
+
+      result.current.onChange(paragraph("first"));
+      result.current.flush();
+      result.current.onChange(paragraph("second, still queued"));
+
+      // Past the original debounce window: the flushed write didn't leave a
+      // stray timer that would re-save the first document over the second.
+      await new Promise((resolve) => setTimeout(resolve, AUTOSAVE_DEBOUNCE_MS + 200));
+      expect((await readNote(id))?.document).toEqual(paragraph("second, still queued"));
+    });
   });
 });

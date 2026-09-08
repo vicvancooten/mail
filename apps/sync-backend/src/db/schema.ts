@@ -673,6 +673,8 @@ export const notes = pgTable(
     document: jsonb("document").$type<NoteDocument>().notNull(),
     /** Membership side of a Note's Labels (#192) — `threads.labelIds`'s own shape, naming rows in this same User's one `labels` set. */
     labelIds: text("label_ids").array().notNull().default([]),
+    /** The grid's Pinned/Others split (#193) — a structural intent (`pinNote`/`unpinNote`), same shape as `threads.pinned` above but reached through the User-scoped Optimistic Action queue rather than a per-Mail-Account one. */
+    pinned: boolean("pinned").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // Same shared `sync_rev_seq` trigger as `labels`/`threads` — see their

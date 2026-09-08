@@ -53,6 +53,7 @@ export function toWireNote(row: NoteRow): Note {
     userId: row.userId,
     document: row.document,
     labelIds: row.labelIds,
+    pinned: row.pinned,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

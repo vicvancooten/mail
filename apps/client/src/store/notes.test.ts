@@ -9,12 +9,14 @@ import {
   labelNote,
   listQueuedNoteSaves,
   newNoteId,
+  pinNote,
   readNote,
   readNotes,
   resolveNoteSaveOutcomes,
   saveNoteBody,
   toWireNoteSave,
   unlabelNote,
+  unpinNote,
 } from "./notes.js";
 import { setSessionUserId } from "./session.js";
 import { listQueuedUserMutations } from "./user-mutation-queue.js";
@@ -191,6 +193,65 @@ describe("labelNote / unlabelNote", () => {
   });
 });
 
+describe("pinNote / unpinNote (#193)", () => {
+  it("pins optimistically and enqueues the intent", async () => {
+    const id = newNoteId();
+    await createNote(id);
+
+    await pinNote(id);
+
+    const row = defined(await readNote(id));
+    expect(row.pinned).toBe(true);
+    const queued = await listQueuedUserMutations();
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "pinNote",
+      noteId: id,
+    });
+  });
+
+  it("unpins optimistically and enqueues the inverse intent", async () => {
+    const id = newNoteId();
+    await createNote(id);
+    await pinNote(id);
+    await listQueuedUserMutations().then((queued) =>
+      localCache().pendingUserMutations.bulkDelete(queued.map((mutation) => mutation.id)),
+    );
+
+    await unpinNote(id);
+
+    const row = defined(await readNote(id));
+    expect(row.pinned).toBe(false);
+    const queued = await listQueuedUserMutations();
+    expect(queued.map((mutation) => mutation.intent)).toContainEqual({
+      type: "unpinNote",
+      noteId: id,
+    });
+  });
+
+  it("cancels a still-queued pinNote when unpinNote follows for the same Note", async () => {
+    const id = newNoteId();
+    await createNote(id);
+    await listQueuedUserMutations().then((queued) =>
+      localCache().pendingUserMutations.bulkDelete(queued.map((mutation) => mutation.id)),
+    );
+
+    await pinNote(id);
+    await unpinNote(id);
+
+    const row = defined(await readNote(id));
+    expect(row.pinned).toBe(false);
+    expect(await listQueuedUserMutations()).toEqual([]);
+  });
+
+  it("a brand-new Note starts unpinned", async () => {
+    const id = newNoteId();
+
+    await createNote(id);
+
+    expect((await readNote(id))?.pinned).toBe(false);
+  });
+});
+
 describe("saveNoteBody (the noteSaves channel, #192, ADR-0023)", () => {
   it("writes the durable row and queues one save, keyed by Note id", async () => {
     const id = newNoteId();
@@ -203,6 +264,16 @@ describe("saveNoteBody (the noteSaves channel, #192, ADR-0023)", () => {
     expect(queued).toHaveLength(1);
     expect(queued[0]?.noteId).toBe(id);
     expect(queued[0]?.document).toEqual(paragraph("hello"));
+  });
+
+  it("leaves pinned untouched — a body save is never a structural edit", async () => {
+    const id = newNoteId();
+    await createNote(id);
+    await pinNote(id);
+
+    await saveNoteBody(id, paragraph("typed while pinned"));
+
+    expect((await readNote(id))?.pinned).toBe(true);
   });
 
   it("replaces a still-queued save rather than stacking a second one", async () => {

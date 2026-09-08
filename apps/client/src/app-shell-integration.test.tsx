@@ -1,4 +1,4 @@
-import type { MailAccount } from "@mail/shared";
+import { labelId, type MailAccount } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
@@ -6,9 +6,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
-import { applyMailAccountDelta, applyThreadDelta } from "./store/server-writes.js";
+import {
+  applyLabelDelta,
+  applyMailAccountDelta,
+  applyNoteDelta,
+  applyThreadDelta,
+} from "./store/server-writes.js";
 import { resetSyncStatus } from "./sync/sync-loop.js";
-import { delta, makeMailAccount, makeThread } from "./test-support/mail-fixtures.js";
+import {
+  delta,
+  makeLabel,
+  makeMailAccount,
+  makeNote,
+  makeThread,
+  minutesAfterEpoch,
+} from "./test-support/mail-fixtures.js";
 import { jsonResponse } from "./test-support/mock-fetch.js";
 
 /**
@@ -103,6 +115,29 @@ async function seedOneThread(): Promise<void> {
   );
 }
 
+/** #193's own User (`authResponses`' stubbed `/auth/session` above) — Notes and Label are User-scoped, so every fixture below is owned by it. */
+const NOTES_USER = "u1";
+
+async function seedNotesAndLabels(
+  notes: Parameters<typeof makeNote>[2][],
+  labelNames: string[] = [],
+): Promise<void> {
+  await applyLabelDelta(
+    delta({
+      created: labelNames.map((name) => makeLabel(labelId(NOTES_USER, name), NOTES_USER, { name })),
+    }),
+    { replace: false },
+  );
+  await applyNoteDelta(
+    delta({
+      created: notes.map((overrides, index) =>
+        makeNote(`note-${index + 1}`, NOTES_USER, overrides),
+      ),
+    }),
+    { replace: false },
+  );
+}
+
 describe("the app shell over a routed tree (#71)", () => {
   it("lands on Mail by default, with the seeded Thread visible", async () => {
     await seedOneThread();
@@ -134,7 +169,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
-  it("the App Switcher names all five Apps as reachable links, the reserved four marked SOON (#72, #86, #187)", async () => {
+  it("the App Switcher names all five Apps as reachable links, Contacts/Calendar/Tasks marked SOON (#72, #86, #187, #193)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -147,11 +182,13 @@ describe("the app shell over a routed tree (#71)", () => {
     // The switcher expands into the comp's tab row: real `Link`s, so a
     // reserved App is a destination rather than a disabled menu entry.
     expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-    for (const name of ["Contacts", "Calendar", "Tasks", "Notes"]) {
+    for (const name of ["Contacts", "Calendar", "Tasks"]) {
       const tab = screen.getByRole("link", { name: new RegExp(name) });
       expect(tab).toBeDefined();
       expect(tab.textContent).toContain("SOON");
     }
+    // Notes is real behind this since #193 — no SOON badge.
+    expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
 
     await user.click(screen.getByRole("link", { name: /Contacts/ }));
 
@@ -311,7 +348,7 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
-  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187)", async () => {
+  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187, #193)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -332,11 +369,12 @@ describe("the app shell over a routed tree (#71)", () => {
       await user.click(screen.getByRole("button", { name: "Switch app" }));
 
       expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-      for (const name of ["Contacts", "Calendar", "Tasks", "Notes"]) {
+      for (const name of ["Contacts", "Calendar", "Tasks"]) {
         const tab = screen.getByRole("link", { name: new RegExp(name) });
         expect(tab).toBeDefined();
         expect(tab.textContent).toContain("SOON");
       }
+      expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
       window.dispatchEvent(new Event("resize"));
@@ -418,5 +456,237 @@ describe("the app shell over a routed tree (#71)", () => {
 
     expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
     expect(location.pathname).toBe("/settings/general");
+  });
+});
+
+/** A Note document whose only block is a paragraph carrying `text` — the grid's own derived title and preview both read straight off this. */
+function noteParagraph(text: string) {
+  return [
+    {
+      id: "b1",
+      type: "paragraph",
+      props: {},
+      content: [{ type: "text", text, styles: {} }],
+      children: [],
+    },
+  ];
+}
+
+/** A card's own `.note-card-title`, found by its text — a card's preview carries the same text too, so a plain `getByText` is ambiguous between the two. */
+function cardTitleText(text: string): Element | null {
+  return (
+    [...document.querySelectorAll(".note-card-title")].find((el) => el.textContent === text) ?? null
+  );
+}
+
+describe("Notes: the grid and dialog editing (#193)", () => {
+  it("renders Pinned then Others, each sorted last-edited descending, with titles and Label badges", async () => {
+    const workId = labelId(NOTES_USER, "Work");
+    await seedNotesAndLabels(
+      [
+        { pinned: true, updatedAt: minutesAfterEpoch(10), document: noteParagraph("Pinned note") },
+        {
+          pinned: false,
+          updatedAt: minutesAfterEpoch(30),
+          document: noteParagraph("Newer other"),
+          labelIds: [workId],
+        },
+        { pinned: false, updatedAt: minutesAfterEpoch(5), document: noteParagraph("Older other") },
+      ],
+      ["Work"],
+    );
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Pinned note" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Pinned" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Others" })).toBeDefined();
+    // "Work" appears twice: the filter chip and the card's own Label badge.
+    expect(screen.getAllByText("Work")).toHaveLength(2);
+
+    // Others sorted last-edited descending: "Newer other" before "Older other".
+    const titles = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+    expect(titles).toEqual(["Pinned note", "Newer other", "Older other"]);
+  });
+
+  it("a Note with no text in its first block shows the transient Untitled Note placeholder", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Untitled Note" })).toBeDefined();
+    // Never written into the document (#193's own acceptance line).
+    expect((await localCache().notes.get("note-1"))?.document).toEqual(noteParagraph(""));
+  });
+
+  it("the Label chip row filters both sections at once, multi-select with OR semantics", async () => {
+    const workId = labelId(NOTES_USER, "Work");
+    const homeId = labelId(NOTES_USER, "Home");
+    await seedNotesAndLabels(
+      [
+        { document: noteParagraph("Work note"), labelIds: [workId] },
+        { document: noteParagraph("Home note"), labelIds: [homeId] },
+        { document: noteParagraph("Unlabeled note") },
+      ],
+      ["Work", "Home"],
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Work note" });
+
+    await user.click(screen.getByRole("button", { name: "Work" }));
+
+    expect(screen.getByRole("heading", { name: "Work note" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "Home note" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Unlabeled note" })).toBeNull();
+
+    // OR semantics: selecting Home too brings its Note back in alongside Work's.
+    await user.click(screen.getByRole("button", { name: "Home" }));
+
+    expect(screen.getByRole("heading", { name: "Work note" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Home note" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "Unlabeled note" })).toBeNull();
+  });
+
+  it("clicking a card pushes /notes/:noteId and opens the editor in a Dialog over the still-mounted grid", async () => {
+    await seedNotesAndLabels([
+      { document: noteParagraph("First note") },
+      { document: noteParagraph("Second note") },
+    ]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "First note" });
+
+    fireEvent.click(screen.getByRole("link", { name: "First note" }));
+
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    expect(location.pathname).toBe("/notes/note-1");
+    // The dimmed grid underneath, second Note included, is still in the tree
+    // — `aria-hidden`, like the rest of the page, while the dialog traps
+    // focus (Radix's own behaviour), so this reads the DOM directly rather
+    // than through an accessible-role query (a card's title and its own
+    // preview both carry the same text, so `.note-card-title` is what picks
+    // the title specifically).
+    expect(cardTitleText("Second note")).toBeDefined();
+    await waitFor(() => {
+      expect(document.querySelector('[contenteditable="true"]')).not.toBeNull();
+    });
+  });
+
+  it("a deep link to /notes/:noteId opens straight into the dialog over the grid, no blank intermediate page", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Deep linked note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    // The grid rendered underneath, not a blank page — same Note's own card
+    // (`aria-hidden` while the dialog is open, hence the direct DOM read).
+    expect(cardTitleText("Deep linked note")).toBeDefined();
+  });
+
+  it("Esc navigates back to /notes, closing the dialog", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("A note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a backdrop click navigates back to /notes", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("A note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    await screen.findByRole("dialog");
+
+    // biome-ignore lint/style/noNonNullAssertion: the Overlay always renders alongside the Dialog itself.
+    fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!);
+    // biome-ignore lint/style/noNonNullAssertion: same overlay, mouseUp closes a Radix Dialog.
+    fireEvent.click(document.querySelector('[data-slot="dialog-overlay"]')!);
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+  });
+
+  it("a :noteId that resolves to nothing redirects silently to /notes", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("A real note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/does-not-exist");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "A real note" })).toBeDefined();
+  });
+
+  it("Pin toggles from the card, moving the Note into Pinned", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Will be pinned") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Will be pinned" });
+    expect(screen.queryByRole("heading", { name: "Pinned" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: 'Pin "Will be pinned"' }));
+
+    expect(await screen.findByRole("heading", { name: "Pinned" })).toBeDefined();
+    expect(screen.getByRole("button", { name: 'Unpin "Will be pinned"' })).toBeDefined();
+  });
+
+  it("Pin toggles from the open dialog too, with a real inverse", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Pin me from the dialog") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    const pinButton = await screen.findByRole("button", { name: "Pin note" });
+
+    fireEvent.click(pinButton);
+
+    expect(await screen.findByRole("button", { name: "Unpin note" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin note" }));
+    expect(await screen.findByRole("button", { name: "Pin note" })).toBeDefined();
+  });
+
+  it("Notes is reachable from the Hub without the SOON badge (#187, #193)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Notes" }));
+
+    expect(await screen.findByRole("region", { name: "Notes" })).toBeDefined();
+    expect(location.pathname).toBe("/notes");
   });
 });
