@@ -42,17 +42,21 @@ _Avoid_: proxy, bridge, API server
 Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, never to a mail server directly.
 
 **App**:
-One of the personal-hub products a Client holds: Mail today, with Contacts, Calendar and Tasks
-named and reserved. An App is a whole product surface with its own navigation, not a screen inside
-Mail — which is why the Client's chrome makes room for four rather than treating Mail as the whole
-world.
+One of the personal-hub products a Client holds: Mail today, with Contacts, Calendar, Tasks and
+Notes named and reserved. An App is a whole product surface with its own navigation, not a screen
+inside Mail — which is why the Client's chrome makes room for five rather than treating Mail as
+the whole world. Whether an App's data belongs to a Mail Account or to the User alone decides
+whether it observes Account Scope (see there).
 _Avoid_: module, section, tab
 
 **Account Scope**:
 Which of the User's Mail Accounts the Client is currently showing: any non-empty subset, defaulting
 to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing to one
-account is a question every App answers. Actions that can only mean one account — sending, or
-changing a Gatekeeper setting — ask for that account rather than inheriting the Scope.
+account is a question every App whose data rides a Mail Account answers — Mail, Calendar and
+Contacts do; Tasks and Notes, whose data belongs to the User alone, don't, and the Hub hides the
+control while one of those is current rather than showing it disabled. Actions that can only mean
+one account — sending, or changing a Gatekeeper setting — ask for that account rather than
+inheriting the Scope.
 _Avoid_: account switcher, unified inbox, active account
 
 **App Switcher**:

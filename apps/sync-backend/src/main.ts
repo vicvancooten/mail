@@ -14,6 +14,7 @@ import { defaultProviderAdapters } from "./routes/oauth-signin.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { startGrantRefreshLoop } from "./sync/grant-refresh-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
+import type { PollLoopHandle } from "./sync/poll-loop.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
 import { startSnoozeWakeLoop } from "./sync/snooze-wake-loop.js";
@@ -121,60 +122,73 @@ await ensureClaimToken(db, app.log, env.PUBLIC_URL);
 
 await startAllMailAccountSyncs(db, syncManager);
 
+// Every poll loop's handle (#188), registered once as it starts so `SIGTERM`
+// below can stop all of them through this one registry instead of naming
+// each handle again.
+const pollLoops: PollLoopHandle[] = [];
+
 // The `\Seen`/`\Flagged`/archive/trash write-through outbox (#42,
 // ADR-0006): a short-lived connection per account with anything queued,
 // independent of the resident IDLE sessions above.
-const protocolWriteLoop = startProtocolWriteLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  logger: app.log,
-});
+pollLoops.push(
+  startProtocolWriteLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
 
 // The debounced Composition → IMAP Drafts push (ADR-0012 tier 2, #45): same
 // independent-short-lived-connection shape as the outbox above, on its own
 // interval so a slow Drafts folder can never stall it either.
-const draftPushLoop = startDraftPushLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  logger: app.log,
-});
+pollLoops.push(
+  startDraftPushLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
 
 // The Pending Send sweeper (#46, ADR-0007). Its first tick runs immediately
 // rather than after the interval: `submit_after` is absolute, so this boot is
 // also the boot-time sweep that submits everything that came due while the
 // process was down.
-const sendLoop = startSendLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  logger: app.log,
-});
+pollLoops.push(
+  startSendLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
 
 // The Search Index rebuild sweep (#50, ADR-0016): "a bumped index_version
 // triggers a background, batched, oldest-version-first rebuild while search
 // keeps serving old rows" — never a boot-time migration. Plain Postgres, no
 // IMAP connection, so unlike every loop above it isn't scoped to a Mail
 // Account or gated on its sync state.
-const searchIndexRebuildLoop = startSearchIndexRebuildLoop(db, { logger: app.log });
+pollLoops.push(startSearchIndexRebuildLoop(db, { logger: app.log }));
 
 // The Snooze wake sweep (#76): "a thread returns to the Inbox as new when
 // the time passes", independent of any Client being connected (ADR-0003) —
 // same independent-of-`sync/manager.ts` shape as the rebuild loop above,
 // its first tick catching up on whatever came due while the process was
 // down.
-const snoozeWakeLoop = startSnoozeWakeLoop(db, { logger: app.log });
+pollLoops.push(startSnoozeWakeLoop(db, { logger: app.log }));
 
 // The Notifier's outbox delivery sweep (#53, ADR-0015). Its first tick runs
 // immediately, same reasoning as the send sweeper above: whatever the outbox
 // held when the process died is exactly what this boot-time tick resumes.
-const notifierDeliverLoop = startNotifierDeliverLoop(db, { sendPush, logger: app.log });
+pollLoops.push(startNotifierDeliverLoop(db, { sendPush, logger: app.log }));
 
 // The Grant refresh sweep (#118, ADR-0021): "keeps Grants warm even while
 // the resident connection is down" — same independent-of-`sync/manager.ts`
 // shape as the rebuild and snooze loops above, refreshing any oauth Mail
 // Account nearing its access token's expiry regardless of whether that
 // account's own resident session is currently connected.
-const grantRefreshLoop = startGrantRefreshLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  providerAdapters,
-  logger: app.log,
-});
+pollLoops.push(
+  startGrantRefreshLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    providerAdapters,
+    logger: app.log,
+  }),
+);
 
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
@@ -183,13 +197,7 @@ const grantRefreshLoop = startGrantRefreshLoop(db, {
 process.on("SIGTERM", () => {
   void Promise.all([
     syncManager.stopAll(),
-    protocolWriteLoop.stop(),
-    draftPushLoop.stop(),
-    sendLoop.stop(),
-    searchIndexRebuildLoop.stop(),
-    snoozeWakeLoop.stop(),
-    notifierDeliverLoop.stop(),
-    grantRefreshLoop.stop(),
+    ...pollLoops.map((loop) => loop.stop()),
     syncHints.stop(),
   ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))

@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../db/client.js";
 import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
+import { type PollLoopHandle, startPollLoop } from "../sync/poll-loop.js";
 import { pruneSentCompositions } from "./pending-send.js";
 import { sweepDueSends } from "./send-sweeper.js";
 
@@ -9,7 +10,8 @@ import { sweepDueSends } from "./send-sweeper.js";
  * The scheduler for `compose/send-sweeper.ts` (#46, ADR-0007), the same
  * shape `sync/draft-push-loop.ts` and `sync/protocol-write-loop.ts` already
  * have: an interval, one short-lived connection per Mail Account that has
- * work, independent of the resident IDLE session.
+ * work, independent of the resident IDLE session. A thin wrapper over
+ * `sync/poll-loop.ts`'s shared shape (#188).
  *
  * **The first tick runs immediately, before the first interval elapses.**
  * That is ADR-0007's boot-time sweep: `submit_after` is absolute, so
@@ -33,21 +35,19 @@ export interface SendLoopOptions {
   logger?: FastifyBaseLogger;
 }
 
-export interface SendLoopHandle {
-  stop(): Promise<void>;
-}
+export type SendLoopHandle = PollLoopHandle;
 
 export function startSendLoop(
   db: Db,
   { mailCredentialKey, intervalMs = DEFAULT_INTERVAL_MS, logger }: SendLoopOptions,
 ): SendLoopHandle {
   const credentialKey = deriveCredentialKey(mailCredentialKey);
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const tick = async () => {
-    if (stopped) return;
-    try {
+  return startPollLoop({
+    label: "compose send loop",
+    intervalMs,
+    logger,
+    async tick() {
       const result = await sweepDueSends(db, (id) => getMailAccountById(db, id), {
         credentialKey,
         logger,
@@ -56,30 +56,6 @@ export function startSendLoop(
         logger?.info({ ...result }, "pending send sweep");
       }
       await pruneSentCompositions(db);
-    } catch (err) {
-      logger?.error({ err }, "pending send sweep failed");
-    }
-  };
-
-  // Runs to completion before the next tick is scheduled, so two sweeps
-  // never overlap. Overlapping ones would still be *correct* — the claim is
-  // atomic — but they would double the connections to a slow SMTP server for
-  // no gain.
-  let running: Promise<void> = tick().finally(scheduleNext);
-
-  function scheduleNext(): void {
-    if (stopped) return;
-    timer = setTimeout(() => {
-      running = tick().finally(scheduleNext);
-    }, intervalMs);
-    timer.unref?.();
-  }
-
-  return {
-    async stop() {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await running;
     },
-  };
+  });
 }
