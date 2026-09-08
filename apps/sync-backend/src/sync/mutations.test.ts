@@ -9,14 +9,16 @@ import {
   folders,
   labels,
   messages,
+  notes,
   protocolWrites,
+  syncTombstones,
   threads,
 } from "../db/schema.js";
 import { resolveVerdict } from "../gatekeeper/verdicts.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
-import { flushMutations } from "./mutations.js";
+import { flushMutations, flushUserMutations } from "./mutations.js";
 import { resolveThread } from "./threading.js";
 
 /**
@@ -1076,5 +1078,144 @@ describe("flushMutations — discardComposition/undiscardComposition (#101)", ()
     expect(outcomes).toEqual([{ id: "01U", status: "applied" }]);
     const [row] = await db.select().from(compositions).where(eq(compositions.id, id)).limit(1);
     expect(row?.status).toBe("draft");
+  });
+});
+
+/**
+ * A Note's structural intents (#192, ADR-0023): `flushUserMutations`'s own
+ * dispatch, User-scoped rather than Mail-Account-scoped — `flushMutations`'s
+ * `applyLabel`/`removeLabel` describe block above is the closest template,
+ * generalized to a queue with no Thread/Mail Account in scope at all.
+ */
+describe("flushUserMutations — Note structural intents (#192, ADR-0023)", () => {
+  async function noteRow(id: string) {
+    const [row] = await db.select().from(notes).where(eq(notes.id, id)).limit(1);
+    return row;
+  }
+
+  it("creates a Note with an empty document and no Labels", async () => {
+    const noteId = randomUUID();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01CREATE", status: "applied" }]);
+    const row = await noteRow(noteId);
+    expect(row).toMatchObject({ id: noteId, userId: account.userId, labelIds: [] });
+  });
+
+  it("is idempotent: a retried createNote id replays its recorded outcome rather than re-applying", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01CREATE", status: "applied" }]);
+    expect(await db.select().from(notes).where(eq(notes.id, noteId))).toHaveLength(1);
+  });
+
+  it("deletes a Note permanently and records a tombstone (ADR-0019's real inverse of create)", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01DELETE", intent: { type: "deleteNote", noteId } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01DELETE", status: "applied" }]);
+    expect(await noteRow(noteId)).toBeUndefined();
+    const [tombstone] = await db
+      .select()
+      .from(syncTombstones)
+      .where(eq(syncTombstones.entityId, noteId));
+    expect(tombstone).toMatchObject({ collection: "Note", entityId: noteId, mailAccountId: null });
+  });
+
+  it("tolerates deleting a Note that is already gone — the same no-op removeLabel already gives a Thread", async () => {
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01DELETE", intent: { type: "deleteNote", noteId: randomUUID() } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01DELETE", status: "applied" }]);
+  });
+
+  it("applies a Label to a Note, User-scoped the same way a Thread's applyLabel is", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01LABEL", intent: { type: "labelNote", noteId, name: "Work" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01LABEL", status: "applied" }]);
+    const id = labelId(account.userId, "Work");
+    expect((await noteRow(noteId))?.labelIds).toEqual([id]);
+    expect(await db.select().from(labels).where(eq(labels.id, id))).toHaveLength(1);
+  });
+
+  it("shares one Label row between a Note and a Thread of the same User", async () => {
+    const threadId = await seedThread();
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+    await flushMutations(db, account.id, [
+      { id: "01T", intent: { type: "applyLabel", threadId, name: "Work" } },
+    ]);
+
+    await flushUserMutations(db, account.userId, [
+      { id: "01N", intent: { type: "labelNote", noteId, name: "Work" } },
+    ]);
+
+    const id = labelId(account.userId, "Work");
+    expect((await threadRow(threadId))?.labelIds).toEqual([id]);
+    expect((await noteRow(noteId))?.labelIds).toEqual([id]);
+  });
+
+  it("removes a Label from a Note", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+      { id: "01LABEL", intent: { type: "labelNote", noteId, name: "Work" } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01UNLABEL", intent: { type: "unlabelNote", noteId, name: "Work" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01UNLABEL", status: "applied" }]);
+    expect((await noteRow(noteId))?.labelIds).toEqual([]);
+  });
+
+  it("rejects labelNote/unlabelNote against a Note this User does not have", async () => {
+    const missingId = randomUUID();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01LABEL", intent: { type: "labelNote", noteId: missingId, name: "Work" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01LABEL", status: "rejected", reason: "note_not_found" }]);
+  });
+
+  it("rejects an invalid Label name the same way applyLabel does", async () => {
+    const noteId = randomUUID();
+    await flushUserMutations(db, account.userId, [
+      { id: "01CREATE", intent: { type: "createNote", noteId } },
+    ]);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01LABEL", intent: { type: "labelNote", noteId, name: "   " } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01LABEL", status: "rejected", reason: "invalid_label_name" }]);
   });
 });

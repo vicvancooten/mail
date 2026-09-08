@@ -8,6 +8,7 @@ import type {
 } from "@mail/shared";
 import {
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
+  EMPTY_NOTE_DOCUMENT,
   isValidLabelName,
   labelId,
   normalizeLabelName,
@@ -17,7 +18,15 @@ import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import type { Db } from "../db/client.js";
-import { appliedMutations, labels, mailAccounts, messages, threads, users } from "../db/schema.js";
+import {
+  appliedMutations,
+  labels,
+  mailAccounts,
+  messages,
+  notes,
+  threads,
+  users,
+} from "../db/schema.js";
 import {
   approveSender,
   blockSender,
@@ -38,6 +47,7 @@ import { selectInboxResidentMessageIds } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { restoreThreadsToInbox } from "./restore-to-inbox.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
+import { recordTombstones } from "./tombstones.js";
 
 /**
  * Applies one Mail Account's queued Optimistic Actions (ADR-0010, #39),
@@ -528,7 +538,16 @@ async function applyOneUserMutation(
   return result.ok ? { id, status: "applied" } : { id, status: "rejected", reason: result.reason };
 }
 
-/** Each variant is an absolute set on one `Preference` field (`sync.ts#userMutationIntentSchema`'s own doc comment) — nothing here can ever be rejected. */
+/**
+ * The Preference variants are each an absolute set on one field
+ * (`sync.ts#userMutationIntentSchema`'s own doc comment) — none of them can
+ * ever be rejected. The Note structural variants (#192, ADR-0023) below
+ * *can* be — `note_not_found` for `labelNote`/`unlabelNote`/`deleteNote`
+ * against a Note this User does not (or no longer) have — but that is the
+ * intent queue's own ordinary idempotency-ledger rejection shape, not the
+ * `noteSaves` channel's "never rejects" (`note-store.ts`'s own doc comment):
+ * the two are about different things wholesale.
+ */
 async function applyUserIntent(
   db: Db,
   userId: string,
@@ -557,7 +576,89 @@ async function applyUserIntent(
         .set({ homeTimeZone: intent.homeTimeZone, updatedAt: new Date() })
         .where(eq(users.id, userId));
       return { ok: true };
+    case "createNote":
+      // `onConflictDoNothing` (#43's `applyLabel` uses the same trick): a
+      // retried id after a dropped response, and a `noteSaves` row that
+      // raced this same id into existence first (`note-store.ts`'s own
+      // "created lazily" doc comment) both land here safely — either way
+      // the row simply already exists with this User as its owner.
+      await db
+        .insert(notes)
+        .values({ id: intent.noteId, userId, document: EMPTY_NOTE_DOCUMENT, labelIds: [] })
+        .onConflictDoNothing({ target: notes.id });
+      return { ok: true };
+    case "deleteNote": {
+      const deleted = await db
+        .delete(notes)
+        .where(and(eq(notes.id, intent.noteId), eq(notes.userId, userId)))
+        .returning({ id: notes.id });
+      // A Note already gone (Undo racing a second delete, or a retried id)
+      // is a harmless no-op, the same tolerance `removeLabel` gives a name
+      // that was never applied — no tombstone for a delete that deleted
+      // nothing, since nothing left the collection just now.
+      if (deleted.length > 0) {
+        await recordTombstones(db, {
+          mailAccountId: null,
+          collection: "Note",
+          entityIds: [intent.noteId],
+        });
+      }
+      return { ok: true };
+    }
+    case "labelNote": {
+      const name = normalizeLabelName(intent.name);
+      if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
+      const note = await noteRow(db, userId, intent.noteId);
+      if (!note) return { ok: false, reason: "note_not_found" };
+
+      // User-scoped (#186): the same `labelId` derivation `applyLabel`
+      // already uses for a Thread — one set of Labels per User, so a Note
+      // and a Thread of this same User's own can share a row.
+      const id = labelId(userId, name);
+      await db.insert(labels).values({ id, userId, name }).onConflictDoNothing({
+        target: labels.id,
+      });
+
+      if (!note.labelIds.includes(id)) {
+        await db
+          .update(notes)
+          .set({ labelIds: sql`array_append(${notes.labelIds}, ${id})`, updatedAt: new Date() })
+          .where(eq(notes.id, intent.noteId));
+      }
+      return { ok: true };
+    }
+    case "unlabelNote": {
+      const note = await noteRow(db, userId, intent.noteId);
+      if (!note) return { ok: false, reason: "note_not_found" };
+
+      const id = labelId(userId, normalizeLabelName(intent.name));
+      if (note.labelIds.includes(id)) {
+        await db
+          .update(notes)
+          .set({
+            labelIds: note.labelIds.filter((existing) => existing !== id),
+            updatedAt: new Date(),
+          })
+          .where(eq(notes.id, intent.noteId));
+      }
+      // A name with no matching applied Label is a harmless no-op — the
+      // same tolerance `removeLabel` already gives a Thread.
+      return { ok: true };
+    }
   }
+}
+
+async function noteRow(
+  db: Db,
+  userId: string,
+  noteId: string,
+): Promise<{ labelIds: string[] } | null> {
+  const [row] = await db
+    .select({ labelIds: notes.labelIds })
+    .from(notes)
+    .where(and(eq(notes.id, noteId), eq(notes.userId, userId)))
+    .limit(1);
+  return row ?? null;
 }
 
 /** Also `routes/bulk-triage.ts`'s own ledger-insert race handling (#67) — same shape, same reason. */

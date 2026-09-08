@@ -7,6 +7,8 @@ import type {
   Label,
   MailAccount,
   MutationIntent,
+  Note,
+  NoteDocument,
   Preference,
   Recipient,
   Thread,
@@ -33,7 +35,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 8; // #186: `labels` re-keyed to User scope — the per-Mail-Account rows and their tokens are discarded and re-bootstrapped
+export const CACHE_SCHEMA_VERSION = 9; // #192: `notes`/`pendingNoteSaves` added — a fresh table, no data to preserve
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -225,6 +227,23 @@ export interface PendingComposeSave {
 }
 
 /**
+ * The `noteSaves` channel's coalescing queue (#192, ADR-0023) —
+ * `PendingComposeSave`'s sibling, deliberately simpler: no `version`, since a
+ * Note body write is never rejected (`@mail/shared`'s `noteSaveSchema` own
+ * doc comment). Keyed by `noteId` rather than a fresh id per save, the same
+ * `put()`-is-the-coalescer trick `PendingComposeSave` uses — a later edit's
+ * `put()` simply overwrites a still-unflushed earlier one in place.
+ * `saveId` is a fresh ULID minted on every overwrite, the idempotency/replay
+ * key `store/notes.ts`'s dequeue logic matches an outcome against.
+ */
+export interface PendingNoteSave {
+  noteId: string;
+  saveId: string;
+  document: NoteDocument;
+  queuedAt: string;
+}
+
+/**
  * The durable Optimistic Action queue (ADR-0010, #39). Two of #38's cache
  * invariants are stated in terms of it: wipe-and-resync must never discard
  * a non-empty queue, and eviction must never drop a Thread a queued action
@@ -276,6 +295,9 @@ export class LocalCache extends Dexie {
   /** `GmailLabel` (#126, ADR-0020): a Gmail Mail Account's own Labels, browsable and read-only — never merged into `labels`. */
   gmailLabels!: EntityTable<GmailLabel, "id">;
   correspondents!: EntityTable<Correspondent, "id">;
+  /** `Note` (#192, ADR-0023), User-scoped, whole-replicated — `labels`' sibling, minus the "moved here from Mail Account scope" history. */
+  notes!: EntityTable<Note, "id">;
+  pendingNoteSaves!: EntityTable<PendingNoteSave, "noteId">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
   syncState!: EntityTable<SyncStateRow, "key">;
@@ -310,6 +332,8 @@ export class LocalCache extends Dexie {
       // whole (bounded, ~500-row) top-500, which is the first-keystroke
       // <50ms budget's real headroom.
       correspondents: "id, mailAccountId, [mailAccountId+score]",
+      notes: "id, userId",
+      pendingNoteSaves: "noteId",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -340,6 +364,7 @@ const DATA_TABLES = [
   "labels",
   "gmailLabels",
   "correspondents",
+  "notes",
   "listWindows",
   "cachePins",
   "syncState",
@@ -366,6 +391,7 @@ export type CacheSchemaOutcome =
       pendingMutations: number;
       pendingComposeSaves: number;
       pendingUserMutations: number;
+      pendingNoteSaves: number;
     };
 
 /**
@@ -386,13 +412,20 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
   const pendingMutations = await db.pendingMutations.count();
   const pendingComposeSaves = await db.pendingComposeSaves.count();
   const pendingUserMutations = await db.pendingUserMutations.count();
-  if (pendingMutations > 0 || pendingComposeSaves > 0 || pendingUserMutations > 0) {
+  const pendingNoteSaves = await db.pendingNoteSaves.count();
+  if (
+    pendingMutations > 0 ||
+    pendingComposeSaves > 0 ||
+    pendingUserMutations > 0 ||
+    pendingNoteSaves > 0
+  ) {
     return {
       status: "deferred",
       from,
       pendingMutations,
       pendingComposeSaves,
       pendingUserMutations,
+      pendingNoteSaves,
     };
   }
 

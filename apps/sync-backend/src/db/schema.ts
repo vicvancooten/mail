@@ -1,4 +1,4 @@
-import type { AttachmentMeta, ComposeDocument, Recipient } from "@mail/shared";
+import type { AttachmentMeta, ComposeDocument, NoteDocument, Recipient } from "@mail/shared";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -636,6 +636,53 @@ export const labels = pgTable(
   ],
 );
 export type LabelRow = typeof labels.$inferSelect;
+
+/**
+ * A Note (#192, ADR-0023): the first **new** caller of the collection
+ * registry, and the first collection to carry a document body rather than
+ * only intents. **User-scoped**, the same as `labels` above — one Note has
+ * no Mail Account to belong to, which is also the precondition ADR-0023
+ * names for a Note carrying the same `labelIds` mail does. Replicates
+ * *whole*, no window (unlike `threads`' paging or a future Calendar's time
+ * range) — a User has at most a handful of Notes at PoC scope.
+ *
+ * `id` is **not** deterministic like a `labels` row's: it is a
+ * Client-minted ULID (`store/notes.ts#newNoteId`), the same "offline-derivable
+ * address" reasoning `compositions.id` already uses, so a brand-new Note has
+ * its `/notes/:noteId` address the instant it is created, before any server
+ * round trip. `sync/mutations.ts`'s `createNote`/`deleteNote` intents are
+ * what actually create and destroy this row; `sync/note-store.ts`'s
+ * `noteSaves` channel only ever updates `document` on an existing one — see
+ * that module's own doc comment for why it upserts anyway rather than
+ * rejecting a save that raced a not-yet-applied `createNote`.
+ *
+ * `document` is BlockNote's own block document (#191, ADR-0024,
+ * `packages/shared/src/notes.ts#noteDocumentSchema`) — deliberately loose,
+ * the same reasoning `compositions.document` already has. There is no
+ * `version`: a Note's body write is never rejected (ADR-0023's "takes the
+ * latest by receipt"), so there is nothing here for a Client to have read
+ * stale against.
+ */
+export const notes = pgTable(
+  "notes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    document: jsonb("document").$type<NoteDocument>().notNull(),
+    /** Membership side of a Note's Labels (#192) — `threads.labelIds`'s own shape, naming rows in this same User's one `labels` set. */
+    labelIds: text("label_ids").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `labels`/`threads` — see their
+    // comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [index("notes_sync_rev_idx").on(table.userId, table.syncRev)],
+);
+export type NoteRow = typeof notes.$inferSelect;
 
 /**
  * A Gmail Label (#126, ADR-0020, CONTEXT.md): Gmail's own tag on a message,

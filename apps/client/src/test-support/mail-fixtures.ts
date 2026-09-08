@@ -5,9 +5,10 @@ import type {
   GmailLabel,
   Label,
   MailAccount,
+  Note,
   Thread,
 } from "@mail/shared";
-import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
+import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
 
 /** Builders for the `POST /sync` wire shapes, so a test states only the field it is about. */
 
@@ -69,6 +70,19 @@ export function makeLabel(id: string, userId: string, overrides: Partial<Label> 
     id,
     userId,
     name: id,
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Note` (#192, ADR-0023) — User-scoped like `makeLabel`, whole-replicated with a body rather than only a name. */
+export function makeNote(id: string, userId: string, overrides: Partial<Note> = {}): Note {
+  return {
+    id,
+    userId,
+    document: EMPTY_NOTE_DOCUMENT,
+    labelIds: [],
+    createdAt: "2026-06-01T12:00:00.000Z",
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };

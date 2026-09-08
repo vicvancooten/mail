@@ -55,6 +55,15 @@ async function queueComposeSave(): Promise<void> {
   });
 }
 
+async function queueNoteSave(): Promise<void> {
+  await localCache().pendingNoteSaves.put({
+    noteId: "note-1",
+    saveId: "01JNOTESAVE",
+    document: [{ id: "b1", type: "paragraph", props: {}, content: [], children: [] }],
+    queuedAt: "2026-06-01T12:00:00.000Z",
+  });
+}
+
 describe("opening the Local Cache", () => {
   it("reports a first-ever open as fresh", async () => {
     expect(await openLocalCache({ name: uniqueName(), schemaVersion: 1 })).toEqual({
@@ -94,6 +103,7 @@ describe("opening the Local Cache", () => {
       pendingMutations: 1,
       pendingComposeSaves: 0,
       pendingUserMutations: 0,
+      pendingNoteSaves: 0,
     });
     // The old data stays, and stays readable: an unsent archive performed on
     // a train outranks the upgrade.
@@ -111,8 +121,25 @@ describe("opening the Local Cache", () => {
       pendingMutations: 0,
       pendingComposeSaves: 1,
       pendingUserMutations: 0,
+      pendingNoteSaves: 0,
     });
     expect(await localCache().pendingComposeSaves.count()).toBe(1);
+  });
+
+  it("never wipes over a non-empty Note autosave queue either (#192, ADR-0023)", async () => {
+    const name = uniqueName();
+    await openLocalCache({ name, schemaVersion: 1 });
+    await queueNoteSave();
+
+    expect(await openLocalCache({ name, schemaVersion: 2 })).toEqual({
+      status: "deferred",
+      from: 1,
+      pendingMutations: 0,
+      pendingComposeSaves: 0,
+      pendingUserMutations: 0,
+      pendingNoteSaves: 1,
+    });
+    expect(await localCache().pendingNoteSaves.count()).toBe(1);
   });
 
   it("performs the deferred wipe once the queue drains", async () => {
@@ -149,6 +176,7 @@ describe("opening the Local Cache", () => {
       pendingMutations: 1,
       pendingComposeSaves: 0,
       pendingUserMutations: 0,
+      pendingNoteSaves: 0,
     });
     expect(await localCache().threads.count()).toBe(1);
   });

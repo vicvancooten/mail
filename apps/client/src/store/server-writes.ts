@@ -5,6 +5,7 @@ import type {
   GmailLabel,
   Label,
   MailAccount,
+  Note,
   Preference,
   Thread,
 } from "@mail/shared";
@@ -47,6 +48,8 @@ export const MAIL_ACCOUNT_TOKEN_KEY = "user:MailAccount";
 export const PREFERENCE_TOKEN_KEY = "user:Preference";
 /** `Label` is User-scoped since #186, so its token is keyed like `Preference`'s, not per Mail Account. */
 export const LABEL_TOKEN_KEY = "user:Label";
+/** `Note` (#192, ADR-0023): User-scoped from the start, so its token is keyed like `Label`'s. */
+export const NOTE_TOKEN_KEY = "user:Note";
 
 export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
@@ -223,6 +226,38 @@ export async function applyLabelDelta(
     if (upserts.length > 0) await db.labels.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.labels.bulkDelete(delta.destroyed);
     await db.syncState.put({ key: LABEL_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `Note` (#192, ADR-0023). `Label`'s sibling above for the whole-replication
+ * shape, but — like `Composition` below — the only *other* delta with a
+ * merge rule: a Note with an unflushed `pendingNoteSaves` row holds a
+ * `document` the server has not seen, and taking the wire's older copy would
+ * destroy exactly what the `noteSaves` channel exists to protect. Once the
+ * save lands there is no queued row and the server's copy is simply
+ * adopted, which is also how the *other* device's edit shows up here once
+ * this one has nothing outstanding of its own.
+ */
+export async function applyNoteDelta(
+  delta: CollectionDelta<Note>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.notes, db.pendingNoteSaves, db.syncState], async () => {
+    if (replace) await db.notes.clear();
+
+    for (const wire of [...delta.created, ...delta.updated]) {
+      const hasUnflushedEdit = (await db.pendingNoteSaves.get(wire.id)) !== undefined;
+      const local = await db.notes.get(wire.id);
+      await db.notes.put(hasUnflushedEdit && local ? { ...wire, document: local.document } : wire);
+    }
+
+    if (delta.destroyed.length > 0) {
+      await db.notes.bulkDelete(delta.destroyed);
+      await db.pendingNoteSaves.bulkDelete(delta.destroyed);
+    }
+    await db.syncState.put({ key: NOTE_TOKEN_KEY, token: delta.newState });
   });
 }
 

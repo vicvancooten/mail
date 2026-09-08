@@ -70,11 +70,11 @@ describe("runSyncRound", () => {
     const result = await runSyncRound(post);
 
     expect(requests[0]).toEqual({
-      user: { MailAccount: null, Preference: null, Label: null },
+      user: { MailAccount: null, Preference: null, Label: null, Note: null },
       mailAccounts: {},
     });
     expect(requests[1]).toEqual({
-      user: { MailAccount: "ma-1", Preference: null, Label: null },
+      user: { MailAccount: "ma-1", Preference: null, Label: null, Note: null },
       mailAccounts: {
         "acct-1": {
           Thread: null,
@@ -222,7 +222,7 @@ describe("runSyncRound", () => {
     // Both tokens went with the wipe, so this is a bootstrap and not a delta
     // resumed from a cursor whose rows no longer exist locally.
     expect(resync.requests[0]).toEqual({
-      user: { MailAccount: null, Preference: null, Label: null },
+      user: { MailAccount: null, Preference: null, Label: null, Note: null },
       mailAccounts: {},
     });
     expect(resync.requests[1]?.mailAccounts?.["acct-1"]).toEqual({

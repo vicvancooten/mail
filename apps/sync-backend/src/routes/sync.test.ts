@@ -6,9 +6,10 @@ import type {
   LabelDelta,
   MailAccountDelta,
   MutationOutcome,
+  NoteDelta,
   ThreadDelta,
 } from "@mail/shared";
-import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
+import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -22,6 +23,7 @@ import {
   folders,
   mailAccounts,
   messages,
+  notes,
   threads,
 } from "../db/schema.js";
 import { persistGmailLabels } from "../sync/gmail-labels.js";
@@ -449,6 +451,121 @@ describe("POST /sync", () => {
       // collection query or response entry alongside it.
       expect(threadDelta.created[0]?.labelIds).toHaveLength(1);
       expect(response.json().user.Label).toBeUndefined();
+    });
+  });
+
+  describe("Note (User-scoped, #192, ADR-0023)", () => {
+    it("bootstraps empty, then reports a Note created through createNote across a token round-trip", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: null } },
+      });
+      expect(bootstrap.statusCode).toBe(200);
+      expect(bootstrap.json().user.Note).toMatchObject({
+        created: [],
+        updated: [],
+        destroyed: [],
+        hasMore: false,
+      });
+
+      const applied = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: null,
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      expect(applied.json().user.mutations).toEqual([{ id: "01CREATE", status: "applied" }]);
+      const delta = applied.json().user.Note as NoteDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ id: "note-1", labelIds: [] });
+
+      const unchanged = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: delta.newState } },
+      });
+      expect(unchanged.json().user.Note).toBeUndefined();
+    });
+
+    it("carries the second Client's create on the next sync round — the acceptance line itself", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      // One Client creates...
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      // ...and saves a body.
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            noteSaves: [{ id: "note-1", saveId: "01SAVE", document: EMPTY_NOTE_DOCUMENT }],
+          },
+        },
+      });
+
+      // A second Client's next sync round, from nothing held, sees both.
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: null } },
+      });
+      const delta = secondClient.json().user.Note as NoteDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ id: "note-1", document: EMPTY_NOTE_DOCUMENT });
+    });
+
+    it("removes a deleted Note from the collection — deleteNote, create's real inverse", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const created = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: null,
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      const token = (created.json().user.Note as NoteDelta).newState;
+
+      const deleted = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: token,
+            mutations: [{ id: "01DELETE", intent: { type: "deleteNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      expect(deleted.json().user.mutations).toEqual([{ id: "01DELETE", status: "applied" }]);
+      expect((deleted.json().user.Note as NoteDelta).destroyed).toEqual(["note-1"]);
     });
   });
 
@@ -1063,6 +1180,172 @@ describe("POST /sync", () => {
       ]);
     });
   });
+
+  describe("noteSaves (#192, ADR-0023)", () => {
+    /** The text of a stored Note's first block — `NoteBlock.content`'s loose union needs narrowing before an index reads it. */
+    function firstText(document: unknown): unknown {
+      const blocks = document as { content?: unknown }[];
+      const content = blocks[0]?.content as { text?: string }[] | undefined;
+      return content?.[0]?.text;
+    }
+
+    it("creates the Note lazily on the first save for an unseen id", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            noteSaves: [{ id: "note-1", saveId: "01SAVE-A", document: EMPTY_NOTE_DOCUMENT }],
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01SAVE-A", status: "applied" },
+      ]);
+      const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
+      expect(row?.document).toEqual(EMPTY_NOTE_DOCUMENT);
+    });
+
+    it("never rejects a later save — takes the latest by receipt, no etag, no conflict (ADR-0023)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const save = (saveId: string, text: string) => ({
+        method: "POST" as const,
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            noteSaves: [
+              {
+                id: "note-1",
+                saveId,
+                document: [
+                  {
+                    id: "b1",
+                    type: "paragraph",
+                    props: {},
+                    content: [{ type: "text", text, styles: {} }],
+                    children: [],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      await app.inject(save("01A", "first"));
+      // A "stale" save, in the sense a version-checked channel like
+      // `composeSaves` would reject — here it simply applies, last write
+      // (by receipt, not by content) wins, silently.
+      const second = await app.inject(save("01B", "second"));
+
+      expect(second.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01B", status: "applied" },
+      ]);
+      const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
+      expect(firstText(row?.document)).toBe("second");
+    });
+
+    it("two Clients editing one Note while offline both flush without error — the last to arrive is the stored body", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const deviceA = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            user: {
+              noteSaves: [
+                {
+                  id: "note-1",
+                  saveId: "01A",
+                  document: [
+                    {
+                      id: "b1",
+                      type: "paragraph",
+                      props: {},
+                      content: [{ type: "text", text: "from A", styles: {} }],
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        });
+      const deviceB = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            user: {
+              noteSaves: [
+                {
+                  id: "note-1",
+                  saveId: "01B",
+                  document: [
+                    {
+                      id: "b1",
+                      type: "paragraph",
+                      props: {},
+                      content: [{ type: "text", text: "from B", styles: {} }],
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        });
+
+      const [responseA, responseB] = await Promise.all([deviceA(), deviceB()]);
+
+      expect(responseA.statusCode).toBe(200);
+      expect(responseB.statusCode).toBe(200);
+      expect(responseA.json().user.noteSaves[0].status).toBe("applied");
+      expect(responseB.json().user.noteSaves[0].status).toBe("applied");
+      const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
+      // Whichever reached the Sync Backend last (by receipt) is what stuck —
+      // exactly one of the two, not a merge of both.
+      expect(["from A", "from B"]).toContain(firstText(row?.document));
+    });
+
+    it("is exactly-once at the Client's dequeue: replaying the same saveId still answers applied", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const save = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            user: {
+              noteSaves: [{ id: "note-1", saveId: "01RETRY", document: EMPTY_NOTE_DOCUMENT }],
+            },
+          },
+        });
+
+      const first = await save();
+      expect(first.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01RETRY", status: "applied" },
+      ]);
+
+      const retry = await save();
+      expect(retry.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01RETRY", status: "applied" },
+      ]);
+    });
+  });
+
   describe("Composition + the send path (#46, ADR-0007)", () => {
     /** One `POST /sync` that saves a sendable Composition and asks for the collection back. */
     async function saveSendableDraft(
