@@ -25,9 +25,35 @@ export type RegisteredProvider = z.infer<typeof registeredProviderSchema>;
  * it never comes back in any response (ADR-0003's same rule for a Mail
  * Account's own credential).
  */
+/**
+ * The two Facets a User can ever *turn on* by consent (#202, ADR-0022):
+ * `mail` is never one of these — a Mail Facet is created by signing in or
+ * entering credentials in the first place (`AddMailAccountForm`), never
+ * added onto an existing Connected Account. `POST /auth/oauth/:provider/start`'s
+ * `facet` field is validated against this narrower schema, not
+ * `connected-accounts.ts#connectedAccountFacetKindSchema`, so a request
+ * naming `mail` is rejected at the boundary rather than reaching a route
+ * that has no idea what to do with it.
+ */
+export const grantableFacetKindSchema = z.enum(["calendar", "contacts"]);
+export type GrantableFacetKind = z.infer<typeof grantableFacetKindSchema>;
+
 export const saveProviderRegistrationRequestSchema = z.object({
   clientId: z.string().trim().min(1, "Client ID is required"),
   clientSecret: z.string().min(1, "Client secret is required"),
+  /**
+   * Owner-declared, unvalidated the same way every other Registration fact
+   * is (ADR-0021) — whether Google's Calendar API/People API, or Microsoft
+   * Graph's calendar/contacts permissions, have been enabled on the Owner's
+   * own project/app registration (ADR-0022: "Owner-only failures never show
+   * as Needs Reauth ... a 403 for a missing API is a Registration problem").
+   * Neither this instance nor any Grant can detect that fact from here, so
+   * the Owner states it directly, the same way they confirm the consent
+   * screen is In Production. Defaults to `false` — a fresh Registration
+   * offers Mail only until the Owner says otherwise.
+   */
+  calendarApiEnabled: z.boolean().default(false),
+  contactsApiEnabled: z.boolean().default(false),
 });
 export type SaveProviderRegistrationRequest = z.infer<typeof saveProviderRegistrationRequestSchema>;
 
@@ -69,6 +95,9 @@ export const providerHealthSchema = z.object({
   needsReauthCount: z.int().nonnegative(),
   lastRefreshAt: z.iso.datetime().nullable(),
   lastRefreshError: z.string().nullable(),
+  /** ADR-0022's per-Facet Provider Health reading: the Owner's own declaration, `false` before a Registration exists. */
+  calendarApiEnabled: z.boolean(),
+  contactsApiEnabled: z.boolean(),
 });
 export type ProviderHealth = z.infer<typeof providerHealthSchema>;
 
@@ -112,6 +141,18 @@ export const providerAvailabilitySchema = z.discriminatedUnion("available", [
     available: z.literal(true),
     /** Null exactly when `available` is true. */
     unavailableReason: z.null(),
+    /**
+     * The Owner's per-Facet declaration (#202, ADR-0022), readable here by
+     * any User — not just the Owner-only `ProviderHealth` — because a
+     * Member has to see a Facet as unavailable ("ask the Owner") the same
+     * way they already see an unregistered Provider that way. `false`
+     * whenever the whole Provider is unavailable too, though the
+     * `available: false` branch below doesn't carry either field: nothing
+     * about a Facet matters once signing in with the Provider at all
+     * doesn't work.
+     */
+    calendarApiEnabled: z.boolean(),
+    contactsApiEnabled: z.boolean(),
   }),
   z.object({
     provider: registeredProviderSchema,
@@ -130,16 +171,29 @@ export type ProviderAvailabilityListResponse = z.infer<
 >;
 
 /**
- * `POST /auth/oauth/:provider/start` (#116, #119). Omitting `mailAccountId`
- * starts an `add_mail_account` attempt with the account chooser shown;
- * naming one starts a `reauth` attempt instead — the same door for "sign in
- * again" on an OAuth account and "switch this password account to a Grant"
- * — and the start route sets `login_hint` to that Mail Account's own address
- * itself, never taking it from the Client.
+ * `POST /auth/oauth/:provider/start` (#116, #119, #202). Omitting every
+ * field starts an `add_mail_account` attempt with the account chooser
+ * shown; naming `mailAccountId` starts a `reauth` attempt instead — the same
+ * door for "sign in again" on an OAuth account and "switch this password
+ * account to a Grant". Naming `connectedAccountId` and `facet` together
+ * starts an `add_facet` attempt: turning on Calendar or Contacts for that
+ * already-connected identity by incremental consent (ADR-0022) — the two
+ * always travel together, since a Facet grant with nothing to attach it to
+ * (or vice versa) means nothing. Every case sets `login_hint` from a row
+ * the start route already looked up itself, never from the Client.
  */
-export const startProviderSignInRequestSchema = z.object({
-  mailAccountId: z.string().min(1).optional(),
-});
+export const startProviderSignInRequestSchema = z
+  .object({
+    mailAccountId: z.string().min(1).optional(),
+    connectedAccountId: z.string().min(1).optional(),
+    facet: grantableFacetKindSchema.optional(),
+  })
+  .refine((data) => !(data.mailAccountId && data.connectedAccountId), {
+    message: "mailAccountId and connectedAccountId are two different attempts; only one at a time.",
+  })
+  .refine((data) => Boolean(data.connectedAccountId) === Boolean(data.facet), {
+    message: "connectedAccountId and facet are only meaningful together.",
+  });
 export type StartProviderSignInRequest = z.infer<typeof startProviderSignInRequestSchema>;
 
 /** `POST /auth/oauth/:provider/start` (#116): the Provider's own authorization URL for the Client to send the browser to as a full-page redirect. */
@@ -194,5 +248,23 @@ export const oauthSignInOutcomeSchema = z.enum([
    * Registration or a second attempt can do about it.
    */
   "tenant_refused",
+  /** An `add_facet` attempt's Grant widened the Connected Account's credential and a new Facet row now reads `active` (#202). */
+  "facet_added",
+  /**
+   * An `add_facet` attempt whose Provider identity didn't match the
+   * Connected Account's own (#202, ADR-0022: "the address the Provider
+   * returns must match the account's own identity, exactly as reauth
+   * already demands"). Deliberately its own outcome rather than reusing
+   * `reauth_address_mismatch` — the ticket's own acceptance criterion asks
+   * for a message "distinctly from a reauth mismatch", since nothing about
+   * a Mail Account is even involved here.
+   */
+  "facet_grant_address_mismatch",
+  /**
+   * The consent screen came back without the Facet's own scope granted —
+   * the User unchecked it, or otherwise partly declined (#202). No Facet
+   * row was written and the stored credential is untouched.
+   */
+  "facet_grant_incomplete",
 ]);
 export type OAuthSignInOutcome = z.infer<typeof oauthSignInOutcomeSchema>;

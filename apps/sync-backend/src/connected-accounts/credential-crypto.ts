@@ -28,9 +28,24 @@ export interface SealedSecret {
  */
 export type OAuthAudience = "default" | "imap" | "graph";
 
+/**
+ * The oauth audience one Facet's own access token is minted under, per
+ * Provider (ADR-0022): Google mints one token good for every granted scope
+ * regardless of which Facet asked, so every Facet shares `default`; Microsoft
+ * mints IMAP's and Graph's access tokens separately, so Mail gets `imap` and
+ * Calendar/Contacts (#202) share `graph` — the same Graph API answers both.
+ */
+export function facetOAuthAudience(
+  provider: "google" | "microsoft",
+  facet: "mail" | "calendar" | "contacts",
+): OAuthAudience {
+  if (provider === "google") return "default";
+  return facet === "mail" ? "imap" : "graph";
+}
+
 /** The oauth audience the Mail Facet's own access token is minted under, per Provider (ADR-0022). */
 export function mailOAuthAudience(provider: "google" | "microsoft"): OAuthAudience {
-  return provider === "google" ? "default" : "imap";
+  return facetOAuthAudience(provider, "mail");
 }
 
 /**
@@ -189,6 +204,46 @@ export function reAuthenticateOAuthCredential(
     provider: tokens.provider,
     refreshToken: sealSecret(tokens.refreshToken, connectedAccountId, key),
     scope: tokens.scope,
+    accessTokens: {
+      ...existing.accessTokens,
+      [audience]: {
+        token: sealSecret(tokens.accessToken, connectedAccountId, key),
+        expiresAt: tokens.expiresAt,
+      },
+    },
+  };
+}
+
+/**
+ * Turning on a further Facet's write path (#202, ADR-0022): widens an
+ * *existing* oauth credential rather than replacing it. Unlike
+ * `reAuthenticateOAuthCredential` above, `scope` is a **union** with what the
+ * credential already carried, never a replacement — ADR-0022's "the union of
+ * every granted Facet's scopes so far" — since the consent round this seals
+ * only ever asked for the new Facet's own scope (`include_granted_scopes` is
+ * what keeps Google's previously granted scopes true on the Provider's side;
+ * this is what keeps them true in what's stored). The refresh token is
+ * resealed with whatever `exchangeCode` returned, the same as a reauth —
+ * every facet-grant exchange requests `offline_access`/`prompt=consent`
+ * precisely so one always comes back. This one audience's access token is
+ * added, never replacing another audience's, the same "leaves the others
+ * alone" rule `reAuthenticateOAuthCredential` already follows.
+ */
+export function widenOAuthCredential(
+  existing: ConnectedAccountCredential,
+  tokens: OAuthTokens,
+  audience: OAuthAudience,
+  connectedAccountId: string,
+  key: Buffer,
+): ConnectedAccountCredential {
+  if (existing.kind !== "oauth") {
+    throw new Error(`Cannot widen a "${existing.kind}" credential as oauth.`);
+  }
+  return {
+    kind: "oauth",
+    provider: tokens.provider,
+    refreshToken: sealSecret(tokens.refreshToken, connectedAccountId, key),
+    scope: Array.from(new Set([...existing.scope, ...tokens.scope])),
     accessTokens: {
       ...existing.accessTokens,
       [audience]: {

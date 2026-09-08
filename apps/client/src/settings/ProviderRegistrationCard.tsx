@@ -64,6 +64,14 @@ export function ProviderRegistrationCard({
   const [replacing, setReplacing] = useState(false);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  // #202, ADR-0022: the Owner's own unvalidated "the Calendar/Contacts API
+  // is enabled on my Registration" declaration — defaulted from what's
+  // already stored so replacing the client ID/secret doesn't silently reset
+  // a fact the Owner already confirmed, though the save itself always
+  // restates both explicitly (`provider-registrations/store.ts#upsertProviderRegistration`'s
+  // own doc comment).
+  const [calendarApiEnabled, setCalendarApiEnabled] = useState(health.calendarApiEnabled);
+  const [contactsApiEnabled, setContactsApiEnabled] = useState(health.contactsApiEnabled);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -81,7 +89,12 @@ export function ProviderRegistrationCard({
     setError(null);
     setSubmitting(true);
     try {
-      await saveProviderRegistration(provider, { clientId, clientSecret });
+      await saveProviderRegistration(provider, {
+        clientId,
+        clientSecret,
+        calendarApiEnabled,
+        contactsApiEnabled,
+      });
       setReplacing(false);
       setClientId("");
       setClientSecret("");
@@ -191,6 +204,27 @@ export function ProviderRegistrationCard({
             onChange={(event) => setClientSecret(event.target.value)}
             required
           />
+          <label>
+            <input
+              type="checkbox"
+              checked={calendarApiEnabled}
+              onChange={(event) => setCalendarApiEnabled(event.target.checked)}
+            />
+            Calendar API enabled on this Registration
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={contactsApiEnabled}
+              onChange={(event) => setContactsApiEnabled(event.target.checked)}
+            />
+            Contacts API enabled on this Registration
+          </label>
+          <p>
+            Check these once you've enabled {label}'s Calendar/Contacts API on your own project —
+            this instance can't tell on its own. Left unchecked, the Facet's "+" shows as
+            unavailable everywhere.
+          </p>
           <button type="submit" disabled={submitting}>
             Save
           </button>

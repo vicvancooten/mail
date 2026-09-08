@@ -23,7 +23,13 @@ function availability(
 ): ProviderAvailabilityListResponse {
   return {
     providers: [
-      overrides.google ?? { provider: "google", available: true, unavailableReason: null },
+      overrides.google ?? {
+        provider: "google",
+        available: true,
+        unavailableReason: null,
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
+      },
       overrides.microsoft ?? {
         provider: "microsoft",
         available: false,

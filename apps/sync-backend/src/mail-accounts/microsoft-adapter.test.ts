@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MICROSOFT_SCOPES, microsoftProviderAdapter } from "./microsoft-adapter.js";
+import {
+  MICROSOFT_FACET_SCOPES,
+  MICROSOFT_SCOPES,
+  microsoftProviderAdapter,
+} from "./microsoft-adapter.js";
 
 /**
  * The real Microsoft `ProviderAdapter` (#117) — everything Microsoft-shaped,
@@ -208,4 +212,63 @@ describe("isTenantRefusal", () => {
       expect(microsoftProviderAdapter.isTenantRefusal?.({ error })).toBe(false);
     },
   );
+});
+
+describe("facetGrantScopes (#202)", () => {
+  it("asks for one Facet's own Graph permission plus offline_access and identity, never IMAP's scope", () => {
+    const { requestScopes, coreScope } =
+      microsoftProviderAdapter.facetGrantScopes?.("contacts") ?? {};
+    expect(coreScope).toBe(MICROSOFT_FACET_SCOPES.contacts);
+    expect(requestScopes).toEqual([
+      MICROSOFT_FACET_SCOPES.contacts,
+      "offline_access",
+      "openid",
+      "email",
+    ]);
+    expect(requestScopes).not.toContain("https://outlook.office.com/IMAP.AccessAsUser.All");
+  });
+
+  it("has no includeGrantedScopesOnFacetGrant — additive per-resource by default", () => {
+    expect(microsoftProviderAdapter.includeGrantedScopesOnFacetGrant).toBeUndefined();
+  });
+});
+
+describe("authorizationUrl/exchangeCode's facet-grant plumbing (#202)", () => {
+  it("requests the given scope in the authorization URL instead of the Mail-only default", () => {
+    const url = new URL(
+      microsoftProviderAdapter.authorizationUrl({
+        ...AUTH_INPUT,
+        scope: [MICROSOFT_FACET_SCOPES.calendar, "offline_access", "openid", "email"],
+      }),
+    );
+    expect(url.searchParams.get("scope")).toBe(
+      [MICROSOFT_FACET_SCOPES.calendar, "offline_access", "openid", "email"].join(" "),
+    );
+  });
+
+  it("sends the given scope, not MICROSOFT_SCOPES, to the token endpoint", async () => {
+    const fetchMock = mockTokenEndpoint(200, {
+      access_token: "graph-at",
+      refresh_token: "rt",
+      expires_in: 3600,
+      scope: MICROSOFT_FACET_SCOPES.calendar,
+      id_token: idToken({ email: "someone@outlook.com" }),
+    });
+
+    await microsoftProviderAdapter.exchangeCode({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      redirectUri: AUTH_INPUT.redirectUri,
+      code: "auth-code",
+      codeVerifier: "verifier",
+      scope: [MICROSOFT_FACET_SCOPES.calendar, "offline_access", "openid", "email"],
+    });
+
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error("expected the token endpoint to have been called");
+    const body = new URLSearchParams(call[1].body as string);
+    expect(body.get("scope")).toBe(
+      [MICROSOFT_FACET_SCOPES.calendar, "offline_access", "openid", "email"].join(" "),
+    );
+  });
 });

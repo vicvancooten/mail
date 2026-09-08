@@ -97,6 +97,30 @@ export async function getConnectedAccountById(
 }
 
 /**
+ * Whether a Connected Account already carries this Facet, any status (#202):
+ * the guard the `add_facet` start route uses to refuse re-offering a consent
+ * flow for a Facet already turned on — re-granting it is a Fix flow (#204),
+ * not this one.
+ */
+export async function connectedAccountHasFacet(
+  db: Db,
+  connectedAccountId: string,
+  kind: ConnectedAccountFacetRow["kind"],
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: connectedAccountFacets.id })
+    .from(connectedAccountFacets)
+    .where(
+      and(
+        eq(connectedAccountFacets.connectedAccountId, connectedAccountId),
+        eq(connectedAccountFacets.kind, kind),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
  * Scoped by User and Provider (ADR-0022: "unique per User, Provider and
  * identity") — the duplicate check for adding a Connected Account, and the
  * lookup a boot-time upgrade or a future Facet-attach flow uses to find an
@@ -120,6 +144,38 @@ export async function getConnectedAccountForUserByIdentity(
     )
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Turning on a Facet's write path (#202, ADR-0022): lands the widened
+ * credential (`credential-crypto.ts#widenOAuthCredential`) and the new
+ * `active` Facet row in one transaction, so a Client can never observe a
+ * credential that already covers the new scope without the Facet row that
+ * says so, or vice versa. `id` follows `insertMailAccount`'s own
+ * `${connectedAccountId}-${kind}` convention. `scopesLastGrantedAt` is
+ * stamped `now` here — the one write path that ever sets it, since the
+ * boot-time upgrade's own Mail Facet (#199) never ran a consent round to
+ * stamp a time for.
+ */
+export async function attachFacetToConnectedAccount(
+  db: Db,
+  connectedAccountId: string,
+  kind: Exclude<ConnectedAccountFacetRow["kind"], "mail">,
+  credential: ConnectedAccountCredential,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(connectedAccounts)
+      .set({ credential, updatedAt: new Date() })
+      .where(eq(connectedAccounts.id, connectedAccountId));
+    await tx.insert(connectedAccountFacets).values({
+      id: `${connectedAccountId}-${kind}`,
+      connectedAccountId,
+      kind,
+      status: "active",
+      scopesLastGrantedAt: new Date(),
+    });
+  });
 }
 
 /**

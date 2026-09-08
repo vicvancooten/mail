@@ -102,12 +102,14 @@ export function ConnectedAccountsPage() {
               variant="button"
               label="Add a calendar"
               isOwner={isOwner}
+              connectedAccounts={connectedAccounts}
             />
             <AddFacetControl
               facet="contacts"
               variant="button"
               label="Add contacts"
               isOwner={isOwner}
+              connectedAccounts={connectedAccounts}
             />
           </div>
         </CardContent>

@@ -1706,6 +1706,15 @@ export const providerRegistrations = pgTable("provider_registrations", {
   // that's a single Mail Account's Needs Reauth, not a Provider-wide fact.
   lastRefreshAt: timestamp("last_refresh_at", { withTimezone: true }),
   lastRefreshError: text("last_refresh_error"),
+  // #202, ADR-0022's "Owner-only failures never show as Needs Reauth": the
+  // Owner's own unvalidated declaration that Google's Calendar API/People
+  // API, or Microsoft Graph's calendar/contacts permissions, are enabled on
+  // their Cloud project/app registration — this instance has no way to
+  // check that itself. Gates whether a Facet's "+" ever offers a consent
+  // flow at all (`routes/oauth-signin.ts`'s `/start`), never how it behaves
+  // once started.
+  calendarApiEnabled: boolean("calendar_api_enabled").notNull().default(false),
+  contactsApiEnabled: boolean("contacts_api_enabled").notNull().default(false),
 });
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
 
@@ -1724,12 +1733,16 @@ export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
  * useless without the matching authorization code, lives for minutes, and is
  * the same tradeoff `totp_credentials.secret` already states plainly.
  *
- * `purpose` is `add_mail_account` or `reauth` (#119: "sign in again", never
- * a password form — and the same door a password account uses to switch to
- * a Grant). `mailAccountId` is set only for `reauth`: the account whose
- * credential is replaced when the identity that comes back matches its own
- * address, `ON DELETE CASCADE` so a deleted Mail Account can't leave a
- * dangling attempt behind.
+ * `purpose` is `add_mail_account`, `reauth` (#119: "sign in again", never a
+ * password form — and the same door a password account uses to switch to a
+ * Grant), or `add_facet` (#202: turning on Calendar or Contacts for an
+ * already-connected identity by incremental consent). `mailAccountId` is
+ * set only for `reauth`: the account whose credential is replaced when the
+ * identity that comes back matches its own address, `ON DELETE CASCADE` so
+ * a deleted Mail Account can't leave a dangling attempt behind.
+ * `connectedAccountId`/`facet` are set only for `add_facet`, same cascade
+ * reasoning — a Connected Account deleted mid-flight leaves nothing to
+ * attach the Grant to either way.
  */
 export const oauthSignInAttempts = pgTable(
   "oauth_sign_in_attempts",
@@ -1740,10 +1753,14 @@ export const oauthSignInAttempts = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider", { enum: ["google", "microsoft"] }).notNull(),
     codeVerifier: text("code_verifier").notNull(),
-    purpose: text("purpose", { enum: ["add_mail_account", "reauth"] }).notNull(),
+    purpose: text("purpose", { enum: ["add_mail_account", "reauth", "add_facet"] }).notNull(),
     mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
       onDelete: "cascade",
     }),
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
+    facet: text("facet", { enum: ["calendar", "contacts"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },

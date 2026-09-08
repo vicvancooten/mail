@@ -1,17 +1,31 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as oauthSigninApi from "../api/oauth-signin.js";
 import { makeConnectedAccount, makeMailAccount } from "../test-support/mail-fixtures.js";
 import { ConnectedAccountsTable } from "./ConnectedAccountsTable.js";
 
 vi.mock("../api/oauth-signin.js", () => ({
   fetchProviderAvailability: vi.fn(async () => ({
     providers: [
-      { provider: "google", available: true, unavailableReason: null },
-      { provider: "microsoft", available: true, unavailableReason: null },
+      {
+        provider: "google",
+        available: true,
+        unavailableReason: null,
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
+      },
+      {
+        provider: "microsoft",
+        available: true,
+        unavailableReason: null,
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
+      },
     ],
   })),
   startProviderSignIn: vi.fn(),
+  startFacetGrant: vi.fn(),
 }));
 
 afterEach(() => {
@@ -157,10 +171,11 @@ describe("an existing account's Facet Badge", () => {
 });
 
 /**
- * The dashed "+" per cell (#201): Mail's already has a working add flow
- * (`AddMailAccountForm`); Calendar and Contacts don't yet — "the flows that
- * fill them are the slices after this one" (#201's own scope note) — so
- * their Popover only names which Providers will eventually serve them.
+ * The dashed "+" per cell (#201, #202): Mail's already has a working add
+ * flow (`AddMailAccountForm`); Calendar and Contacts turn on for Google or
+ * Microsoft by incremental consent against an already-connected identity
+ * (#202) — CalDAV/CardDAV's own add flow is #203's separate door, so its
+ * cells still only name what will eventually serve them.
  */
 describe("the add control", () => {
   it("opens the real Add a Mail Account flow in the Mail column", async () => {
@@ -183,11 +198,50 @@ describe("the add control", () => {
     expect(await screen.findByRole("heading", { name: "Add a Mail Account" })).toBeDefined();
   });
 
-  it("names the future Providers for a Calendar cell instead of a working flow", async () => {
+  it("names the future Provider for the CalDAV/CardDAV row's Calendar cell instead of a working flow", async () => {
     const user = userEvent.setup();
     render(
       <ConnectedAccountsTable
         connectedAccounts={[]}
+        mailAccounts={[]}
+        isOwner={false}
+        focusMailAccountId={null}
+      />,
+    );
+
+    const davRow = screen.getByRole("rowheader", { name: "CalDAV/CardDAV" }).closest("tr");
+    if (!davRow) throw new Error("expected a CalDAV/CardDAV row");
+    const [calendarAdd] = within(davRow).getAllByText("+");
+    if (!calendarAdd) throw new Error("expected an add control in the Calendar cell");
+    await user.click(calendarAdd);
+
+    expect(await screen.findByText(/Not available yet/)).toBeDefined();
+  });
+
+  it("offers Google's already-connected Mail identity as a Calendar candidate (#202)", async () => {
+    vi.mocked(oauthSigninApi.fetchProviderAvailability).mockResolvedValueOnce({
+      providers: [
+        {
+          provider: "google",
+          available: true,
+          unavailableReason: null,
+          calendarApiEnabled: true,
+          contactsApiEnabled: false,
+        },
+        {
+          provider: "microsoft",
+          available: true,
+          unavailableReason: null,
+          calendarApiEnabled: false,
+          contactsApiEnabled: false,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    const account = makeConnectedAccount("acct-1-connected", { identity: "vic@gmail.com" });
+    render(
+      <ConnectedAccountsTable
+        connectedAccounts={[account]}
         mailAccounts={[]}
         isOwner={false}
         focusMailAccountId={null}
@@ -200,6 +254,6 @@ describe("the add control", () => {
     if (!calendarAdd) throw new Error("expected an add control in the Calendar cell");
     await user.click(calendarAdd);
 
-    expect(await screen.findByText(/Not available yet/)).toBeDefined();
+    expect(await screen.findByRole("button", { name: "vic@gmail.com" })).toBeDefined();
   });
 });

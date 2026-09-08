@@ -92,7 +92,12 @@ export function ConnectedAccountsTable({
                         }
                       />
                     ))}
-                    <AddFacetControl facet={facet} isOwner={isOwner} />
+                    <AddFacetControl
+                      facet={facet}
+                      isOwner={isOwner}
+                      provider={provider}
+                      connectedAccounts={connectedAccounts}
+                    />
                   </div>
                 </TableCell>
               );

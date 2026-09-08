@@ -45,6 +45,10 @@ function instanceInfo(overrides: Partial<InstanceInfoResponse> = {}): InstanceIn
         needsReauthCount: 0,
         lastRefreshAt: null,
         lastRefreshError: null,
+
+        calendarApiEnabled: false,
+
+        contactsApiEnabled: false,
       },
       {
         provider: "microsoft",
@@ -55,6 +59,10 @@ function instanceInfo(overrides: Partial<InstanceInfoResponse> = {}): InstanceIn
         needsReauthCount: 0,
         lastRefreshAt: null,
         lastRefreshError: null,
+
+        calendarApiEnabled: false,
+
+        contactsApiEnabled: false,
       },
     ],
     ...overrides,
@@ -103,6 +111,10 @@ describe("InstancePage", () => {
             needsReauthCount: 0,
             lastRefreshAt: null,
             lastRefreshError: null,
+
+            calendarApiEnabled: false,
+
+            contactsApiEnabled: false,
           },
           {
             provider: "microsoft",
@@ -113,6 +125,10 @@ describe("InstancePage", () => {
             needsReauthCount: 0,
             lastRefreshAt: null,
             lastRefreshError: null,
+
+            calendarApiEnabled: false,
+
+            contactsApiEnabled: false,
           },
         ],
       }),
@@ -222,6 +238,10 @@ describe("InstancePage", () => {
           needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+
+          calendarApiEnabled: false,
+
+          contactsApiEnabled: false,
         },
         {
           provider: "microsoft",
@@ -232,6 +252,10 @@ describe("InstancePage", () => {
           needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+
+          calendarApiEnabled: false,
+
+          contactsApiEnabled: false,
         },
       ],
     });
@@ -279,6 +303,10 @@ describe("InstancePage", () => {
           needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+
+          calendarApiEnabled: false,
+
+          contactsApiEnabled: false,
         },
         {
           provider: "microsoft",
@@ -289,6 +317,10 @@ describe("InstancePage", () => {
           needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+
+          calendarApiEnabled: false,
+
+          contactsApiEnabled: false,
         },
       ],
     });

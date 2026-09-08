@@ -97,6 +97,8 @@ export async function instanceRoutes(
       needsReauthCount,
       lastRefreshAt: registration?.lastRefreshAt?.toISOString() ?? null,
       lastRefreshError: registration?.lastRefreshError ?? null,
+      calendarApiEnabled: registration?.calendarApiEnabled ?? false,
+      contactsApiEnabled: registration?.contactsApiEnabled ?? false,
     };
   }
 
@@ -182,6 +184,10 @@ export async function instanceRoutes(
         provider,
         body.data.clientId,
         sealSecret(body.data.clientSecret, provider, key),
+        {
+          calendarApiEnabled: body.data.calendarApiEnabled,
+          contactsApiEnabled: body.data.contactsApiEnabled,
+        },
       );
 
       return providerRegistrationResponseSchema.parse({

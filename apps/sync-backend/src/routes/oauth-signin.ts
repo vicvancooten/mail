@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type GrantableFacetKind,
   OAUTH_SIGN_IN_OUTCOME_PARAM,
   type OAuthSignInOutcome,
   type ProviderAvailability,
@@ -13,10 +14,17 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   deriveCredentialKey,
+  facetOAuthAudience,
   mailOAuthAudience,
   sealOAuthCredential,
   unsealSecret,
+  widenOAuthCredential,
 } from "../connected-accounts/credential-crypto.js";
+import {
+  attachFacetToConnectedAccount,
+  connectedAccountHasFacet,
+  getConnectedAccountById,
+} from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import { buildProviderRedirectUri } from "../instance-info.js";
 import { googleProviderAdapter } from "../mail-accounts/google-adapter.js";
@@ -154,6 +162,11 @@ export async function oauthSignInRoutes(
    * readable by every User rather than Owner-only like Provider Health: a
    * Member has to see the choice to be told to ask the Owner, and this
    * carries no client ID, no secret, and no account counts.
+   *
+   * `calendarApiEnabled`/`contactsApiEnabled` (#202, ADR-0022) ride along on
+   * the `available: true` branch for the same reason: a Member turning on a
+   * Facet needs to see it as unavailable ("ask the Owner") without being
+   * Owner-only Provider Health themselves.
    */
   app.get("/auth/oauth/providers", { preHandler: app.requireAuth }, async () => {
     const providers: ProviderAvailability[] = await Promise.all(
@@ -163,7 +176,13 @@ export async function oauthSignInRoutes(
         }
         const registration = await getProviderRegistration(db, provider);
         return registration
-          ? { provider, available: true, unavailableReason: null }
+          ? {
+              provider,
+              available: true,
+              unavailableReason: null,
+              calendarApiEnabled: registration.calendarApiEnabled,
+              contactsApiEnabled: registration.contactsApiEnabled,
+            }
           : { provider, available: false, unavailableReason: "not_registered" as const };
       }),
     );
@@ -173,9 +192,11 @@ export async function oauthSignInRoutes(
   // Naming a `mailAccountId` (#119) turns this into a `reauth` attempt: "sign
   // in again" on an OAuth account in Needs Reauth, or a password account's
   // settings row offering to switch to a Grant — the same door either way.
-  // `login_hint` comes from the Mail Account's own stored address, never
-  // from the Client, so a User can't be tricked into approving the wrong
-  // identity by a tampered request.
+  // Naming `connectedAccountId`+`facet` (#202) turns this into an
+  // `add_facet` attempt instead: turning on Calendar or Contacts for that
+  // already-connected identity. `login_hint` always comes from a row this
+  // route looked up itself, never from the Client, so a User can't be
+  // tricked into approving the wrong identity by a tampered request.
   app.post(
     "/auth/oauth/:provider/start",
     { config: { rateLimit: AUTHORIZATION_RATE_LIMIT }, preHandler: app.requireAuth },
@@ -199,7 +220,35 @@ export async function oauthSignInRoutes(
 
       const userId = requireUser(request).id;
       let loginHint: string | undefined;
-      if (body.data.mailAccountId) {
+      let scope: string[] | undefined;
+      let includeGrantedScopes: boolean | undefined;
+
+      if (body.data.connectedAccountId && body.data.facet) {
+        const { facet } = body.data;
+        const account = await getConnectedAccountById(db, body.data.connectedAccountId);
+        if (!account || account.userId !== userId || account.provider !== provider) {
+          return reply.code(404).send({ error: "not_found" });
+        }
+        // ADR-0022: "Owner-only failures never show as Needs Reauth" — a
+        // Facet whose Provider-side API the Owner hasn't declared enabled is
+        // never offered a consent flow to begin with, the same "unavailable,
+        // ask the Owner" treatment an unregistered Provider already gets.
+        const apiEnabled =
+          facet === "calendar" ? registration.calendarApiEnabled : registration.contactsApiEnabled;
+        if (!apiEnabled) {
+          return reply.code(409).send({ error: "facet_not_available" });
+        }
+        const facetGrantScopes = adapter.facetGrantScopes?.(facet);
+        if (!facetGrantScopes) {
+          return reply.code(409).send({ error: "facet_not_supported" });
+        }
+        if (await connectedAccountHasFacet(db, account.id, facet)) {
+          return reply.code(409).send({ error: "facet_already_connected" });
+        }
+        loginHint = account.identity;
+        scope = facetGrantScopes.requestScopes;
+        includeGrantedScopes = adapter.includeGrantedScopesOnFacetGrant;
+      } else if (body.data.mailAccountId) {
         const account = await getMailAccountForUser(db, userId, body.data.mailAccountId);
         if (!account) {
           return reply.code(404).send({ error: "not_found" });
@@ -210,8 +259,14 @@ export async function oauthSignInRoutes(
       const attempt = await startSignInAttempt(db, {
         userId,
         provider,
-        purpose: body.data.mailAccountId ? "reauth" : "add_mail_account",
+        purpose: body.data.connectedAccountId
+          ? "add_facet"
+          : body.data.mailAccountId
+            ? "reauth"
+            : "add_mail_account",
         mailAccountId: body.data.mailAccountId,
+        connectedAccountId: body.data.connectedAccountId,
+        facet: body.data.facet,
       });
 
       return startProviderSignInResponseSchema.parse({
@@ -221,6 +276,8 @@ export async function oauthSignInRoutes(
           state: attempt.state,
           codeChallenge: attempt.codeChallenge,
           loginHint,
+          scope,
+          includeGrantedScopes,
         }),
       });
     },
@@ -294,6 +351,15 @@ export async function oauthSignInRoutes(
         return finish(reply, "provider_not_registered");
       }
 
+      // An `add_facet` attempt's exchange must ask for exactly the scope its
+      // own `/start` requested (#202) — Microsoft's token endpoint takes
+      // `scope` on the exchange itself, and Google's returned `scope` field
+      // is what `finishFacetGrant` checks for a partly-declined consent.
+      const facetGrantScopes =
+        attempt.purpose === "add_facet" && attempt.facet
+          ? adapter?.facetGrantScopes?.(attempt.facet)
+          : undefined;
+
       let grant: Awaited<ReturnType<ProviderAdapter["exchangeCode"]>>;
       try {
         grant = await adapter.exchangeCode({
@@ -302,6 +368,7 @@ export async function oauthSignInRoutes(
           redirectUri: redirectUriFor(provider),
           code: query.code,
           codeVerifier: attempt.codeVerifier,
+          scope: facetGrantScopes?.requestScopes,
         });
       } catch (err) {
         const errorCode = errorCodeOf(err);
@@ -329,6 +396,18 @@ export async function oauthSignInRoutes(
           userId: user.id,
           emailAddress,
           grant,
+        });
+      }
+
+      if (attempt.purpose === "add_facet") {
+        return finishFacetGrant(request, reply, {
+          provider,
+          connectedAccountId: attempt.connectedAccountId,
+          facet: attempt.facet as GrantableFacetKind | null,
+          userId: user.id,
+          emailAddress,
+          grant,
+          coreScope: facetGrantScopes?.coreScope,
         });
       }
 
@@ -443,6 +522,86 @@ export async function oauthSignInRoutes(
     await syncManager.restart(account.id);
 
     return finish(reply, "reauth_succeeded");
+  }
+
+  /**
+   * The `add_facet` half of the callback (#202, ADR-0022): turning on
+   * Calendar or Contacts for an already-connected identity by incremental
+   * consent. Never creates a Connected Account and never touches the Mail
+   * Facet — widens the stored credential (a new audience's access token, the
+   * union of scopes) and inserts exactly one new Facet row, both in the one
+   * transaction `attachFacetToConnectedAccount` runs.
+   */
+  async function finishFacetGrant(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    input: {
+      provider: RegisteredProvider;
+      connectedAccountId: string | null;
+      facet: GrantableFacetKind | null;
+      userId: string;
+      emailAddress: string;
+      grant: ProviderGrant;
+      /** The one scope string whose absence means the User partly declined (#202's own acceptance criterion). Undefined only if the adapter or Facet went missing between `/start` and here — treated as incomplete, never as granted. */
+      coreScope: string | undefined;
+    },
+  ) {
+    // `startSignInAttempt` always sets both together for an `add_facet`
+    // attempt; either missing means the row was corrupted or hand-crafted,
+    // not a real attempt this route ever started.
+    const account =
+      input.connectedAccountId && input.facet
+        ? await getConnectedAccountById(db, input.connectedAccountId)
+        : null;
+    if (!account || account.userId !== input.userId || account.credential.kind !== "oauth") {
+      // The Connected Account was deleted (or its credential turned into a
+      // password one, somehow) while the User was at the consent screen —
+      // nothing left to widen.
+      return finish(reply, "invalid_state");
+    }
+    const facet = input.facet as GrantableFacetKind;
+
+    // ADR-0022: "the address the Provider returns must match the account's
+    // own identity, exactly as reauth already demands" — but the ticket's
+    // own acceptance criterion asks for a message "distinctly from a reauth
+    // mismatch", so this is its own outcome rather than reusing
+    // `reauth_address_mismatch`.
+    if (input.emailAddress !== account.identity) {
+      request.log.warn(
+        { provider: input.provider, facet },
+        "A Facet grant's identity didn't match its Connected Account; nothing was changed.",
+      );
+      return finish(reply, "facet_grant_address_mismatch");
+    }
+
+    // A consent screen the User partly declined — the Facet's own scope
+    // missing from what actually came back — writes no Facet row (#202's
+    // own acceptance criterion) and changes nothing already stored either.
+    if (!input.coreScope || !input.grant.scope.includes(input.coreScope)) {
+      request.log.warn(
+        { provider: input.provider, facet },
+        "A Facet grant came back without the Facet's own scope; no Facet row was written.",
+      );
+      return finish(reply, "facet_grant_incomplete");
+    }
+
+    const audience = facetOAuthAudience(input.provider, facet);
+    const widened = widenOAuthCredential(
+      account.credential,
+      {
+        provider: input.provider,
+        accessToken: input.grant.accessToken,
+        refreshToken: input.grant.refreshToken,
+        expiresAt: input.grant.expiresAt,
+        scope: input.grant.scope,
+      },
+      audience,
+      account.id,
+      key,
+    );
+    await attachFacetToConnectedAccount(db, account.id, facet, widened);
+
+    return finish(reply, "facet_added");
   }
 }
 
