@@ -1,10 +1,88 @@
-import { and, eq, ne } from "drizzle-orm";
+import type { ConnectedAccount } from "@mail/shared";
+import { and, asc, eq, gt, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { connectedAccountFacets, connectedAccounts } from "../db/schema.js";
 import type { ConnectedAccountCredential } from "./credential-crypto.js";
 
 export type ConnectedAccountRow = typeof connectedAccounts.$inferSelect;
 export type ConnectedAccountFacetRow = typeof connectedAccountFacets.$inferSelect;
+
+/** A Connected Account's Facets, aggregated to the shape `ConnectedAccount.facets` (`@mail/shared`) rides the wire as. */
+export interface ConnectedAccountFacetSummary {
+  kind: ConnectedAccountFacetRow["kind"];
+  status: ConnectedAccountFacetRow["status"];
+}
+
+/**
+ * A page of one User's Connected Accounts changed since `cursorRev`, each
+ * joined to its own Facets aggregated one-query rather than N+1'd per row
+ * (#200) — `sync/collection-registry.ts`'s `ConnectedAccount` collection's
+ * own `selectRows`, kept here rather than inlined so the join lives next to
+ * the table it reads (the same division `mail-accounts/store.ts#mailAccountRowsQuery`
+ * draws). `left join` + `filter (where ... is not null)`, not `inner join`:
+ * an account created by the boot-time upgrade (#199, `boot-upgrade.ts`)
+ * inserts its one Mail Facet in the same transaction, so an account with
+ * zero Facets should never actually occur, but a `left join` degrading to
+ * `facets: []` rather than silently dropping the account row is the safer
+ * failure if it ever did. The caller (`collection-registry.ts`) appends its
+ * own `.limit(PAGE_SIZE + 1)` — `groupBy` has to land before that in
+ * Drizzle's own chain order, which is what keeps this function from taking
+ * the limit as a parameter instead.
+ */
+export function selectConnectedAccountsForUser(db: Db, userId: string, cursorRev: number) {
+  return db
+    .select({
+      id: connectedAccounts.id,
+      userId: connectedAccounts.userId,
+      provider: connectedAccounts.provider,
+      identity: connectedAccounts.identity,
+      status: connectedAccounts.status,
+      createdAt: connectedAccounts.createdAt,
+      syncRev: connectedAccounts.syncRev,
+      syncCreatedRev: connectedAccounts.syncCreatedRev,
+      facets: sql<ConnectedAccountFacetSummary[]>`
+        coalesce(
+          jsonb_agg(
+            jsonb_build_object('kind', ${connectedAccountFacets.kind}, 'status', ${connectedAccountFacets.status})
+            order by ${connectedAccountFacets.kind}
+          ) filter (where ${connectedAccountFacets.id} is not null),
+          '[]'::jsonb
+        )`,
+    })
+    .from(connectedAccounts)
+    .leftJoin(
+      connectedAccountFacets,
+      eq(connectedAccountFacets.connectedAccountId, connectedAccounts.id),
+    )
+    .where(and(eq(connectedAccounts.userId, userId), gt(connectedAccounts.syncRev, cursorRev)))
+    .groupBy(connectedAccounts.id)
+    .orderBy(asc(connectedAccounts.syncRev));
+}
+
+export interface ConnectedAccountSyncRow {
+  id: string;
+  userId: string;
+  provider: ConnectedAccountRow["provider"];
+  identity: string;
+  status: ConnectedAccountRow["status"];
+  createdAt: Date;
+  syncRev: number;
+  syncCreatedRev: number;
+  facets: ConnectedAccountFacetSummary[];
+}
+
+/** Never includes `credential` — write-only across the API (ADR-0003), the same rule `mail-accounts/store.ts#toWireMailAccount` follows. */
+export function toWireConnectedAccount(row: ConnectedAccountSyncRow): ConnectedAccount {
+  return {
+    id: row.id,
+    userId: row.userId,
+    provider: row.provider,
+    identity: row.identity,
+    status: row.status,
+    facets: row.facets,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
 
 export async function getConnectedAccountById(
   db: Db,

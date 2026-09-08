@@ -270,6 +270,15 @@ export const connectedAccounts = pgTable(
     daveUsername: text("dave_username"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // #200 (ADR-0023): `ConnectedAccount` joins the User-scoped collection
+    // registry, whole-replicated. Same stamping as `mailAccounts.syncRev`
+    // above — one `bump_sync_rev` trigger, the shared `sync_rev_seq`. A
+    // Facet's own status flip has no `syncRev` of its own to bump (Facets
+    // ride this collection's payload, not a collection of their own); its
+    // own migration-level trigger bumps its parent row's `syncRev` instead
+    // (`db/migrations/0042_*.sql`).
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
   (table) => [
     uniqueIndex("connected_accounts_user_provider_identity_key").on(
@@ -278,6 +287,7 @@ export const connectedAccounts = pgTable(
       table.identity,
     ),
     index("connected_accounts_user_id_idx").on(table.userId),
+    index("connected_accounts_sync_rev_idx").on(table.userId, table.syncRev),
   ],
 );
 export type ConnectedAccountRow = typeof connectedAccounts.$inferSelect;

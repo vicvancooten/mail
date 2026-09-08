@@ -15,6 +15,7 @@ import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
 export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}): MailAccount {
   return {
     id,
+    connectedAccountId: `${id}-connected`,
     emailAddress: `${id}@example.test`,
     imap: { host: "imap.example.test", port: 993, security: "tls" },
     smtp: { host: "smtp.example.test", port: 465, security: "tls" },

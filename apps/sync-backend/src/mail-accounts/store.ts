@@ -71,6 +71,9 @@ function toWireAuthKind(credential: ConnectedAccountCredential): MailAccount["au
 export function toWireMailAccount(row: MailAccountRow): MailAccount {
   return {
     id: row.id,
+    // #200: the join a Client makes onto `ConnectedAccount` for its
+    // `identity`/`provider`/`facets` — every other field here is unchanged.
+    connectedAccountId: row.connectedAccountId,
     emailAddress: row.emailAddress,
     imap: { host: row.imapHost, port: row.imapPort, security: row.imapSecurity },
     smtp: { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity },

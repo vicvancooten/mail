@@ -295,6 +295,13 @@
       "when": 1788886205716,
       "tag": "0041_connected_accounts_and_facets_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788887532207,
+      "tag": "0042_connected_accounts_sync_rev",
+      "breakpoints": true
     }
   ]
 }
