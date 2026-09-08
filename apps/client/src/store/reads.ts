@@ -12,7 +12,6 @@ import {
   DEFAULT_AUTO_ADVANCE_ENABLED,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   HOME_TIME_ZONE_UNSET,
-  labelId,
   normalizeSenderAddress,
   senderDomain,
 } from "@mail/shared";
@@ -29,6 +28,7 @@ import {
 } from "./db.js";
 import { localCache } from "./local-cache.js";
 import { threadsInWindow } from "./server-writes.js";
+import { labelIdForName } from "./session.js";
 import { threadSortKey } from "./thread-sort-key.js";
 
 /**
@@ -169,16 +169,21 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
   return overlaid;
 }
 
-/** Every Label (#43) a Mail Account has, name-ordered — the "filter by label" picker's whole data source. */
-export function useLabels(mailAccountId: string | null): Label[] | undefined {
-  return useLiveQuery(
-    () => (mailAccountId === null ? Promise.resolve([]) : readLabels(mailAccountId)),
-    [mailAccountId],
-  );
+/**
+ * Every Label (#43) this **User** has, name-ordered — the "filter by label"
+ * picker's whole data source, and the sidebar's Labels section.
+ *
+ * Takes no Mail Account since #186 (ADR-0023): there is one set of Labels
+ * per User, so the same list is the right answer under every Account Scope,
+ * including the one spanning several accounts. `useGmailLabels` below did
+ * *not* move — a Gmail Label really is one account's own.
+ */
+export function useLabels(): Label[] | undefined {
+  return useLiveQuery(() => readLabels(), []);
 }
 
-export async function readLabels(mailAccountId: string): Promise<Label[]> {
-  const rows = await localCache().labels.where("mailAccountId").equals(mailAccountId).toArray();
+export async function readLabels(): Promise<Label[]> {
+  const rows = await localCache().labels.toArray();
   return rows.sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -706,19 +711,24 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         break;
       case "applyLabel": {
         // Same deterministic id both sides derive independently (#43) — see
-        // `packages/shared/src/labels.ts`'s doc comment.
-        const id = labelId(overlaid.mailAccountId, mutation.intent.name);
-        if (!overlaid.labelIds.includes(id)) {
+        // `packages/shared/src/labels.ts`'s doc comment. Derived from the
+        // signed-in User since #186, not this Thread's Mail Account, which
+        // is why it can be `null`: no session, no prediction (`store/
+        // session.ts`), and the overlay simply leaves `labelIds` alone.
+        const id = labelIdForName(mutation.intent.name);
+        if (id !== null && !overlaid.labelIds.includes(id)) {
           overlaid = { ...overlaid, labelIds: [...overlaid.labelIds, id] };
         }
         break;
       }
       case "removeLabel": {
-        const id = labelId(overlaid.mailAccountId, mutation.intent.name);
-        overlaid = {
-          ...overlaid,
-          labelIds: overlaid.labelIds.filter((existing) => existing !== id),
-        };
+        const id = labelIdForName(mutation.intent.name);
+        if (id !== null) {
+          overlaid = {
+            ...overlaid,
+            labelIds: overlaid.labelIds.filter((existing) => existing !== id),
+          };
+        }
         break;
       }
     }
@@ -793,7 +803,7 @@ export async function readSearchPrefilter(
 
   let labelIdFilter: string | null = null;
   if (filters.label) {
-    const labels = await readLabels(mailAccountId);
+    const labels = await readLabels();
     const match = labels.find((label) => label.name.toLowerCase() === filters.label?.toLowerCase());
     // No such Label held locally: nothing can match, rather than silently
     // ignoring the filter and showing everything.

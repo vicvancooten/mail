@@ -81,7 +81,7 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
   const mailAccounts = useMailAccounts();
   const { scope: accountScope } = useAccountScope(mailAccounts);
   const accountId = accountScope[0] ?? null;
-  const labels = useLabels(accountId) ?? [];
+  const labels = useLabels() ?? [];
 
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   const page = useThreadWindow(accountScope, { view: folderToView("inbox"), limit });

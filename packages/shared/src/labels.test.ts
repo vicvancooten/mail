@@ -34,27 +34,27 @@ describe("isValidLabelName", () => {
 });
 
 describe("labelId", () => {
-  it("is deterministic for the same (mailAccountId, name) pair", () => {
-    expect(labelId("acct-1", "Work")).toBe(labelId("acct-1", "Work"));
+  it("is deterministic for the same (userId, name) pair", () => {
+    expect(labelId("user-1", "Work")).toBe(labelId("user-1", "Work"));
   });
 
   it("normalizes the name before deriving the id", () => {
-    expect(labelId("acct-1", "  Work  ")).toBe(labelId("acct-1", "Work"));
+    expect(labelId("user-1", "  Work  ")).toBe(labelId("user-1", "Work"));
   });
 
-  it("scopes the id to its Mail Account — the same name differs across accounts", () => {
-    expect(labelId("acct-1", "Work")).not.toBe(labelId("acct-2", "Work"));
+  it("scopes the id to its User, not a Mail Account — the same name differs across Users", () => {
+    expect(labelId("user-1", "Work")).not.toBe(labelId("user-2", "Work"));
   });
 });
 
 describe("labelNameFromId", () => {
-  it("inverts labelId for the same Mail Account", () => {
-    const id = labelId("acct-1", "Work");
-    expect(labelNameFromId("acct-1", id)).toBe("Work");
+  it("inverts labelId for the same User", () => {
+    const id = labelId("user-1", "Work");
+    expect(labelNameFromId("user-1", id)).toBe("Work");
   });
 
-  it("falls back to the id verbatim when the account prefix doesn't match", () => {
-    const id = labelId("acct-1", "Work");
-    expect(labelNameFromId("acct-2", id)).toBe(id);
+  it("falls back to the id verbatim when the User prefix doesn't match", () => {
+    const id = labelId("user-1", "Work");
+    expect(labelNameFromId("user-2", id)).toBe(id);
   });
 });

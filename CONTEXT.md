@@ -225,8 +225,8 @@ _Avoid_: flag, favourite, bookmark
 Keeping a thread prominently visible regardless of its age. An App Feature, and deliberately not the same thing as a Star: a Star says "this matters", a Pin says "keep this in front of me".
 
 **Label**:
-A user-defined tag a User applies to a Thread for organization. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels).
-_Avoid_: tag, IMAP keyword
+A user-defined tag a User applies to a Thread for organization. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels). Owned by the **User**, not a Mail Account: one set of Labels spans every Mail Account they own, so "Follow up" means the same Label whichever account's mail is on screen — and a future Note can carry the same Labels mail does.
+_Avoid_: tag, IMAP keyword, per-account label
 
 ### Gatekeeper
 

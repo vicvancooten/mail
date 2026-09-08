@@ -71,16 +71,20 @@ async function claimOwner(app: FastifyInstance): Promise<string> {
 }
 
 /** Creates a Mail Account owned by the signed-in user, through the real route so it has every trigger-stamped column. */
-async function createOwnedMailAccount(app: FastifyInstance, cookie: string): Promise<string> {
+async function createOwnedMailAccount(
+  app: FastifyInstance,
+  cookie: string,
+  overrides: { emailAddress?: string } = {},
+): Promise<string> {
   const response = await app.inject({
     method: "POST",
     url: "/mail-accounts",
     headers: { cookie },
     payload: {
-      emailAddress: "vic@example.com",
+      emailAddress: overrides.emailAddress ?? "vic@example.com",
       imap: { host: "imap.example.com", port: 993, security: "tls" },
       smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
-      username: "vic@example.com",
+      username: overrides.emailAddress ?? "vic@example.com",
       password: "correct-horse-battery-staple",
     },
   });
@@ -308,7 +312,7 @@ describe("POST /sync", () => {
     });
   });
 
-  describe("Label (per Mail Account, #43)", () => {
+  describe("Label (User-scoped, #43, #186)", () => {
     it("bootstraps, then reports a newly created Label across a token round-trip", async () => {
       const app = buildTestApp();
       const cookie = await claimOwner(app);
@@ -319,13 +323,13 @@ describe("POST /sync", () => {
         method: "POST",
         url: "/sync",
         headers: { cookie },
-        payload: { mailAccounts: { [accountId]: { Label: null } } },
+        payload: { user: { Label: null } },
       });
       expect(bootstrap.statusCode).toBe(200);
       // A bootstrap (#41) still carries a delta even with zero Labels: the
       // Client needs a `newState` to persist for this collection, or it can
       // never tell "bootstrapped, got nothing" from "haven't asked yet".
-      expect(bootstrap.json().mailAccounts[accountId].Label).toMatchObject({
+      expect(bootstrap.json().user.Label).toMatchObject({
         created: [],
         updated: [],
         destroyed: [],
@@ -337,9 +341,9 @@ describe("POST /sync", () => {
         url: "/sync",
         headers: { cookie },
         payload: {
+          user: { Label: null },
           mailAccounts: {
             [accountId]: {
-              Label: null,
               mutations: [
                 {
                   id: "01LABEL",
@@ -350,19 +354,62 @@ describe("POST /sync", () => {
           },
         },
       });
-      const body = applied.json().mailAccounts[accountId];
-      expect(body.mutations).toEqual([{ id: "01LABEL", status: "applied" }]);
-      const delta = body.Label as LabelDelta;
+      expect(applied.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01LABEL", status: "applied" },
+      ]);
+      const delta = applied.json().user.Label as LabelDelta;
       expect(delta.created).toHaveLength(1);
-      expect(delta.created[0]).toMatchObject({ mailAccountId: accountId, name: "Work" });
+      expect(delta.created[0]).toMatchObject({ name: "Work" });
+      // The owning User, never a Mail Account (#186).
+      expect(delta.created[0]).not.toHaveProperty("mailAccountId");
 
       const unchanged = await app.inject({
         method: "POST",
         url: "/sync",
         headers: { cookie },
-        payload: { mailAccounts: { [accountId]: { Label: delta.newState } } },
+        payload: { user: { Label: delta.newState } },
       });
-      expect(unchanged.json().mailAccounts).toEqual({});
+      expect(unchanged.json().user.Label).toBeUndefined();
+    });
+
+    it("carries one Label for a name applied from two of the User's Mail Accounts (#186)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const firstAccountId = await createOwnedMailAccount(app, cookie);
+      const secondAccountId = await createOwnedMailAccount(app, cookie, {
+        emailAddress: "second@mail.test",
+      });
+      await insertThreadWithMessage(firstAccountId, "thread-1");
+      await insertThreadWithMessage(secondAccountId, "thread-2");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: { Label: null },
+          mailAccounts: {
+            [firstAccountId]: {
+              mutations: [
+                {
+                  id: "01FIRST",
+                  intent: { type: "applyLabel", threadId: "thread-1", name: "Follow up" },
+                },
+              ],
+            },
+            [secondAccountId]: {
+              mutations: [
+                {
+                  id: "01SECOND",
+                  intent: { type: "applyLabel", threadId: "thread-2", name: "Follow up" },
+                },
+              ],
+            },
+          },
+        },
+      });
+      const delta = response.json().user.Label as LabelDelta;
+      expect(delta.created.map((row) => row.name)).toEqual(["Follow up"]);
     });
 
     it("is not requested unless asked — an ordinary Thread sync never carries a Label delta", async () => {
@@ -401,7 +448,7 @@ describe("POST /sync", () => {
       // asserts is that requesting only `Thread` never triggers a `Label`
       // collection query or response entry alongside it.
       expect(threadDelta.created[0]?.labelIds).toHaveLength(1);
-      expect(response.json().mailAccounts[accountId].Label).toBeUndefined();
+      expect(response.json().user.Label).toBeUndefined();
     });
   });
 

@@ -26,19 +26,26 @@ import {
   applyPreferenceDelta,
   applyThreadDelta,
 } from "./server-writes.js";
+import { setSessionUserId } from "./session.js";
 import { enqueueUserMutation } from "./user-mutation-queue.js";
 
 let counter = 0;
 const names: string[] = [];
+const USER = "user-1";
 
 beforeEach(async () => {
   const name = `reads-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  // A Label id is derived from the signed-in User since #186, and
+  // `applyOverlay` reads it through `store/session.ts` rather than a hook —
+  // `AuthProvider` is what sets it in the app.
+  setSessionUserId(USER);
 });
 
 afterEach(async () => {
   localCache().close();
+  setSessionUserId(null);
   for (const name of names.splice(0)) await Dexie.delete(name);
 });
 
@@ -346,12 +353,12 @@ describe("readThreadWindow — Label filter view (#43)", () => {
         created: [
           makeThread("work-1", "acct-1", {
             lastMessageAt: minutesAfterEpoch(1),
-            labelIds: [labelId("acct-1", "Work")],
+            labelIds: [labelId(USER, "Work")],
           }),
           makeThread("no-label", "acct-1", { lastMessageAt: minutesAfterEpoch(2) }),
           makeThread("work-2", "acct-1", {
             lastMessageAt: minutesAfterEpoch(3),
-            labelIds: [labelId("acct-1", "Work")],
+            labelIds: [labelId(USER, "Work")],
           }),
         ],
       }),
@@ -359,7 +366,7 @@ describe("readThreadWindow — Label filter view (#43)", () => {
     );
 
     const page = await readThreadWindow("acct-1", {
-      view: { kind: "label", labelId: labelId("acct-1", "Work") },
+      view: { kind: "label", labelId: labelId(USER, "Work") },
     });
     expect(page.threads.map((thread) => thread.id)).toEqual(["work-2", "work-1"]);
   });
@@ -372,7 +379,7 @@ describe("readThreadWindow — Label filter view (#43)", () => {
     await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Work" }, "acct-1");
 
     const page = await readThreadWindow("acct-1", {
-      view: { kind: "label", labelId: labelId("acct-1", "Work") },
+      view: { kind: "label", labelId: labelId(USER, "Work") },
     });
     expect(page.threads.map((thread) => thread.id)).toEqual(["t1"]);
   });
@@ -381,7 +388,7 @@ describe("readThreadWindow — Label filter view (#43)", () => {
     await applyThreadDelta(
       "acct-1",
       delta({
-        created: [makeThread("t1", "acct-1", { labelIds: [labelId("acct-1", "Work")] })],
+        created: [makeThread("t1", "acct-1", { labelIds: [labelId(USER, "Work")] })],
       }),
       { replace: false },
     );
@@ -389,7 +396,7 @@ describe("readThreadWindow — Label filter view (#43)", () => {
     await enqueueMutation({ type: "removeLabel", threadId: "t1", name: "Work" }, "acct-1");
 
     const page = await readThreadWindow("acct-1", {
-      view: { kind: "label", labelId: labelId("acct-1", "Work") },
+      view: { kind: "label", labelId: labelId(USER, "Work") },
     });
     expect(page.threads).toEqual([]);
   });
@@ -595,24 +602,48 @@ describe("readThreadWindow — Undo (#95, ADR-0019)", () => {
   });
 });
 
-describe("readLabels", () => {
-  it("returns this Mail Account's Labels, name-ordered", async () => {
+describe("readLabels (User-scoped since #186)", () => {
+  it("returns this User's Labels, name-ordered", async () => {
     await applyLabelDelta(
-      "acct-1",
       delta({
         created: [
-          makeLabel(labelId("acct-1", "Zeta"), "acct-1", { name: "Zeta" }),
-          makeLabel(labelId("acct-1", "Alpha"), "acct-1", { name: "Alpha" }),
+          makeLabel(labelId(USER, "Zeta"), USER, { name: "Zeta" }),
+          makeLabel(labelId(USER, "Alpha"), USER, { name: "Alpha" }),
         ],
       }),
       { replace: false },
     );
 
-    expect((await readLabels("acct-1")).map((label) => label.name)).toEqual(["Alpha", "Zeta"]);
+    expect((await readLabels()).map((label) => label.name)).toEqual(["Alpha", "Zeta"]);
   });
 
-  it("is empty for a Mail Account with no Labels synced yet", async () => {
-    expect(await readLabels("never-synced")).toEqual([]);
+  it("is empty before any Label has synced", async () => {
+    expect(await readLabels()).toEqual([]);
+  });
+
+  it("spans every Mail Account — one set, whichever account's Threads are on screen", async () => {
+    await applyLabelDelta(
+      delta({ created: [makeLabel(labelId(USER, "Follow up"), USER, { name: "Follow up" })] }),
+      { replace: false },
+    );
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta("acct-2", delta({ created: [makeThread("t2", "acct-2")] }), {
+      replace: false,
+    });
+
+    // Both accounts' Threads resolve the same id, and applying the name from
+    // either lands on the one Label.
+    await enqueueMutation({ type: "applyLabel", threadId: "t1", name: "Follow up" }, "acct-1");
+    await enqueueMutation({ type: "applyLabel", threadId: "t2", name: "Follow up" }, "acct-2");
+
+    const view = { kind: "label", labelId: labelId(USER, "Follow up") } as const;
+    const first = await readThreadWindow("acct-1", { view });
+    const second = await readThreadWindow("acct-2", { view });
+    expect(first.threads.map((thread) => thread.id)).toEqual(["t1"]);
+    expect(second.threads.map((thread) => thread.id)).toEqual(["t2"]);
+    expect((await readLabels()).map((label) => label.name)).toEqual(["Follow up"]);
   });
 });
 

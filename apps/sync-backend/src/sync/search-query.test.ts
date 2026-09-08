@@ -100,16 +100,28 @@ describe("runSearch — free text", () => {
       subject: "no relevant words here",
     });
 
-    const byLocalPart = await runSearch(db, { mailAccountIds: [account.id], text: "kowalski0" });
+    const byLocalPart = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "kowalski0",
+    });
     expect(byLocalPart.rows.map((r) => r.threadId)).toEqual([threadId]);
 
-    const byDomainLabel = await runSearch(db, { mailAccountIds: [account.id], text: "insights" });
+    const byDomainLabel = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "insights",
+    });
     expect(byDomainLabel.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
   it("supports type-ahead prefix matching on the trailing token (≥3 chars)", async () => {
     const { threadId } = await seedMessage({ subject: "Quarterly roadmap" });
-    const result = await runSearch(db, { mailAccountIds: [account.id], text: "quarte" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "quarte",
+    });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
@@ -123,7 +135,11 @@ describe("runSearch — free text", () => {
       bodyText: "nothing relevant in the body",
     });
 
-    const result = await runSearch(db, { mailAccountIds: [account.id], text: "quarterly" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "quarterly",
+    });
     const byMessage = new Map(result.rows.map((row) => [row.matchedMessageId, row.headline]));
     expect(byMessage.get(bodyMatchId)).toContain("quarterly");
     expect(byMessage.get(subjectMatchId)).toBeNull();
@@ -131,7 +147,11 @@ describe("runSearch — free text", () => {
 
   it("returns nothing below its own default scope when there is no match at all", async () => {
     await seedMessage({ subject: "hello" });
-    const result = await runSearch(db, { mailAccountIds: [account.id], text: "nomatch" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "nomatch",
+    });
     expect(result).toEqual({ rows: [], cursor: null });
   });
 });
@@ -144,10 +164,20 @@ describe("runSearch — structured filters", () => {
     });
     await seedMessage({ fromName: "Bo Beckett", fromAddress: "bo@example.com" });
 
-    const byName = await runSearch(db, { mailAccountIds: [account.id], text: "", from: "Chen" });
+    const byName = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "",
+      from: "Chen",
+    });
     expect(byName.rows.map((r) => r.threadId)).toEqual([threadId]);
 
-    const byAddress = await runSearch(db, { mailAccountIds: [account.id], text: "", from: "ann@" });
+    const byAddress = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "",
+      from: "ann@",
+    });
     expect(byAddress.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
@@ -155,7 +185,12 @@ describe("runSearch — structured filters", () => {
     const { threadId } = await seedMessage({
       ccAddresses: [{ name: "Hidden Cc", address: "cc@example.com" }],
     });
-    const result = await runSearch(db, { mailAccountIds: [account.id], text: "", to: "Hidden Cc" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "",
+      to: "Hidden Cc",
+    });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
@@ -164,6 +199,7 @@ describe("runSearch — structured filters", () => {
     await seedMessage({ hasAttachments: false });
     const result = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       hasAttachment: true,
     });
@@ -172,22 +208,24 @@ describe("runSearch — structured filters", () => {
 
   it("label: matches case-insensitively and is filtered off the Thread's own label_ids, not the Search Index", async () => {
     const labelId = randomUUID();
-    await db.insert(labels).values({ id: labelId, mailAccountId: account.id, name: "Invoices" });
+    await db.insert(labels).values({ id: labelId, userId: account.userId, name: "Invoices" });
     const { threadId } = await seedMessage({ labelIds: [labelId] });
     await seedMessage({});
 
     const result = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       label: "INVOICES",
     });
     expect(result.rows.map((r) => r.threadId)).toEqual([threadId]);
   });
 
-  it("label: naming nothing this account has returns empty, not an error", async () => {
+  it("label: naming nothing this User has returns empty, not an error (#186)", async () => {
     await seedMessage({});
     const result = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       label: "no-such-label",
     });
@@ -199,6 +237,7 @@ describe("runSearch — structured filters", () => {
 
     const inRange = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       after: "2024-01-01",
     });
@@ -206,6 +245,7 @@ describe("runSearch — structured filters", () => {
 
     const outOfRange = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       before: "2024-01-01",
     });
@@ -218,6 +258,7 @@ describe("runSearch — structured filters", () => {
 
     const result = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       before: "2024-06-15",
     });
@@ -232,11 +273,16 @@ describe("runSearch — folder scope (ADR-0016 default: every folder but Trash/J
   it("excludes Trash by default, and in:trash is the escape that finds it", async () => {
     const { threadId } = await seedMessage({ folderId: trashId });
 
-    const defaultScope = await runSearch(db, { mailAccountIds: [account.id], text: "" });
+    const defaultScope = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "",
+    });
     expect(defaultScope.rows).toEqual([]);
 
     const trashScope = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       folder: "trash",
     });
@@ -252,6 +298,7 @@ describe("runSearch — folder scope (ADR-0016 default: every folder but Trash/J
 
     const result = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       folder: "projects",
     });
@@ -262,6 +309,7 @@ describe("runSearch — folder scope (ADR-0016 default: every folder but Trash/J
     await seedMessage({});
     const result = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       folder: "archive",
     });
@@ -300,7 +348,11 @@ describe("runSearch — the Candidate Window and pagination", () => {
       items.map((item) => item.messageId),
     );
 
-    const page1 = await runSearch(db, { mailAccountIds: [account.id], text: "" });
+    const page1 = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "",
+    });
     expect(page1.rows).toHaveLength(PAGE_SIZE);
     expect(page1.cursor).not.toBeNull();
     // The window is recency-ranked — page 1 is the newest PAGE_SIZE threads.
@@ -309,6 +361,7 @@ describe("runSearch — the Candidate Window and pagination", () => {
 
     const page2 = await runSearch(db, {
       mailAccountIds: [account.id],
+      userId: account.userId,
       text: "",
       cursor: page1.cursor as string,
     });
@@ -334,7 +387,11 @@ describe("runSearch — Thread merges keep the Search Index in step", () => {
       .set({ threadId: survivorId })
       .where(eq(messageSearch.threadId, threadId));
 
-    const result = await runSearch(db, { mailAccountIds: [account.id], text: "quarterly" });
+    const result = await runSearch(db, {
+      mailAccountIds: [account.id],
+      userId: account.userId,
+      text: "quarterly",
+    });
     expect(result.rows.map((r) => r.threadId)).toEqual([survivorId]);
   });
 });
@@ -368,6 +425,7 @@ describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
 
     const result = await runSearch(db, {
       mailAccountIds: [account.id, account2.id],
+      userId: account.userId,
       text: "quarterly",
     });
     expect(new Set(result.rows.map((r) => r.threadId))).toEqual(new Set([fromFirst, fromSecond]));
@@ -424,6 +482,7 @@ describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
 
     const result = await runSearch(db, {
       mailAccountIds: [account.id, account2.id],
+      userId: account.userId,
       text: "evergreen",
     });
     expect(result.rows.map((r) => r.threadId)).toContain(quietThreadId);
@@ -447,6 +506,7 @@ describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
 
     const result = await runSearch(db, {
       mailAccountIds: [account.id, account2.id],
+      userId: account.userId,
       text: "quarterly",
       folder: "projects",
     });
@@ -494,13 +554,18 @@ describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
       // `account` — fully returned on page 1, deterministically at the top.
       const shortItems = await seedWindow(account2.id, inbox2Id, 3, base + 10_000_000);
 
-      const page1 = await runSearch(db, { mailAccountIds: [account.id, account2.id], text: "" });
+      const page1 = await runSearch(db, {
+        mailAccountIds: [account.id, account2.id],
+        userId: account.userId,
+        text: "",
+      });
       expect(page1.cursor).not.toBeNull();
       const page1Ids = new Set(page1.rows.map((r) => r.threadId));
       for (const item of shortItems) expect(page1Ids.has(item.threadId)).toBe(true);
 
       const page2 = await runSearch(db, {
         mailAccountIds: [account.id, account2.id],
+        userId: account.userId,
         text: "",
         cursor: page1.cursor as string,
       });
@@ -515,7 +580,11 @@ describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
       const base = Date.parse("2020-01-01T00:00:00.000Z");
       const fullItems = await seedWindow(account.id, inboxId, CANDIDATE_WINDOW + 1, base);
 
-      const page1 = await runSearch(db, { mailAccountIds: [account.id], text: "" });
+      const page1 = await runSearch(db, {
+        mailAccountIds: [account.id],
+        userId: account.userId,
+        text: "",
+      });
       expect(page1.cursor).not.toBeNull();
 
       // account2 didn't exist in the Scope page 1 was run over.
@@ -528,6 +597,7 @@ describe("runSearch — Account Scope (#68, ADR-0016 amendment)", () => {
 
       const page2 = await runSearch(db, {
         mailAccountIds: [account.id, account2.id],
+        userId: account.userId,
         text: "",
         cursor: page1.cursor as string,
       });

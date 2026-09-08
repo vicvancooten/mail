@@ -2,6 +2,7 @@ import type { ClaimRequest, LoginRequest, LoginResponse, User } from "@mail/shar
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import * as authApi from "../api/auth.js";
 import * as passkeysApi from "../api/passkeys.js";
+import { setSessionUserId } from "../store/session.js";
 
 export type AuthState =
   | { kind: "loading" }
@@ -35,6 +36,18 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ kind: "loading" });
+
+  // The store layer needs the signed-in User's id to predict a User-scoped
+  // `Label` id offline (#186, `store/session.ts`) — mirrored here rather than
+  // read through `useAuth`, because the reader is `store/reads.ts`'s overlay,
+  // not a component. One effect off `state` covers every way it can change
+  // (bootstrap, claim, login, TOTP, logout, a 401). `loading` is skipped
+  // rather than treated as signed-out: it means "not resolved yet", and
+  // clearing on it would throw away an id something else already knows.
+  useEffect(() => {
+    if (state.kind === "loading") return;
+    setSessionUserId(state.kind === "authenticated" ? state.user.id : null);
+  }, [state]);
 
   useEffect(() => {
     let cancelled = false;

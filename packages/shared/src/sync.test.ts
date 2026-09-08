@@ -47,8 +47,8 @@ const VALID_THREAD = {
 };
 
 const VALID_LABEL = {
-  id: "account-1:Work",
-  mailAccountId: "account-1",
+  id: "user-1:Work",
+  userId: "user-1",
   name: "Work",
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
@@ -129,6 +129,14 @@ describe("labelSchema", () => {
   it("rejects a Label missing a name", () => {
     const { name, ...withoutName } = VALID_LABEL;
     expect(labelSchema.safeParse(withoutName).success).toBe(false);
+  });
+
+  it("carries the owning User, not a Mail Account (#186)", () => {
+    const { userId, ...withoutUserId } = VALID_LABEL;
+    expect(labelSchema.safeParse(withoutUserId).success).toBe(false);
+    expect(labelSchema.safeParse({ ...withoutUserId, mailAccountId: "account-1" }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -261,12 +269,24 @@ describe("syncRequestSchema", () => {
     expect(result.data?.user?.MailAccount).toBeNull();
   });
 
-  it("accepts a Label token alongside Thread (#43)", () => {
+  it("carries Label in the User scope, not a Mail Account's (#43, #186)", () => {
+    const result = syncRequestSchema.safeParse({
+      user: { Label: null },
+      mailAccounts: { "account-1": { Thread: "th-token" } },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.user?.Label).toBeNull();
+  });
+
+  it("no longer carries a Label token in a Mail Account's bucket — it moved to User scope (#186)", () => {
     const result = syncRequestSchema.safeParse({
       mailAccounts: { "account-1": { Thread: "th-token", Label: null } },
     });
     expect(result.success).toBe(true);
-    expect(result.data?.mailAccounts?.["account-1"]?.Label).toBeNull();
+    // Stripped, not rejected: the envelope is additive-only, so a Client
+    // still on the old shape is tolerated — its stale per-account Label
+    // token is simply never answered.
+    expect(result.data?.mailAccounts?.["account-1"]).not.toHaveProperty("Label");
   });
 
   it("accepts a GmailLabel token alongside Thread (#126)", () => {
