@@ -83,6 +83,7 @@ export function makeNote(id: string, userId: string, overrides: Partial<Note> = 
     document: EMPTY_NOTE_DOCUMENT,
     labelIds: [],
     pinned: false,
+    deletedAt: null,
     createdAt: "2026-06-01T12:00:00.000Z",
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,

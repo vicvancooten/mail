@@ -675,6 +675,15 @@ export const notes = pgTable(
     labelIds: text("label_ids").array().notNull().default([]),
     /** The grid's Pinned/Others split (#193) — a structural intent (`pinNote`/`unpinNote`), same shape as `threads.pinned` above but reached through the User-scoped Optimistic Action queue rather than a per-Mail-Account one. */
     pinned: boolean("pinned").notNull().default(false),
+    /**
+     * Soft delete and Recently Deleted (#194) — set by `trashNote`, cleared
+     * by its real inverse `restoreNote` (`sync/mutations.ts`, ADR-0019). Null
+     * for an ordinary Note. The row keeps syncing as an ordinary `updated`
+     * row while this is set — never a `sync/tombstones.ts` entry until
+     * `sync/note-purge.ts` physically deletes it `NOTE_TRASH_RETENTION_DAYS`
+     * after this is stamped.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // Same shared `sync_rev_seq` trigger as `labels`/`threads` — see their
@@ -682,7 +691,13 @@ export const notes = pgTable(
     syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
     syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
-  (table) => [index("notes_sync_rev_idx").on(table.userId, table.syncRev)],
+  (table) => [
+    index("notes_sync_rev_idx").on(table.userId, table.syncRev),
+    // `sync/note-purge.ts`'s own sweep query: every row past its retention
+    // window, account-wide — a partial index (`deletedAt IS NOT NULL`) since
+    // most Notes never carry one.
+    index("notes_deleted_at_idx").on(table.deletedAt).where(sql`${table.deletedAt} is not null`),
+  ],
 );
 export type NoteRow = typeof notes.$inferSelect;
 

@@ -82,6 +82,15 @@ function coalesceKey(intent: UserMutationIntent): {
       return { type: "notePin", targetId: intent.noteId, value: true };
     case "unpinNote":
       return { type: "notePin", targetId: intent.noteId, value: false };
+    // `trashNote`/`restoreNote` (#194) are a genuine inverse pair too, the
+    // same `"note"` bucket shape `createNote`/`deleteNote` above already
+    // have, just keyed into their own bucket so a still-queued `trashNote`
+    // never cancels away an unrelated `pinNote`/`unpinNote` (or vice versa)
+    // for the same Note.
+    case "trashNote":
+      return { type: "noteTrash", targetId: intent.noteId, value: true };
+    case "restoreNote":
+      return { type: "noteTrash", targetId: intent.noteId, value: false };
   }
 }
 

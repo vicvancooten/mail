@@ -1,6 +1,8 @@
 import type { Label, Note } from "@mail/shared";
+import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { pinNote, unpinNote, useLabels, useNotes } from "../store/index.js";
+import { announceUndoableAction } from "../mail/undo-toast.js";
+import { pinNote, restoreNote, trashNote, unpinNote, useLabels, useNotes } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { NoteCard } from "./NoteCard.js";
 import "./notes.css";
@@ -48,6 +50,17 @@ export function NotesGrid() {
     void (note.pinned ? unpinNote(note.id) : pinNote(note.id));
   }
 
+  /**
+   * Delete (#194): an Optimistic Action with Restore as its real inverse
+   * (ADR-0019) — `trashNote` fires and raises the Undo toast in the same
+   * breath, `useTriage.ts`'s own trash/archive split between store write and
+   * `announceUndoableAction`.
+   */
+  function deleteNoteCard(note: Note) {
+    void trashNote(note.id);
+    announceUndoableAction("noteDelete", () => void restoreNote(note.id));
+  }
+
   const pinned = filtered?.filter((note) => note.pinned) ?? [];
   // Only rendered once there's a Pinned section to distinguish it from —
   // a lone "Others" heading over every Note would say nothing a bare grid
@@ -56,11 +69,18 @@ export function NotesGrid() {
 
   return (
     <section className="notes-grid-section" aria-label="Notes">
-      <NotesLabelFilter
-        labels={labels ?? []}
-        selectedLabelIds={selectedLabelIds}
-        onToggle={toggleLabel}
-      />
+      <div className="notes-grid-toolbar">
+        <NotesLabelFilter
+          labels={labels ?? []}
+          selectedLabelIds={selectedLabelIds}
+          onToggle={toggleLabel}
+        />
+        {/* Recently Deleted (#194): its own screen, not an overlay over this
+            one — `routes.tsx#notesRecentlyDeletedRoute`'s own doc comment. */}
+        <Link to="/notes/recently-deleted" className="notes-recently-deleted-link">
+          Recently Deleted
+        </Link>
+      </div>
       {filtered && filtered.length === 0 ? (
         <p className="notes-grid-empty">
           {selectedLabelIds.size > 0
@@ -72,13 +92,23 @@ export function NotesGrid() {
           {pinned.length > 0 ? (
             <div className="notes-grid-group">
               <h2 className="notes-grid-heading">Pinned</h2>
-              <NoteCardGrid notes={pinned} labels={labels ?? []} onTogglePin={togglePin} />
+              <NoteCardGrid
+                notes={pinned}
+                labels={labels ?? []}
+                onTogglePin={togglePin}
+                onDelete={deleteNoteCard}
+              />
             </div>
           ) : null}
           {others.length > 0 ? (
             <div className="notes-grid-group">
               {pinned.length > 0 ? <h2 className="notes-grid-heading">Others</h2> : null}
-              <NoteCardGrid notes={others} labels={labels ?? []} onTogglePin={togglePin} />
+              <NoteCardGrid
+                notes={others}
+                labels={labels ?? []}
+                onTogglePin={togglePin}
+                onDelete={deleteNoteCard}
+              />
             </div>
           ) : null}
         </>
@@ -91,15 +121,23 @@ function NoteCardGrid({
   notes,
   labels,
   onTogglePin,
+  onDelete,
 }: {
   notes: readonly Note[];
   labels: Label[];
   onTogglePin: (note: Note) => void;
+  onDelete: (note: Note) => void;
 }) {
   return (
     <div className="notes-grid">
       {notes.map((note) => (
-        <NoteCard key={note.id} note={note} labels={labels} onTogglePin={() => onTogglePin(note)} />
+        <NoteCard
+          key={note.id}
+          note={note}
+          labels={labels}
+          onTogglePin={() => onTogglePin(note)}
+          onDelete={() => onDelete(note)}
+        />
       ))}
     </div>
   );

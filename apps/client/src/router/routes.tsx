@@ -9,6 +9,7 @@ import {
 import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
+import { NotesRecentlyDeleted } from "../notes/NotesRecentlyDeleted.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";
@@ -241,6 +242,24 @@ export const notesNoteRoute = createRoute({
   component: NoteDialogRoute,
 });
 
+/**
+ * Recently Deleted (#194): registered with its own full path directly off
+ * `rootRoute`, `streamRoute`'s own precedent for "a screen nested under
+ * another App's path, but not actually a child of that App's own route" —
+ * a child of `notesRoute` instead would render into its `<Outlet/>` over
+ * the always-mounted grid the same way the dialog does, which is wrong
+ * here: Recently Deleted is its own screen, not an overlay (`NotesRecentlyDeleted.tsx`'s
+ * own doc comment). Registered as a sibling of `notesRoute` in the tree
+ * below rather than nested under it for exactly that reason — TanStack
+ * Router still resolves the more specific static path here over
+ * `notesNoteRoute`'s own dynamic `$noteId` segment.
+ */
+export const notesRecentlyDeletedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/notes/recently-deleted",
+  component: NotesRecentlyDeleted,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
@@ -259,6 +278,7 @@ export const routeTree = rootRoute.addChildren([
   calendarRoute,
   tasksRoute,
   notesRoute.addChildren([notesNoteRoute]),
+  notesRecentlyDeletedRoute,
 ]);
 
 /**

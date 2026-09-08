@@ -14,6 +14,7 @@ import { defaultProviderAdapters } from "./routes/oauth-signin.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { startGrantRefreshLoop } from "./sync/grant-refresh-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
+import { startNotePurgeLoop } from "./sync/note-purge-loop.js";
 import type { PollLoopHandle } from "./sync/poll-loop.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
@@ -171,6 +172,12 @@ pollLoops.push(startSearchIndexRebuildLoop(db, { logger: app.log }));
 // its first tick catching up on whatever came due while the process was
 // down.
 pollLoops.push(startSnoozeWakeLoop(db, { logger: app.log }));
+
+// The Recently Deleted purge sweep (#194): "purged for good 30 days after
+// deletion" — same independent-of-`sync/manager.ts` shape as the snooze wake
+// loop above, since purging a soft-deleted Note only ever touches columns
+// already stored on `notes`.
+pollLoops.push(startNotePurgeLoop(db, { logger: app.log }));
 
 // The Notifier's outbox delivery sweep (#53, ADR-0015). Its first tick runs
 // immediately, same reasoning as the send sweeper above: whatever the outbox

@@ -24,7 +24,22 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * visible toast to click in the meantime.
  */
 
-export type UndoableActionKind = "done" | "trash" | "snooze" | "block" | "deny" | "discard";
+/**
+ * `"noteDelete"` (#194) is Notes' own undoable action — `notes/NotesGrid.tsx`
+ * and `notes/NoteDialog.tsx` call `announceUndoableAction` right after
+ * `store/notes.ts#trashNote` the same way `useTriage.ts`'s `trash` does,
+ * despite this module living under `mail/`: it was already the one place
+ * "render it through the same toast component" (#95's own words) means, and
+ * a Note's delete is exactly as undoable as a Thread's.
+ */
+export type UndoableActionKind =
+  | "done"
+  | "trash"
+  | "snooze"
+  | "block"
+  | "deny"
+  | "discard"
+  | "noteDelete";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -38,6 +53,9 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   deny: { one: "Returned", many: (count) => `${count} returned` },
   // Discard (#101) — `Composer.tsx`'s own explicit Discard button.
   discard: { one: "Draft discarded", many: (count) => `${count} drafts discarded` },
+  // Note delete (#194) — `notes/NotesGrid.tsx`'s card control and
+  // `notes/NoteDialog.tsx`'s own Delete button.
+  noteDelete: { one: "Note deleted", many: (count) => `${count} Notes deleted` },
 };
 
 interface Bucket {

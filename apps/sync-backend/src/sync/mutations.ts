@@ -668,6 +668,30 @@ async function applyUserIntent(
         .where(eq(notes.id, intent.noteId));
       return { ok: true };
     }
+    // `trashNote`/`restoreNote` (#194): Delete and Recently Deleted's own
+    // Restore, a genuine inverse pair the same `pinNote`/`unpinNote` shape
+    // above — the row is never removed here (`deleteNote` above stays the
+    // permanent one), only `deletedAt` flips, which is what keeps a Note's
+    // Labels and `pinned` state exact across a delete/restore round trip
+    // with nothing here that has to remember or restore them separately.
+    case "trashNote": {
+      const note = await noteRow(db, userId, intent.noteId);
+      if (!note) return { ok: false, reason: "note_not_found" };
+      await db
+        .update(notes)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(notes.id, intent.noteId));
+      return { ok: true };
+    }
+    case "restoreNote": {
+      const note = await noteRow(db, userId, intent.noteId);
+      if (!note) return { ok: false, reason: "note_not_found" };
+      await db
+        .update(notes)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(notes.id, intent.noteId));
+      return { ok: true };
+    }
   }
 }
 

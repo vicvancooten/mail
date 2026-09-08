@@ -567,6 +567,84 @@ describe("POST /sync", () => {
       expect(deleted.json().user.mutations).toEqual([{ id: "01DELETE", status: "applied" }]);
       expect((deleted.json().user.Note as NoteDelta).destroyed).toEqual(["note-1"]);
     });
+
+    it("soft-deletes with trashNote — the row rides `updated`, not `destroyed` (#194)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const created = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: null,
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      const token = (created.json().user.Note as NoteDelta).newState;
+
+      const trashed = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: token,
+            mutations: [{ id: "01TRASH", intent: { type: "trashNote", noteId: "note-1" } }],
+          },
+        },
+      });
+
+      expect(trashed.json().user.mutations).toEqual([{ id: "01TRASH", status: "applied" }]);
+      const delta = trashed.json().user.Note as NoteDelta;
+      expect(delta.destroyed).toEqual([]);
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({ id: "note-1" });
+      expect(delta.updated[0]?.deletedAt).not.toBeNull();
+    });
+
+    it("restores across the second Client — the delta round trip #194's own acceptance line asks for", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              { id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } },
+              { id: "01TRASH", intent: { type: "trashNote", noteId: "note-1" } },
+            ],
+          },
+        },
+      });
+
+      // A second Client, from nothing held, sees the Note already deleted.
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: null } },
+      });
+      const firstDelta = secondClient.json().user.Note as NoteDelta;
+      expect(firstDelta.created[0]?.deletedAt).not.toBeNull();
+
+      const restored = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: firstDelta.newState,
+            mutations: [{ id: "01RESTORE", intent: { type: "restoreNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      const secondDelta = restored.json().user.Note as NoteDelta;
+      expect(secondDelta.updated[0]?.deletedAt).toBeNull();
+    });
   });
 
   describe("GmailLabel (per Mail Account, #126, ADR-0020)", () => {

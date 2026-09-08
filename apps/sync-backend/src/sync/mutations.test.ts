@@ -1257,4 +1257,51 @@ describe("flushUserMutations — Note structural intents (#192, ADR-0023)", () =
 
     expect(outcomes).toEqual([{ id: "01PIN", status: "rejected", reason: "note_not_found" }]);
   });
+
+  describe("trashNote / restoreNote (#194, soft delete and Recently Deleted)", () => {
+    it("sets deletedAt rather than removing the row", async () => {
+      const noteId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createNote", noteId } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01TRASH", intent: { type: "trashNote", noteId } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01TRASH", status: "applied" }]);
+      const row = await noteRow(noteId);
+      expect(row?.deletedAt).not.toBeNull();
+    });
+
+    it("restores a Note, the real inverse of trashNote — Labels and pinned untouched", async () => {
+      const noteId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createNote", noteId } },
+        { id: "01LABEL", intent: { type: "labelNote", noteId, name: "Work" } },
+        { id: "01PIN", intent: { type: "pinNote", noteId } },
+        { id: "01TRASH", intent: { type: "trashNote", noteId } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01RESTORE", intent: { type: "restoreNote", noteId } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+      const row = await noteRow(noteId);
+      expect(row?.deletedAt).toBeNull();
+      expect(row?.pinned).toBe(true);
+      expect(row?.labelIds).toHaveLength(1);
+    });
+
+    it("rejects trashNote/restoreNote against a Note this User does not have", async () => {
+      const missingId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01TRASH", intent: { type: "trashNote", noteId: missingId } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01TRASH", status: "rejected", reason: "note_not_found" }]);
+    });
+  });
 });

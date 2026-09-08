@@ -240,6 +240,20 @@ export const EMPTY_NOTE_DOCUMENT: NoteDocument = [
  * with a real inverse (`pinNote`/`unpinNote`, `sync.ts#userMutationIntentSchema`),
  * the same "ordinary Optimistic Action" shape `labelNote`/`unlabelNote`
  * already have, not the Thread-style absolute-boolean-set `setPinned`.
+ *
+ * `deletedAt` (#194): soft delete and Recently Deleted. Set by `trashNote`,
+ * cleared by its real inverse `restoreNote` (`sync.ts#userMutationIntentSchema`,
+ * ADR-0019) — the same structural-intent shape `pinned` above already has,
+ * not a physical row removal. A Note has no upstream, so a restore is
+ * always exact: the same row comes back, Labels and `pinned` untouched,
+ * because they were never touched by the delete either. The row keeps
+ * syncing normally while `deletedAt` is set (it is an ordinary field, not a
+ * tombstone) — `store/notes.ts#readNotes` filters it out of the grid and
+ * `readDeletedNotes` is the one reader that wants it. `NOTE_TRASH_RETENTION_DAYS`
+ * after this is stamped, `sync/note-purge.ts` on the Sync Backend physically
+ * deletes the row and records the ordinary tombstone `deleteNote` already
+ * would — Recently Deleted's window is a purge delay, not a second undo
+ * window like the toast's own ten seconds.
  */
 export const noteSchema = z.object({
   id: z.string(),
@@ -247,10 +261,14 @@ export const noteSchema = z.object({
   document: noteDocumentSchema,
   labelIds: z.array(z.string()),
   pinned: z.boolean(),
+  deletedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
 export type Note = z.infer<typeof noteSchema>;
+
+/** How long a soft-deleted Note stays in Recently Deleted before `sync/note-purge.ts` purges it for good (#194's own acceptance line: "30 days"). */
+export const NOTE_TRASH_RETENTION_DAYS = 30;
 
 /**
  * One body save of a Note, as it rides the `noteSaves` channel (#192,

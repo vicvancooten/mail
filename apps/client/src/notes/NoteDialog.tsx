@@ -1,7 +1,8 @@
-import { Pin } from "lucide-react";
-import { useCallback } from "react";
+import { Pin, Trash2 } from "lucide-react";
+import { useCallback, useEffect } from "react";
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
-import { pinNote, unpinNote, useNote } from "../store/index.js";
+import { announceUndoableAction } from "../mail/undo-toast.js";
+import { pinNote, restoreNote, trashNote, unpinNote, useNote } from "../store/index.js";
 import { NoteEditor } from "./NoteEditor.js";
 import { deriveNoteTitle } from "./note-text.js";
 import "./notes.css";
@@ -46,6 +47,28 @@ export function NoteDialog({ noteId, onClose }: { noteId: string; onClose: () =>
     void (note.pinned ? unpinNote(note.id) : pinNote(note.id));
   }, [note]);
 
+  /**
+   * Delete (#194): fires the same Optimistic Action + Undo toast
+   * `NotesGrid.tsx`'s own card control does — closing the dialog itself is
+   * not this handler's job, the `deletedAt` effect below is, so a delete
+   * that arrives from the *other* Client while this dialog is open closes
+   * it the same way.
+   */
+  const handleDelete = useCallback(() => {
+    if (!note) return;
+    void trashNote(note.id);
+    announceUndoableAction("noteDelete", () => void restoreNote(note.id));
+  }, [note]);
+
+  // "Deleting the Note open in the dialog closes it and navigates back to
+  // `/notes`" (#194's own acceptance line) — driven by the row's own
+  // `deletedAt`, not the button above, so it covers a delete from the grid
+  // behind this same dialog and a delete that lands from a second Client
+  // mid-sync just as well as this dialog's own button.
+  useEffect(() => {
+    if (note?.deletedAt) onClose();
+  }, [note?.deletedAt, onClose]);
+
   return (
     <Dialog open onOpenChange={handleOpenChange}>
       <DialogContent className="note-dialog">
@@ -62,6 +85,14 @@ export function NoteDialog({ noteId, onClose }: { noteId: string; onClose: () =>
               onClick={togglePin}
             >
               <Pin size={16} />
+            </button>
+            <button
+              type="button"
+              className="note-dialog-delete"
+              aria-label="Delete note"
+              onClick={handleDelete}
+            >
+              <Trash2 size={16} />
             </button>
             <NoteEditor
               document={note.document}
