@@ -24,6 +24,7 @@ import {
   removeConnectedAccountFacet,
 } from "../connected-accounts/removal.js";
 import {
+  type ConnectedAccountRow,
   connectedAccountHasFacet,
   getConnectedAccountForUser,
   getConnectedAccountForUserByIdentity,
@@ -31,7 +32,6 @@ import {
   insertCalDavFacet,
   listConnectedAccountFacets,
   reactivateConnectedAccount,
-  type ConnectedAccountRow,
 } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";

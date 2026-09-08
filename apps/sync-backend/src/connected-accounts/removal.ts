@@ -2,13 +2,13 @@ import type { ConnectedAccountFacetKind } from "@mail/shared";
 import { and, eq, gt, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.js";
 import {
+  type ConnectedAccountFacetRow,
+  type ConnectedAccountRow,
   compositions,
   connectedAccountFacets,
   connectedAccounts,
   mailAccounts,
   threads,
-  type ConnectedAccountFacetRow,
-  type ConnectedAccountRow,
 } from "../db/schema.js";
 import { recordTombstones } from "../sync/tombstones.js";
 import type { ConnectedAccountCredential } from "./credential-crypto.js";
