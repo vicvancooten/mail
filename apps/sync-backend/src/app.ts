@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import { isApiPath } from "@mail/shared";
 import Fastify from "fastify";
 import authPlugin from "./auth/plugin.js";
+import type { discoverDavAccount } from "./connected-accounts/dav-discovery.js";
 import type { Db } from "./db/client.js";
 import type { discoverMailAccount } from "./mail-accounts/autodiscover.js";
 import type { ProviderAdapters } from "./mail-accounts/provider-adapter.js";
@@ -15,6 +16,7 @@ import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { bulkTriageRoutes } from "./routes/bulk-triage.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
+import { connectedAccountRoutes } from "./routes/connected-accounts.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
 import { eventsRoutes } from "./routes/events.js";
 import { gatekeeperRoutes } from "./routes/gatekeeper.js";
@@ -67,6 +69,12 @@ export interface BuildAppOptions {
    */
   providerAdapters?: ProviderAdapters;
   /**
+   * Overridable only in tests, same reason as `mailAccountDiscover` above:
+   * a real CalDAV/CardDAV server isn't something a test wants to stand up.
+   * Defaults to `discoverDavAccount` (`connected-accounts/dav-discovery.ts`).
+   */
+  connectedAccountDiscoverDav?: typeof discoverDavAccount;
+  /**
    * Starts/restarts a Mail Account's resident sync loop (#35) on create and
    * reauth. Defaults to a no-op: opening a real IMAP connection is not
    * something any test asks for just by calling `buildApp`, and `main.ts` is
@@ -108,6 +116,7 @@ export function buildApp({
   mailCredentialKey,
   mailAccountVerify,
   mailAccountDiscover,
+  connectedAccountDiscoverDav,
   providerAdapters = defaultProviderAdapters,
   syncManager = noopSyncManager,
   attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
@@ -151,6 +160,13 @@ export function buildApp({
     mailCredentialKey,
     providerAdapters,
     verify: mailAccountVerify,
+    syncManager,
+  });
+  app.register(connectedAccountRoutes, {
+    db,
+    mailCredentialKey,
+    discoverDav: connectedAccountDiscoverDav,
+    providerAdapters,
     syncManager,
   });
   app.register(syncRoutes, { db });

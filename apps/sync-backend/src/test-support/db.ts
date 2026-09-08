@@ -8,6 +8,8 @@ import {
   claimTokens,
   composeSaveLedger,
   compositions,
+  connectedAccountFacets,
+  connectedAccounts,
   correspondents,
   folders,
   gatekeeperVerdicts,
@@ -21,6 +23,7 @@ import {
   oauthSignInAttempts,
   passkeyCredentials,
   protocolWrites,
+  providerFacetHealth,
   providerRegistrations,
   pushSubscriptions,
   sessions,
@@ -94,6 +97,9 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(passkeyCredentials);
   await db.delete(oauthSignInAttempts);
   await db.delete(mailAccounts);
+  await db.delete(connectedAccountFacets);
+  await db.delete(connectedAccounts);
   await db.delete(providerRegistrations);
+  await db.delete(providerFacetHealth);
   await db.delete(users);
 }

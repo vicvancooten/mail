@@ -39,7 +39,10 @@ export interface DeliverPendingResult {
 /**
  * One delivery tick: every undelivered outbox row, grouped by Mail Account
  * so a `new_mail` burst collapses per-account (poc-scope.md), sent to every
- * device subscribed for that row's User.
+ * device subscribed for that row's User. A `needs_reauth` row for a
+ * Calendar or Contacts Facet (#204) has no Mail Account to group by, so it
+ * buckets on its own Connected Account instead — never on `mailAccountId`,
+ * which is null for it.
  */
 export async function deliverPending(
   db: Db,
@@ -51,9 +54,10 @@ export async function deliverPending(
 
   const byAccount = new Map<string, NotifierOutboxRow[]>();
   for (const row of pending) {
-    const bucket = byAccount.get(row.mailAccountId);
+    const bucketKey = row.mailAccountId ?? `connected-account:${row.connectedAccountId}`;
+    const bucket = byAccount.get(bucketKey);
     if (bucket) bucket.push(row);
-    else byAccount.set(row.mailAccountId, [row]);
+    else byAccount.set(bucketKey, [row]);
   }
 
   for (const rows of byAccount.values()) {
@@ -164,7 +168,7 @@ function toPayload(row: NotifierOutboxRow, badgeCount: number): PushPayload {
     case "new_mail":
       return {
         kind: "new_mail",
-        mailAccountId: row.mailAccountId,
+        mailAccountId: requireMailAccountId(row),
         threadId: payload.threadId,
         senderName: payload.senderName,
         senderAddress: payload.senderAddress,
@@ -175,26 +179,43 @@ function toPayload(row: NotifierOutboxRow, badgeCount: number): PushPayload {
     case "failed_send":
       return {
         kind: "failed_send",
-        mailAccountId: row.mailAccountId,
+        mailAccountId: requireMailAccountId(row),
         compositionId: payload.compositionId,
         subject: payload.subject,
         detail: payload.detail,
         badgeCount,
       };
     case "needs_reauth":
+      // Every `needs_reauth` row is written by
+      // `notifier/record.ts#recordNeedsReauthNotification`, the only writer
+      // of this kind, and it always sets both (#204) — a null here means the
+      // row itself is corrupt, not a real notification this app ever built.
+      if (!row.connectedAccountId || !row.facet) {
+        throw new Error(`needs_reauth outbox row ${row.id} is missing connectedAccountId/facet.`);
+      }
       return {
         kind: "needs_reauth",
         mailAccountId: row.mailAccountId,
+        connectedAccountId: row.connectedAccountId,
+        facet: row.facet,
         emailAddress: payload.emailAddress,
         badgeCount,
       };
     case "gatekeeper_digest":
       return {
         kind: "gatekeeper_digest",
-        mailAccountId: row.mailAccountId,
+        mailAccountId: requireMailAccountId(row),
         senders: payload.senders,
         count: payload.count,
         badgeCount,
       };
   }
+}
+
+/** Every kind but `needs_reauth` (#204) is still Mail-only and always sets `mailAccountId` — a null here means the row itself is corrupt. */
+function requireMailAccountId(row: NotifierOutboxRow): string {
+  if (row.mailAccountId === null) {
+    throw new Error(`Outbox row ${row.id} (kind "${row.kind}") is missing mailAccountId.`);
+  }
+  return row.mailAccountId;
 }

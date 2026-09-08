@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { protocolWrites } from "../db/schema.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById } from "../mail-accounts/store.js";
 import { withMailAccountConnection } from "./imap-connection.js";
 import { type PollLoopHandle, startPollLoop } from "./poll-loop.js";

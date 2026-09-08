@@ -75,6 +75,24 @@ describe("createSyncManager", () => {
     started.mockRestore();
   });
 
+  it("stop() stops the running session and starts none in its place", async () => {
+    const session = fakeSession();
+    const started = vi.spyOn(liveSession, "startLiveSyncSession").mockReturnValue(session);
+    const manager = createSyncManager(db, { mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY });
+    manager.start(account);
+
+    await manager.stop(account.id);
+
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(started).toHaveBeenCalledTimes(1); // only the original start(), no restart
+    started.mockRestore();
+  });
+
+  it("stop() on an id with no running session is a no-op", async () => {
+    const manager = createSyncManager(db, { mailCredentialKey: TEST_MAIL_CREDENTIAL_KEY });
+    await expect(manager.stop("no-such-account")).resolves.toBeUndefined();
+  });
+
   it("stopAll() stops every running session", async () => {
     const other = await createTestMailAccount(db);
     const sessions = [fakeSession(), fakeSession()];
@@ -105,6 +123,7 @@ describe("startAllMailAccountSyncs", () => {
         started.push(row.id);
       },
       restart: vi.fn(),
+      stop: vi.fn(),
       stopAll: vi.fn(),
     };
 

@@ -5,6 +5,7 @@ import {
   compositionSchema,
   undoSendDelaySchema,
 } from "./compose.js";
+import { connectedAccountSchema } from "./connected-accounts.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema } from "./mail-accounts.js";
 import { noteSaveOutcomeSchema, noteSaveSchema, noteSchema } from "./notes.js";
@@ -443,6 +444,10 @@ export type CorrespondentSearchResponse = z.infer<typeof correspondentSearchResp
 export const compositionDeltaSchema = collectionDeltaSchema(compositionSchema);
 export type CompositionDelta = z.infer<typeof compositionDeltaSchema>;
 
+/** `ConnectedAccount` (#200, ADR-0023): whole-replicated, User-scoped — see `connected-accounts.ts#connectedAccountSchema`'s own doc comment. */
+export const connectedAccountDeltaSchema = collectionDeltaSchema(connectedAccountSchema);
+export type ConnectedAccountDelta = z.infer<typeof connectedAccountDeltaSchema>;
+
 /**
  * A requested collection's token. `null` asks for a full bootstrap (the
  * Client holds nothing yet — not the same as a stale/unrecognized token,
@@ -458,6 +463,8 @@ export const userSyncRequestSchema = z.object({
   Label: requestedTokenSchema.optional(),
   /** `Note` (#192, ADR-0023): whole-replicated, User-scoped. */
   Note: requestedTokenSchema.optional(),
+  /** `ConnectedAccount` (#200, ADR-0023): whole-replicated, User-scoped. */
+  ConnectedAccount: requestedTokenSchema.optional(),
   /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
   mutations: z.array(queuedUserMutationSchema).optional(),
   /**
@@ -711,6 +718,7 @@ export const userSyncResponseSchema = z.object({
   Preference: preferenceDeltaSchema.optional(),
   Label: labelDeltaSchema.optional(),
   Note: noteDeltaSchema.optional(),
+  ConnectedAccount: connectedAccountDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
   /** Outcomes in the same order as the request's `noteSaves` array. */

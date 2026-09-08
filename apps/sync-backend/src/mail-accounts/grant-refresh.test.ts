@@ -1,5 +1,10 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
+import {
+  attachFacetToConnectedAccount,
+  listConnectedAccountFacets,
+} from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import { notifierOutbox } from "../db/schema.js";
 import {
@@ -8,7 +13,6 @@ import {
 } from "../provider-registrations/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
-import { deriveCredentialKey, sealSecret } from "./credential-crypto.js";
 import { needsGrantRefresh, refreshMailAccountGrant } from "./grant-refresh.js";
 import type { ProviderAdapter, ProviderRefreshResult } from "./provider-adapter.js";
 import { getMailAccountById } from "./store.js";
@@ -75,10 +79,14 @@ describe("needsGrantRefresh", () => {
     const credential = {
       kind: "oauth" as const,
       provider: "google" as const,
-      accessToken: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
       refreshToken: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       scope: [],
+      accessTokens: {
+        default: {
+          token: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
     };
     expect(needsGrantRefresh(credential, new Date(), 10 * 60_000)).toBe(true);
     expect(needsGrantRefresh(credential, new Date(), 30_000)).toBe(false);
@@ -245,5 +253,84 @@ describe("refreshMailAccountGrant", () => {
       },
     });
     expect((await getProviderRegistration(db, "google"))?.lastRefreshError).toBeNull();
+  });
+
+  describe("#204's scope diff", () => {
+    function fakeAdapterWithCalendar(scope: string[]): ProviderAdapter {
+      return {
+        ...fakeAdapter(() =>
+          Promise.resolve({
+            ok: true,
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token",
+            expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+            scope,
+          }),
+        ),
+        facetGrantScopes: (facet) =>
+          facet === "calendar"
+            ? {
+                requestScopes: ["https://www.googleapis.com/auth/calendar"],
+                coreScope: "https://www.googleapis.com/auth/calendar",
+              }
+            : {
+                requestScopes: ["https://www.googleapis.com/auth/contacts"],
+                coreScope: "https://www.googleapis.com/auth/contacts",
+              },
+      };
+    }
+
+    it("parks an active Calendar Facet whose scope is missing from a Google refresh's shared audience, leaving Mail active", async () => {
+      await registerGoogle();
+      const account = await createTestMailAccount(db, { oauth: { accessToken: "at" } });
+      if (account.credential.kind !== "oauth") throw new Error("expected an oauth credential");
+      await attachFacetToConnectedAccount(db, account.connectedAccountId, "calendar", {
+        ...account.credential,
+        scope: [...account.credential.scope, "https://www.googleapis.com/auth/calendar"],
+      });
+
+      // The refresh's own returned scope no longer includes Calendar's —
+      // the User revoked it upstream, and Google's shared "default" audience
+      // means this one Mail-Facet refresh is the only signal there'll ever be.
+      await refreshMailAccountGrant(db, account, {
+        credentialKey,
+        adapters: {
+          google: fakeAdapterWithCalendar(["https://mail.google.com/"]),
+        },
+      });
+
+      const facets = await listConnectedAccountFacets(db, account.connectedAccountId);
+      expect(facets.find((facet) => facet.kind === "mail")?.status).toBe("active");
+      expect(facets.find((facet) => facet.kind === "calendar")?.status).toBe("needs_reauth");
+
+      const notifications = await db
+        .select()
+        .from(notifierOutbox)
+        .where(eq(notifierOutbox.connectedAccountId, account.connectedAccountId));
+      expect(notifications.find((row) => row.facet === "calendar")).toBeDefined();
+    });
+
+    it("leaves an active Calendar Facet alone when the refresh still covers its scope", async () => {
+      await registerGoogle();
+      const account = await createTestMailAccount(db, { oauth: { accessToken: "at" } });
+      if (account.credential.kind !== "oauth") throw new Error("expected an oauth credential");
+      await attachFacetToConnectedAccount(db, account.connectedAccountId, "calendar", {
+        ...account.credential,
+        scope: [...account.credential.scope, "https://www.googleapis.com/auth/calendar"],
+      });
+
+      await refreshMailAccountGrant(db, account, {
+        credentialKey,
+        adapters: {
+          google: fakeAdapterWithCalendar([
+            "https://mail.google.com/",
+            "https://www.googleapis.com/auth/calendar",
+          ]),
+        },
+      });
+
+      const facets = await listConnectedAccountFacets(db, account.connectedAccountId);
+      expect(facets.find((facet) => facet.kind === "calendar")?.status).toBe("active");
+    });
   });
 });

@@ -1,4 +1,4 @@
-import type { Provider } from "@mail/shared";
+import type { RegisteredProvider } from "@mail/shared";
 
 /**
  * Facts about this running instance (#104), computed once and shared
@@ -46,7 +46,7 @@ export function isSecureContext(publicUrl: string): boolean {
  * (misconfiguration `isSecureContext` above already flags elsewhere on this
  * same page) rather than throwing — Provider Health must render regardless.
  */
-export function buildProviderRedirectUri(publicUrl: string, provider: Provider): string {
+export function buildProviderRedirectUri(publicUrl: string, provider: RegisteredProvider): string {
   try {
     return new URL(`/auth/oauth/${provider}/callback`, publicUrl).toString();
   } catch {

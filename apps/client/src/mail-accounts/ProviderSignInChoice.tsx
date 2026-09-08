@@ -1,4 +1,4 @@
-import type { Provider, ProviderAvailability } from "@mail/shared";
+import type { ProviderAvailability, RegisteredProvider } from "@mail/shared";
 import { useEffect, useState } from "react";
 import { fetchProviderAvailability, startProviderSignIn } from "../api/oauth-signin.js";
 import { PROVIDER_LABEL } from "./provider-labels.js";
@@ -33,7 +33,7 @@ export function ProviderSignInChoice({
 }) {
   const [availability, setAvailability] = useState<ProviderAvailability[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [startingProvider, setStartingProvider] = useState<Provider | null>(null);
+  const [startingProvider, setStartingProvider] = useState<RegisteredProvider | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,7 +49,7 @@ export function ProviderSignInChoice({
     };
   }, []);
 
-  async function handleSignIn(provider: Provider) {
+  async function handleSignIn(provider: RegisteredProvider) {
     setError(null);
     setStartingProvider(provider);
     try {

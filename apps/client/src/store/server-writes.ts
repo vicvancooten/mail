@@ -1,6 +1,7 @@
 import type {
   CollectionDelta,
   Composition,
+  ConnectedAccount,
   Correspondent,
   GmailLabel,
   Label,
@@ -50,6 +51,8 @@ export const PREFERENCE_TOKEN_KEY = "user:Preference";
 export const LABEL_TOKEN_KEY = "user:Label";
 /** `Note` (#192, ADR-0023): User-scoped from the start, so its token is keyed like `Label`'s. */
 export const NOTE_TOKEN_KEY = "user:Note";
+/** `ConnectedAccount` (#199, #200, ADR-0022): User-scoped from the start, so its token is keyed like `Note`'s. */
+export const CONNECTED_ACCOUNT_TOKEN_KEY = "user:ConnectedAccount";
 
 export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
@@ -258,6 +261,29 @@ export async function applyNoteDelta(
       await db.pendingNoteSaves.bulkDelete(delta.destroyed);
     }
     await db.syncState.put({ key: NOTE_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `ConnectedAccount` (#199, #200, ADR-0022). `Label`'s sibling above: whole-
+ * replicated, no windowing, no per-Mail-Account split — every Connected
+ * Account a User holds is simply held in full, the same "a handful of rows
+ * every surface wants to label things with" reasoning the ticket itself
+ * gives. No merge rule: unlike `Note`, nothing here is ever edited locally
+ * ahead of the server (there is no Optimistic Action that writes a Connected
+ * Account), so the wire's copy is always adopted as-is.
+ */
+export async function applyConnectedAccountDelta(
+  delta: CollectionDelta<ConnectedAccount>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.connectedAccounts, db.syncState], async () => {
+    if (replace) await db.connectedAccounts.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.connectedAccounts.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.connectedAccounts.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: CONNECTED_ACCOUNT_TOKEN_KEY, token: delta.newState });
   });
 }
 

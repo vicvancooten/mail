@@ -1,4 +1,4 @@
-import type { ProviderHealth } from "@mail/shared";
+import type { ProviderFacetHealth, ProviderHealth } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as providersApi from "../api/providers.js";
@@ -10,16 +10,30 @@ vi.mock("../api/providers.js", () => ({
   deleteProviderRegistration: vi.fn(),
 }));
 
+/** #205: `ProviderHealth.facets` always carries all three, mail/calendar/contacts, in order. */
+function emptyFacets(): ProviderFacetHealth[] {
+  return (["mail", "calendar", "contacts"] as const).map((facet) => ({
+    facet,
+    everGranted: false,
+    connectedAccountCount: 0,
+    parkedCount: 0,
+    lastRefreshAt: null,
+    lastRefreshError: null,
+    apiNotEnabled: false,
+  }));
+}
+
 function health(overrides: Partial<ProviderHealth> = {}): ProviderHealth {
   return {
     provider: "google",
     status: "not_registered",
     redirectUri: "https://mail.example.com/auth/oauth/google/callback",
     clientIdPreview: null,
-    mailAccountCount: 0,
-    needsReauthCount: 0,
     lastRefreshAt: null,
     lastRefreshError: null,
+    calendarApiEnabled: false,
+    contactsApiEnabled: false,
+    facets: emptyFacets(),
     ...overrides,
   };
 }
@@ -57,6 +71,8 @@ describe("ProviderRegistrationCard", () => {
       expect(providersApi.saveProviderRegistration).toHaveBeenCalledWith("google", {
         clientId: "abc.apps.googleusercontent.com",
         clientSecret: "shh",
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
       }),
     );
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -128,8 +144,9 @@ describe("ProviderRegistrationCard", () => {
         health={health({
           status: "registered_untested",
           clientIdPreview: "abc-client-id",
-          mailAccountCount: 3,
-          needsReauthCount: 1,
+          facets: emptyFacets().map((facet) =>
+            facet.facet === "mail" ? { ...facet, connectedAccountCount: 3, parkedCount: 1 } : facet,
+          ),
         })}
         isSecureContext
         onChanged={vi.fn()}

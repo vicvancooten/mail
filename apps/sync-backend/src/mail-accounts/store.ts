@@ -1,17 +1,68 @@
-import type { MailAccount, MailAccountConnection } from "@mail/shared";
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import type { MailAccount, MailAccountConnection, Provider } from "@mail/shared";
+import { and, eq, getTableColumns, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import type { ConnectedAccountCredential } from "../connected-accounts/credential-crypto.js";
+import {
+  markConnectedAccountFacetNeedsReauth,
+  markConnectedAccountNeedsReauth,
+  reactivateConnectedAccount,
+} from "../connected-accounts/store.js";
 import type { Db, Tx } from "../db/client.js";
-import { mailAccounts } from "../db/schema.js";
-import type { MailAccountCredential } from "./credential-crypto.js";
+import { connectedAccountFacets, connectedAccounts, mailAccounts } from "../db/schema.js";
 import type { DetectedMailAccountServerKind, MailAccountServerKind } from "./server-kind.js";
 
-export type MailAccountRow = typeof mailAccounts.$inferSelect;
+/**
+ * The Mail Facet, joined back to its owning Connected Account's `credential`
+ * and its own Facet-level `status` (#199, ADR-0022): the shape every
+ * pre-#199 caller of this module already expects, kept stable across the
+ * credential's move up a level rather than pushed out to every consumer.
+ * `connectedAccountId` is new — the AAD a caller now unseals `credential`
+ * under, and the id every write path below actually updates.
+ */
+export type MailAccountRow = typeof mailAccounts.$inferSelect & {
+  credential: ConnectedAccountCredential;
+  status: "active" | "needs_reauth";
+};
+
+/** Every physical `mail_accounts` column, reused by every joined query below so a new column never has to be re-listed by hand. */
+const mailAccountColumns = getTableColumns(mailAccounts);
 
 /**
- * The wire-safe half of `MailAccountCredential.kind` (#119): which door
+ * The one join every read in this module shares: a Mail Account's own row,
+ * its parent Connected Account's `credential`, and its own Mail Facet row's
+ * `status` — the projection ADR-0022 asks for ("`status` projected from the
+ * Mail Facet's row"). `inner` on both: a Mail Account's `connectedAccountId`
+ * is `NOT NULL UNIQUE` and its Mail Facet is created in the same transaction
+ * as the Mail Account itself (`insertMailAccount` below), so neither join
+ * ever misses.
+ *
+ * Exported so a caller needing its own filter/order/paging on top of the
+ * same row shape (`sync/collection-sync.ts#syncMailAccountCollection`, the
+ * User-scoped delta page) extends this query rather than re-deriving the
+ * join.
+ */
+export function mailAccountRowsQuery(db: Db | Tx) {
+  return db
+    .select({
+      ...mailAccountColumns,
+      credential: connectedAccounts.credential,
+      status: connectedAccountFacets.status,
+    })
+    .from(mailAccounts)
+    .innerJoin(connectedAccounts, eq(mailAccounts.connectedAccountId, connectedAccounts.id))
+    .innerJoin(
+      connectedAccountFacets,
+      and(
+        eq(connectedAccountFacets.connectedAccountId, connectedAccounts.id),
+        eq(connectedAccountFacets.kind, "mail"),
+      ),
+    );
+}
+
+/**
+ * The wire-safe half of `ConnectedAccountCredential.kind` (#119): which door
  * re-authentication goes through, never the credential itself.
  */
-function toWireAuthKind(credential: MailAccountCredential): MailAccount["authKind"] {
+function toWireAuthKind(credential: ConnectedAccountCredential): MailAccount["authKind"] {
   return credential.kind === "oauth"
     ? { kind: "oauth", provider: credential.provider }
     : { kind: "password" };
@@ -21,6 +72,9 @@ function toWireAuthKind(credential: MailAccountCredential): MailAccount["authKin
 export function toWireMailAccount(row: MailAccountRow): MailAccount {
   return {
     id: row.id,
+    // #200: the join a Client makes onto `ConnectedAccount` for its
+    // `identity`/`provider`/`facets` — every other field here is unchanged.
+    connectedAccountId: row.connectedAccountId,
     emailAddress: row.emailAddress,
     imap: { host: row.imapHost, port: row.imapPort, security: row.imapSecurity },
     smtp: { host: row.smtpHost, port: row.smtpPort, security: row.smtpSecurity },
@@ -48,47 +102,76 @@ export function toWireMailAccount(row: MailAccountRow): MailAccount {
 
 export interface InsertMailAccountInput {
   id: string;
+  /** The new parent Connected Account's id (#199, ADR-0022) — minted by the caller, since it's also the AAD the credential was sealed under. */
+  connectedAccountId: string;
   userId: string;
+  /** The glossary's four-value Provider this Connected Account is at — derived by the caller from how the credential was obtained (password ⇒ Other IMAP, a Grant ⇒ its own Provider). */
+  provider: Provider;
   emailAddress: string;
   imap: MailAccountConnection;
   smtp: MailAccountConnection;
   username: string;
-  credential: MailAccountCredential;
-  /** Detected by `mail-accounts/verify.ts` in the same live check that authorized this insert (#121). */
-  serverKind: DetectedMailAccountServerKind;
+  /** Sealed under `connectedAccountId`, not `id` — the Connected Account owns the credential now. */
+  credential: ConnectedAccountCredential;
+  /** Detected by `mail-accounts/verify.ts` in the same live check that authorized this insert (#121) — `null` only ever models a pre-#121 row in a test. */
+  serverKind: DetectedMailAccountServerKind | null;
 }
 
+/**
+ * Creates a Connected Account, its one Mail Facet, and the Mail Account
+ * itself, atomically (#199, ADR-0022) — every existing caller (add a Mail
+ * Account by password, sign in with a Provider) is adding a brand-new
+ * identity today, so every one of these three rows is new every time this is
+ * called; there is no "attach a Mail Facet to an existing Connected Account"
+ * path yet (that's turning on a Facet, #202, for Google/Microsoft already
+ * connected for Calendar or Contacts first).
+ */
 export async function insertMailAccount(
   db: Db,
   input: InsertMailAccountInput,
 ): Promise<MailAccountRow> {
-  const [row] = await db
-    .insert(mailAccounts)
-    .values({
-      id: input.id,
+  return db.transaction(async (tx) => {
+    await tx.insert(connectedAccounts).values({
+      id: input.connectedAccountId,
       userId: input.userId,
-      emailAddress: input.emailAddress,
-      imapHost: input.imap.host,
-      imapPort: input.imap.port,
-      imapSecurity: input.imap.security,
-      smtpHost: input.smtp.host,
-      smtpPort: input.smtp.port,
-      smtpSecurity: input.smtp.security,
-      username: input.username,
+      provider: input.provider,
+      identity: input.emailAddress,
       credential: input.credential,
-      serverKind: input.serverKind,
       status: "active",
-    })
-    .returning();
-  if (!row) {
-    throw new Error("Insert of Mail Account returned no row.");
-  }
-  return row;
+    });
+    await tx.insert(connectedAccountFacets).values({
+      id: `${input.connectedAccountId}-mail`,
+      connectedAccountId: input.connectedAccountId,
+      kind: "mail",
+      status: "active",
+    });
+    const [row] = await tx
+      .insert(mailAccounts)
+      .values({
+        id: input.id,
+        userId: input.userId,
+        connectedAccountId: input.connectedAccountId,
+        emailAddress: input.emailAddress,
+        imapHost: input.imap.host,
+        imapPort: input.imap.port,
+        imapSecurity: input.imap.security,
+        smtpHost: input.smtp.host,
+        smtpPort: input.smtp.port,
+        smtpSecurity: input.smtp.security,
+        username: input.username,
+        serverKind: input.serverKind,
+      })
+      .returning();
+    if (!row) {
+      throw new Error("Insert of Mail Account returned no row.");
+    }
+    return { ...row, credential: input.credential, status: "active" as const };
+  });
 }
 
 /** Scoped by User — ownership is the only authorization primitive (ADR-0004). */
 export async function listMailAccountsForUser(db: Db, userId: string): Promise<MailAccountRow[]> {
-  return db.select().from(mailAccounts).where(eq(mailAccounts.userId, userId));
+  return mailAccountRowsQuery(db).where(eq(mailAccounts.userId, userId));
 }
 
 export async function getMailAccountForUser(
@@ -96,11 +179,9 @@ export async function getMailAccountForUser(
   userId: string,
   id: string,
 ): Promise<MailAccountRow | null> {
-  const [row] = await db
-    .select()
-    .from(mailAccounts)
-    .where(and(eq(mailAccounts.id, id), eq(mailAccounts.userId, userId)))
-    .limit(1);
+  const [row] = await mailAccountRowsQuery(db).where(
+    and(eq(mailAccounts.id, id), eq(mailAccounts.userId, userId)),
+  );
   return row ?? null;
 }
 
@@ -116,11 +197,9 @@ export async function getMailAccountForUserByAddress(
   userId: string,
   emailAddress: string,
 ): Promise<MailAccountRow | null> {
-  const [row] = await db
-    .select()
-    .from(mailAccounts)
-    .where(and(eq(mailAccounts.userId, userId), eq(mailAccounts.emailAddress, emailAddress)))
-    .limit(1);
+  const [row] = await mailAccountRowsQuery(db).where(
+    and(eq(mailAccounts.userId, userId), eq(mailAccounts.emailAddress, emailAddress)),
+  );
   return row ?? null;
 }
 
@@ -137,10 +216,9 @@ export async function getMailAccountsForUser(
   ids: string[],
 ): Promise<MailAccountRow[]> {
   if (ids.length === 0) return [];
-  return db
-    .select()
-    .from(mailAccounts)
-    .where(and(eq(mailAccounts.userId, userId), inArray(mailAccounts.id, ids)));
+  return mailAccountRowsQuery(db).where(
+    and(eq(mailAccounts.userId, userId), inArray(mailAccounts.id, ids)),
+  );
 }
 
 /**
@@ -149,24 +227,15 @@ export async function getMailAccountsForUser(
  * every reconnect rather than whatever was in memory when the loop started.
  */
 export async function getMailAccountById(db: Db, id: string): Promise<MailAccountRow | null> {
-  const [row] = await db.select().from(mailAccounts).where(eq(mailAccounts.id, id)).limit(1);
+  const [row] = await mailAccountRowsQuery(db).where(eq(mailAccounts.id, id));
   return row ?? null;
 }
 
 /** Every Mail Account on the instance — what boot uses to start a sync loop per account (#35). */
 export async function listAllMailAccounts(db: Db): Promise<MailAccountRow[]> {
-  return db.select().from(mailAccounts);
+  return mailAccountRowsQuery(db);
 }
 
-/**
- * One Mail Account's `serverKind` alone, without the rest of the row — the
- * plain `select serverKind ... limit 1` that `sync/mutations.ts`,
- * `sync/protocol-writes.ts` and `sync/restore-to-inbox.ts` each hand-copied
- * (#124) before this was pulled out. Takes `Db | Tx` so a caller already
- * inside a transaction (`restore-to-inbox.ts`) reads the same, uncommitted
- * row rather than opening a second connection. `null` for an unknown id,
- * same as every other single-row lookup here.
- */
 /**
  * The User a Mail Account belongs to (ADR-0004: exactly one), `null` for an
  * id with no row. `sync/mutations.ts` resolves it once per flush because
@@ -215,23 +284,42 @@ export async function bumpThreadsEpoch(db: Db, id: string): Promise<void> {
 /**
  * The seam a sync engine (#9) calls when the mail server rejects the stored
  * credential: stops syncing and holds queued Optimistic Actions by parking
- * the account in Needs Reauth (CONTEXT.md).
+ * the Mail Facet in Needs Reauth (#199, ADR-0022) — `id` here is still the
+ * **Mail Account's** id, the same parameter every pre-#199 caller already
+ * passes.
  *
- * The `WHERE status != 'needs_reauth'` guard makes this an atomic
- * check-and-set: it returns the updated row only on a genuine transition
- * into Needs Reauth, `null` when the account was already there (a repeat
- * connection failure on an account that's already parked). This is #53's
- * Notifier hook — "notifies once on entry and not again until reauth
- * clears it" (ADR-0015) needs exactly this distinction, and every caller
- * passes the result straight to `notifier/record.ts#recordNeedsReauthNotification`.
+ * Needs Reauth's two levels (#204, ADR-0022) meet here: `scope` defaults to
+ * `"facet"` — a raw IMAP/SMTP rejection is "this Facet's own protocol
+ * answered 401", which stops only Mail, leaving a Calendar or Contacts
+ * Facet on the same Connected Account syncing. A `password` credential
+ * (Other IMAP) is escalated to `"account"` regardless of what the caller
+ * asked for: it has only ever had the one Facet, and ADR-0022's "a rejected
+ * password parks the account" is unconditional. Every oauth caller that
+ * knows the rejection is account-wide — a withdrawn Grant
+ * (`grant-refresh.ts`), a removed Provider Registration (`routes/instance.ts`)
+ * — passes `{ scope: "account" }` explicitly instead of relying on the
+ * default.
+ *
+ * Delegates to `connected-accounts/store.ts#markConnectedAccountFacetNeedsReauth`
+ * or `#markConnectedAccountNeedsReauth` depending on which level applies.
+ * Returns the updated `MailAccountRow` only on a genuine transition, `null`
+ * when the Facet (or account) was already parked — the distinction #53's
+ * Notifier hook needs ("notifies once on entry and not again until reauth
+ * clears it", ADR-0015).
  */
-export async function markNeedsReauth(db: Db, id: string): Promise<MailAccountRow | null> {
-  const [row] = await db
-    .update(mailAccounts)
-    .set({ status: "needs_reauth", updatedAt: new Date() })
-    .where(and(eq(mailAccounts.id, id), ne(mailAccounts.status, "needs_reauth")))
-    .returning();
-  return row ?? null;
+export async function markNeedsReauth(
+  db: Db,
+  id: string,
+  opts: { scope?: "account" | "facet" } = {},
+): Promise<MailAccountRow | null> {
+  const account = await getMailAccountById(db, id);
+  if (!account) return null;
+  const accountLevel = opts.scope === "account" || account.credential.kind === "password";
+  const transitioned = accountLevel
+    ? await markConnectedAccountNeedsReauth(db, account.connectedAccountId)
+    : await markConnectedAccountFacetNeedsReauth(db, account.connectedAccountId, "mail");
+  if (!transitioned) return null;
+  return { ...account, status: "needs_reauth" };
 }
 
 /**
@@ -287,40 +375,32 @@ export async function updateMailAccountNotificationsEnabled(
 
 /**
  * Re-entering credentials (CONTEXT.md's Needs Reauth flow) resumes: sets
- * `username`+`credential`, clears the status. Reauth re-verifies live
- * (`routes/mail-accounts.ts`), so it also carries the freshly detected
- * server kind (#121) — the same rule `updateMailAccountServerKind` applies
- * for a plain reconnect.
+ * `username`+`serverKind` on the Mail Account and reseals the fresh
+ * credential onto its Connected Account, resuming both it and every Facet it
+ * holds (#199, ADR-0022 — account-level Needs Reauth stopped all of them, so
+ * clearing it resumes all of them; delegates to
+ * `connected-accounts/store.ts#reactivateConnectedAccount`). Reauth
+ * re-verifies live (`routes/mail-accounts.ts`), so it also carries the
+ * freshly detected server kind (#121) — the same rule
+ * `updateMailAccountServerKind` applies for a plain reconnect.
  */
 export async function replaceMailAccountCredential(
   db: Db,
   id: string,
+  connectedAccountId: string,
   username: string,
-  credential: MailAccountCredential,
+  credential: ConnectedAccountCredential,
   serverKind: DetectedMailAccountServerKind,
 ): Promise<void> {
   await db
     .update(mailAccounts)
-    .set({ username, credential, serverKind, status: "active", updatedAt: new Date() })
+    .set({ username, serverKind, updatedAt: new Date() })
     .where(eq(mailAccounts.id, id));
-}
-
-/**
- * A Grant refresh's write path (#118, ADR-0021): reseals the fresh
- * access/refresh tokens onto an already-`active` Mail Account. Unlike
- * `replaceMailAccountCredential`, this never touches `status` or `username`
- * — a routine token refresh is not a reauth, and never changes who's signed
- * in.
- */
-export async function updateMailAccountGrant(
-  db: Db,
-  id: string,
-  credential: MailAccountCredential,
-): Promise<void> {
-  await db
-    .update(mailAccounts)
-    .set({ credential, updatedAt: new Date() })
-    .where(eq(mailAccounts.id, id));
+  // A reauth's own credential is authoritative for the Provider (ADR-0022:
+  // "the Other IMAP to Google switch survives") — a password stays Other
+  // IMAP, an oauth Grant names its own Provider, Google or Microsoft.
+  const provider = credential.kind === "oauth" ? credential.provider : "other_imap";
+  await reactivateConnectedAccount(db, connectedAccountId, provider, credential);
 }
 
 /**
@@ -330,12 +410,28 @@ export async function updateMailAccountGrant(
  * refreshing it would just be a wasted Provider round trip.
  */
 export async function listActiveOAuthMailAccounts(db: Db): Promise<MailAccountRow[]> {
-  return db
-    .select()
-    .from(mailAccounts)
-    .where(
-      and(eq(mailAccounts.status, "active"), sql`${mailAccounts.credential}->>'kind' = 'oauth'`),
-    );
+  return mailAccountRowsQuery(db).where(
+    and(
+      eq(connectedAccountFacets.status, "active"),
+      sql`${connectedAccounts.credential}->>'kind' = 'oauth'`,
+    ),
+  );
+}
+
+/**
+ * Every Mail Account whose Connected Account is at this Provider (#199,
+ * ADR-0022) — the delete-preview count and the delete transition's own
+ * target set for `routes/instance.ts`'s Provider Registration removal
+ * (ADR-0021: "first tells the Owner how many Mail Accounts will stop
+ * syncing"). The Provider moved off `mail_accounts` onto `connected_accounts`
+ * with the credential, so this reads it there rather than off a
+ * `mail_accounts.provider` column that no longer exists.
+ */
+export async function listMailAccountsForProvider(
+  db: Db,
+  provider: Provider,
+): Promise<MailAccountRow[]> {
+  return mailAccountRowsQuery(db).where(eq(connectedAccounts.provider, provider));
 }
 
 /**

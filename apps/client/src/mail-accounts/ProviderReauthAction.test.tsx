@@ -22,7 +22,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(oauthApi.fetchProviderAvailability).mockResolvedValue({
     providers: [
-      { provider: "google", available: true, unavailableReason: null },
+      {
+        provider: "google",
+        available: true,
+        unavailableReason: null,
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
+      },
       { provider: "microsoft", available: false, unavailableReason: "not_supported" },
     ],
   });

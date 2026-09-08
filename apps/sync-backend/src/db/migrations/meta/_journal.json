@@ -288,6 +288,48 @@
       "when": 1788881466703,
       "tag": "0040_tidy_the_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788886205716,
+      "tag": "0041_connected_accounts_and_facets_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788887532207,
+      "tag": "0042_connected_accounts_sync_rev",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788890582236,
+      "tag": "0043_facet_grant_and_provider_api_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788893281378,
+      "tag": "0044_provider_facet_health",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788894899417,
+      "tag": "0045_facet_scoped_needs_reauth_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788895738670,
+      "tag": "0046_rename_dave_username_to_dav_username",
+      "breakpoints": true
     }
   ]
 }

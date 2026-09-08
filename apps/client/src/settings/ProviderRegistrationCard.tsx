@@ -1,4 +1,4 @@
-import type { Provider, ProviderHealth, ProviderStatus } from "@mail/shared";
+import type { ProviderHealth, ProviderStatus, RegisteredProvider } from "@mail/shared";
 import { type FormEvent, useState } from "react";
 import {
   deleteProviderRegistration,
@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<ProviderStatus, string> = {
 };
 
 /** The in-app setup steps (ADR-0021's own summary of each Provider's console) — no live UI to link deeper into, since neither console is ours to drive. */
-const PROVIDER_STEPS: Record<Provider, { consoleName: string; steps: string[] }> = {
+const PROVIDER_STEPS: Record<RegisteredProvider, { consoleName: string; steps: string[] }> = {
   google: {
     consoleName: "Google Cloud console",
     steps: [
@@ -38,7 +38,7 @@ const PROVIDER_STEPS: Record<Provider, { consoleName: string; steps: string[] }>
 };
 
 /** #120: each Provider's card links to its own anchor in the walkthrough, not just the section top. */
-const INSTALLATION_DOCS_URL: Record<Provider, string> = {
+const INSTALLATION_DOCS_URL: Record<RegisteredProvider, string> = {
   google: "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#google",
   microsoft: "https://github.com/vicvancooten/mail/blob/main/docs/installation.md#microsoft",
 };
@@ -64,6 +64,14 @@ export function ProviderRegistrationCard({
   const [replacing, setReplacing] = useState(false);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  // #202, ADR-0022: the Owner's own unvalidated "the Calendar/Contacts API
+  // is enabled on my Registration" declaration — defaulted from what's
+  // already stored so replacing the client ID/secret doesn't silently reset
+  // a fact the Owner already confirmed, though the save itself always
+  // restates both explicitly (`provider-registrations/store.ts#upsertProviderRegistration`'s
+  // own doc comment).
+  const [calendarApiEnabled, setCalendarApiEnabled] = useState(health.calendarApiEnabled);
+  const [contactsApiEnabled, setContactsApiEnabled] = useState(health.contactsApiEnabled);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -75,13 +83,24 @@ export function ProviderRegistrationCard({
   const steps = PROVIDER_STEPS[provider];
   const registered = health.status !== "not_registered";
   const editing = !registered || replacing;
+  // #205: the flat Mail Account/Needs Reauth pair this card used to read
+  // straight off `health` now lives as the Mail Facet's own entry in
+  // `health.facets` — always present (`buildFacetHealth`'s own doc comment).
+  const mailFacet = health.facets.find((facet) => facet.facet === "mail");
+  const mailAccountCount = mailFacet?.connectedAccountCount ?? 0;
+  const needsReauthCount = mailFacet?.parkedCount ?? 0;
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await saveProviderRegistration(provider, { clientId, clientSecret });
+      await saveProviderRegistration(provider, {
+        clientId,
+        clientSecret,
+        calendarApiEnabled,
+        contactsApiEnabled,
+      });
       setReplacing(false);
       setClientId("");
       setClientSecret("");
@@ -151,8 +170,8 @@ export function ProviderRegistrationCard({
 
       {registered && (
         <p className="provider-counts">
-          {health.mailAccountCount} Mail Account{health.mailAccountCount === 1 ? "" : "s"}
-          {health.needsReauthCount > 0 && `, ${health.needsReauthCount} Needs Reauth`}
+          {mailAccountCount} Mail Account{mailAccountCount === 1 ? "" : "s"}
+          {needsReauthCount > 0 && `, ${needsReauthCount} Needs Reauth`}
         </p>
       )}
 
@@ -191,6 +210,27 @@ export function ProviderRegistrationCard({
             onChange={(event) => setClientSecret(event.target.value)}
             required
           />
+          <label>
+            <input
+              type="checkbox"
+              checked={calendarApiEnabled}
+              onChange={(event) => setCalendarApiEnabled(event.target.checked)}
+            />
+            Calendar API enabled on this Registration
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={contactsApiEnabled}
+              onChange={(event) => setContactsApiEnabled(event.target.checked)}
+            />
+            Contacts API enabled on this Registration
+          </label>
+          <p>
+            Check these once you've enabled {label}'s Calendar/Contacts API on your own project —
+            this instance can't tell on its own. Left unchecked, the Facet's "+" shows as
+            unavailable everywhere.
+          </p>
           <button type="submit" disabled={submitting}>
             Save
           </button>

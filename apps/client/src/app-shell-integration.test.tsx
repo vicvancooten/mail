@@ -8,6 +8,7 @@ import { resetUndoToastsForTest } from "./mail/undo-toast.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import {
+  applyConnectedAccountDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyNoteDelta,
@@ -16,6 +17,7 @@ import {
 import { resetSyncStatus } from "./sync/sync-loop.js";
 import {
   delta,
+  makeConnectedAccount,
   makeLabel,
   makeMailAccount,
   makeNote,
@@ -275,25 +277,44 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
   });
 
-  it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {
+  it("a needs-reauth notification click navigates to Connected Accounts and opens that Facet's Popover (#53, #201, #204)", async () => {
     const account = makeMailAccount("acct-1", { status: "needs_reauth" });
     await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected", {
+            facets: [{ kind: "mail", status: "needs_reauth" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch([account]);
 
     render(<App />);
     await screen.findByLabelText("Switch app");
-    expect(screen.queryByRole("heading", { name: "Mail Accounts", level: 2 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Connected Accounts", level: 2 })).toBeNull();
 
     act(() => {
-      publishNotificationTarget({ kind: "needs-reauth", mailAccountId: "acct-1" });
+      publishNotificationTarget({
+        kind: "needs-reauth",
+        connectedAccountId: "acct-1-connected",
+        facet: "mail",
+      });
     });
 
-    // Lands on `/settings/mail-accounts` directly (#99) — the one sub-route
-    // `MailAccountsSection`'s row, and so `scrollToMailAccountSettings`'s
-    // target, actually renders on.
-    expect(await screen.findByRole("heading", { name: "Mail Accounts", level: 2 })).toBeDefined();
-    expect(location.pathname).toBe("/settings/mail-accounts");
-    await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
+    // Lands on `/settings/connected-accounts` (#201, `/settings/mail-accounts`'s
+    // new address, via its own redirect route) with that Facet's own Badge
+    // already open — there's no longer one row per account to scroll to, so
+    // the deep link opens the Popover instead
+    // (`connected-accounts/account-focus.ts`, widened by #204 to a Connected
+    // Account id + Facet pair).
+    expect(
+      await screen.findByRole("heading", { name: "Connected Accounts", level: 2 }),
+    ).toBeDefined();
+    expect(location.pathname).toBe("/settings/connected-accounts");
+    await waitFor(() => expect(screen.getByLabelText("Username")).toBeDefined());
   });
 
   it("the placeholder Apps are real, reachable routes", async () => {
@@ -315,6 +336,19 @@ describe("the app shell over a routed tree (#71)", () => {
         created: [
           makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
           makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    // The picker's own rows come from the Connected Accounts collection now
+    // (#207), not `MailAccount` — a matching row per Mail Account, same
+    // `${id}-connected` join `mail-fixtures.ts#makeConnectedAccount`'s own
+    // doc comment describes.
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected"),
+          makeConnectedAccount("acct-2-connected"),
         ],
       }),
       { replace: false },

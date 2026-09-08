@@ -8,10 +8,11 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
-import { enqueueUserMutation, readNote, useMailAccounts } from "../store/index.js";
+import { enqueueUserMutation, readNote, useConnectedAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
+  applyConnectedAccountDelta,
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
@@ -21,6 +22,7 @@ import { setSessionUserId } from "../store/session.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
 import {
   delta,
+  makeConnectedAccount,
   makeGmailLabel,
   makeLabel,
   makeMailAccount,
@@ -115,6 +117,20 @@ async function seedCachedMail(): Promise<void> {
   );
 }
 
+/**
+ * The Connected Account each `makeMailAccount(id)` above joins to (#207,
+ * `mail-fixtures.ts#makeConnectedAccount`'s own doc comment on the shared
+ * `${id}-connected` default id) — every Account Scope test below needs a
+ * matching row here too, since `AccountScope.tsx` picks its rows from the
+ * Connected Accounts collection now, not `MailAccount`.
+ */
+async function seedConnectedAccountsFor(...mailAccountIds: string[]): Promise<void> {
+  await applyConnectedAccountDelta(
+    delta({ created: mailAccountIds.map((id) => makeConnectedAccount(`${id}-connected`)) }),
+    { replace: false },
+  );
+}
+
 /** Two Threads, newest first: "Newer thread" (unread) then "Older thread" (read) — #42's keyboard tests. */
 async function seedTwoThreads(): Promise<void> {
   await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
@@ -146,14 +162,24 @@ async function seedTwoThreads(): Promise<void> {
  * (`useAccountScope.ts`) `MailSection` itself reads, so these tests still
  * exercise the real production components (`AccountScope.tsx`,
  * `useAccountScope`) end to end rather than asserting on `MailSection`'s
- * internals directly. Renders nothing with 0-1 Mail Accounts
- * (`AccountScope.tsx`'s own guard), so every single-account test above is
- * unaffected.
+ * internals directly. Renders nothing with 0-1 Connected Accounts
+ * (`AccountScope.tsx`'s own guard) — a single-account test that seeds no
+ * Connected Account row at all reads as zero here, same result as one.
+ * `activeFacet="mail"` throughout — every test in this file is Mail's own
+ * suite, so this harness never needs to exercise the muted-row path a
+ * different App's Facet would trigger.
  */
 function AccountScopeHarness() {
-  const mailAccounts = useMailAccounts() ?? [];
-  const { scope, setScope } = useAccountScope(mailAccounts);
-  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(connectedAccounts);
+  return (
+    <AccountScope
+      accounts={connectedAccounts}
+      scope={scope}
+      activeFacet="mail"
+      onChange={setScope}
+    />
+  );
 }
 
 function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
@@ -334,6 +360,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     await applyThreadDelta(
       "acct-1",
       delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
@@ -371,6 +398,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     stubFetch(never);
 
     renderMail();
@@ -400,6 +428,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     await applyThreadDelta(
       "acct-1",
       delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
@@ -446,6 +475,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     await saveComposition(
       "comp-failed",
       "acct-2",
@@ -1243,6 +1273,7 @@ describe("Gmail labels (#126, ADR-0020)", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     const kidsId = gmailLabelId("acct-1", "Family/Kids");
     await applyThreadDelta(
       "acct-1",

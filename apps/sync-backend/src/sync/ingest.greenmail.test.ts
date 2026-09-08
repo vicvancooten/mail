@@ -1,9 +1,9 @@
 import { and, asc, eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { correspondents, folders, messages, threads } from "../db/schema.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import {
   getMailAccountForUser,
   type MailAccountRow,

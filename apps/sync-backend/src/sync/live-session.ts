@@ -1,6 +1,6 @@
 import type { ExistsEvent, ExpungeEvent, FlagsEvent, ImapFlow } from "imapflow";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { ProviderAdapters } from "../mail-accounts/provider-adapter.js";
 import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { getMailAccountById, type MailAccountRow, setSyncStatus } from "../mail-accounts/store.js";

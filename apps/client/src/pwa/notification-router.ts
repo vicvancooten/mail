@@ -1,3 +1,5 @@
+import type { ConnectedAccountFacetKind } from "@mail/shared";
+
 /**
  * Where a notification click lands, once it reaches an open window (#53,
  * ADR-0015). The service worker can only `postMessage` a focused/opened
@@ -14,7 +16,10 @@
 export type NotificationTarget =
   | { kind: "thread"; mailAccountId: string; threadId: string }
   | { kind: "failed-send"; mailAccountId: string; compositionId: string }
-  | { kind: "needs-reauth"; mailAccountId: string };
+  /** Widened by #204: `connectedAccountId`+`facet` name which Facet cell to
+   * open — every `needs_reauth` push carries both now, Mail Facet included,
+   * so this never needs `mailAccountId` to resolve a click. */
+  | { kind: "needs-reauth"; connectedAccountId: string; facet: ConnectedAccountFacetKind };
 
 const listeners = new Set<(target: NotificationTarget) => void>();
 

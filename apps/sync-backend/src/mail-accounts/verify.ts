@@ -16,7 +16,7 @@ export interface VerifyMailAccountInput {
    * route's plaintext body and a reauth's re-entered password; `{ kind:
    * "oauth", accessToken }` verifies a Grant — unseal it with
    * `credential-auth.ts#unsealMailAccountSecret` first, since a Grant only
-   * ever exists sealed (nothing here reads `MailAccountCredential` directly).
+   * ever exists sealed (nothing here reads `ConnectedAccountCredential` directly).
    */
   credential: MailAccountSecret;
 }

@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import {
   GRANT_REFRESH_SAFETY_MARGIN_MS,
   needsGrantRefresh,
