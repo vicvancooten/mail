@@ -15,6 +15,7 @@ import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { bulkTriageRoutes } from "./routes/bulk-triage.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
+import { connectedAccountRoutes } from "./routes/connected-accounts.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
 import { eventsRoutes } from "./routes/events.js";
 import { gatekeeperRoutes } from "./routes/gatekeeper.js";
@@ -153,6 +154,7 @@ export function buildApp({
     verify: mailAccountVerify,
     syncManager,
   });
+  app.register(connectedAccountRoutes, { db, mailCredentialKey, providerAdapters, syncManager });
   app.register(syncRoutes, { db });
   app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });

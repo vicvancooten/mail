@@ -354,7 +354,12 @@ describe("PATCH /mail-accounts/:id/signature (#47)", () => {
 
 describe("SyncManager wiring (#35)", () => {
   it("starts a session for a newly created Mail Account", async () => {
-    const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };
+    const syncManager: SyncManager = {
+      start: vi.fn(),
+      restart: vi.fn(),
+      stop: vi.fn(),
+      stopAll: vi.fn(),
+    };
     const app = buildTestApp({
       verify: async () => ({ ok: true, serverKind: "generic" }),
       syncManager,
@@ -375,7 +380,12 @@ describe("SyncManager wiring (#35)", () => {
   });
 
   it("restarts the session on a successful reauth", async () => {
-    const syncManager: SyncManager = { start: vi.fn(), restart: vi.fn(), stopAll: vi.fn() };
+    const syncManager: SyncManager = {
+      start: vi.fn(),
+      restart: vi.fn(),
+      stop: vi.fn(),
+      stopAll: vi.fn(),
+    };
     const app = buildTestApp({
       verify: async () => ({ ok: true, serverKind: "generic" }),
       syncManager,

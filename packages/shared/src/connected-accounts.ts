@@ -62,3 +62,32 @@ export const connectedAccountSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
+
+/**
+ * `GET /connected-accounts/:id/facets/:kind/removal-preview` (#206,
+ * ADR-0029: "the confirmation names what goes in counts"). `threadCount` is
+ * `0` for a Facet with no mirror yet — Calendar and Contacts collections
+ * don't exist in this app yet (#198's own scope note), so today only the
+ * Mail Facet ever carries a real count. `accountRemoved` names the "last
+ * Facet takes the account with it" branch ahead of the confirm click, so the
+ * dialog can word itself as a Facet turn-off or a whole-account removal
+ * before the User commits to either. `pendingSendBlockSeconds` is the Undo
+ * Send window's remaining seconds when a still-cancellable Pending Send
+ * would block removal right now — `null` when nothing blocks.
+ */
+export const connectedAccountFacetRemovalPreviewSchema = z.object({
+  threadCount: z.number().int().nonnegative(),
+  accountRemoved: z.boolean(),
+  pendingSendBlockSeconds: z.number().int().positive().nullable(),
+});
+export type ConnectedAccountFacetRemovalPreview = z.infer<
+  typeof connectedAccountFacetRemovalPreviewSchema
+>;
+
+/** `DELETE /connected-accounts/:id/facets/:kind`'s success answer (#206). */
+export const removeConnectedAccountFacetResponseSchema = z.object({
+  accountRemoved: z.boolean(),
+});
+export type RemoveConnectedAccountFacetResponse = z.infer<
+  typeof removeConnectedAccountFacetResponseSchema
+>;
