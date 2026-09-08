@@ -77,7 +77,10 @@ export async function discoverDavAccount(
 ): Promise<DavDiscoveryResult> {
   const auth = basicAuthHeader(input.username, input.password);
   const parsed = parseServerAddress(input.serverAddress);
-  const knownHost = KNOWN_HOSTS.find((candidate) => candidate.matchesDomain(parsed.domain));
+  const knownHost =
+    parsed.emailDomain !== null
+      ? KNOWN_HOSTS.find((candidate) => candidate.matchesDomain(parsed.emailDomain as string))
+      : undefined;
 
   if (knownHost) {
     return toResult(
@@ -104,19 +107,29 @@ interface ParsedServerAddress {
    */
   directUrl: string | null;
   domain: string;
+  /**
+   * The domain part of an entered *email address*, and only that — null
+   * whenever the User typed a host or URL directly, even though `domain`
+   * above is populated in that case too. #203's closing comment: the known-
+   * host table is matched off the entered value's email domain only, "never
+   * a bare host/URL the User already typed explicitly" — so this is the one
+   * field `discoverDavAccount` may check the known-host table against.
+   */
+  emailDomain: string | null;
 }
 
 function parseServerAddress(value: string): ParsedServerAddress {
   const trimmed = value.trim();
   if (trimmed.includes("://")) {
     const url = new URL(trimmed);
-    return { directUrl: url.toString(), domain: url.hostname };
+    return { directUrl: url.toString(), domain: url.hostname, emailDomain: null };
   }
   const atIndex = trimmed.lastIndexOf("@");
   if (atIndex !== -1) {
-    return { directUrl: null, domain: trimmed.slice(atIndex + 1) };
+    const domain = trimmed.slice(atIndex + 1);
+    return { directUrl: null, domain, emailDomain: domain };
   }
-  return { directUrl: `https://${trimmed}/`, domain: trimmed };
+  return { directUrl: `https://${trimmed}/`, domain: trimmed, emailDomain: null };
 }
 
 /**

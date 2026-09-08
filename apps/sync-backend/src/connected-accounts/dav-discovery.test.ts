@@ -285,6 +285,63 @@ describe("discoverDavAccount", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("never consults the known-host table for a typed iCloud host, even though it matches by domain", async () => {
+    // #203's closing comment: the known-host table is matched off the entered
+    // value's email domain only, "never a bare host/URL the User already
+    // typed explicitly." A typed URL under caldav.icloud.com must be tried
+    // as-is, not short-circuited to the known-host table's own hardcoded path.
+    const fetchImpl = stubFetch({
+      "https://caldav.icloud.com/some-path": () => ({ status: 207, body: principalBody("/p/") }),
+      "https://caldav.icloud.com/p/": () => ({ status: 207, body: calendarHomeSetBody("/hs/") }),
+      "https://caldav.icloud.com/hs/": () => ({ status: 207, body: collectionsBody([]) }),
+    });
+
+    const result = await discoverDavAccount(
+      {
+        serverAddress: "https://caldav.icloud.com/some-path",
+        username: "alice@icloud.com",
+        password: "app-specific",
+        facet: "calendar",
+      },
+      deps(fetchImpl),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://caldav.icloud.com/some-path",
+      expect.anything(),
+    );
+  });
+
+  it("never consults the known-host table for a typed Fastmail URL", async () => {
+    // The distinguishing path proves this hit the entered value directly
+    // rather than the known-host table's own hardcoded root URL.
+    const fetchImpl = stubFetch({
+      "https://caldav.fastmail.com/some-path": () => ({
+        status: 207,
+        body: principalBody("/p/"),
+      }),
+      "https://caldav.fastmail.com/p/": () => ({ status: 207, body: calendarHomeSetBody("/hs/") }),
+      "https://caldav.fastmail.com/hs/": () => ({ status: 207, body: collectionsBody([]) }),
+    });
+
+    const result = await discoverDavAccount(
+      {
+        serverAddress: "https://caldav.fastmail.com/some-path",
+        username: "alice@fastmail.com",
+        password: "app-specific",
+        facet: "calendar",
+      },
+      deps(fetchImpl),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://caldav.fastmail.com/some-path",
+      expect.anything(),
+    );
+  });
+
   it("detects RFC 6638 scheduling support for a calendar Facet", async () => {
     const fetchImpl = stubFetch({
       "https://example.com/": () => ({ status: 207, body: principalBody("/p/") }),
