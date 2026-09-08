@@ -8,6 +8,7 @@ import {
   makeGmailLabel,
   makeLabel,
   makeMailAccount,
+  makeNote,
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
@@ -15,6 +16,7 @@ import { pinThreadIntoCache } from "./cache-pins.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition, sendComposition } from "./compositions.js";
 import { listWindowKey } from "./db.js";
 import { localCache, openLocalCache } from "./local-cache.js";
+import { readNotes, saveNoteBody } from "./notes.js";
 import { readCorrespondents, readGmailLabels, readLabels, readThreadWindow } from "./reads.js";
 import {
   applyCompositionDelta,
@@ -22,6 +24,7 @@ import {
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
+  applyNoteDelta,
   applyThreadDelta,
   compositionTokenKey,
   correspondentTokenKey,
@@ -31,11 +34,13 @@ import {
   LABEL_TOKEN_KEY,
   listCachedMailAccountIds,
   MAIL_ACCOUNT_TOKEN_KEY,
+  NOTE_TOKEN_KEY,
   pruneOrphanedMailAccountData,
   THREAD_WINDOW_FLOOR,
   THREAD_WINDOW_HIGH_WATER,
   threadTokenKey,
 } from "./server-writes.js";
+import { setSessionUserId } from "./session.js";
 
 vi.mock("../pwa/close-stale-notifications.js", () => ({
   closeStaleThreadNotification: vi.fn(async () => {}),
@@ -55,10 +60,12 @@ beforeEach(async () => {
   const name = `server-writes-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  setSessionUserId(USER);
 });
 
 afterEach(async () => {
   localCache().close();
+  setSessionUserId(null);
   for (const name of names.splice(0)) await Dexie.delete(name);
 });
 
@@ -396,6 +403,141 @@ describe("applyLabelDelta (#43, User-scoped since #186)", () => {
     await applyLabelDelta(delta({ destroyed: ["l1"] }), { replace: false });
 
     expect(await readLabels()).toEqual([]);
+  });
+});
+
+/**
+ * `Note` (#192, ADR-0023): whole-replicated and User-scoped like `Label`,
+ * but — like `Composition` further down — the other delta with a merge
+ * rule, since the Client also writes this table itself through the
+ * `noteSaves` channel.
+ */
+describe("applyNoteDelta", () => {
+  it("stores Notes and advances the one User-scoped state token", async () => {
+    await applyNoteDelta(delta({ created: [makeNote("n1", USER)], newState: "note-state-1" }), {
+      replace: false,
+    });
+
+    expect((await readNotes()).map((note) => note.id)).toEqual(["n1"]);
+    expect(await getSyncToken(NOTE_TOKEN_KEY)).toBe("note-state-1");
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyNoteDelta(delta({ created: [makeNote("stale", USER)] }), { replace: false });
+
+    await applyNoteDelta(delta({ created: [makeNote("fresh", USER)], reset: true }), {
+      replace: true,
+    });
+
+    expect((await readNotes()).map((note) => note.id)).toEqual(["fresh"]);
+  });
+
+  it("removes destroyed Notes and anything still queued against them", async () => {
+    await saveNoteBody("n1", [
+      { id: "b1", type: "paragraph", props: {}, content: [], children: [] },
+    ]);
+
+    await applyNoteDelta(delta({ destroyed: ["n1"] }), { replace: false });
+
+    expect(await localCache().notes.get("n1")).toBeUndefined();
+    expect(await localCache().pendingNoteSaves.get("n1")).toBeUndefined();
+  });
+
+  it("adopts a Note wholesale when this Client has nothing queued for it", async () => {
+    await applyNoteDelta(
+      delta({
+        created: [
+          makeNote("n1", USER, {
+            document: [
+              {
+                id: "b1",
+                type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "from another device", styles: {} }],
+                children: [],
+              },
+            ],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const row = await localCache().notes.get("n1");
+    expect(row?.document[0]?.content).toEqual([
+      { type: "text", text: "from another device", styles: {} },
+    ]);
+  });
+
+  it("never overwrites a body edit this Client still has queued (ADR-0023's own last-write-wins is about the server, not this merge)", async () => {
+    await saveNoteBody("n1", [
+      {
+        id: "b1",
+        type: "paragraph",
+        props: {},
+        content: [{ type: "text", text: "typed here", styles: {} }],
+        children: [],
+      },
+    ]);
+
+    await applyNoteDelta(
+      delta({
+        updated: [
+          makeNote("n1", USER, {
+            document: [
+              {
+                id: "b1",
+                type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "the server's older copy", styles: {} }],
+                children: [],
+              },
+            ],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const row = await localCache().notes.get("n1");
+    expect(row?.document[0]?.content).toEqual([{ type: "text", text: "typed here", styles: {} }]);
+  });
+
+  it("adopts the server's content once the queued save has flushed", async () => {
+    await saveNoteBody("n1", [
+      {
+        id: "b1",
+        type: "paragraph",
+        props: {},
+        content: [{ type: "text", text: "local", styles: {} }],
+        children: [],
+      },
+    ]);
+    await localCache().pendingNoteSaves.delete("n1"); // flushed
+
+    await applyNoteDelta(
+      delta({
+        updated: [
+          makeNote("n1", USER, {
+            document: [
+              {
+                id: "b1",
+                type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "confirmed elsewhere", styles: {} }],
+                children: [],
+              },
+            ],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const row = await localCache().notes.get("n1");
+    expect(row?.document[0]?.content).toEqual([
+      { type: "text", text: "confirmed elsewhere", styles: {} },
+    ]);
   });
 });
 

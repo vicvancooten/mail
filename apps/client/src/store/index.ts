@@ -49,6 +49,7 @@ export {
   DEFAULT_VIEW,
   type ListWindow,
   type PendingMutation,
+  type PendingNoteSave,
   type PendingUserMutation,
   type ViewKey,
 } from "./db.js";
@@ -65,6 +66,21 @@ export {
   resolveMutationOutcomes,
   subscribeMutationRejections,
 } from "./mutation-queue.js";
+export {
+  createNote,
+  deleteNote,
+  labelNote,
+  listQueuedNoteSaves,
+  newNoteId,
+  readNote,
+  readNotes,
+  resolveNoteSaveOutcomes,
+  saveNoteBody,
+  toWireNoteSave,
+  unlabelNote,
+  useNote,
+  useNotes,
+} from "./notes.js";
 export {
   readCorrespondents,
   readGmailLabels,

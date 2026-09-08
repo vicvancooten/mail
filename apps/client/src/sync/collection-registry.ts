@@ -6,6 +6,7 @@ import {
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
+  applyNoteDelta,
   applyPreferenceDelta,
   applyThreadDelta,
   compositionTokenKey,
@@ -13,6 +14,7 @@ import {
   gmailLabelTokenKey,
   LABEL_TOKEN_KEY,
   MAIL_ACCOUNT_TOKEN_KEY,
+  NOTE_TOKEN_KEY,
   PREFERENCE_TOKEN_KEY,
   threadTokenKey,
 } from "../store/server-writes.js";
@@ -45,7 +47,8 @@ export type CollectionTable =
   | "labels"
   | "gmailLabels"
   | "compositions"
-  | "correspondents";
+  | "correspondents"
+  | "notes";
 
 type ApplyUserCollectionDelta = (
   delta: CollectionDelta<unknown>,
@@ -74,9 +77,9 @@ function asApplyMailAccountDelta<Payload>(
   return apply as ApplyMailAccountCollectionDelta;
 }
 
-/** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference`/`Label` keys. */
+/** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference`/`Label`/`Note` keys. */
 export interface UserCollectionEntry {
-  readonly wireKey: "MailAccount" | "Preference" | "Label";
+  readonly wireKey: "MailAccount" | "Preference" | "Label" | "Note";
   readonly table: CollectionTable;
   readonly tokenKey: string;
   readonly apply: ApplyUserCollectionDelta;
@@ -112,6 +115,15 @@ export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
     table: "labels",
     tokenKey: LABEL_TOKEN_KEY,
     apply: asApplyUserDelta(applyLabelDelta),
+  },
+  // `Note` (#192, ADR-0023): this registry's first genuinely new member
+  // rather than a migrated one — see `applyNoteDelta`'s own doc comment for
+  // the one place it differs from `Label`'s no-merge shape.
+  {
+    wireKey: "Note",
+    table: "notes",
+    tokenKey: NOTE_TOKEN_KEY,
+    apply: asApplyUserDelta(applyNoteDelta),
   },
 ];
 

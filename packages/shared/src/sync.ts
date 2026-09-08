@@ -7,6 +7,7 @@ import {
 } from "./compose.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema } from "./mail-accounts.js";
+import { noteSaveOutcomeSchema, noteSaveSchema, noteSchema } from "./notes.js";
 
 /**
  * The one delta endpoint (ADR-0011): `POST /sync` carries a map of
@@ -257,6 +258,10 @@ export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 export const gmailLabelDeltaSchema = collectionDeltaSchema(gmailLabelSchema);
 export type GmailLabelDelta = z.infer<typeof gmailLabelDeltaSchema>;
 
+/** `Note` (#192, ADR-0023): whole-replicated, User-scoped — see `notes.ts#noteSchema`'s own doc comment. */
+export const noteDeltaSchema = collectionDeltaSchema(noteSchema);
+export type NoteDelta = z.infer<typeof noteDeltaSchema>;
+
 /** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
 export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
 export type AutoAdvanceDirection = z.infer<typeof autoAdvanceDirectionSchema>;
@@ -323,6 +328,32 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * the same posture `setUndoSendDelay` takes on its own enum of seconds.
    */
   z.object({ type: z.literal("setHomeTimeZone"), homeTimeZone: z.string().min(1) }),
+  /**
+   * A Note's structural actions (#192, ADR-0023): ordinary Optimistic Action
+   * intents on the User-scoped queue, real inverses per ADR-0019, exactly
+   * like a Thread's `applyLabel`/`removeLabel` — the difference is only
+   * which queue they ride, since a Note has no Mail Account to scope to.
+   * Body edits are the different half (`notes.ts#noteSaveSchema`'s own doc
+   * comment); these four never touch a Note's `document`.
+   *
+   * `createNote`/`deleteNote` are a genuine inverse pair (ADR-0019, the same
+   * shape `discardComposition`/`undiscardComposition` already have): `noteId`
+   * is the Client-minted ULID (`notes.ts#noteSchema`'s own doc comment),
+   * already known before this intent is ever enqueued. `deleteNote` here is
+   * the **permanent** delete that undoes a still-queued or already-applied
+   * `createNote` — not the future soft-delete/Recently Deleted feature
+   * (#194), which arrives with its own intent in its own slice; this ticket
+   * only builds the queue path both will ride.
+   *
+   * `labelNote`/`unlabelNote` carry the Label's `name`, the same
+   * `applyLabel`/`removeLabel` shape — the id is deterministic
+   * (`labels.ts#labelId`) from `(userId, name)`, so both sides derive it
+   * independently rather than one minting it and handing it to the other.
+   */
+  z.object({ type: z.literal("createNote"), noteId: z.string() }),
+  z.object({ type: z.literal("deleteNote"), noteId: z.string() }),
+  z.object({ type: z.literal("labelNote"), noteId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("unlabelNote"), noteId: z.string(), name: z.string() }),
 ]);
 export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
 
@@ -407,8 +438,19 @@ export const userSyncRequestSchema = z.object({
   Preference: requestedTokenSchema.optional(),
   /** `Label` (#186): User-scoped, one set spanning every Mail Account. */
   Label: requestedTokenSchema.optional(),
+  /** `Note` (#192, ADR-0023): whole-replicated, User-scoped. */
+  Note: requestedTokenSchema.optional(),
   /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
   mutations: z.array(queuedUserMutationSchema).optional(),
+  /**
+   * Note body autosaves to flush (#192, ADR-0023, `notes.ts#noteSaveSchema`)
+   * — a *separate* array from `mutations` above, not a `UserMutationIntent`
+   * variant, because it coalesces (last-write-wins per Note) rather than
+   * draining FIFO. `composeSaves`'s User-scoped sibling: at most one entry
+   * per Note per round, since `store/notes.ts`'s coalescing queue holds only
+   * the latest save.
+   */
+  noteSaves: z.array(noteSaveSchema).optional(),
 });
 export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
 
@@ -650,8 +692,11 @@ export const userSyncResponseSchema = z.object({
   MailAccount: mailAccountDeltaSchema.optional(),
   Preference: preferenceDeltaSchema.optional(),
   Label: labelDeltaSchema.optional(),
+  Note: noteDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
+  /** Outcomes in the same order as the request's `noteSaves` array. */
+  noteSaves: z.array(noteSaveOutcomeSchema).optional(),
   /**
    * The app-icon badge (#53, ADR-0015): unread Inbox threads across every
    * Mail Account, Gatekeeper-held mail never counted. The real server always

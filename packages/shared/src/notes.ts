@@ -223,3 +223,63 @@ export const EMPTY_NOTE_DOCUMENT: NoteDocument = [
     children: [],
   },
 ];
+
+/**
+ * `Note` (#192, ADR-0023): the whole-replicated, User-scoped collection a
+ * Note rides. `id` is a **client-generated ULID** (`store/notes.ts#newNoteId`),
+ * minted before any server round trip — the same "offline-derivable id"
+ * reasoning `Composition`'s own id already uses — so `/notes/:noteId` and a
+ * Command Palette hit resolve on a Note that has never synced. `labelIds`
+ * mirrors `Thread.labelIds` (`Label` is User-scoped since #186, which is
+ * exactly the precondition that lets a Note carry the same Labels mail
+ * does). There is no `version`: unlike `Composition`, a Note's body never
+ * rejects a write (see `noteSaveSchema` below), so there is nothing here for
+ * a Client to have read stale.
+ */
+export const noteSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  document: noteDocumentSchema,
+  labelIds: z.array(z.string()),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Note = z.infer<typeof noteSchema>;
+
+/**
+ * One body save of a Note, as it rides the `noteSaves` channel (#192,
+ * ADR-0023) — `composeSaveSchema`'s sibling, deliberately simpler. Like
+ * `composeSaveSchema` this is **not** a `UserMutationIntent`: it coalesces
+ * (last-write-wins per Note) rather than draining FIFO, so it rides its own
+ * `noteSaves` array alongside `mutations` rather than joining that union.
+ *
+ * `id` is the Note's own id; `saveId` is a fresh ULID minted per save
+ * attempt, the idempotency key a retried `POST /sync` replays against. There
+ * is deliberately **no `version`**: ADR-0023 is explicit that the Sync
+ * Backend "takes the latest by receipt and never rejects a Note write" — no
+ * etag, no conflict, no rollback. Two devices editing one Note offline both
+ * flush without error; whichever save reaches the Sync Backend last wins,
+ * silently. A real merge waits for multiplayer (ADR-0024, out of scope).
+ */
+export const noteSaveSchema = z.object({
+  id: z.string(),
+  saveId: z.string(),
+  document: noteDocumentSchema,
+});
+export type NoteSave = z.infer<typeof noteSaveSchema>;
+
+/**
+ * One save's outcome — always `applied`. Unlike `composeSaveOutcomeSchema`
+ * there is no `conflict`/`rejected` branch to model: that is the entire
+ * point of the channel (ADR-0023's "never rejects a Note write"). Carried as
+ * a real outcome object anyway, rather than nothing at all, so the Client's
+ * `saveId`-matched dequeue (`resolveNoteSaveOutcomes`, mirroring
+ * `resolveComposeSaveOutcomes`) has the same shape to key off regardless of
+ * which channel it is draining.
+ */
+export const noteSaveOutcomeSchema = z.object({
+  id: z.string(),
+  saveId: z.string(),
+  status: z.literal("applied"),
+});
+export type NoteSaveOutcome = z.infer<typeof noteSaveOutcomeSchema>;

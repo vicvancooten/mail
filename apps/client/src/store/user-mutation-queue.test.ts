@@ -21,6 +21,13 @@ vi.mock("../sync/sync-loop.js", () => ({
   requestSyncNow: () => requestSyncNow(),
 }));
 
+/** `expect(x).toBeDefined()` narrows in an `if`, not through the assertion itself — this does both in one line. */
+function defined<T>(value: T | undefined | null): T {
+  expect(value).toBeDefined();
+  expect(value).not.toBeNull();
+  return value as T;
+}
+
 let counter = 0;
 const names: string[] = [];
 
@@ -101,15 +108,12 @@ describe("enqueueUserMutation", () => {
 
 describe("resolveUserMutationOutcomes", () => {
   it("dequeues both applied and rejected outcomes", async () => {
-    const advanceId = await enqueueUserMutation({
-      type: "setAutoAdvance",
-      enabled: false,
-      direction: "newer",
-    });
-    const delayId = await enqueueUserMutation({
-      type: "setUndoSendDelay",
-      undoSendDelaySeconds: 0,
-    });
+    const advanceId = defined(
+      await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" }),
+    );
+    const delayId = defined(
+      await enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds: 0 }),
+    );
 
     await resolveUserMutationOutcomes([
       { id: advanceId, status: "applied" },

@@ -1,6 +1,7 @@
 import type {
   ComposeSave,
   MailAccount,
+  NoteSave,
   QueuedMutation,
   QueuedUserMutation,
   SyncRequest,
@@ -16,6 +17,7 @@ import {
 } from "../store/compositions.js";
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
+import { listQueuedNoteSaves, resolveNoteSaveOutcomes, toWireNoteSave } from "../store/notes.js";
 import {
   getSyncToken,
   listCachedMailAccountIds,
@@ -97,6 +99,7 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       await applyMutationOutcomes(request, response);
       await applyComposeSaveOutcomes(request, response);
       await applyUserMutationOutcomes(request, response);
+      await applyNoteSaveOutcomes(request, response);
     }
 
     let hasMore = false;
@@ -151,7 +154,8 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
   const request = await buildSyncRequest({ includeCollections: false, includeMutations: true });
   if (
     Object.keys(request.mailAccounts ?? {}).length === 0 &&
-    (request.user?.mutations?.length ?? 0) === 0
+    (request.user?.mutations?.length ?? 0) === 0 &&
+    (request.user?.noteSaves?.length ?? 0) === 0
   ) {
     return 0;
   }
@@ -160,6 +164,7 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
   await applyMutationOutcomes(request, response);
   await applyComposeSaveOutcomes(request, response);
   await applyUserMutationOutcomes(request, response);
+  await applyNoteSaveOutcomes(request, response);
   return 1;
 }
 
@@ -201,6 +206,15 @@ async function applyUserMutationOutcomes(
   const outcomes = response.user.mutations;
   if (!outcomes || outcomes.length === 0) return;
   await resolveUserMutationOutcomes(outcomes);
+}
+
+/** Same shape as `applyUserMutationOutcomes`, for the `noteSaves` channel (#192, ADR-0023). */
+async function applyNoteSaveOutcomes(request: SyncRequest, response: SyncResponse): Promise<void> {
+  const queued = request.user?.noteSaves;
+  if (!queued || queued.length === 0) return;
+  const outcomes = response.user.noteSaves;
+  if (!outcomes || outcomes.length === 0) return;
+  await resolveNoteSaveOutcomes(queued, outcomes);
 }
 
 /** Same shape as `applyMutationOutcomes`, for Composition autosaves (ADR-0014, #45). */
@@ -276,6 +290,8 @@ async function buildSyncRequest({
   if (includeMutations) {
     const userMutations = await userMutationsToFlush();
     if (userMutations.length > 0) user.mutations = userMutations;
+    const noteSaves = await noteSavesToFlush();
+    if (noteSaves.length > 0) user.noteSaves = noteSaves;
   }
 
   return {
@@ -292,6 +308,12 @@ async function buildSyncRequest({
 async function userMutationsToFlush(): Promise<QueuedUserMutation[]> {
   const queued = await listQueuedUserMutations();
   return queued.map((mutation) => ({ id: mutation.id, intent: mutation.intent }));
+}
+
+/** The `noteSaves` channel's own flush (#192, ADR-0023): no Needs Reauth to gate on, same reason `userMutationsToFlush` has none — a Note is never about a Mail Account. */
+async function noteSavesToFlush(): Promise<NoteSave[]> {
+  const queued = await listQueuedNoteSaves();
+  return queued.map((save) => toWireNoteSave(save));
 }
 
 /**

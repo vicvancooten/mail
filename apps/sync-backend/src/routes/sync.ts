@@ -15,6 +15,7 @@ import {
 } from "../sync/collection-registry.js";
 import { flushComposeSaves } from "../sync/compose-store.js";
 import { flushMutations, flushUserMutations } from "../sync/mutations.js";
+import { flushNoteSaves } from "../sync/note-store.js";
 
 export interface SyncRoutesOptions {
   db: Db;
@@ -65,6 +66,16 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     const { user, mailAccounts: requestedMailAccounts } = body.data;
 
     const userResult: SyncResponse["user"] = {};
+    // `noteSaves` (#192, ADR-0023) flush before `mutations`, the same
+    // relative order `composeSaves` keeps ahead of a Mail Account's own
+    // `mutations` below — see that comment further down for why the order is
+    // load-bearing there. It is not load-bearing here (no Note intent reads
+    // `document`), but keeping the two channels in the same relative
+    // position is one less thing to remember.
+    const noteSaves = user?.noteSaves ?? [];
+    const noteSaveResults = noteSaves.length > 0 ? await flushNoteSaves(db, userId, noteSaves) : [];
+    if (noteSaveResults.length > 0) userResult.noteSaves = noteSaveResults;
+
     // #54's User-scoped `Preference` mutations flush before its collection
     // delta is computed, same ordering reason as a Mail Account's own
     // `mutations`-before-`Thread` below: the very same round trip's delta
