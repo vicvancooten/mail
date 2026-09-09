@@ -5,12 +5,27 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * Coalesced Undo toasts for the ordinary Triage/Screener/Compose actions
  * (#95, ADR-0019, CONTEXT.md's own Undo entry: "actions taken in quick
  * succession share one toast and one Undo"). `useTriage.ts`'s `archive`/
- * `trash`/`snooze`, `screener/Screener.tsx`'s Deny/Block decisions, and
+ * `trash`/`snooze`/`spamSender`/`blockSender`/`approveSender`,
+ * `screener/Screener.tsx`'s Deny/Block/Spam decisions, and
  * `compose/Composer.tsx`'s explicit Discard (#101) each call
  * `announceUndoableAction` right after enqueueing the forward Optimistic
- * Action — Approve/Star/Pin/Read/Label never do, matching #95's own list of
- * what's undoable, and neither does a Draft that discards silently on close
- * with no content (`Composer.tsx`'s own doc comment).
+ * Action — Star/Pin/Read/Label never do, matching #95's own list of what's
+ * undoable, and neither does a Draft that discards silently on close with no
+ * content (`Composer.tsx`'s own doc comment). The Screener's own Approve is
+ * the one exception left standing: releasing a stranger's mail there needs
+ * no second thoughts the way trashing it does (CONTEXT.md's Undo entry
+ * doesn't list it) — but `useTriage.ts`'s own Approve, reached from an Inbox
+ * Thread the User is already looking at (#144), is exactly the kind of
+ * second thought Undo exists for, so it announces too.
+ *
+ * `spam`, `block` and `approve` are three of their own kinds, not folded
+ * together (#108, resolved here): a coalesced toast has to say which of the
+ * three actually happened, the whole point of #144's "each announces itself
+ * by name". Before this, `screener/Screener.tsx`'s own Spam decision
+ * deliberately reused the `"block"` bucket rather than add a fourth kind —
+ * see this module's git history for that reasoning — which is exactly the
+ * coalescing bug #108 named; splitting it out here fixes the Screener's own
+ * toast too, not only the new Inbox Thread surfaces.
  *
  * Pressing `e` eight times fast raises one toast, "8 done · Undo", not
  * eight — every call within `BULK_TRIAGE_UNDO_WINDOW_SECONDS` of the last
@@ -40,6 +55,8 @@ export type UndoableActionKind =
   | "trash"
   | "snooze"
   | "block"
+  | "spam"
+  | "approve"
   | "deny"
   | "discard"
   | "noteDelete"
@@ -53,6 +70,13 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   trash: { one: "Moved to trash", many: (count) => `${count} moved to trash` },
   snooze: { one: "Snoozed", many: (count) => `${count} snoozed` },
   block: { one: "Blocked", many: (count) => `${count} blocked` },
+  // Spam (#102, #144) — its own kind since #108: coalescing it under
+  // `"block"` is exactly the bug that ticket named.
+  spam: { one: "Spam", many: (count) => `${count} marked as Spam` },
+  // Approve (#144) — only `useTriage.ts`'s Inbox Thread Approve ever
+  // announces this; the Screener's own Approve stays silent (this module's
+  // own doc comment).
+  approve: { one: "Approved", many: (count) => `${count} approved` },
   // Matches `Screener.tsx`'s own "Returned" verdict label for Deny.
   deny: { one: "Returned", many: (count) => `${count} returned` },
   // Discard (#101) — `Composer.tsx`'s own explicit Discard button.

@@ -1,5 +1,5 @@
 {
-  "id": "77736999-b2ba-4e7b-b083-0f6df40cb14b",
+  "id": "8b5d8e36-87c0-403b-9182-924442745a9f",
   "prevId": "fcfc79de-1664-4c71-8939-dc680e1eba4a",
   "version": "7",
   "dialect": "postgresql",
@@ -1530,6 +1530,12 @@
         "gatekeeper_cutoff": {
           "name": "gatekeeper_cutoff",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -3420,13 +3426,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'older'"
-        },
-        "home_time_zone": {
-          "name": "home_time_zone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
         },
         "created_at": {
           "name": "created_at",

@@ -84,6 +84,7 @@ spacing:
   header-height-phone: "54px"
   header-pad-x: "20px"
   gutter: "16px"
+  bottom-bar-height: "58px"
 motion:
   dur-press: "120ms"
   dur-fast: "190ms"
@@ -312,10 +313,12 @@ carries a small "SOON" caption rather than being disabled or hidden. On desktop,
 header runs out of room for five full names the row goes icon-only — a width measurement
 (`AppSwitcher.tsx`'s own `ResizeObserver`), not a fixed breakpoint, since what fits depends
 on the rest of the header's own content, not just viewport width; the SOON caption shrinks
-to a small dot alongside its icon rather than disappearing. Below 700px there's no header
-width left for the row at all, so the toggle opens a real bottom `Sheet` instead
-(`SwitcherPhoneSheet`) — full names always, since a sheet has the vertical room a 60px
-header never does.
+to a small dot alongside its icon rather than disappearing. This is the desktop shape only
+as of #155 — the header's own instance of the switcher (and the Home mark beside it) drops
+out of the tree entirely below 768px (`AppSwitcher.tsx`'s own `useIsMobile`,
+`RootLayout.tsx`'s `isPhoneChrome`); see the phone bottom bar below, where the same toggle
+opens a real bottom `Sheet` (`PhoneSwitcher`) listing all five Apps by full name — a sheet
+has the vertical room a 60px header never does.
 
 **Account Scope is a per-App question (#187).** `apps.ts#AppDef.observesAccountScope` — true
 for Mail, Calendar and Contacts (each reads a Mail Account's data), false for Tasks and Notes
@@ -328,7 +331,44 @@ App that does.
 (`minmax(0,1fr) auto minmax(0,1fr)`) — Home mark + App Switcher on the left, one centered
 search *entry* (a button that raises the Command Palette, not a text field) in the middle,
 Account Scope + appearance toggle + avatar menu on the right — so the search field centers
-on the *viewport*, not on whatever space is left beside the switcher.
+on the *viewport*, not on whatever space is left beside the switcher. On phone (#155) this
+drops to just the search entry and Account Scope in the centre/right — see below.
+
+**The phone bottom bar (signature, #155).** Rescinds this system's earlier "no bottom tab
+bar" stance for phone specifically — desktop keeps the header exactly as above; a phone
+gets a second, fixed chrome bar instead, `position: fixed` at the screen's bottom edge
+(`router/BottomBar.tsx`, `router/shell.css`'s `.bottom-bar`). Three items, the candidates
+the redesign brief named, all three kept: **Folders** (opens the same Sheet the desktop
+rail's entries live in — its own former in-body toggle button is gone; this is the one
+place that opens it now), the **App Switcher** (the same `PhoneSwitcher` component the old
+phone header used, in a `variant="bottom-bar"` skin: icon plus the current App's name as a
+caption, no chevron — a persistent tab item is never "expanded" the way the header's own
+disclosure toggle can read), and **Compose**. Ghost is still the default voice here — no
+filled accent pill, even for Compose; a solid disc that small reads as a bolted-on FAB, the
+phone-app cliché this system's own register rules out. Global chrome, mounted once beside
+the header regardless of route: Folders and Compose read whichever Mail-family surface is
+mounted (or navigate to Mail first when it isn't — Settings, a placeholder App), the exact
+`ActionContext` shape the Command Palette already reads.
+
+To make room for it, the phone header sheds four of its six elements: the Home mark, the
+header's own App Switcher instance, and the appearance toggle drop out of the tree
+entirely on phone (a real conditional — `RootLayout.tsx`'s `isPhoneChrome`, `AppSwitcher
+.tsx`'s own `useIsMobile` — never CSS-only visibility, since a hidden-but-mounted "Switch
+app" control is a duplicate accessible control, not a neutral simplification). Appearance
+folds into `AvatarMenu`'s own radio group, which already carried it. The phone header
+settles to two elements: the search entry and Account Scope, both pinned per the redesign
+brief's own constraint.
+
+**Retract on scroll (#155).** The header and the bottom bar retract together on scroll-down
+and return on scroll-up, on phone only (`router/useChromeRetract.ts`, a capture-phase
+`scroll` listener covering whichever of Mail's several independent scroll containers is
+live) — `transform: translateY(...)` over `--dur-fast`/`--ease-out`, `.app-viewport`
+reserving their combined height so retracting is a pure transform, never a reflow. Anchored
+to the last point a hide/reveal decision actually fired, not the immediately preceding
+event, so a slow drift of many small deltas (momentum scrolling) still accumulates into a
+real decision rather than being swallowed one event at a time. Never fires within the first
+24px of a container's own scroll, and a route change (Settings ↔ Mail ↔ Stream) always
+resets to shown.
 
 **Row geometry is load-bearing and tapered, not flat.** The thread list ranks
 reverse-chronologically by *scale*, not just position: four tiers taper from 54px
@@ -343,10 +383,19 @@ taper and no group headers at all.
 
 **Responsive.** Below 700/701px: the list/detail split collapses to one pane at a time (both
 stay mounted, one hidden), the permanent folder rail becomes a bottom sheet (a real shadcn
-`Sheet`) behind `.side-nav-toggle`, the Group Header's bulk actions collapse into a single
-always-visible overflow button that opens its own `Sheet` rather than relying on hover, and
-the header's row of view controls goes icon-only. `env(safe-area-inset-*)` is added
-unconditionally to every edge-touching pad.
+`Sheet`) opened from the phone bottom bar's own Folders button (#155 — its former in-body
+toggle is gone), the Group Header's bulk actions collapse into a single always-visible
+overflow button that opens its own `Sheet` rather than relying on hover, and the header's
+row of view controls goes icon-only. `env(safe-area-inset-*)` is added unconditionally to
+every edge-touching pad.
+
+**The Reader's prev/next (#155).** Pulled out of the reading-header row entirely (#143) —
+on a touch-capable phone they're gone outright (swipe, #150, is that surface's own
+equivalent); on desktop they moved to a small floating rail beside the pane
+(`mail/ReaderNeighborRail.tsx`), a flex sibling of the reading pane inside `.split-pane`
+rather than a row of icons competing with the subject for space. Vertically centered, not
+stretched to the pane's full height, so it reads as a floating control and not a second
+sidebar.
 
 ### Named Rules
 **The Bounded Pane Rule.** `.app-shell` is `100dvh` + `overflow: hidden`; every routed pane
@@ -560,7 +609,9 @@ Thread detail pane) sits centered over a quiet peeking sliver of the next card
 Deciding a card follows Leave-Visibly: the outgoing card animates out
 (`stream-card-leave`, `--dur-leave`, translateY(-16px) + fade + slight scale-down) and is
 `pointer-events: none` while leaving so a second click can't act twice; the next card simply
-appears underneath, Arrive-Silent.
+appears underneath, Arrive-Silent. Phone padding (#155) narrows the desktop 24px card/peek
+insets to 12–16px rather than reducing the reading column, since Stream's own reading
+surface already reuses the Reader's own phone rules.
 
 ### Toasts
 `{colors.surface}` ground, `{rounded.panel}`, `--shadow-overlay`, entering with an 8px
@@ -636,6 +687,9 @@ Instrument build rather than a durable principle.
 - **Don't** revive the Mail toolbar or the in-list Stream toggle. Both were part of earlier
   planning; neither exists in the shipped build. Stream is its own route; row/group/palette
   actions cover what a toolbar would have.
+- **Don't** treat "no bottom tab bar" as still true. #155 rescinded it for phone
+  specifically — desktop's header is unchanged; see Layout's own phone bottom bar entry for
+  what it carries and why.
 
 ## Superseded vocabulary
 

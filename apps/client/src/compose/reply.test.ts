@@ -23,6 +23,7 @@ function makeAccount(overrides: Partial<MailAccount> = {}): MailAccount {
     indexWatermark: { coveredSince: null, complete: false },
     signature: null,
     notificationsEnabled: true,
+    remoteImages: "always",
     gatekeeper: { enabled: false, cutoff: null },
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

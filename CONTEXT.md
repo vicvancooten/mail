@@ -208,6 +208,13 @@ Any Triage action whose result is shown instantly in the Client while the Sync B
 **Auto-advance**:
 After archiving or deleting, automatically opening the next thread or returning to the list (User-configurable).
 
+**Reader**:
+The surface where one Thread is read and acted on: the pane beside the list on a desktop, the whole
+screen on a phone, and the face of each card in Stream. Opening a Thread from the list is one step
+the User can take back; moving to another Thread from inside the Reader is not a further step, so
+Back always returns to the list, however many Threads were read in between.
+_Avoid_: detail view, reading mode, mail detail, thread view
+
 **Stream**:
 Processing the Inbox one Thread at a time, full screen, as a stack of cards: the newest Thread on
 top with the next one peeking out behind it, the Triage actions plus Skip laid out plainly, and
@@ -305,6 +312,14 @@ An address the User has actually exchanged mail with on a Mail Account, derived 
 _Avoid_: contact (reserved for the address-book entries a User manages), recipient
 
 ### Search
+
+**Command Palette**:
+The Client's one place to type. Opened from the Hub's search pill, from `/` or from ⌘K, it answers
+what the User types with commands and mail hits in a single list — commands first whenever the words
+match one, mail hits beneath. It is the only way a search starts, and "See all results" is the only
+way from it into the full result list. Client chrome, present over every App and every screen,
+including Stream.
+_Avoid_: search box, search bar, omnibar, quick switcher
 
 **Search Index**:
 The Sync Backend's searchable projection of every message — subject, participants, body text and attachment filenames — kept beside the messages themselves and rebuilt in the background whenever the way text is analysed changes. Search runs against it, never against a full index in the Client.

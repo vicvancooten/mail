@@ -4,8 +4,33 @@ import nodemailer from "nodemailer";
 import { type MailAccountSecret, toImapAuth, toSmtpAuth } from "./credential-auth.js";
 import { type DetectedMailAccountServerKind, detectServerKind } from "./server-kind.js";
 
-/** A few seconds per docs/research/0004 §4's "short, fixed timeout, move on" guidance. */
+/** A few seconds per docs/research/0004 §4's "short, fixed timeout, move on" guidance — governs each individual attempt (see `withOneRetry` below for the bounded retry sitting on top of that). */
 const VERIFY_TIMEOUT_MS = 8000;
+
+/** How long to wait before the one retry `withOneRetry` allows a `connection_failed` result. */
+const VERIFY_RETRY_DELAY_MS = 300;
+
+/**
+ * One bounded retry for a `connection_failed` result specifically —
+ * `credentials_rejected` is authoritative on the first try, nothing to
+ * retry there. Docs/research/0004 §4's "short, fixed timeout, move on" still
+ * governs each individual attempt's own timeout (`VERIFY_TIMEOUT_MS`) and
+ * still rules out an unbounded retry loop; this covers just the single
+ * transient reset/refusal a real server can hand back momentarily (seen in
+ * CI against GreenMail: a connection reset mid-`LOGIN`), which "move on"
+ * alone would otherwise report as a hard `connection_failed` on a server
+ * that's actually fine a moment later. Each attempt is a fresh call — the
+ * caller builds a brand new `ImapFlow`/`Transporter` per invocation — so a
+ * retry never reuses a connection that just failed.
+ */
+async function withOneRetry<T extends { ok: boolean; reason?: string }>(
+  attempt: () => Promise<T>,
+): Promise<T> {
+  const first = await attempt();
+  if (first.ok || first.reason !== "connection_failed") return first;
+  await new Promise((resolve) => setTimeout(resolve, VERIFY_RETRY_DELAY_MS));
+  return attempt();
+}
 
 export interface VerifyMailAccountInput {
   imap: MailAccountConnection;
@@ -47,7 +72,11 @@ export async function verifyMailAccountCredentials(
   return imapResult;
 }
 
-async function verifyImap({
+function verifyImap(input: VerifyMailAccountInput): Promise<VerifyMailAccountResult> {
+  return withOneRetry(() => attemptVerifyImap(input));
+}
+
+async function attemptVerifyImap({
   imap,
   username,
   credential,
@@ -83,6 +112,14 @@ async function verifyImap({
     }
     return { ok: false, reason: "connection_failed", detail: errorMessage(err) };
   } finally {
+    // Synchronous and untyped as anything else (`close(): void`) — a
+    // `connect()` that never actually established (exactly the
+    // `connection_failed` case above, e.g. a reset mid-`LOGIN`) can still
+    // leave imapflow's own internal socket-end handling reject an in-flight
+    // command promise asynchronously once this tears the socket down, with
+    // no handle here to attach a `.catch()` to. That's an imapflow-internal
+    // unhandled rejection (their own CLAUDE.md: fixes for it belong
+    // upstream), not something this function's own result depends on.
     client.close();
   }
 }
@@ -95,7 +132,11 @@ type VerifySmtpResult =
   | { ok: true }
   | { ok: false; reason: "credentials_rejected" | "connection_failed"; detail: string };
 
-async function verifySmtp({
+function verifySmtp(input: VerifyMailAccountInput): Promise<VerifySmtpResult> {
+  return withOneRetry(() => attemptVerifySmtp(input));
+}
+
+async function attemptVerifySmtp({
   smtp,
   username,
   credential,

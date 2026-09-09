@@ -18,6 +18,10 @@
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
+  /* The phone bottom bar's own content height (#155), excluding its safe-
+     area padding — one value the bar itself and `.app-viewport`'s reserved
+     bottom padding both read, so they can never drift out of step. */
+  --bottom-bar-height: 58px;
 }
 
 /* ---------- the global header ---------- */
@@ -285,64 +289,13 @@
   background: var(--color-accent);
 }
 
-/* ---------- the phone switcher sheet (#187) ---------- */
-
-/* `AppSwitcher.tsx#useNarrowHeader` mounts this instead of the desktop row
-   below 700px, so there's no CSS visibility toggle needed here — only one
-   of the two is ever in the tree. */
-.switcher-sheet {
-  max-height: 70vh;
-  padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
-}
-
-.tabs-row-phone {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.tab-pill-phone {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: var(--radius-md);
-  color: var(--color-ink-muted);
-  font-size: 14.5px;
-  text-decoration: none;
-}
-
-.tab-pill-phone:hover {
-  background: var(--color-hover);
-}
-
-.tab-pill-phone.current {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
-.tab-pill-phone .tp-soon {
-  margin-left: auto;
-  font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  color: var(--color-ink-faint);
-}
-
-.tab-pill-phone.current .tp-soon {
-  color: var(--color-accent);
-  opacity: 0.7;
-}
-
 /* ---------- the global search entry ---------- */
 
 /* A button, not an input: this raises the Command Palette (the direction
-   contract's signature interaction). Mail's own real text field
-   (`mail/search/SearchField.tsx`) lives in its own search bar below the Hub
-   (`mail/mail.css`'s `.mail-search-bar`, #96) — Client chrome stays a
-   trigger for every App, the way `CONTEXT.md`'s Hub entry describes it. */
+   contract's signature interaction), the single entry point for search and
+   commands alike (#147) — Mail's own text field is gone, so this is the one
+   visible search affordance left, a trigger for every App, the way
+   `CONTEXT.md`'s Hub entry describes it. */
 .global-search {
   width: 100%;
   max-width: 560px;
@@ -554,23 +507,36 @@
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
-/* Phone: the header keeps its shape — the home mark, the switcher trigger,
-   the search entry and the avatar are all the shell needs at any width,
-   which is why there is no bottom tab bar anywhere in this tree. The
-   wordmark and the search entry's placeholder text give way first, at a
-   narrower width than the switcher's own 700px sheet breakpoint below, so
-   the header stays uncrowded down to the smallest phones. */
-@media (max-width: 640px) {
+/* Phone (#155 — rescinds the header's own former "no bottom tab bar"
+   verdict): the header sheds four of its six elements down to just the
+   pinned search pill and Account Scope — `HomeLink`, the header's own
+   `AppSwitcher` instance and the appearance toggle drop out of the tree
+   entirely on phone now (`RootLayout.tsx`'s own `isPhoneChrome` — a real
+   conditional, not CSS visibility: a hidden-but-mounted "Switch app"
+   control is a duplicate accessible control, not a neutral
+   simplification), with `BottomBar.tsx` picking up Folders, the App
+   Switcher and Compose down there instead, and Appearance folding into
+   `AvatarMenu`'s own radio group (which already had it). This query
+   matches `RootLayout.tsx`'s own breakpoint exactly — `AppSwitcher.tsx`'s
+   `useIsMobile` (768px), not this app's other 700px breakpoint
+   (`Sidebar.tsx`, `mail.css`'s Split/List switch) — deliberately, so the
+   layout this query authors and the mount/unmount decision that same
+   width drives can never disagree with each other. It's still a different
+   number from Sidebar's own 700px, a narrow seam this app already tolerates
+   elsewhere (`Sidebar.tsx`'s own doc comment) rather than one this ticket
+   introduces fresh. */
+@media (max-width: 767px) {
   .app-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
     height: 54px;
     gap: 8px;
     padding: 0 10px;
     padding-left: calc(10px + env(safe-area-inset-left));
     padding-right: calc(10px + env(safe-area-inset-right));
-  }
-
-  .wordmark {
-    display: none;
+    transition: transform var(--dur-fast) var(--ease-out);
   }
 
   .global-search {
@@ -586,11 +552,131 @@
     display: none;
   }
 
-  .hub-mark {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-panel);
+  /* The header floats over the routed content now (`position: fixed`
+     above) rather than pushing it down as a flex sibling, so `.app-viewport`
+     reserves the same space itself instead — required so retracting the
+     header can be a pure `transform`, not a reflow, the only way it stays
+     smooth every frame of a fast scroll. */
+  .app-viewport {
+    padding-top: calc(54px + env(safe-area-inset-top));
+    padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom));
   }
+
+  .app-shell[data-chrome-hidden="true"] .app-header {
+    transform: translateY(-100%);
+  }
+}
+
+/* ---------- the phone bottom bar (#155) ---------- */
+
+/* Hidden by default — `RootLayout.tsx` only ever mounts `<BottomBar>` on
+   phone (`isPhoneChrome`) so this rule rarely does any work, but it's a
+   harmless backstop rather than the actual gate. */
+.bottom-bar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .bottom-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    height: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    background: var(--color-surface-strong);
+    /* The same relief-from-the-ground token the header uses for its own
+       separation from `.app-viewport` below it (`--shadow-header`, a fixed
+       recipe, not a floating-element shadow) — the header and the bottom
+       bar are the same kind of chrome, so they read as one surface family
+       rather than each inventing its own edge treatment. */
+    box-shadow: var(--shadow-header);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+
+  .app-shell[data-chrome-hidden="true"] .bottom-bar {
+    transform: translateY(100%);
+  }
+}
+
+/* One shared voice for all three items — Folders, the switcher (its own
+   `variant="bottom-bar"` skin, `apps/AppSwitcher.tsx`) and Compose — an
+   icon over a caption, evenly spaced, transparent until pressed. Ghost is
+   this app's default control voice everywhere else too; a persistent bar
+   read is earned by even spacing and a full-height hit target, not by an
+   inverted or tinted "current" state none of the three actually has (each
+   opens a transient sheet or panel, never a place you "are"). */
+.bottom-bar-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.bottom-bar-item:hover {
+  color: var(--color-ink);
+}
+
+.bottom-bar-item:active {
+  color: var(--color-accent);
+  transform: scale(0.92);
+}
+
+/* Compose is the one filled action everywhere else in the app
+   (`.compose-btn`'s own accent pill) — here it stays ghost like its two
+   siblings (a solid disc this small reads as a FAB bolted onto a tab bar,
+   the phone-app cliché the brief rules out), but keeps a little of that
+   same personality: the plus turns a quarter turn on press, not just a
+   colour change. */
+.bottom-bar-compose svg {
+  transition: transform var(--dur-fast) var(--ease-pop);
+}
+
+.bottom-bar-compose:active svg {
+  transform: rotate(90deg);
+}
+
+/* The phone App Switcher's own Sheet (#136): a bottom sheet, not the
+   desktop's inline row, so `.tabs-row` stacks full-width pills instead of a
+   run of pills fighting the header's own width. Unscoped by the `640px`
+   media query above — `AppSwitcher.tsx` itself decides sheet vs inline, so
+   these rules apply at whatever width the sheet renders. */
+.switcher-sheet {
+  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+}
+
+.switcher-sheet .tabs-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 0 0;
+}
+
+.switcher-sheet .tab-pill {
+  height: 46px;
+  padding: 0 14px;
+  font-size: 15px;
+}
+
+.switcher-sheet .tab-pill span:not(.tp-soon) {
+  flex: 1;
 }
 
 /* Whichever route is current (#71): bounded by `.app-shell`'s own `100dvh`

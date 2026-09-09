@@ -40,6 +40,7 @@ import {
   getMailAccountOwnerId,
   getMailAccountServerKind,
   updateMailAccountNotificationsEnabled,
+  updateMailAccountRemoteImages,
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
@@ -159,9 +160,9 @@ async function applyIntent(
   serverKind: MailAccountServerKind,
   intent: MutationIntent,
 ): Promise<IntentResult> {
-  // The four Composition intents (#46, #101) and the two Preference intents
-  // (#54) name no Thread, so they are dispatched ahead of the Thread lookup
-  // every other intent starts from.
+  // The four Composition intents (#46, #101) and the three Preference intents
+  // (#54, #146) name no Thread, so they are dispatched ahead of the Thread
+  // lookup every other intent starts from.
   if (
     intent.type === "sendComposition" ||
     intent.type === "cancelSend" ||
@@ -176,6 +177,10 @@ async function applyIntent(
   }
   if (intent.type === "setNotificationsEnabled") {
     await updateMailAccountNotificationsEnabled(db, mailAccountId, intent.enabled);
+    return { ok: true };
+  }
+  if (intent.type === "setRemoteImages") {
+    await updateMailAccountRemoteImages(db, mailAccountId, intent.value);
     return { ok: true };
   }
   // The Screener's decisions (#55). Like the two above they name no Thread —
@@ -356,8 +361,12 @@ async function applyIntent(
  * The Gatekeeper intents (#55, #102, poc-spec.md §Gatekeeper v1, plus #95's
  * `unblockAndRestore`). Thin dispatch over `gatekeeper/decisions.ts`, which
  * owns what each decision actually does to the held Threads and to the
- * Verdict table.
+ * Verdict table. `intent.threadId` (#144, on `approveSender`/`blockSender`/
+ * `spamSender` only) rides straight through — it is what lets these three
+ * also act on an Inbox Thread's own row menu, Reader More menu, or `!` for
+ * Spam, not only the Screener's held senders.
  *
+
  * The only rejection any of them can produce is `barred_verdict_domain` — a
  * domain-scoped decision aimed at a public provider (`@mail/shared`'s
  * `BARRED_VERDICT_DOMAINS`). Permanent, correctly: no retry of the same
@@ -371,13 +380,13 @@ async function applyGatekeeperIntent(
 ): Promise<IntentResult> {
   switch (intent.type) {
     case "approveSender":
-      return approveSender(db, mailAccountId, intent.sender);
+      return approveSender(db, mailAccountId, intent.sender, intent.threadId);
     case "denySender":
       return denySender(db, mailAccountId, intent.sender);
     case "blockSender":
-      return blockSender(db, mailAccountId, intent.sender);
+      return blockSender(db, mailAccountId, intent.sender, intent.threadId);
     case "spamSender":
-      return spamSender(db, mailAccountId, intent.sender);
+      return spamSender(db, mailAccountId, intent.sender, intent.threadId);
     case "unblockSender":
       return unblockSender(db, mailAccountId, intent.sender);
     case "unblockAndRestore":

@@ -104,7 +104,7 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
 /**
  * What a click on the notification's body (no action button) should do:
  * every kind focuses/opens the one window this Client runs (`AppShell`
- * mounts one `Router`, `router/routes.tsx`), and three kinds additionally
+ * mounts one `Router`, `router/routes.tsx`), and four kinds additionally
  * name what to land on inside it, so the focused window can route there
  * (ADR-0015: "a click always lands where the next decision is"):
  *
@@ -114,16 +114,19 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
  * - `needs_reauth` names the Facet cell whose settings/reauth form to jump
  *   to (#204: `connectedAccountId`+`facet`, not `mailAccountId` — a
  *   Calendar or Contacts Facet has no Mail Account to name).
+ * - `gatekeeper_digest` deep-links to the Screener (ADR-0015: "a coalesced
+ *   digest carries no actions — it deep-links to the Screener, since the
+ *   sender is ambiguous"), scoped to the Mail Account it held mail for.
  *
- * `new_mail_burst` and `gatekeeper_digest` stay `focus-only`: a coalesced
- * digest deep-links to the Screener per ADR-0015, but that's its own,
- * separate piece of work — out of scope here, so both fall back to the
- * plain focus a click always gets at minimum.
+ * `new_mail_burst` stays `focus-only`: it's a coalesced *Inbox* digest, not
+ * a Gatekeeper hold — there is no single stranger's decision waiting on it,
+ * so it falls back to the plain focus a click always gets at minimum.
  */
 export type NotificationClickTarget =
   | { kind: "thread"; mailAccountId: string; threadId: string }
   | { kind: "failed-send"; mailAccountId: string; compositionId: string }
   | { kind: "needs-reauth"; connectedAccountId: string; facet: ConnectedAccountFacetKind }
+  | { kind: "screener"; mailAccountId: string }
   | { kind: "focus-only" };
 
 export function notificationClickTarget(payload: PushPayload): NotificationClickTarget {
@@ -142,8 +145,42 @@ export function notificationClickTarget(payload: PushPayload): NotificationClick
         connectedAccountId: payload.connectedAccountId,
         facet: payload.facet,
       };
+    case "gatekeeper_digest":
+      return { kind: "screener", mailAccountId: payload.mailAccountId };
     default:
       return { kind: "focus-only" };
+  }
+}
+
+/**
+ * The cold-start half of #151: with no window already open, there is no
+ * `postMessage` recipient to hand a `NotificationClickTarget` to (nothing
+ * has mounted/subscribed yet), so the target has to ride the URL
+ * `self.clients.openWindow` opens instead — `router/routes.tsx`'s own
+ * shape for "Mail with a Thread selected", the Screener, and Mail Accounts
+ * settings. `account` is `/mail`'s own extra search param (`MailRoute.tsx`):
+ * Account Scope is a Device Preference, not part of the URL, so a Thread or
+ * Screener a previously-narrowed Scope would hide still needs a way to
+ * widen it on a fresh mount — see `MailSection.tsx`'s `initialAccountId`.
+ *
+ * `failed-send` has no deep-link here — reopening a Draft in the composer
+ * from a cold start is real, separate work this ticket didn't ask for; it
+ * falls back to the default route, same as `focus-only`.
+ */
+export function notificationTargetUrl(target: NotificationClickTarget): string {
+  switch (target.kind) {
+    case "thread":
+      return `/mail?thread=${encodeURIComponent(target.threadId)}&account=${encodeURIComponent(target.mailAccountId)}`;
+    case "screener":
+      return `/mail?folder=screener&account=${encodeURIComponent(target.mailAccountId)}`;
+    case "needs-reauth":
+      // #204: `account`/`facet` — `connected-accounts/account-focus.ts`'s own
+      // query param names, read back by `ConnectedAccountsPage` once
+      // `/settings/mail-accounts`'s own redirect (`routes.tsx`) lands there.
+      return `/settings/mail-accounts?account=${encodeURIComponent(target.connectedAccountId)}&facet=${encodeURIComponent(target.facet)}`;
+    case "failed-send":
+    case "focus-only":
+      return "/";
   }
 }
 

@@ -564,6 +564,186 @@ describe("Screener decisions (#55)", () => {
   });
 });
 
+describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
+  // Deliberately no `enableGatekeeper` here: #144's whole point is that
+  // these three work on a Mail Account with Gatekeeper off, against a
+  // Thread the Screener never held — an ordinary `deliver()` with
+  // Gatekeeper off produces exactly that (the hold rule's first gate is
+  // `account.gatekeeperEnabled`, `screening.ts`'s own doc comment).
+
+  it("Spam records a Blocked+spam Verdict and moves an un-held Thread straight to Junk", async () => {
+    const { threadId, messageId } = await deliver({ from: "villain@example.test" });
+    expect((await threadRow(threadId)).heldSender).toBeNull();
+
+    expect(
+      await spamSender(
+        db,
+        account.id,
+        { scope: "address", value: "villain@example.test" },
+        threadId,
+      ),
+    ).toEqual({ ok: true });
+
+    const after = await threadRow(threadId);
+    expect(after.inInbox).toBe(false);
+    expect(after.folderRole).toBe("junk");
+    expect(await resolveVerdict(db, account.id, "villain@example.test")).toEqual(
+      expect.objectContaining({ verdict: "blocked", spam: true }),
+    );
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({ value: "villain@example.test", source: "inbox", spam: true }),
+    ]);
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued).toEqual([
+      expect.objectContaining({ kind: "junk", messageId, mailAccountId: account.id }),
+    ]);
+  });
+
+  it("Block records a Blocked Verdict and moves an un-held Thread straight to Trash", async () => {
+    const { threadId } = await deliver({ from: "stranger@example.test" });
+
+    expect(
+      await blockSender(
+        db,
+        account.id,
+        { scope: "address", value: "stranger@example.test" },
+        threadId,
+      ),
+    ).toEqual({ ok: true });
+
+    const after = await threadRow(threadId);
+    expect(after.inInbox).toBe(false);
+    expect(after.folderRole).toBe("trash");
+    expect((await resolveVerdict(db, account.id, "stranger@example.test")).verdict).toBe("blocked");
+    expect(await listBlockedSenders(db, account.id)).toEqual([
+      expect.objectContaining({ value: "stranger@example.test", source: "inbox" }),
+    ]);
+  });
+
+  it("Approve records an Approved Verdict without moving the Thread — it was never held to release", async () => {
+    const { threadId } = await deliver({ from: "colleague@example.test" });
+
+    expect(
+      await approveSender(
+        db,
+        account.id,
+        { scope: "address", value: "colleague@example.test" },
+        threadId,
+      ),
+    ).toEqual({ ok: true });
+
+    const after = await threadRow(threadId);
+    expect(after.inInbox).toBe(true);
+    expect(after.folderRole).toBe("inbox");
+    expect((await resolveVerdict(db, account.id, "colleague@example.test")).verdict).toBe(
+      "approved",
+    );
+  });
+
+  it("ignores an Inbox Thread id from another Mail Account", async () => {
+    const otherAccount = await createTestMailAccount(db);
+    const [otherInbox] = await db
+      .insert(folders)
+      .values({
+        id: randomUUID(),
+        mailAccountId: otherAccount.id,
+        path: "INBOX",
+        name: "INBOX",
+        role: "inbox",
+      })
+      .returning();
+    if (!otherInbox) throw new Error("other inbox insert returned no row");
+
+    const receivedAt = new Date();
+    const otherThreadId = await resolveThread(db, {
+      mailAccountId: otherAccount.id,
+      threadingIds: ["foreign@example.test"],
+      subject: "Foreign thread",
+      receivedAt,
+    });
+    await db.insert(messages).values({
+      id: randomUUID(),
+      mailAccountId: otherAccount.id,
+      threadId: otherThreadId,
+      folderId: otherInbox.id,
+      uid: 1,
+      messageIdHeader: "foreign@example.test",
+      subject: "Foreign thread",
+      fromAddress: "stranger@example.test",
+      toAddresses: [{ name: null, address: otherAccount.emailAddress }],
+      sentAt: receivedAt,
+      receivedAt,
+      seen: false,
+    });
+    await refreshThreadRollups(db, [otherThreadId]);
+
+    expect(
+      await blockSender(
+        db,
+        account.id,
+        { scope: "address", value: "stranger@example.test" },
+        otherThreadId,
+      ),
+    ).toEqual({ ok: true });
+
+    const foreignThread = await threadRow(otherThreadId);
+    expect(foreignThread.inInbox).toBe(true);
+    expect(foreignThread.folderRole).toBe("inbox");
+    expect(
+      await db.select().from(protocolWrites).where(eq(protocolWrites.mailAccountId, account.id)),
+    ).toEqual([]);
+  });
+
+  it("the Verdict persists and takes effect once Gatekeeper is turned on later", async () => {
+    const { threadId } = await deliver({ from: "villain@example.test", subject: "First" });
+    await spamSender(db, account.id, { scope: "address", value: "villain@example.test" }, threadId);
+
+    await enableGatekeeper(db, account.id);
+    await reloadAccount();
+
+    // A second message from the same, already-Spam'd sender is blocked to
+    // Junk on arrival, per the ordinary Blocked-Sender-next-message rule
+    // (`screening.ts`) — the Verdict this decision wrote is exactly what
+    // that rule reads, regardless of how it got there.
+    const { threadId: secondThreadId, messageId: secondMessageId } = await deliver({
+      from: "villain@example.test",
+      subject: "Second, after Gatekeeper is on",
+    });
+    expect((await threadRow(secondThreadId)).folderRole).toBe("junk");
+    const queued = await db
+      .select()
+      .from(protocolWrites)
+      .where(eq(protocolWrites.mailAccountId, account.id));
+    expect(queued.map((row) => row.messageId)).toContain(secondMessageId);
+  });
+
+  it("Undo (unblockAndRestore) reverses both the Verdict and the Thread move", async () => {
+    const { threadId } = await deliver({ from: "villain@example.test" });
+    await blockSender(
+      db,
+      account.id,
+      { scope: "address", value: "villain@example.test" },
+      threadId,
+    );
+    expect((await threadRow(threadId)).inInbox).toBe(false);
+
+    expect(
+      await unblockAndRestore(db, account.id, { scope: "address", value: "villain@example.test" }, [
+        threadId,
+      ]),
+    ).toEqual({ ok: true });
+
+    const after = await threadRow(threadId);
+    expect(after.inInbox).toBe(true);
+    expect((await resolveVerdict(db, account.id, "villain@example.test")).verdict).toBe(
+      "unscreened",
+    );
+  });
+});
+
 describe("Block Alias (#103, CONTEXT.md, ADR-0008 amendment)", () => {
   beforeEach(async () => {
     await enableGatekeeper(db, account.id);

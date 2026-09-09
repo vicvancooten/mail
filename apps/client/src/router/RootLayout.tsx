@@ -1,19 +1,27 @@
+import type { MailAccount } from "@mail/shared";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { accountScopeFacetForApp, appForPath } from "../apps/apps.js";
 import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { useIsMobile } from "../hooks/use-mobile.js";
 import { AccountScope } from "../mail/AccountScope.js";
-import { requestGlobalPaletteOpen } from "../mail/command-palette/global-open.js";
-import { useAccountScope } from "../mail/useAccountScope.js";
+import { isTyping } from "../mail/actions/ActionsProvider.js";
+import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
+import { noopActionContext } from "../mail/actions/types.js";
+import { CommandPalette } from "../mail/command-palette/CommandPalette.js";
+import { PaletteHostProvider, usePaletteHost } from "../mail/command-palette/PaletteHostContext.js";
+import { deriveMailAccountScope, useAccountScope } from "../mail/useAccountScope.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
-import { useConnectedAccounts } from "../store/index.js";
+import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
+import { BottomBar } from "./BottomBar.js";
 import { rootRoute } from "./routes.js";
+import { useChromeRetract } from "./useChromeRetract.js";
 import "./shell.css";
 
 /**
@@ -59,11 +67,53 @@ import "./shell.css";
  * `.app-viewport`'s padding and `.app-card`'s radius/shadow both toggle at
  * that width, rather than either route rendering two different trees.
  *
+ * Phone chrome (#155, rescinding `DESIGN.md`'s earlier "no bottom tab bar"
+ * for phone): `HomeLink`, the header's own `AppSwitcher` instance and the
+ * appearance toggle all drop out of the header on phone — a real
+ * conditional (`isPhoneChrome` below), not CSS-only visibility, since a
+ * hidden-but-mounted "Switch app" control is a duplicate accessible
+ * control, not a neutral simplification. `BottomBar.tsx` picks up Folders,
+ * the App Switcher and Compose down there instead, and Appearance folds
+ * into `AvatarMenu`'s own radio group, which already had it. The header
+ * and the bottom bar retract together on scroll-down and return on
+ * scroll-up (`useChromeRetract.ts`), `data-chrome-hidden` below being what
+ * `shell.css`'s phone query reads to animate both.
+ *
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
  * itself, not by a caller who has them to hand.
+ *
+ * The Command Palette (#147) is mounted here, once, as a sibling of
+ * `.app-viewport` — above Stream and every other App and screen, the same
+ * "Client chrome, present on every screen" reasoning `CONTEXT.md`'s Hub
+ * entry already gives Account Scope. `PaletteHostProvider` owns the search
+ * session and the open/closed flag; `RootLayoutChrome` (below) is what
+ * actually reads them, since a provider's own value can't be read by the
+ * component that renders it.
  */
 export function RootLayout() {
+  const mailAccounts = useMailAccounts() ?? [];
+  // The Palette's own search scope (`PaletteHostContext.tsx`'s own doc
+  // comment) is Mail-Account-scoped, not Connected-Account-scoped (#207) —
+  // the same `deriveMailAccountScope` translation `MailSection.tsx` and
+  // `RootLayoutChrome` below both do from the Hub's own Connected Account
+  // Scope, computed independently here since the Palette mounts one level
+  // above the header that owns the picker.
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope: connectedAccountScope } = useAccountScope(connectedAccounts);
+  const accountScope = deriveMailAccountScope(
+    connectedAccounts,
+    connectedAccountScope,
+    mailAccounts,
+  );
+  return (
+    <PaletteHostProvider accountScope={accountScope} mailAccounts={mailAccounts}>
+      <RootLayoutChrome mailAccounts={mailAccounts} />
+    </PaletteHostProvider>
+  );
+}
+
+function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   const { user, onLogout } = rootRoute.useRouteContext();
   const [signingOut, setSigningOut] = useState(false);
   // Account Scope (#96, repointed at Connected Accounts in #207): moved into
@@ -81,6 +131,14 @@ export function RootLayout() {
   const currentApp = appForPath(pathname);
   const navigate = rootRoute.useNavigate();
   const [resolvedDark, toggleAppearance] = useResolvedAppearance();
+  const { search, paletteOpen, openPalette, closePalette } = usePaletteHost();
+  // Whichever Mail-family surface (`MailSection`, `stream/StreamStack`) is
+  // currently mounted publishes its own live `ActionContext`/`ViewOrigin`
+  // here (`actions/active-mail-host.ts`) — `null` on `/settings` or a
+  // placeholder App, where `noopActionContext` (already what the Shortcut
+  // Sheet renders against with nothing selected) and "seeds nothing" stand
+  // in.
+  const activeHost = useActiveMailHost();
 
   // A `needs-reauth` notification click (#53, ADR-0015: "a click always
   // lands where the next decision is") names a Facet's *Settings* cell — a
@@ -105,50 +163,126 @@ export function RootLayout() {
     });
   }, [navigate]);
 
-  // ⌘K reaches the Command Palette everywhere (the direction contract's
-  // signature interaction), but the Palette itself is Mail-scoped
-  // (`global-open.ts`'s own doc comment). Outside `/mail`, catch the chord
-  // here, record the request, and navigate — `MailSection`'s mount effect
-  // consumes the flag and opens the already-built Palette. Inside `/mail`,
-  // `MailSection` owns `⌘K` directly, so this only needs to act when it's
-  // the one thing mounted.
+  // `/`, ⌘K and the Hub's own search pill all raise the Palette directly now
+  // (#147) — there is no Mail-scoped mount to navigate to first, since the
+  // Palette lives here. `isTyping` (`ActionsProvider.tsx`'s own guard) keeps
+  // a bare `/` out of any other field's way; a modified ⌘K still fires while
+  // typing, same as every other `meta` binding in the registry.
   useEffect(() => {
-    if (pathname.startsWith("/mail")) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      requestGlobalPaletteOpen();
-      void navigate({ to: "/mail" });
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        openPalette();
+        return;
+      }
+      if (event.key === "/" && !isTyping(event)) {
+        event.preventDefault();
+        openPalette();
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pathname, navigate]);
+  }, [openPalette]);
 
   function handleLogout() {
     setSigningOut(true);
     void onLogout().finally(() => setSigningOut(false));
   }
 
-  // The header field is the comp's search *entry* — a button that raises the
-  // Command Palette, not a second text input beside Mail's own. Off `/mail`
-  // the request rides the same bridge `⌘K` does, navigating so there is a
-  // Palette to open; on `/mail` a mounted `MailSection` takes it directly
-  // (`global-open.ts`).
-  function openGlobalSearch() {
-    requestGlobalPaletteOpen();
-    if (!pathname.startsWith("/mail")) void navigate({ to: "/mail" });
-  }
+  // Selecting a hit or opening the full results view only has somewhere to
+  // land on `/mail` (`MailSection`'s own reading pane / `SearchResultsView`)
+  // — triggered from anywhere else (Stream, Settings, a placeholder App),
+  // navigate there first so "See all results" and Enter still reach the
+  // same results view the spec has always described, rather than quietly
+  // doing nothing. `CommandPalette.tsx` itself is unchanged (#147: "leave
+  // the Palette's content as close to unchanged as you can") — only these
+  // two callbacks are wrapped, and only when Mail's own results view isn't
+  // already what's on screen.
+  const paletteSearch = useMemo(() => {
+    if (pathname === "/mail") return search;
+    return {
+      ...search,
+      select: (id: string | null) => {
+        void navigate({ to: "/mail" });
+        search.select(id);
+      },
+      openResultsView: () => {
+        void navigate({ to: "/mail" });
+        search.openResultsView();
+      },
+    };
+  }, [search, pathname, navigate]);
+
+  // A Command Palette local hit's own entry point (#196): `to`/`params` come
+  // from whichever App's own `LocalHitSource` produced the hit
+  // (`mail/command-palette/local-hits.ts`), which knows nothing of the route
+  // tree itself. This lives here rather than in whichever Mail-family
+  // surface happens to be mounted — unlike `ctx`/`searchOrigin`
+  // (`actions/active-mail-host.ts`), a local hit's destination is never
+  // Mail-scoped state, just a plain route the Hub's own `navigate` can reach
+  // directly, the same "erase the per-collection type once, at the
+  // boundary" idiom `sync/collection-registry.ts#asApplyUserDelta` already
+  // uses for the sync side of the same ADR-0023 mechanism.
+  const onOpenLocalHit = useCallback(
+    (to: string, params: Record<string, string>) => {
+      void navigate({ to, params } as unknown as Parameters<typeof navigate>[0]);
+    },
+    [navigate],
+  );
+
+  // Nothing Mail-scoped mounted (Settings, a placeholder App): the same
+  // "nothing wired" context the Shortcut Sheet already renders against,
+  // with `/`/⌘K's own callbacks still live so those two rows work from
+  // anywhere, and Stream still one command away. The phone bottom bar's
+  // Folders and Compose buttons (#155) read this same fallback — from
+  // Settings or a placeholder App, both navigate to Mail first rather than
+  // doing nothing, the same "navigate, then act" shape `paletteSearch`
+  // above already uses for a hit selected from outside `/mail`.
+  const fallbackCtx = useMemo(
+    () =>
+      noopActionContext({
+        onFocusSearch: openPalette,
+        onOpenPalette: openPalette,
+        onOpenStream: () => void navigate({ to: "/mail/stream" }),
+        onOpenFolders: () => void navigate({ to: "/mail" }),
+        onCompose: () => void navigate({ to: "/mail" }),
+      }),
+    [openPalette, navigate],
+  );
+
+  // The Hub header and phone bottom bar retract on scroll-down, return on
+  // scroll-up (#155's own acceptance box) — `data-chrome-hidden` below is
+  // what `shell.css`'s phone query reads; see `useChromeRetract.ts` for why
+  // one hook here covers every scrollable pane any route renders.
+  const chromeHidden = useChromeRetract(pathname);
+  const activeCtx = activeHost?.ctx ?? fallbackCtx;
+
+  // The phone/desktop split for this chrome (#155): a real conditional, not
+  // CSS-only visibility, and deliberately `AppSwitcher.tsx`'s own
+  // `useIsMobile` (768px) rather than this app's other 700px breakpoint
+  // (`Sidebar.tsx`, `mail.css`'s Split/List switch) — `AppSwitcher` already
+  // branches its own Sheet-vs-inline rendering on this exact hook, and
+  // mounting *both* a header instance and a bottom-bar instance of it (each
+  // carrying the same "Switch app" accessible name) would be a real
+  // duplicate-control bug, not just a test inconvenience — CSS `display:
+  // none` hides one visually but leaves it in the accessibility tree and
+  // tab order. `shell.css`'s own phone query for this chrome matches this
+  // same 768px number for exactly that reason, accepting the narrow
+  // 701–767px seam against Sidebar's own breakpoint that already exists
+  // elsewhere in this app rather than reconciling every breakpoint in one
+  // pass.
+  const isPhoneChrome = useIsMobile();
 
   return (
     <TooltipProvider>
-      <div className="app-shell">
+      <div className="app-shell" data-chrome-hidden={chromeHidden}>
         <header className="app-header">
           <div className="header-left">
-            <HomeLink />
-            <AppSwitcher pathname={pathname} />
+            {!isPhoneChrome && <HomeLink />}
+            {!isPhoneChrome && <AppSwitcher pathname={pathname} />}
           </div>
           <div className="header-center">
-            <button type="button" className="global-search" onClick={openGlobalSearch}>
+            <button type="button" className="global-search" onClick={openPalette}>
               <Search size={16} />
               <span>Search everything…</span>
               <kbd>⌘K</kbd>
@@ -163,15 +297,17 @@ export function RootLayout() {
                 onChange={setAccountScope}
               />
             ) : null}
-            <button
-              type="button"
-              className="header-icon-btn"
-              title="Toggle appearance"
-              aria-label="Toggle appearance"
-              onClick={toggleAppearance}
-            >
-              {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
+            {!isPhoneChrome && (
+              <button
+                type="button"
+                className="header-icon-btn"
+                title="Toggle appearance"
+                aria-label="Toggle appearance"
+                onClick={toggleAppearance}
+              >
+                {resolvedDark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            )}
             <AvatarMenu
               username={user.username}
               role={user.role}
@@ -185,8 +321,19 @@ export function RootLayout() {
             <Outlet />
           </div>
         </div>
+        {isPhoneChrome && <BottomBar pathname={pathname} ctx={activeCtx} />}
         <Toaster />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={closePalette}
+        ctx={activeCtx}
+        search={paletteSearch}
+        searchOrigin={activeHost?.searchOrigin ?? { kind: "other" }}
+        accounts={mailAccounts}
+        accountScope={accountScope}
+        onOpenLocalHit={onOpenLocalHit}
+      />
     </TooltipProvider>
   );
 }

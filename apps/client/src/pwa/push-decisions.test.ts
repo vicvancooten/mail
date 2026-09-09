@@ -4,6 +4,7 @@ import {
   buildNotificationContent,
   hasVisibleClient,
   notificationClickTarget,
+  notificationTargetUrl,
   parsePushPayload,
 } from "./push-decisions.js";
 
@@ -168,7 +169,7 @@ describe("notificationClickTarget", () => {
     ).toEqual({ kind: "needs-reauth", connectedAccountId: "conn-1", facet: "mail" });
   });
 
-  it("is focus-only for the two coalesced kinds — a digest/burst is ambiguous about which target to land on", () => {
+  it("is focus-only for a collapsed burst — an Inbox digest is ambiguous about which Thread to land on", () => {
     expect(
       notificationClickTarget({
         kind: "new_mail_burst",
@@ -177,6 +178,9 @@ describe("notificationClickTarget", () => {
         badgeCount: 2,
       }),
     ).toEqual({ kind: "focus-only" });
+  });
+
+  it("names the Screener for a Gatekeeper digest — a coalesced hold deep-links there, not to a single sender", () => {
     expect(
       notificationClickTarget({
         kind: "gatekeeper_digest",
@@ -185,7 +189,34 @@ describe("notificationClickTarget", () => {
         senders: ["Ada"],
         badgeCount: 0,
       }),
-    ).toEqual({ kind: "focus-only" });
+    ).toEqual({ kind: "screener", mailAccountId: "acct-1" });
+  });
+});
+
+describe("notificationTargetUrl", () => {
+  it("deep-links a Thread into Mail with it selected, and the target's Mail Account so a narrowed Scope widens", () => {
+    expect(
+      notificationTargetUrl({ kind: "thread", mailAccountId: "acct-1", threadId: "t-1" }),
+    ).toBe("/mail?thread=t-1&account=acct-1");
+  });
+
+  it("deep-links a Gatekeeper digest into the Screener", () => {
+    expect(notificationTargetUrl({ kind: "screener", mailAccountId: "acct-1" })).toBe(
+      "/mail?folder=screener&account=acct-1",
+    );
+  });
+
+  it("deep-links Needs Reauth into Mail Accounts settings, naming the Connected Account and Facet (#204)", () => {
+    expect(
+      notificationTargetUrl({ kind: "needs-reauth", connectedAccountId: "conn-1", facet: "mail" }),
+    ).toBe("/settings/mail-accounts?account=conn-1&facet=mail");
+  });
+
+  it("falls back to the default route for a failed send or a focus-only target", () => {
+    expect(
+      notificationTargetUrl({ kind: "failed-send", mailAccountId: "acct-1", compositionId: "c-1" }),
+    ).toBe("/");
+    expect(notificationTargetUrl({ kind: "focus-only" })).toBe("/");
   });
 });
 

@@ -1,9 +1,13 @@
 import { labelId, type MailAccount } from "@mail/shared";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { resetActiveMailHost } from "./mail/actions/active-mail-host.js";
+import { resetSurfaceHandles } from "./mail/actions/surface-handles.js";
+import { writeAccountScope, writeViewMode } from "./mail/device-preferences.js";
+import { resetScrollOffsetsForTest } from "./mail/scroll-restore.js";
 import { resetUndoToastsForTest } from "./mail/undo-toast.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
@@ -94,12 +98,35 @@ function stubFetch(mailAccounts: MailAccount[] = [], role: "owner" | "member" = 
 
 beforeEach(async () => {
   resetSyncStatus();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147) are module state too,
+  // published by whichever Mail-family surface is mounted and cleared on its
+  // own unmount — but only once that unmount's effect cleanup has actually
+  // run, which the next test's mount can't guarantee. Their own "Test-only"
+  // reset exports drop a stale host/handle rather than let it survive.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `app-shell-integration-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
   localStorage.clear();
-  // jsdom's `history`/`location` persist across tests in one file.
-  history.replaceState(null, "", "/");
+  // `scroll-restore.ts`'s map is deliberately module-level, not component
+  // state (#142, its own doc comment) — it has to survive `MailSection`
+  // unmounting for Stream/Settings — which also means it survives past
+  // this test unless cleared: most fixtures here share the same Account +
+  // folder + label, so a saved offset would otherwise leak into the next
+  // test's first mount of that same list.
+  resetScrollOffsetsForTest();
+  // jsdom's `history`/`location` persist across tests in one file — a
+  // `replaceState` alone reset the URL but not the position, so a test that
+  // left the real history mid-stack (#140's own `history.back()`/`forward()`
+  // cases) left stale, now-unreachable "forward" entries ahead of it for the
+  // next test to inherit, throwing off that test's own push-counted
+  // assertions. `pushState` always discards everything ahead of wherever the
+  // previous test left the pointer, so every test starts at the true top of
+  // a real (if arbitrarily long) stack — the one guarantee these tests
+  // actually need, since every assertion here is relative to a length
+  // snapshot taken fresh inside the test, never an absolute one.
+  history.pushState(null, "", "/");
 });
 
 afterEach(async () => {
@@ -141,6 +168,155 @@ async function seedNotesAndLabels(
     { replace: false },
   );
 }
+
+/** Newest first (`store/reads.ts#ThreadWindowPage`): "Newer thread" (t1) leads, "Older thread" (t2) trails. */
+async function seedTwoThreads(): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: [
+        makeThread("t1", "acct-1", {
+          subject: "Newer thread",
+          lastMessageAt: minutesAfterEpoch(2),
+        }),
+        makeThread("t2", "acct-1", {
+          subject: "Older thread",
+          lastMessageAt: minutesAfterEpoch(1),
+        }),
+      ],
+    }),
+    { replace: false },
+  );
+}
+
+/** Enough Threads, all in the same Time Group (tier 1, 54px rows), that the list's total content height clears the 600px viewport `test-support/virtualization.ts` stubs — without that headroom there is nothing to scroll, and every offset restoration assertion below would trivially pass at 0. Newest (`t0`) first, same order `seedTwoThreads` above documents. */
+async function seedManyThreads(count: number): Promise<void> {
+  await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), { replace: false });
+  await applyThreadDelta(
+    "acct-1",
+    delta({
+      created: Array.from({ length: count }, (_, i) =>
+        makeThread(`t${i}`, "acct-1", {
+          subject: `Thread ${i}`,
+          lastMessageAt: minutesAfterEpoch(count - i),
+        }),
+      ),
+    }),
+    { replace: false },
+  );
+}
+
+describe("scroll restoration (#142)", () => {
+  it("restores the list's exact pixel offset on return from the Reader, in the List layout where the list unmounts while reading", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+    act(() => writeViewMode("list"));
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    fireEvent.scroll(list, { target: { scrollTop: 400 } });
+
+    fireEvent.click(screen.getByText("Thread 0"));
+    // The List layout swaps the list for the Reader outright (`ListView.tsx`)
+    // — nothing named ".thread-list" is even in the tree while it's open.
+    await screen.findByRole("button", { name: "Back to list" });
+    expect(document.querySelector(".thread-list")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    await screen.findByText("Thread 0");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(400);
+  });
+
+  it("restores the list's exact pixel offset on return from Stream, in the Split layout where the list never unmounts for the Reader alone", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    fireEvent.scroll(list, { target: { scrollTop: 550 } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
+    await waitFor(() => expect(document.querySelector(".thread-list")).toBeNull());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close Stream" }));
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    await screen.findByText("Thread 0");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(550);
+  });
+
+  it("restores the list's exact pixel offset on return from Settings", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    fireEvent.scroll(list, { target: { scrollTop: 300 } });
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "General" });
+    expect(document.querySelector(".thread-list")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Mail" }));
+    await screen.findByText("Thread 0");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(300);
+  });
+
+  it("survives the open Thread being removed from the list (Done) while reading, restoring the same offset rather than falling back", async () => {
+    await seedManyThreads(20);
+    stubFetch();
+    act(() => writeViewMode("list"));
+
+    render(<App />);
+    await screen.findByText("Thread 0");
+
+    const list = document.querySelector(".thread-list") as HTMLElement;
+    // Well within the shortened (19-Thread) list's own total height, so the
+    // saved offset still fits after Done removes one row (#142's "no longer
+    // valid" fallback is for an offset that stops fitting, not any removal).
+    fireEvent.scroll(list, { target: { scrollTop: 300 } });
+
+    fireEvent.click(screen.getByText("Thread 0"));
+    await screen.findByRole("button", { name: /Done/ });
+    fireEvent.click(screen.getByRole("button", { name: /Done/ }));
+
+    await waitFor(() => expect(screen.queryByText("Thread 0")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    await screen.findByText("Thread 1");
+
+    expect((document.querySelector(".thread-list") as HTMLElement).scrollTop).toBe(300);
+  });
+
+  it("falls back to scrolling the still-open Thread into view when no offset has been saved yet", async () => {
+    await seedManyThreads(30);
+    stubFetch();
+    // Split (the default view mode): its own list never unmounts for the
+    // Reader alone, so this is a *cold* mount of the list — a reload
+    // straight onto a deep Thread — with no prior "leave" to have ever
+    // saved a pixel offset for this list under `scroll-restore.ts`.
+    history.replaceState(null, "", "/mail?thread=t20");
+
+    render(<App />);
+    await screen.findByText("Thread 20", { selector: ".reading-subject" });
+
+    // No saved offset exists for this list — `initialScrollThreadId`'s
+    // fallback (unchanged since #51) is what put Thread 20's own row on
+    // screen, not a restored pixel offset.
+    expect(await screen.findByText("Thread 20", { selector: ".subject" })).toBeDefined();
+  });
+});
 
 describe("the app shell over a routed tree (#71)", () => {
   it("lands on Mail by default, with the seeded Thread visible", async () => {
@@ -201,6 +377,94 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/contacts");
   });
 
+  it("at phone width, the App Switcher opens as a sheet and closes by outside pointer or Escape (#136)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+
+    try {
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      // Desktop's inline expansion never renders a `dialog` — its tab row
+      // is a plain positioned `div`, open or not.
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+      expect(await screen.findByRole("dialog")).toBeDefined();
+      // Every App is reachable from the sheet, the same as the desktop row.
+      expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
+      for (const name of ["Contacts", "Calendar", "Tasks"]) {
+        expect(screen.getByRole("link", { name: new RegExp(name) })).toBeDefined();
+      }
+
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+      await screen.findByRole("dialog");
+
+      // A tap outside the sheet closes it — Radix `Dialog`'s own
+      // pointer-event dismissal, exercised here over the overlay it renders
+      // behind the sheet's content.
+      const overlay = document.querySelector('[data-slot="sheet-overlay"]');
+      expect(overlay).not.toBeNull();
+      await user.click(overlay as Element);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("at phone width, the header sheds to search and avatar and the bottom bar carries Folders, the App Switcher and Compose (#155)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+
+    try {
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      // The home mark, the header's own App Switcher instance and the
+      // appearance toggle are gone from the tree entirely — a real
+      // conditional (#155), not CSS-only visibility, so there's exactly
+      // one "Switch app" control to find, not a duplicate.
+      expect(screen.queryByLabelText("Wicket home")).toBeNull();
+      expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
+      expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
+
+      // The bottom bar itself: Folders, the App Switcher (captioned with
+      // the current App's name, "Mail" — its accessible name stays "Switch
+      // app" either way, the same one the header's own skin carries), and
+      // Compose — scoped to the bar itself, since jsdom (unlike a real
+      // browser) never hides the desktop folder rail's own same-named
+      // Compose pill for a width it can't apply `mail.css`'s CSS against.
+      const bottomBar = screen.getByRole("navigation", {
+        name: "Folders, switch app, and compose",
+      });
+      expect(within(bottomBar).getByRole("button", { name: "Folders" })).toBeDefined();
+      expect(within(bottomBar).getByText("Mail")).toBeDefined();
+      expect(within(bottomBar).getByRole("button", { name: "Compose" })).toBeDefined();
+
+      // Folders opens the same Sheet the desktop rail's entries live in.
+      await user.click(within(bottomBar).getByRole("button", { name: "Folders" }));
+      expect(await screen.findByRole("dialog")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Screener" })).toBeDefined();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      // Compose opens the Composer from the bottom bar directly.
+      await user.click(within(bottomBar).getByRole("button", { name: "Compose" }));
+      expect(await screen.findByPlaceholderText("Subject")).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
   it("Appearance written from the header reaches Settings' own copy of the control (#72)", async () => {
     await seedOneThread();
     stubFetch();
@@ -250,6 +514,114 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
+  it("a cold-start Thread deep-link (#151) widens a narrowed Account Scope so the URL's own Thread is actually visible", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-2",
+      delta({ created: [makeThread("t2", "acct-2", { subject: "Notified thread" })] }),
+      { replace: false },
+    );
+    stubFetch();
+    // Scope was previously narrowed to the *other* account — the same
+    // gap `sw.ts#focusOrOpenClient` opening a bare "/" would have left
+    // unaddressed, since Account Scope is a Device Preference, not part
+    // of the URL a real notification click carries.
+    writeAccountScope(["acct-1"]);
+
+    history.replaceState(null, "", "/mail?thread=t2&account=acct-2");
+    render(<App />);
+
+    expect(
+      await screen.findByText("Notified thread", { selector: ".reading-subject" }),
+    ).toBeDefined();
+  });
+
+  it("a cold-start Gatekeeper digest deep-link (#151) opens the Screener, narrowed to that Mail Account", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    writeAccountScope(["acct-1"]);
+
+    history.replaceState(null, "", "/mail?folder=screener&account=acct-2");
+    render(<App />);
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(location.pathname).toBe("/mail");
+    expect(location.search).toContain("folder=screener");
+  });
+
+  it("a cold-start Needs Reauth deep-link (#151, widened to Connected Accounts by #201/#204) lands on Connected Accounts and opens that Facet's Popover", async () => {
+    const account = makeMailAccount("acct-1", { status: "needs_reauth" });
+    await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected", {
+            facets: [{ kind: "mail", status: "needs_reauth" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch([account]);
+
+    // The pre-#201 address still arrives from old links — its own redirect
+    // route (`router/routes.ts#settingsMailAccountsRoute`) carries `?account=`
+    // across unchanged, so a cold start there lands the same place a fresh
+    // link to `/settings/connected-accounts` would.
+    history.replaceState(null, "", "/settings/mail-accounts?account=acct-1-connected&facet=mail");
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Connected Accounts", level: 2 }),
+    ).toBeDefined();
+    expect(location.pathname).toBe("/settings/connected-accounts");
+    await waitFor(() => expect(screen.getByLabelText("Username")).toBeDefined());
+  });
+
+  it("a Gatekeeper digest notification click, with a window open, opens the Screener narrowed to that Mail Account (#151)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
+      { replace: false },
+    );
+    stubFetch();
+
+    render(<App />);
+    expect(await screen.findByText("Account one thread")).toBeDefined();
+
+    act(() => {
+      publishNotificationTarget({ kind: "screener", mailAccountId: "acct-2" });
+    });
+
+    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
+    expect(screen.queryByText("Account one thread")).toBeNull();
+  });
+
   it("opening a Thread from the list pushes a history entry, and the phone back gesture returns to it (#81)", async () => {
     await seedOneThread();
     stubFetch();
@@ -275,6 +647,158 @@ describe("the app shell over a routed tree (#71)", () => {
     // The reading pane actually closed to match the URL the gesture landed
     // on — not just a URL change with the pane left open over it.
     expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
+  });
+
+  it("moving between Threads inside the Reader adds no history entries, and Back returns to the list from any of them (#140)", async () => {
+    await seedTwoThreads();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Newer thread");
+    const historyLengthBeforeOpen = history.length;
+
+    fireEvent.click(screen.getByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+    expect(history.length).toBe(historyLengthBeforeOpen + 1);
+
+    // `j` moves to the next (older) Thread from inside the Reader — a
+    // replace, not a further push (CONTEXT.md: "moving to another Thread
+    // from inside the Reader is not a further step").
+    fireEvent.keyDown(window, { key: "j" });
+    await screen.findByText("Older thread", { selector: ".reading-subject" });
+    expect(history.length).toBe(historyLengthBeforeOpen + 1);
+    expect(location.search).toContain("thread=t2");
+
+    await act(async () => {
+      history.back();
+    });
+
+    // One Back lands on the list, however many Threads were read in between.
+    await waitFor(() => expect(location.search).not.toContain("thread="));
+    expect(screen.queryByText("Older thread", { selector: ".reading-subject" })).toBeNull();
+    expect(screen.getByText("Newer thread")).toBeDefined();
+    expect(screen.getByText("Older thread")).toBeDefined();
+  });
+
+  it("a Back-then-Forward gesture into the Reader still lets one further Back return to the list (#140)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    fireEvent.click(screen.getByText("Routed thread"));
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
+
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull(),
+    );
+
+    await act(async () => {
+      history.forward();
+    });
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
+
+    // The router's own same-location dedup absorbs a same-destination
+    // duplicate push, so it never surfaces as an extra `history.length` here
+    // even from the pre-#140 marker — `router/MailRoute.test.tsx` is what
+    // actually exercises the marker's own push/replace decision (the fix
+    // this ticket made) directly. What this level still has to prove: a
+    // single further Back genuinely reaches the list, not a Reader that
+    // merely looks the same because a stale entry sits between here and it.
+    await act(async () => {
+      history.back();
+    });
+
+    await waitFor(() => expect(location.search).not.toContain("thread=t1"));
+    expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
+  });
+
+  it("closing the Reader with the Back pill leaves no stale history entry: Back from the list goes wherever it went before the Thread was opened (#140)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    history.replaceState(null, "", "/contacts");
+    render(<App />);
+    await screen.findByLabelText("Contacts");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Mail" }));
+    await screen.findByText("Routed thread");
+    const historyLengthAtList = history.length;
+
+    fireEvent.click(screen.getByText("Routed thread"));
+    await screen.findByText("Routed thread", { selector: ".reading-subject" });
+    expect(history.length).toBe(historyLengthAtList + 1);
+
+    await user.click(screen.getByRole("button", { name: "Back to list" }));
+
+    await waitFor(() => expect(location.search).not.toContain("thread=t1"));
+    expect(screen.queryByText("Routed thread", { selector: ".reading-subject" })).toBeNull();
+
+    // One more Back goes to wherever the User was before the Thread was
+    // opened — Contacts — not a ghost of the Mail list: the close popped
+    // the entry the open had pushed rather than leaving it behind and
+    // merely replacing its content (`history.length` itself can't tell the
+    // two apart — back()/replace() neither one changes it — so this is the
+    // one observable difference).
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() => expect(location.pathname).toBe("/contacts"));
+  });
+
+  it("leaving Stream after entering it from Mail goes back to the Mail surface that was showing, adding no net history (#141)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+    const historyLengthAtMail = history.length;
+
+    await user.click(screen.getByRole("button", { name: "Open Stream" }));
+    await screen.findByRole("button", { name: "Close Stream" });
+    expect(location.pathname).toBe("/mail/stream");
+    expect(history.length).toBe(historyLengthAtMail + 1);
+
+    await user.click(screen.getByRole("button", { name: "Close Stream" }));
+
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    expect(await screen.findByText("Routed thread")).toBeDefined();
+    // The pushed Stream entry was popped via `history.back()`, not
+    // replaced-over and left behind for a real browser to still hold as a
+    // reachable "forward" entry (`history.length` itself can't tell a pop
+    // from a replace apart — neither changes it, the same fact #140's own
+    // Back-pill test above notes) — so the proof is behavioural: one more
+    // Back from here leaves Mail entirely rather than bouncing back into
+    // Stream.
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() => expect(location.pathname).not.toBe("/mail/stream"));
+  });
+
+  it("landing on the Stream route cold and leaving it navigates to Mail (#141)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/stream");
+    render(<App />);
+    await screen.findByRole("button", { name: "Close Stream" });
+    const historyLengthAtStream = history.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Stream" }));
+
+    await waitFor(() => expect(location.pathname).toBe("/mail"));
+    expect(await screen.findByText("Routed thread")).toBeDefined();
+    // A cold entry has nothing pushed to go back to — the navigate to Mail
+    // replaces rather than growing the stack.
+    expect(history.length).toBe(historyLengthAtStream);
   });
 
   it("a needs-reauth notification click navigates to Connected Accounts and opens that Facet's Popover (#53, #201, #204)", async () => {
@@ -384,7 +908,7 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
-  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187, #193)", async () => {
+  it("the App Switcher opens a phone sheet naming all five Apps at phone width (#187, #193)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -398,10 +922,10 @@ describe("the app shell over a routed tree (#71)", () => {
       await screen.findByText("Routed thread");
 
       // The desktop's inline-expanding tab row isn't in the tree at all at
-      // this width — `useNarrowHeader` mounts the sheet trigger instead, not
-      // a CSS rule hiding the desktop row (`AppSwitcher.tsx`'s own doc
-      // comment on why the two share one accessible name and can't both be
-      // mounted at once).
+      // this width — `useIsMobile` mounts the sheet trigger instead, not a
+      // CSS rule hiding the desktop row (`AppSwitcher.tsx`'s own doc comment
+      // on why the two share one accessible name and can't both be mounted
+      // at once).
       await user.click(screen.getByRole("button", { name: "Switch app" }));
 
       expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
@@ -492,6 +1016,78 @@ describe("the app shell over a routed tree (#71)", () => {
 
     expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
     expect(location.pathname).toBe("/settings/general");
+  });
+
+  describe("the Command Palette, lifted to Hub level (#147)", () => {
+    it("has no Mail search field anywhere — the Hub's pill is the one visible search affordance", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      expect(screen.queryByLabelText("Search mail")).toBeNull();
+      expect(screen.getByRole("button", { name: /Search everything/ })).toBeDefined();
+    });
+
+    it("opens from the Hub's own search pill, from `/`, and from ⌘K — all reaching the same Palette", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      fireEvent.click(screen.getByRole("button", { name: /Search everything/ }));
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+      fireEvent.keyDown(window, { key: "/" });
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      fireEvent.keyDown(
+        await screen.findByLabelText<HTMLInputElement>("Search commands and mail"),
+        { key: "Escape" },
+      );
+      await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+    });
+
+    it("opens over Stream — mounted once at Hub level, not inside the Mail surface (#147)", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      fireEvent.click(screen.getByRole("button", { name: "Open Stream" }));
+      await screen.findByText("Routed thread", { selector: ".reading-subject" });
+      expect(document.querySelector(".stream-route")).not.toBeNull();
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      // Both the Palette and Stream are in the tree at once — the Palette
+      // renders *over* Stream rather than Stream unmounting it or hiding
+      // behind it, the bug the epic named directly.
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      expect(document.querySelector(".stream-route")).not.toBeNull();
+      expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
+    });
+
+    it("opens from a placeholder App too, with its own commands still listed", async () => {
+      await seedOneThread();
+      stubFetch();
+
+      history.replaceState(null, "", "/contacts");
+      render(<App />);
+      await screen.findByLabelText("Contacts");
+
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
+      expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
+    });
   });
 });
 

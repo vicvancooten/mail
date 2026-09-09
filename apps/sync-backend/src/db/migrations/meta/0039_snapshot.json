@@ -1,6 +1,6 @@
 {
-  "id": "257b120a-4cee-494a-aac5-472040bea3cb",
-  "prevId": "f98188bf-bf48-4c04-97a8-9121eb6a3b59",
+  "id": "f98188bf-bf48-4c04-97a8-9121eb6a3b59",
+  "prevId": "1eeb826a-e7ae-4ee1-9106-8604ef2b2cd7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1605,6 +1605,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2213,13 +2219,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'"
-        },
-        "pinned": {
-          "name": "pinned",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "created_at": {
           "name": "created_at",

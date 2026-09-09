@@ -1,6 +1,6 @@
 {
-  "id": "52467bab-18de-4542-b57a-28eb5d4a01ce",
-  "prevId": "288b4ebd-22bc-493e-adf9-38fb038a0cf6",
+  "id": "288b4ebd-22bc-493e-adf9-38fb038a0cf6",
+  "prevId": "cb6497ff-7906-4211-a210-8524f4ab1424",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -833,8 +833,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "dav_username": {
-          "name": "dav_username",
+        "dave_username": {
+          "name": "dave_username",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1878,6 +1878,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

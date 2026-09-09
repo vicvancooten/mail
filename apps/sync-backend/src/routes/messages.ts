@@ -1,4 +1,9 @@
-import { messageSchema, threadMessagesResponseSchema } from "@mail/shared";
+import {
+  messageSchema,
+  type RemoteImagesSetting,
+  resolveRemoteImagesSetting,
+  threadMessagesResponseSchema,
+} from "@mail/shared";
 import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ImapFlow } from "imapflow";
@@ -65,12 +70,20 @@ export async function messageRoutes(
 
       const resolved = await resolvePendingBodies(db, account.id, rows, credentialKey);
 
-      // The image-loading gate (#55, poc-scope.md: "the Gatekeeper verdict
-      // *is* the image-loading permission"). One batched resolve per Thread
-      // open rather than one per message — a Thread's messages are usually
-      // from two or three distinct senders — and evaluated on every read, so
-      // approving someone in the Screener takes effect the next time the
-      // User opens their mail rather than needing a re-sync of stored bodies.
+      // The image-loading gate (#55, #146): what used to be a hardcoded
+      // "Approved Sender only" rule is now the Mail Account's own
+      // `remoteImages` preference (`always | approved-only | ask`), read
+      // effective — unset derives from `gatekeeperEnabled`
+      // (`resolveRemoteImagesSetting`) — on every fetch, same as the Verdict
+      // resolve below, so both a Screener decision and a Settings change take
+      // effect the next time the User opens their mail, never needing a
+      // re-sync of stored bodies. One batched Verdict resolve per Thread open
+      // rather than one per message — a Thread's messages are usually from
+      // two or three distinct senders.
+      const remoteImagesSetting = resolveRemoteImagesSetting(
+        account.remoteImages,
+        account.gatekeeperEnabled,
+      );
       const verdicts = await resolveVerdicts(
         db,
         account.id,
@@ -80,7 +93,10 @@ export async function messageRoutes(
       return threadMessagesResponseSchema.parse({
         messages: resolved.map((row) =>
           toWireMessage(row, imageProxyKey, {
-            remoteImagesAllowed: verdictFor(verdicts, row.fromAddress).verdict === "approved",
+            remoteImagesAllowed: remoteImagesAllowedFor(
+              remoteImagesSetting,
+              verdictFor(verdicts, row.fromAddress),
+            ),
           }),
         ),
       });
@@ -262,6 +278,21 @@ async function resolvePendingBodies(
   });
 
   return rows.map((row) => patched.get(row.id) ?? row);
+}
+
+/**
+ * `remoteImages`'s effect on one message (#146): `always` → true regardless
+ * of the sender, `ask` → false regardless of the sender, `approved-only` →
+ * the sender's Verdict (today's behaviour, and what a Gatekeeper-off account
+ * falls back to since it has no Approved Senders to check).
+ */
+function remoteImagesAllowedFor(
+  setting: RemoteImagesSetting,
+  verdict: ReturnType<typeof verdictFor>,
+): boolean {
+  if (setting === "always") return true;
+  if (setting === "ask") return false;
+  return verdict.verdict === "approved";
 }
 
 function toWireMessage(

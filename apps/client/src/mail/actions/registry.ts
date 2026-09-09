@@ -6,6 +6,7 @@ import {
   ChevronUp,
   Clock,
   CornerUpLeft,
+  Flag,
   Forward,
   Keyboard,
   Layers,
@@ -26,7 +27,7 @@ import {
 import { labelNameForId } from "../../store/index.js";
 import { SNOOZE_PRESETS } from "../snooze-presets.js";
 import { currentReaderHandle } from "./surface-handles.js";
-import type { Action, ActionChoice, ActionContext } from "./types.js";
+import type { Action, ActionChoice, ActionContext, ActionSurface } from "./types.js";
 
 /**
  * The one Action registry (#94). Every surface — the row's hover cluster,
@@ -67,6 +68,7 @@ function replyAction(
   display: string,
   key: string,
   icon: Action["icon"],
+  surfaces: readonly ActionSurface[],
 ): Action {
   return {
     id,
@@ -74,7 +76,7 @@ function replyAction(
     icon,
     section: "Triage",
     binding: { keys: [key], display },
-    surfaces: ["menu"],
+    surfaces,
     availability: (ctx) =>
       !ctx.thread
         ? unavailable(NO_THREAD)
@@ -145,7 +147,7 @@ export const ACTIONS: readonly Action[] = [
     icon: CheckCircle2,
     section: "Triage",
     binding: { keys: ["e"], display: "E" },
-    surfaces: ["row-hover", "reader", "menu"],
+    surfaces: ["row-hover", "reader-primary", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.archive(ctx.thread.id);
@@ -157,7 +159,7 @@ export const ACTIONS: readonly Action[] = [
     icon: Clock,
     section: "Triage",
     binding: { keys: ["h"], display: "H" },
-    surfaces: ["row-hover", "reader", "menu"],
+    surfaces: ["row-hover", "reader-primary", "menu"],
     availability: needsThread,
     needsPicker: "snooze",
     // The keyboard and the Palette open a picker (the reading pane's own
@@ -173,28 +175,11 @@ export const ACTIONS: readonly Action[] = [
     icon: Tag,
     section: "Triage",
     binding: { keys: ["L"], display: "L" },
-    surfaces: ["reader", "menu"],
+    surfaces: ["reader-secondary", "menu"],
     availability: needsThread,
     needsPicker: "label",
     run: (ctx) => ctx.openPicker?.("label"),
     choices: labelChoices,
-  },
-  // "Add to Notes" (#195): the Reader's own bridge into Notes — creates a
-  // Note at once (no intermediate sheet, unlike a future "Add to Tasks",
-  // which will sit beside this one once its own spec lands). Reader/menu
-  // only, matching Label's own surfaces: there is no row-hover cluster
-  // control for this any more than there is one for Label.
-  {
-    id: "add-to-notes",
-    label: "Add to Notes",
-    icon: NotebookText,
-    section: "Triage",
-    binding: null,
-    surfaces: ["reader", "menu"],
-    availability: needsThread,
-    run: (ctx) => {
-      if (ctx.thread) ctx.onAddToNotes(ctx.thread);
-    },
   },
   {
     id: "pin",
@@ -202,7 +187,7 @@ export const ACTIONS: readonly Action[] = [
     icon: Pin,
     section: "Triage",
     binding: { keys: ["p"], display: "P" },
-    surfaces: ["row-hover", "reader", "menu"],
+    surfaces: ["row-hover", "reader-secondary", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.togglePin(ctx.thread.id);
@@ -214,10 +199,31 @@ export const ACTIONS: readonly Action[] = [
     icon: Star,
     section: "Triage",
     binding: { keys: ["s"], display: "S" },
-    surfaces: ["reader", "menu"],
+    surfaces: ["reader-secondary", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.toggleStar(ctx.thread.id);
+    },
+  },
+  // "Add to Notes" (#195): the Reader's own bridge into Notes — creates a
+  // Note at once (no intermediate sheet, unlike a future "Add to Tasks",
+  // which will sit beside this one once its own spec lands). Reader/menu
+  // only, matching Label's own surfaces: there is no row-hover cluster
+  // control for this any more than there is one for Label. Declared after
+  // Pin/Star (not beside Label, where #195 first placed it) so the Palette's
+  // own registry-order "most-used" fallback (#148) still surfaces the
+  // original five core Triage actions — Compose, Done, Snooze, Label, Pin —
+  // before this newer one.
+  {
+    id: "add-to-notes",
+    label: "Add to Notes",
+    icon: NotebookText,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-secondary", "menu"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.onAddToNotes(ctx.thread);
     },
   },
   // Unbound since #79 gave `u` to "back to list" — reachable from the
@@ -233,26 +239,71 @@ export const ACTIONS: readonly Action[] = [
     icon: MailOpen,
     section: "Triage",
     binding: null,
-    surfaces: ["reader", "menu"],
+    surfaces: ["reader-more", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.toggleRead(ctx.thread.id);
     },
   },
-  replyAction("reply", "Reply", "reply", "R", "r", Reply),
-  replyAction("reply-all", "Reply all", "replyAll", "A", "a", ReplyAll),
-  replyAction("forward", "Forward", "forward", "F", "f", Forward),
+  replyAction("reply", "Reply", "reply", "R", "r", Reply, ["reader-primary", "menu"]),
+  replyAction("reply-all", "Reply all", "replyAll", "A", "a", ReplyAll, ["menu"]),
+  replyAction("forward", "Forward", "forward", "F", "f", Forward, ["reader-more", "menu"]),
   {
     id: "trash",
     label: "Move to Trash",
     icon: Trash2,
     section: "Triage",
     binding: { keys: ["#", "Backspace", "Delete"], display: "#", preventDefault: true },
-    surfaces: ["reader", "menu"],
+    surfaces: ["reader-primary", "menu"],
     destructive: true,
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.trash(ctx.thread.id);
+    },
+  },
+
+  // Gatekeeper's set on any Inbox Thread (#144, epic #133): the Screener's
+  // own three decisions, reachable from the row menu and the Reader's More
+  // menu regardless of whether this Thread was ever held, and regardless of
+  // whether Gatekeeper is even on for the account — `useTriage.ts`'s own
+  // doc comment says what each does. Spam alone gets a key (`!`, user story
+  // #20); Approve and Block are menu-only, like Forward and Read/unread.
+  {
+    id: "spam",
+    label: "Spam",
+    icon: Flag,
+    section: "Triage",
+    binding: { keys: ["!"], display: "!", preventDefault: true },
+    surfaces: ["reader-more", "menu"],
+    destructive: true,
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.triage.spamSender(ctx.thread.id);
+    },
+  },
+  {
+    id: "block-sender",
+    label: "Block",
+    icon: Ban,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-more", "menu"],
+    destructive: true,
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.triage.blockSender(ctx.thread.id);
+    },
+  },
+  {
+    id: "approve-sender",
+    label: "Approve",
+    icon: Check,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-more", "menu"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.triage.approveSender(ctx.thread.id);
     },
   },
 
@@ -328,9 +379,15 @@ export const ACTIONS: readonly Action[] = [
     run: (ctx) => ctx.streamSkip?.(),
   },
 
+  // `/` and ⌘K both open the Command Palette now (#147: "the single entry
+  // point") — there is no field of Mail's own left for `/` to focus, so
+  // `onFocusSearch` is what `ctx.onFocusSearch`/`ctx.onOpenPalette` both end
+  // up wired to (`router/RootLayout.tsx`, `MailSection.tsx`,
+  // `stream/StreamStack.tsx`). Kept as two registry entries, not one, so the
+  // Shortcut Sheet still lists both bindings by name.
   {
     id: "focus-search",
-    label: "Focus search",
+    label: "Search",
     icon: Search,
     section: "Search",
     binding: { keys: ["/"], display: "/", preventDefault: true },
@@ -482,6 +539,19 @@ export function actionById(id: string): Action | undefined {
   return ACTIONS.find((action) => action.id === id);
 }
 
+/** Ids tagged for one Reader tier, regardless of whether any one of them can run right now — the tier's own *shape* (#143), computed once from the static registry rather than per render. `ThreadDetailPane`'s hand-rendered primary and secondary buttons key their presence on these two sets (Reply's `disabled` state still comes from `availability`, same as always); the More menu, by contrast, filters by availability too (`moreReaderActions`), the way every menu does. */
+function readerTierIds(surface: "reader-primary" | "reader-secondary"): ReadonlySet<string> {
+  return new Set(
+    ACTIONS.filter((action) => action.surfaces.includes(surface)).map((action) => action.id),
+  );
+}
+
+/** Reply, Done, Snooze, Trash — the ids `ThreadDetailPane` always renders inline, on every surface. */
+export const PRIMARY_READER_ACTION_IDS: ReadonlySet<string> = readerTierIds("reader-primary");
+
+/** Pin, Star, Label — the ids `ThreadDetailPane` renders inline on desktop, and folds into the More menu on a touch-capable phone. */
+export const SECONDARY_READER_ACTION_IDS: ReadonlySet<string> = readerTierIds("reader-secondary");
+
 /** Every non-contextual action, in registry order — what the Palette and the Shortcut Sheet list, available or not. */
 export function globalActions(): readonly Action[] {
   return ACTIONS.filter((action) => !action.contextual);
@@ -494,12 +564,38 @@ export function menuActions(ctx: ActionContext): readonly Action[] {
   );
 }
 
-/** The actions a surface renders as its own controls — the row's hover cluster (`"row-hover"`) or the reader toolbar (`"reader"`) — available ones only, in registry order. */
+/** The actions a surface renders as its own controls — the row's hover cluster (`"row-hover"`) or one of the Reader's tiers — available ones only, in registry order. */
 export function surfaceActions(
   ctx: ActionContext,
-  surface: "row-hover" | "reader",
+  surface: Exclude<ActionSurface, "menu">,
 ): readonly Action[] {
   return ACTIONS.filter(
     (action) => action.surfaces.includes(surface) && action.availability(ctx).available,
   );
+}
+
+/** The Reader's inline primary run (#143) — Reply, Done, Snooze, Trash: visible on every surface (Split, List, phone, Stream). */
+export function primaryReaderActions(ctx: ActionContext): readonly Action[] {
+  return surfaceActions(ctx, "reader-primary");
+}
+
+/** The Reader's inline secondary run (#143) — Pin, Star, Label: rendered by `ThreadDetailPane` only where `moreReaderActions`'s own `includeSecondary` is false (desktop). */
+export function secondaryReaderActions(ctx: ActionContext): readonly Action[] {
+  return surfaceActions(ctx, "reader-secondary");
+}
+
+/**
+ * The Reader's "More" menu (#143) — the `reader-more` tier (Read/unread,
+ * Forward, Spam, Approve, Block — #144) on every surface,
+ * joined by the secondary tier too (Pin, Star, Label) on a touch-capable
+ * phone, where the inline run has nowhere to sit (`ThreadDetailPane`'s own
+ * phone check). A new More-tier action needs nothing here — it only needs
+ * `"reader-more"` in its own `surfaces`.
+ */
+export function moreReaderActions(
+  ctx: ActionContext,
+  { includeSecondary }: { includeSecondary: boolean },
+): readonly Action[] {
+  const more = surfaceActions(ctx, "reader-more");
+  return includeSecondary ? [...secondaryReaderActions(ctx), ...more] : more;
 }

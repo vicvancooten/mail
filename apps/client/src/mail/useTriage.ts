@@ -1,8 +1,9 @@
-import type { AutoAdvanceDirection } from "@mail/shared";
+import type { AutoAdvanceDirection, GatekeeperSender } from "@mail/shared";
 import { useCallback, useEffect, useRef } from "react";
 import { notifyTriageSucceeded } from "../pwa/notification-offer.js";
 import type { CachedThread } from "../store/index.js";
 import { enqueueMutation } from "../store/index.js";
+import { invalidateThreadMessages } from "./reading/useThreadMessages.js";
 import { announceUndoableAction } from "./undo-toast.js";
 
 /**
@@ -50,6 +51,29 @@ import { announceUndoableAction } from "./undo-toast.js";
  * the registry's `label` action opens that widget (`ThreadDetailPane`'s own
  * Popover) rather than committing anything itself, and the picker calls
  * these two.
+ *
+ * `spamSender`/`blockSender`/`approveSender` (#144, epic #133's "Gatekeeper set on
+ * Inbox Threads") put the Screener's own three decisions on any Inbox
+ * Thread: the row menu, the Reader's More menu, and — Spam alone — the
+ * keyboard (`!`). Each resolves *which* sender it's deciding about the same
+ * way the Sync Backend does (the Thread's own opener, `thread.participants[0]`
+ * — oldest `From` first, `sync/thread-rollup.ts#collectParticipants`'s own
+ * order) and rides the exact same `approveSender`/`blockSender`/`spamSender`
+ * intents the Screener uses, just carrying this one Thread's id alongside
+ * the sender so the Sync Backend also moves *this* Thread even though it was
+ * never held (`gatekeeper/decisions.ts`'s own doc comment). All three work
+ * whether or not Gatekeeper is even on for the Mail Account — the Verdict is
+ * recorded either way and takes effect if it's turned on later. Spam and
+ * Block are undoable (#95, ADR-0019) the same shape `archive`/`trash` are —
+ * `unblockAndRestore` is the real inverse, clearing the Verdict and
+ * restoring the Thread; Approve's own inverse is `unblockSender`, which
+ * clears the Verdict back to Unscreened without touching the Thread (there
+ * is nothing to restore — Approve never moved it). This is a genuine
+ * departure from the Screener's own Approve, which announces no toast at all
+ * (CONTEXT.md's Undo entry doesn't list it, and releasing a stranger's mail
+ * needs no second thoughts the way trashing it does) — here, Approve is
+ * un-approving an Inbox Thread the User is looking at, which is exactly the
+ * kind of second thought Undo exists for.
  */
 
 export interface Triage {
@@ -69,6 +93,22 @@ export interface Triage {
   togglePin(threadId: string): void;
   applyLabel(threadId: string, name: string): void;
   removeLabel(threadId: string, name: string): void;
+  /**
+   * Spam (#144, `!`): records a Blocked Verdict (`spam: true`) for this
+   * Thread's own sender and moves the Thread to the Mail Account's Junk
+   * Folder. Returns the Undo handle (#95): calling it enqueues
+   * `unblockAndRestore`, clearing the Verdict and restoring the Thread.
+   */
+  spamSender(threadId: string): () => void;
+  /** Block (#144): the same shape as `spamSender`, to Trash instead of Junk. */
+  blockSender(threadId: string): () => void;
+  /**
+   * Approve (#144): records an Approved Verdict for this Thread's own
+   * sender — nothing moves, since an Inbox Thread was never held. Returns
+   * the Undo handle (#95): calling it enqueues `unblockSender`, clearing the
+   * Verdict back to Unscreened.
+   */
+  approveSender(threadId: string): () => void;
 }
 
 export interface UseTriageOptions {
@@ -195,6 +235,95 @@ export function useTriage({
     [advanceSelection, resolveMailAccountId, noopUndo],
   );
 
+  /**
+   * The Thread's own sender (#144): the opener's `From`, oldest-first same
+   * as `participants` (`sync/thread-rollup.ts#collectParticipants`'s own
+   * order) — exactly what the Sync Backend resolves a Thread's sender to
+   * when it isn't held (`gatekeeper/decisions.ts`'s own doc comment). `null`
+   * for a Thread this hook hasn't seen yet, or one with no `From` at all —
+   * there is nothing to screen.
+   */
+  const resolveThreadSender = useCallback(
+    (threadId: string): { accountId: string; sender: GatekeeperSender } | null => {
+      const thread = threadsRef.current.find((t) => t.id === threadId);
+      const accountId = resolveMailAccountId(threadId);
+      const address = thread?.participants[0]?.address;
+      if (!accountId || !address) return null;
+      return { accountId, sender: { scope: "address", value: address } };
+    },
+    [resolveMailAccountId],
+  );
+
+  const spamSender = useCallback(
+    (threadId: string): (() => void) => {
+      const resolved = resolveThreadSender(threadId);
+      if (!resolved) return noopUndo;
+      const { accountId, sender } = resolved;
+      advanceSelection(threadId); // leaves the Inbox, same as trash
+      void enqueueMutation({ type: "spamSender", sender, threadId }, accountId);
+      // Spam records a Blocked Verdict same as Block below — the same
+      // staleness `approveSender`'s own invalidation (and
+      // `screener/Screener.tsx#decide`'s, #145) fixes there applies here too.
+      invalidateThreadMessages([threadId]);
+      notifyTriageSucceeded();
+      const undo = () => {
+        void enqueueMutation(
+          { type: "unblockAndRestore", sender, threadIds: [threadId] },
+          accountId,
+        );
+        invalidateThreadMessages([threadId]);
+      };
+      announceUndoableAction("spam", undo);
+      return undo;
+    },
+    [advanceSelection, resolveThreadSender, noopUndo],
+  );
+
+  const blockSender = useCallback(
+    (threadId: string): (() => void) => {
+      const resolved = resolveThreadSender(threadId);
+      if (!resolved) return noopUndo;
+      const { accountId, sender } = resolved;
+      advanceSelection(threadId);
+      void enqueueMutation({ type: "blockSender", sender, threadId }, accountId);
+      // Block records a Blocked Verdict too — same staleness, same fix
+      // (`approveSender`'s own invalidation, `screener/Screener.tsx#decide`).
+      invalidateThreadMessages([threadId]);
+      notifyTriageSucceeded();
+      const undo = () => {
+        void enqueueMutation(
+          { type: "unblockAndRestore", sender, threadIds: [threadId] },
+          accountId,
+        );
+        invalidateThreadMessages([threadId]);
+      };
+      announceUndoableAction("block", undo);
+      return undo;
+    },
+    [advanceSelection, resolveThreadSender, noopUndo],
+  );
+
+  const approveSender = useCallback(
+    (threadId: string): (() => void) => {
+      const resolved = resolveThreadSender(threadId);
+      if (!resolved) return noopUndo;
+      const { accountId, sender } = resolved;
+      // Approve never moves the Thread — no `advanceSelection` — but it does
+      // change what `remoteImagesAllowed` resolves to on the next open, the
+      // same staleness `screener/Screener.tsx#decide` (#145) fixes there.
+      void enqueueMutation({ type: "approveSender", sender, threadId }, accountId);
+      invalidateThreadMessages([threadId]);
+      notifyTriageSucceeded();
+      const undo = () => {
+        void enqueueMutation({ type: "unblockSender", sender }, accountId);
+        invalidateThreadMessages([threadId]);
+      };
+      announceUndoableAction("approve", undo);
+      return undo;
+    },
+    [resolveThreadSender, noopUndo],
+  );
+
   const toggleStar = useCallback(
     (threadId: string) => {
       const accountForThread = resolveMailAccountId(threadId);
@@ -257,5 +386,17 @@ export function useTriage({
     [resolveMailAccountId],
   );
 
-  return { archive, trash, snooze, toggleStar, toggleRead, togglePin, applyLabel, removeLabel };
+  return {
+    archive,
+    trash,
+    snooze,
+    toggleStar,
+    toggleRead,
+    togglePin,
+    applyLabel,
+    removeLabel,
+    spamSender,
+    blockSender,
+    approveSender,
+  };
 }

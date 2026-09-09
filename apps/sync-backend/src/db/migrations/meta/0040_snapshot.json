@@ -1,6 +1,6 @@
 {
-  "id": "57a24458-f635-49e5-b3d3-28cdddde9e10",
-  "prevId": "257b120a-4cee-494a-aac5-472040bea3cb",
+  "id": "257b120a-4cee-494a-aac5-472040bea3cb",
+  "prevId": "f98188bf-bf48-4c04-97a8-9121eb6a3b59",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1605,6 +1605,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2221,12 +2227,6 @@
           "notNull": true,
           "default": false
         },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2274,22 +2274,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "notes_deleted_at_idx": {
-          "name": "notes_deleted_at_idx",
-          "columns": [
-            {
-              "expression": "deleted_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"notes\".\"deleted_at\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

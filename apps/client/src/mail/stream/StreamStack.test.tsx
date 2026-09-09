@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,10 @@ import {
   minutesAfterEpoch,
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
+import { PaletteHostTestProvider } from "../../test-support/palette-host-harness.js";
+import { resetActiveMailHost } from "../actions/active-mail-host.js";
+import { resetSurfaceHandles } from "../actions/surface-handles.js";
+import { resetUndoToastsForTest } from "../undo-toast.js";
 import { StreamStack } from "./StreamStack.js";
 
 /** The composer's own network calls — irrelevant here and mocked quiet, same as `MailSection.test.tsx`. */
@@ -56,6 +61,13 @@ function stubFetch(sync: () => Promise<Response> = never) {
 
 beforeEach(async () => {
   resetSyncStatus();
+  resetUndoToastsForTest();
+  // `active-mail-host.ts`/`surface-handles.ts` (#147): dropped on unmount by
+  // the mounted surface itself, but only once that unmount's own effect
+  // cleanup actually runs — their own reset exports are the guaranteed way
+  // to start each test with neither still holding a previous mount's host.
+  resetActiveMailHost();
+  resetSurfaceHandles();
   const name = `stream-stack-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
@@ -95,7 +107,9 @@ async function seedTwoThreads(): Promise<void> {
 function renderStream(onLeave: () => void = () => {}, onNoteCreated?: (noteId: string) => void) {
   return render(
     <AuthProvider>
-      <StreamStack onLeave={onLeave} onNoteCreated={onNoteCreated} />
+      <PaletteHostTestProvider>
+        <StreamStack onLeave={onLeave} onNoteCreated={onNoteCreated} />
+      </PaletteHostTestProvider>
       <Toaster />
     </AuthProvider>,
   );
@@ -109,6 +123,31 @@ describe("StreamStack (#105)", () => {
     expect(await screen.findByText("Newer thread")).toBeDefined();
     expect(screen.getByText("Older thread")).toBeDefined();
     expect(screen.queryByText("Snippet t-older")).toBeNull();
+  });
+
+  it("renders the same Reader action hierarchy Split/List do, plus its own Skip button (#143, #105: 'Stream is not a second design')", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    // The primary tier — Reply, Done, Snooze, Trash — same as every surface.
+    expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
+
+    // Skip stays Stream's own button, not a registry tier.
+    expect(screen.getByRole("button", { name: /Skip/ })).toBeDefined();
+
+    // The secondary tier — Pin, Star, Label — inline and quieter, same as
+    // Split/List at desktop width; Read/unread and Forward reach through the
+    // same More menu every surface gets.
+    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: /Pin/ })).toBeNull();
   });
 
   it("'e' Dones the top card and the next one slides up", async () => {
@@ -146,6 +185,65 @@ describe("StreamStack (#105)", () => {
     });
     expect(await screen.findByText("Older thread")).toBeDefined();
     expect(await listQueuedMutations("acct-1")).toEqual([]);
+  });
+
+  it("swiping the card right commits Done, through the same Triage/Undo path as 'e' (#149)", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    const surface = document.querySelector(".stream-card-swipe-surface") as Element;
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: "touch", clientX: 120 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "touch", clientX: 120 });
+
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toEqual([
+        expect.objectContaining({
+          intent: expect.objectContaining({ type: "archive", threadId: "t-newer" }),
+        }),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(await screen.findByText("Older thread")).toBeDefined();
+    // "Done" collides with the card's own (hidden) swipe-reveal label — the
+    // Undo button is the toast's unambiguous signature (#95, ADR-0019).
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("swiping the card left commits Trash, past the threshold (#149)", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    const surface = document.querySelector(".stream-card-swipe-surface") as Element;
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: "touch", clientX: -120 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "touch", clientX: -120 });
+
+    await waitFor(async () => {
+      expect(await listQueuedMutations("acct-1")).toEqual([
+        expect.objectContaining({
+          intent: expect.objectContaining({ type: "trash", threadId: "t-newer" }),
+        }),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    expect(await screen.findByText("Moved to trash")).toBeDefined();
+  });
+
+  it("releasing a card swipe short of the threshold cancels, leaving the stack untouched (#149)", async () => {
+    await seedTwoThreads();
+    renderStream();
+    await screen.findByText("Newer thread");
+
+    const surface = document.querySelector(".stream-card-swipe-surface") as Element;
+    fireEvent.pointerDown(surface, { pointerId: 1, pointerType: "touch", clientX: 0 });
+    fireEvent.pointerMove(surface, { pointerId: 1, pointerType: "touch", clientX: 40 });
+    fireEvent.pointerUp(surface, { pointerId: 1, pointerType: "touch", clientX: 40 });
+
+    await waitFor(() => expect(listQueuedMutations("acct-1")).resolves.toEqual([]));
+    expect(screen.getByText("Newer thread")).toBeDefined();
   });
 
   it("reaches an ending state once the stack is cleared, with a way back to Mail", async () => {

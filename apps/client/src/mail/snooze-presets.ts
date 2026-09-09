@@ -39,20 +39,14 @@ function nextWeekdayAt(now: Date, targetDay: number, hour: number): Date {
 const MORNING_HOUR = 8;
 
 /**
- * The row cluster's own list (#76). `SNOOZE_PRESETS[0]` — "Later today" — is
- * also what a bare swipe-left commits to with no picker in reach
- * (`ThreadRow.tsx`): the one preset that never needs a specific hour picked,
- * just an offset from now.
+ * The row cluster's own list (#76) — `ThreadRow.tsx`'s Snooze button opens
+ * `SnoozeMenu` for a preset/custom pick. Snooze is no longer a swipe outcome
+ * (#149 removed it from `useSwipeToTriage.ts`: right is Done, left is Trash),
+ * so every pick here always goes through that menu now — no more "bare
+ * swipe-left, no picker in reach" default to compute.
  */
 export const SNOOZE_PRESETS: readonly SnoozePreset[] = [
   { label: "Later today", until: (now) => hoursFromNow(now, 3) },
   { label: "Tomorrow", until: (now) => nextDayAt(now, MORNING_HOUR) },
   { label: "Next week", until: (now) => nextWeekdayAt(now, /* Monday */ 1, MORNING_HOUR) },
 ];
-
-/** The instant a bare swipe-left commits to (`useSwipeToTriage.ts`) — no menu, so no per-Thread choice to make. */
-export function defaultSwipeSnoozeUntil(now: Date = new Date()): Date {
-  const preset = SNOOZE_PRESETS[0];
-  if (!preset) throw new Error("SNOOZE_PRESETS must not be empty");
-  return preset.until(now);
-}

@@ -173,6 +173,23 @@ describe("RollbackToast", () => {
     );
   });
 
+  it("uses Spam's own name when a Screener Spam decision is rejected", async () => {
+    renderWithToaster(<RollbackToast />);
+
+    await act(async () => {
+      await rejectOne(
+        { type: "spamSender", sender: { scope: "address", value: "stranger@example.test" } },
+        "server_error",
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Couldn't Spam — the sender is still waiting in the Screener."),
+      ).toBeTruthy(),
+    );
+  });
+
   it("re-enqueues the exact same intent on Retry (#95, ADR-0011's own promise)", async () => {
     renderWithToaster(<RollbackToast autoDismissMs={10_000} />);
 

@@ -69,9 +69,13 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * the instant either writes, like Appearance (`theme/device-theme.ts`).
  *
  * On phone this isn't a permanent rail at all: it's a `Sheet` bottom sheet
- * (#93), opened from its own trigger — the header's hub mark stays the App
- * Switcher at every width, as the comp has it; this sheet is Mail's own
- * folder navigation, a different question.
+ * (#93). Its own in-body toggle is gone as of #155 — the phone bottom bar's
+ * Folders button opens it now (`router/BottomBar.tsx`, via the Action
+ * registry's `onOpenFolders`), the same "one persistent place to reach a
+ * thing" move the bottom bar makes for Compose and the App Switcher too.
+ * `foldersOpen`/`onFoldersOpenChange` (optional) let a caller control the
+ * Sheet from outside; omitted, it falls back to `SidebarProvider`'s own
+ * uncontrolled `openMobile` state, unchanged from before this ticket.
  */
 
 const FOLDER_ICONS: Record<FolderKey, LucideIcon> = {
@@ -242,34 +246,23 @@ function MobileSheet(props: SidebarProps) {
   }
 
   return (
-    <>
-      <button
-        type="button"
-        className="side-nav-toggle"
-        onClick={() => setOpenMobile(true)}
-        aria-label="Open folders"
-        aria-expanded={openMobile}
-      >
-        <PanelLeft size={18} />
-      </button>
-      <Sheet open={openMobile} onOpenChange={setOpenMobile}>
-        <SheetContent side="bottom" className="side-nav-sheet">
-          <SheetHeader className="sr-only">
-            <SheetTitle>Folders</SheetTitle>
-            <SheetDescription>Choose a folder or label to view.</SheetDescription>
-          </SheetHeader>
-          <nav className="side-nav" aria-label="Folders">
-            <RailContents
-              {...props}
-              onSelectFolder={selectFolder}
-              onSelectLabel={selectLabel}
-              onSelectGmailLabel={selectGmailLabel}
-              collapsed={false}
-            />
-          </nav>
-        </SheetContent>
-      </Sheet>
-    </>
+    <Sheet open={openMobile} onOpenChange={setOpenMobile}>
+      <SheetContent side="bottom" className="side-nav-sheet">
+        <SheetHeader className="sr-only">
+          <SheetTitle>Folders</SheetTitle>
+          <SheetDescription>Choose a folder or label to view.</SheetDescription>
+        </SheetHeader>
+        <nav className="side-nav" aria-label="Folders">
+          <RailContents
+            {...props}
+            onSelectFolder={selectFolder}
+            onSelectLabel={selectLabel}
+            onSelectGmailLabel={selectGmailLabel}
+            collapsed={false}
+          />
+        </nav>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -289,7 +282,14 @@ function SidebarBody(props: SidebarProps) {
   );
 }
 
-export function Sidebar(props: SidebarProps) {
+export function Sidebar(
+  props: SidebarProps & {
+    /** Controls the phone folder Sheet from outside (#155's bottom bar) — omitted, it's uncontrolled, same as before this pair existed. */
+    foldersOpen?: boolean;
+    onFoldersOpenChange?: (open: boolean) => void;
+  },
+) {
+  const { foldersOpen, onFoldersOpenChange, ...railProps } = props;
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   return (
     // Self-contained rather than relying on `RootLayout`'s own
@@ -316,8 +316,10 @@ export function Sidebar(props: SidebarProps) {
         style={{ display: "contents" }}
         open={!collapsed}
         onOpenChange={(open) => setCollapsed(!open)}
+        openMobile={foldersOpen}
+        onOpenMobileChange={onFoldersOpenChange}
       >
-        <SidebarBody {...props} />
+        <SidebarBody {...railProps} />
       </SidebarProvider>
     </TooltipProvider>
   );

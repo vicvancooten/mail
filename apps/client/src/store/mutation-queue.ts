@@ -31,15 +31,16 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     case "removeLabel":
       return [intent.threadId];
     // The Composition intents (#46, #101) and the Mail-Account-scoped
-    // Preference intents (#54) name no Thread. Empty is exactly right for
-    // both readers: nothing to exempt from Thread eviction, and nothing for
-    // the Thread overlay to match against.
+    // Preference intents (#54, #146) name no Thread. Empty is exactly right
+    // for both readers: nothing to exempt from Thread eviction, and nothing
+    // for the Thread overlay to match against.
     case "sendComposition":
     case "cancelSend":
     case "discardComposition":
     case "undiscardComposition":
     case "setSignature":
     case "setNotificationsEnabled":
+    case "setRemoteImages":
       return [];
     // The Gatekeeper decisions (#55) name a *sender*, not a Thread — one
     // decision per stranger, however many Threads they are holding. The
@@ -48,12 +49,21 @@ function referencedThreadIds(intent: MutationIntent): string[] {
     // here for the Thread overlay to predict and nothing to exempt from
     // eviction. The Screener's own optimistic feel comes from the row
     // leaving the Screener list, not from a Thread-level overlay.
-    case "approveSender":
     case "denySender":
-    case "blockSender":
-    case "spamSender":
     case "unblockSender":
       return [];
+    // `approveSender`/`blockSender`/`spamSender`'s own optional `threadId`
+    // (#144: Spam, Approve and Block on any Inbox Thread) is the one
+    // exception to the paragraph above — reached from an Inbox Thread rather
+    // than the Screener, these name the exact Thread the User is looking at,
+    // which is what lets `reads.ts#applyOverlay` hide a Spam'd or Blocked
+    // Thread the instant it's queued, the same immediate feel `archive`/
+    // `trash` already have, rather than waiting on the next Thread delta.
+    // The Screener's own sender-only calls (no `threadId`) still return `[]`.
+    case "approveSender":
+    case "blockSender":
+    case "spamSender":
+      return intent.threadId ? [intent.threadId] : [];
     // `unblockAndRestore` (#95, ADR-0019) is the one Gatekeeper intent that
     // *does* name Threads — Undo has to restore exactly the ones the
     // Screener decision it reverses trashed, captured by the Client at
@@ -140,6 +150,16 @@ function coalesceKey(intent: MutationIntent): { type: string; targetId: string; 
       return { type: "setNotificationsEnabled", targetId: "notifications", value: intent.enabled };
     case "setSignature":
       return { type: "setSignature", targetId: "signature", value: true };
+    // `setRemoteImages` (#146) is a three-way choice, not a boolean toggle —
+    // "always" and "ask" are not each other's inverse the way `setPinned`'s
+    // true/false are, so this must not reuse that cancel-on-opposite-value
+    // trick (picking "ask" then "always" would otherwise delete *both*
+    // queued edits instead of leaving "always" to send). Same fixed-constant
+    // shape `setSignature` uses instead: two queued edits both ride the
+    // queue rather than coalescing, FIFO landing on whichever the User
+    // picked last.
+    case "setRemoteImages":
+      return { type: "setRemoteImages", targetId: "remote-images", value: true };
     // Each Gatekeeper decision (#55, #102) is keyed to its sender, and Approve
     // vs. Block/Deny/Spam are not inverses of one another — Deny trashes mail,
     // Spam moves it to Junk, Approve releases it — so nothing here coalesces
