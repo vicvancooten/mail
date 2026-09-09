@@ -986,7 +986,7 @@ describe("POST /sync", () => {
     });
   });
 
-  describe("Mail-Account-scoped Preferences: setSignature / setNotificationsEnabled (#54)", () => {
+  describe("Mail-Account-scoped Preferences: setSignature / setNotificationsEnabled / setRemoteImages (#54, #146)", () => {
     it("sets and clears the signature through the ordinary mutation queue", async () => {
       const app = buildTestApp();
       const cookie = await claimOwner(app);
@@ -1066,6 +1066,47 @@ describe("POST /sync", () => {
       });
       expect(after.json().user.MailAccount.updated[0]).toMatchObject({
         notificationsEnabled: false,
+      });
+    });
+
+    it("sets remoteImages through the ordinary mutation queue and round-trips it through sync (#146)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { MailAccount: null } },
+      });
+      // Unset, and this freshly created account has Gatekeeper off — the
+      // read-time default is Always (#146), not the stored raw value.
+      expect(bootstrap.json().user.MailAccount.created[0]).toMatchObject({
+        remoteImages: "always",
+      });
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          mailAccounts: {
+            [accountId]: {
+              mutations: [{ id: "01IMG", intent: { type: "setRemoteImages", value: "ask" } }],
+            },
+          },
+        },
+      });
+
+      const after = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { MailAccount: bootstrap.json().user.MailAccount.newState } },
+      });
+      expect(after.json().user.MailAccount.updated[0]).toMatchObject({
+        remoteImages: "ask",
       });
     });
   });

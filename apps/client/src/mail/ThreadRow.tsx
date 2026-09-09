@@ -1,12 +1,11 @@
 import type { ThreadParticipant } from "@mail/shared";
-import { Check, Clock, type LucideIcon, Pin, Star } from "lucide-react";
+import { Check, Clock, type LucideIcon, Pin, Star, Trash2 } from "lucide-react";
 import { type CSSProperties, type ReactElement, type ReactNode, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import { type CachedThread, labelNameForId } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
 import { parseHeadline } from "./search/headline.js";
-import { defaultSwipeSnoozeUntil } from "./snooze-presets.js";
 import { formatRowTime, type TimeGroupTier } from "./time-groups.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "./useSwipeToTriage.js";
 
@@ -73,17 +72,22 @@ export interface RowHoverAction {
  * anyway (`j`/`k`, the Action registry's single listener), so nothing about
  * that path changes.
  *
- * `onArchive`/`onSnooze` (#44, #76, `poc-scope.md` §Clients & notifications)
- * wire the row into `useSwipeToTriage` *and* their own row controls below —
- * optional because `VirtualizedThreadList` has one non-triage caller path in
- * tests, and because the swipe hook is already a no-op for anything but a
- * touch pointer, so wiring it unconditionally would cost nothing either way;
- * optional just avoids threading unused callbacks through call sites that
- * truly have none. There is deliberately no `onTrash` here: Trash stays one
- * keystroke away (the registry's `#`/Backspace/Delete binding) and one
- * right-click away (`contextMenu` below), but per #66's own row-cluster/
- * swipe design ("swipe right marks Done, swipe left snoozes") it has no
- * row-level hover or swipe control of its own.
+ * `onArchive`/`onTrash`/`onSnooze` (#44, #76, #149, `poc-scope.md` §Clients &
+ * notifications) wire the row into `useSwipeToTriage` *and* their own row
+ * controls below — optional because `VirtualizedThreadList` has one
+ * non-triage caller path in tests, and because the swipe hook is already a
+ * no-op for anything but a touch pointer, so wiring it unconditionally would
+ * cost nothing either way; optional just avoids threading unused callbacks
+ * through call sites that truly have none. Per #149's "one gesture module...
+ * right = Done, left = Trash" (#133), `onTrash` is swipe left's own commit —
+ * Trash otherwise stays one keystroke away (the registry's `#`/Backspace/
+ * Delete binding) and one right-click away (`contextMenu` below), with no
+ * hover-cluster control of its own (unlike Snooze/Pin below): the swipe *is*
+ * its row-level control. `onSnooze` no longer wires into the swipe at all
+ * (#149 removes Snooze from swipe) — it only builds the hover cluster's
+ * Snooze button now, which #134's `hoverCapable` already keeps permanently
+ * visible on a touch device instead of hover-revealed, so losing swipe-to-
+ * Snooze costs nothing there.
  *
  * `headline`/`folderPill`/`actionBadge` are search's own additions (#51,
  * `docs/search-ux-spec.md` §The row: "Built on ADR-0011's `Thread` list-row
@@ -97,6 +101,7 @@ export function ThreadRow({
   selected,
   onSelect,
   onArchive,
+  onTrash,
   onSnooze,
   onTogglePin,
   hoverActions,
@@ -109,12 +114,16 @@ export function ThreadRow({
   tier = null,
   height,
   previewArmed = false,
+  pointerArmed = false,
+  hoverCapable = true,
 }: {
   thread: CachedThread;
   selected: boolean;
   onSelect: () => void;
   onArchive?: () => void;
-  /** #76: `until` is an ISO datetime — the row cluster's Snooze button opens `SnoozeMenu` for a preset/custom pick, and a bare swipe left commits `snooze-presets.ts`'s `defaultSwipeSnoozeUntil` with no picker in reach. */
+  /** #149: swipe left's own commit — "one gesture module... right = Done, left = Trash" (#133). No hover-cluster button of its own; the swipe is Trash's only row-level control. */
+  onTrash?: () => void;
+  /** #76: `until` is an ISO datetime — the row cluster's Snooze button opens `SnoozeMenu` for a preset/custom pick. No longer a swipe outcome (#149); the hover cluster is this row's only Snooze control now. */
   onSnooze?: (until: string) => void;
   /** #43/#87: the comp's row-hover actions are Snooze *and* Pin — same optional-wiring posture as the two above, so search's non-triage rows simply render neither. */
   onTogglePin?: () => void;
@@ -138,6 +147,19 @@ export function ThreadRow({
   height?: number;
   /** True while the User hovers this row's own group header checkmark (#66, #77's "hovering the header checkmark previews... every row's Done action") — forces the same reveal hover/focus/selected already give the row's Done control, without claiming this row is itself hovered, focused or selected. */
   previewArmed?: boolean;
+  /** True once this row is the one now sitting under the pointer's last
+   * known screen position, forced by `VirtualizedThreadList` after a Triage
+   * action (Done) removes a row and the next one slides up under a
+   * *stationary* pointer (#152) — no `mouseenter` fires just because the
+   * content moved, so without this the row would sit unarmed until the User
+   * actually moves the mouse, and a same-spot click would open the mail
+   * that just arrived there instead of repeating Done. Same "force armed
+   * without claiming hovered/focused/selected" posture as `previewArmed`
+   * above, kept as its own prop rather than reusing it: `previewArmed` also
+   * drives `data-group-preview`, which this has nothing to do with. */
+  pointerArmed?: boolean;
+  /** `useHoverCapable()` (#134): `(hover: hover) and (pointer: fine)`, not a viewport breakpoint. `false` drops the row's own Done glyph and its reserved gutter entirely — swipe right is the row's Done gesture on touch — and switches the hover cluster (Snooze/Pin) from hover-revealed to permanently visible, the phone alternative. Defaults `true` so a caller with no capability read above it (most unit tests) keeps today's hover-revealed row. */
+  hoverCapable?: boolean;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -148,7 +170,7 @@ export function ThreadRow({
 
   const swipe = useSwipeToTriage({
     onArchive: onArchive ?? (() => {}),
-    onSnooze: onSnooze ? () => onSnooze(defaultSwipeSnoozeUntil().toISOString()) : () => {},
+    onTrash: onTrash ?? (() => {}),
   });
   const revealStrength = Math.min(Math.abs(swipe.offsetX) / SWIPE_COMMIT_THRESHOLD_PX, 1);
 
@@ -161,7 +183,7 @@ export function ThreadRow({
   // way a click does, so one state covers all three triggers.
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const armed = hovered || focused || selected || previewArmed;
+  const armed = hovered || focused || selected || previewArmed || pointerArmed;
 
   // The Snooze popover (#76): its own local toggle, mirroring
   // `ThreadDetailPane`'s `pickerOpen` for `LabelPicker` — one open control
@@ -202,6 +224,7 @@ export function ThreadRow({
       data-tier={tier ?? undefined}
       data-armed={armed}
       data-group-preview={previewArmed || undefined}
+      data-hover-capable={hoverCapable}
       style={
         {
           height,
@@ -231,24 +254,29 @@ export function ThreadRow({
           nothing but correspondents and subjects. It never touches or
           overlays the tile, because the checkmark is an action ("archive
           this"), not a selection state, and because a fixed slot means
-          arming the row shifts nothing else in it. */}
-      <span className="row-check">
-        {onArchive ? (
-          <button
-            type="button"
-            className="done-btn"
-            aria-label={`Mark "${subjectLabel}" Done`}
-            title="Done (e)"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onArchive();
-            }}
-          >
-            <Check size={12} />
-          </button>
-        ) : null}
-      </span>
+          arming the row shifts nothing else in it. A touch-only pointer has
+          no hover to reveal it (#134): swipe right is the row's own Done
+          gesture there, so this whole slot — gutter included — goes
+          unrendered rather than sitting reserved and empty. */}
+      {hoverCapable ? (
+        <span className="row-check">
+          {onArchive ? (
+            <button
+              type="button"
+              className="done-btn"
+              aria-label={`Mark "${subjectLabel}" Done`}
+              title="Done (e)"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onArchive();
+              }}
+            >
+              <Check size={12} />
+            </button>
+          ) : null}
+        </span>
+      ) : null}
       <Avatar name={participantLabel} unread={unread} />
       <span className="row-line">
         <span className="row-sender">{participantLabel}</span>
@@ -365,7 +393,7 @@ export function ThreadRow({
   const withMenu = (content: ReactElement): ReactElement =>
     contextMenu ? contextMenu(content) : content;
 
-  if (!onArchive && !onSnooze) return withMenu(row); // no swipe wiring: skip the reveal wrapper entirely
+  if (!onArchive && !onTrash) return withMenu(row); // no swipe wiring: skip the reveal wrapper entirely
 
   return withMenu(
     <div className="thread-row-outer">
@@ -375,9 +403,9 @@ export function ThreadRow({
           style={{ opacity: revealStrength } as CSSProperties}
           aria-hidden="true"
         >
-          {swipe.revealing === "snooze" ? (
-            <span className="swipe-reveal-snooze">
-              <Clock size={16} /> Snooze
+          {swipe.revealing === "trash" ? (
+            <span className="swipe-reveal-trash">
+              <Trash2 size={16} /> Trash
             </span>
           ) : (
             // "Done" (#66 user story 8) — the act, on the row a swipe commits

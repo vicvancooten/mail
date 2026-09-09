@@ -1,6 +1,6 @@
 {
-  "id": "8ec79c4e-148b-4c25-b753-12cfde8685c8",
-  "prevId": "3d4a23c7-e6aa-4f1c-901b-0b359fe5d1ab",
+  "id": "3d4a23c7-e6aa-4f1c-901b-0b359fe5d1ab",
+  "prevId": "937373ab-a984-454a-a448-e6778a5b4059",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1724,7 +1724,7 @@
           "name": "connected_account_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "email_address": {
           "name": "email_address",
@@ -1773,6 +1773,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "credential": {
+          "name": "credential",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "server_kind": {
           "name": "server_kind",
@@ -1878,6 +1890,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1947,15 +1965,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "mail_accounts_connected_account_id_unique": {
-          "name": "mail_accounts_connected_account_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "connected_account_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2783,18 +2793,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "connected_account_id": {
-          "name": "connected_account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "facet": {
-          "name": "facet",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2846,19 +2844,6 @@
           "tableTo": "mail_accounts",
           "columnsFrom": [
             "mail_account_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "oauth_sign_in_attempts_connected_account_id_connected_accounts_id_fk": {
-          "name": "oauth_sign_in_attempts_connected_account_id_connected_accounts_id_fk",
-          "tableFrom": "oauth_sign_in_attempts",
-          "tableTo": "connected_accounts",
-          "columnsFrom": [
-            "connected_account_id"
           ],
           "columnsTo": [
             "id"
@@ -3113,20 +3098,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "calendar_api_enabled": {
-          "name": "calendar_api_enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "contacts_api_enabled": {
-          "name": "contacts_api_enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         }
       },
       "indexes": {},

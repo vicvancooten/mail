@@ -7,7 +7,7 @@ import {
 } from "./compose.js";
 import { connectedAccountSchema } from "./connected-accounts.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
-import { mailAccountSchema } from "./mail-accounts.js";
+import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
 import { noteSaveOutcomeSchema, noteSaveSchema, noteSchema } from "./notes.js";
 
 /**
@@ -384,13 +384,15 @@ export const queuedUserMutationSchema = z.object({
 export type QueuedUserMutation = z.infer<typeof queuedUserMutationSchema>;
 
 /**
- * The Mail-Account-scoped half of Preferences (#54): the plain-text
- * signature (already a `MailAccount` field, #47) and the notification on/off
- * toggle both ride the existing `MailAccount` collection rather than a
- * separate one — one Mail Account, one row, no join needed to render either.
- * Both are edited through this Mail Account's ordinary mutation queue —
- * `setSignature`/`setNotificationsEnabled` on `mutationIntentSchema` below —
- * same as any other App Feature.
+ * The Mail-Account-scoped half of Preferences (#54, plus the remote-images
+ * setting #146 grew onto it the same way): the plain-text signature (already
+ * a `MailAccount` field, #47), the notification on/off toggle, and the
+ * remote-images permission all ride the existing `MailAccount` collection
+ * rather than a separate one — one Mail Account, one row, no join needed to
+ * render any of them. All three are edited through this Mail Account's
+ * ordinary mutation queue — `setSignature`/`setNotificationsEnabled`/
+ * `setRemoteImages` on `mutationIntentSchema` below — same as any other App
+ * Feature.
  */
 
 /**
@@ -531,9 +533,9 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * (ADR-0007: "a cancel arriving after the claim loses and is reported to
  * the User as too late").
  *
- * `setSignature`/`setNotificationsEnabled` (#54) are the Mail-Account-scoped
- * half of Preferences — see `mailAccountMutationIntentSchema`'s docstring
- * above for why they ride this queue rather than a new collection.
+ * `setSignature`/`setNotificationsEnabled`/`setRemoteImages` (#54, #146) are
+ * the Mail-Account-scoped half of Preferences — see the docstring above for
+ * why they ride this queue rather than a new collection.
  *
  * The Gatekeeper intents (#55, #102) are the Screener's decisions and the
  * Blocked Senders list's undo. They ride this queue rather than their own
@@ -568,6 +570,16 @@ export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
  * - `unblockSender` clears a Blocked (or Spam) Verdict back to Unscreened.
  *   Future-only by construction: ADR-0008 is explicit that unblocking "stops
  *   the bleeding but recovers nothing".
+ *
+ * `approveSender`/`blockSender`/`spamSender`'s optional `threadId` (#144:
+ * Spam, Approve and Block on any Inbox Thread) names one specific Thread the
+ * decision must act on, alongside whatever the sender happens to be holding
+ * (nothing, ordinarily, since an Inbox Thread was by definition never held).
+ * These three are otherwise unchanged: still one decision per *sender*, and
+ * still correct for a stranger who has three other Threads sitting in the
+ * Screener at the same moment. The Verdict they record takes effect
+ * regardless of whether Gatekeeper is even enabled for the Mail Account,
+ * exactly as it would for a seeded or Screener decision.
  *
  * A domain-scoped intent for a public provider (`gatekeeper.ts`'s
  * `BARRED_VERDICT_DOMAINS`) is `rejected` rather than silently downgraded to
@@ -635,10 +647,29 @@ export const mutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("undiscardComposition"), compositionId: z.string() }),
   z.object({ type: z.literal("setSignature"), signature: z.string().nullable() }),
   z.object({ type: z.literal("setNotificationsEnabled"), enabled: z.boolean() }),
-  z.object({ type: z.literal("approveSender"), sender: gatekeeperSenderSchema }),
+  z.object({ type: z.literal("setRemoteImages"), value: remoteImagesSettingSchema }),
+  z.object({
+    type: z.literal("approveSender"),
+    sender: gatekeeperSenderSchema,
+    /**
+     * Present only when this decision was reached for one specific Inbox
+     * Thread rather than from the Screener (#144: Spam/Approve/Block on any
+     * Inbox Thread) — `sync/mutations.ts#applyGatekeeperIntent`'s own
+     * doc comment says what each of the three does with it.
+     */
+    threadId: z.string().optional(),
+  }),
   z.object({ type: z.literal("denySender"), sender: gatekeeperSenderSchema }),
-  z.object({ type: z.literal("blockSender"), sender: gatekeeperSenderSchema }),
-  z.object({ type: z.literal("spamSender"), sender: gatekeeperSenderSchema }),
+  z.object({
+    type: z.literal("blockSender"),
+    sender: gatekeeperSenderSchema,
+    threadId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("spamSender"),
+    sender: gatekeeperSenderSchema,
+    threadId: z.string().optional(),
+  }),
   z.object({ type: z.literal("unblockSender"), sender: gatekeeperSenderSchema }),
   z.object({
     type: z.literal("unblockAndRestore"),

@@ -11,6 +11,19 @@ import { fetchThreadMessages } from "../../api/messages.js";
  */
 const cache = new Map<string, Message[]>();
 
+/**
+ * Drops a set of Threads' cached Messages (#145): a Gatekeeper decision
+ * changes the sender's Verdict, and with it every one of their Threads'
+ * `remoteImagesAllowed` — the backend re-resolves that on every fetch
+ * (`sync-backend/src/routes/messages.ts`), so the client's only job is to
+ * stop serving the stale cached copy. Called with the deciding sender's own
+ * held `threadIds`, never the whole cache, so other senders' open Threads
+ * keep their cached Messages.
+ */
+export function invalidateThreadMessages(threadIds: readonly string[]): void {
+  for (const threadId of threadIds) cache.delete(threadId);
+}
+
 export interface ThreadMessagesState {
   messages: Message[] | null;
   loading: boolean;

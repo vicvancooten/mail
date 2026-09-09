@@ -16,7 +16,7 @@ import type { ScreenerSenderGroup } from "../../store/index.js";
  *
  * Block is a `DropdownMenu` (full shadcn, no hand-rolled popover) rather than
  * four flat buttons: *Block sender* stays the one-click default — the split
- * button's own face — while *Block domain*, *Mark as spam*, and #103's
+ * button's own face — while *Block domain*, *Spam*, and #103's
  * *Block everything sent to `<alias>`* sit behind the chevron as the
  * deliberate extra click #102's grill decision asks for (CONTEXT.md's Spam:
  * "the two claims ... are different, and only the User can tell them
@@ -96,8 +96,9 @@ export function ScreenerActions({
                   ? `Block domain — not offered for ${domain}`
                   : "Block domain"}
             </DropdownMenuItem>
+            {/* "Spam", never "report as spam"/"junk" (CONTEXT.md's Spam, epic #133) — the same word every other surface (#144's Inbox Thread actions, the Undo toast) uses. */}
             <DropdownMenuItem variant="destructive" onSelect={onSpam}>
-              Mark as spam
+              Spam
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"

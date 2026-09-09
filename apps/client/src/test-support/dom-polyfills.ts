@@ -34,3 +34,44 @@ if (!Element.prototype.scrollIntoView) {
 if (!document.elementsFromPoint) {
   document.elementsFromPoint = () => [];
 }
+
+/**
+ * jsdom ships no `Element.scrollTo` at all (#142) — `@tanstack/react-virtual`'s
+ * `scrollToOffset`/`scrollToIndex` call it (`elementScroll` in
+ * `@tanstack/virtual-core`) to move the real scroll container, which a test
+ * asserting a restored offset through `.thread-list.scrollTop` needs to
+ * actually happen, not silently no-op the way an absent method would. A
+ * real browser also fires a `scroll` event off this call — dispatching one
+ * here keeps a listener tracking "the list's current offset" (`VirtualizedThreadList.tsx`)
+ * in sync under test the same way it would in one.
+ */
+if (!Element.prototype.scrollTo) {
+  Element.prototype.scrollTo = function scrollTo(
+    this: Element,
+    ...args: [ScrollToOptions?] | [number, number]
+  ) {
+    const options = typeof args[0] === "object" ? args[0] : { left: args[0], top: args[1] };
+    if (typeof options?.top === "number") this.scrollTop = options.top;
+    if (typeof options?.left === "number") this.scrollLeft = options.left;
+    this.dispatchEvent(new Event("scroll"));
+  } as typeof Element.prototype.scrollTo;
+}
+
+/**
+ * jsdom implements the `PointerEvent` constructor but none of the Pointer
+ * Capture methods it lets a handler call on the target element — needed by
+ * `useSwipeToTriage.ts` (#149), which every row-swipe and Stream-card-swipe
+ * integration test drives with real `fireEvent.pointer*` events rather than
+ * a hand-built fake event. No-ops are all these tests need: nothing here
+ * asserts on capture actually retargeting subsequent moves, only on the
+ * offset/commit the hook computes from the events it's handed.
+ */
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+}

@@ -43,13 +43,10 @@ import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { ActionsProvider, useActionKeyboard } from "./actions/ActionsProvider.js";
+import { publishActiveMailHost } from "./actions/active-mail-host.js";
 import { currentListHandle, currentReaderHandle } from "./actions/surface-handles.js";
 import type { ActionContext } from "./actions/types.js";
-import { CommandPalette } from "./command-palette/CommandPalette.js";
-import {
-  consumeGlobalPaletteOpenRequest,
-  subscribeGlobalPaletteOpen,
-} from "./command-palette/global-open.js";
+import { usePaletteHost } from "./command-palette/PaletteHostContext.js";
 import { ShortcutSheet } from "./command-palette/ShortcutSheet.js";
 import { DraftsView } from "./DraftsView.js";
 import {
@@ -71,10 +68,10 @@ import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
 import { Screener } from "./screener/Screener.js";
-import { SearchField } from "./search/SearchField.js";
+import { scrollRestoreKey } from "./scroll-restore.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
-import { useSearchState, wrapSearchTriage } from "./search/useSearchState.js";
+import { wrapSearchTriage } from "./search/useSearchState.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { announceUndoableAction } from "./undo-toast.js";
 import { deriveMailAccountScope, useAccountScope } from "./useAccountScope.js";
@@ -100,6 +97,22 @@ const GROUP_BULK_MESSAGE_TOAST_MS = 6_000;
  * from scratch on every keystroke — the root of the Palette's "results
  * flicker to 'No matching commands'" bug. */
 function noop() {}
+
+/**
+ * Why `onLocationChange` (below) is firing right now — `router/MailRoute.tsx`
+ * needs this to tell a User-driven change apart from one the URL made on its
+ * own, or a Back-then-Forward re-entry counts as a fresh opening and pushes a
+ * duplicate history entry (#140). `"select"` is any ordinary User-driven move
+ * — opening a row, prev/next, Auto-advance, a folder/label switch, a
+ * notification landing on a Thread — the only reason that can ever mean
+ * "push". `"close"` is specifically the Back pill or `u` asking to leave the
+ * Reader (`backToList` below); a router can pop its own pushed entry for
+ * this rather than replacing to a list URL and leaving it behind as a ghost.
+ * `"sync"` is the URL popping or pushing on its own — the phone back gesture,
+ * Forward — reconciled by the effect below, never a fresh User action, so it
+ * must never be mistaken for one.
+ */
+export type LocationChangeReason = "select" | "close" | "sync";
 
 /**
  * "Which view-narrowing filter is active, if any" (#43, unified with Gmail
@@ -174,25 +187,28 @@ export function MailSection({
   initialLabelFilter = null,
   initialFolder,
   initialThreadId = null,
+  initialAccountId = null,
   onLocationChange,
   onOpenStream = noop,
   onNoteCreated = noop,
-  onOpenLocalHit = noop,
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
   initialThreadId?: string | null;
-  onLocationChange?: (location: {
-    labelFilter: string | null;
-    folder: FolderKey;
-    threadId: string | null;
-  }) => void;
+  /** A notification deep-link's Mail Account (#151, `router/MailRoute.tsx`'s own `?account=`) — widens a previously-narrowed Account Scope on a fresh mount so `initialThreadId`/a Screener `initialFolder` is actually visible. Unset for every unrouted caller (every test in this file included), the same posture the other `initial*` props take. */
+  initialAccountId?: string | null;
+  onLocationChange?: (
+    location: {
+      labelFilter: string | null;
+      folder: FolderKey;
+      threadId: string | null;
+    },
+    reason: LocationChangeReason,
+  ) => void;
   /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
   onOpenStream?: () => void;
   /** "Add to Notes" (#195)'s own navigation, fired once the new Note actually exists in the Local Cache (the internal `onAddToNotes` handler below awaits the store write first — `notesNoteRoute`'s own `beforeLoad` redirects a `/notes/$noteId` that doesn't resolve yet) — `router/MailRoute.tsx`'s navigation to that route; a no-op default for every unrouted caller (every test in this file included), same posture `onOpenStream` above takes. */
   onNoteCreated?: (noteId: string) => void;
-  /** A Command Palette local hit's own entry point (#196) — `router/MailRoute.tsx`'s navigation to whatever App the hit named (`/notes/:noteId` today); same no-op-default, router-agnostic posture as `onOpenStream`. */
-  onOpenLocalHit?: (to: string, params: Record<string, string>) => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
@@ -219,6 +235,18 @@ export function MailSection({
   );
   const accountId = accountScope[0] ?? null;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
+  // #142's scroll-restore fallback ("scroll the previously open Thread into
+  // view" when no saved offset exists) needs the Thread that *was* open, not
+  // the live `selectedThreadId` — closing the Reader clears that to `null`
+  // as part of returning to the list, in the very same render the list
+  // remounts in (the List layout) or reads this prop fresh (a Stream/
+  // Settings round trip remounts `MailSection` itself). Mutated during
+  // render, not an effect: an effect fires one commit too late for a mount
+  // that happens in this same render pass, and the write is idempotent
+  // (skipped whenever there's nothing new to remember), the same "store a
+  // previous value in a ref" pattern React's own docs describe.
+  const lastSelectedThreadIdRef = useRef<string | null>(initialThreadId);
+  if (selectedThreadId) lastSelectedThreadIdRef.current = selectedThreadId;
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`): the
   // Screener is one of these entries too, so `screenerOpen` below is derived
@@ -284,9 +312,26 @@ export function MailSection({
   // component hands out, so the effect below can tell that apart from one
   // that arrived some other way (see its own doc comment).
   const reportedThreadIdRef = useRef(initialThreadId);
+  // Set right before a call that changes `selectedThreadId` for a reason
+  // other than an ordinary User-driven select — `urlDrivenRef` by the
+  // Back/Forward reconciliation effect below, `closingReaderRef` by
+  // `backToList` — and consumed (reset) the moment the reporting effect
+  // reads it, so `router/MailRoute.tsx` learns *why* the location changed
+  // (#140's `LocationChangeReason`) instead of having to guess from a bare
+  // before/after diff, which is exactly what let a Back-driven close and a
+  // fresh User open look identical to it.
+  const urlDrivenRef = useRef(false);
+  const closingReaderRef = useRef(false);
   useEffect(() => {
     reportedThreadIdRef.current = selectedThreadId;
-    onLocationChange?.({ labelFilter, folder, threadId: selectedThreadId });
+    const reason: LocationChangeReason = urlDrivenRef.current
+      ? "sync"
+      : closingReaderRef.current
+        ? "close"
+        : "select";
+    urlDrivenRef.current = false;
+    closingReaderRef.current = false;
+    onLocationChange?.({ labelFilter, folder, threadId: selectedThreadId }, reason);
   }, [labelFilter, folder, selectedThreadId, onLocationChange]);
 
   // The phone back gesture (#81, mail#66: "a working back gesture supplied
@@ -299,9 +344,14 @@ export function MailSection({
   // gesture popped that entry: the URL's own `thread` search param moved on
   // its own, and the reading pane has to close (or swap Threads) to match,
   // not just leave the pane open over a URL that no longer names it.
+  // `urlDrivenRef` tags the resulting `selectedThreadId` change as `"sync"`
+  // above — never `"select"` — which is what stops a Back-then-Forward
+  // re-entry from being mistaken for a fresh opening and pushing a
+  // duplicate history entry (#140).
   useEffect(() => {
     if (initialThreadId === reportedThreadIdRef.current) return;
     reportedThreadIdRef.current = initialThreadId;
+    urlDrivenRef.current = true;
     setSelectedThreadId(initialThreadId);
   }, [initialThreadId]);
 
@@ -453,6 +503,42 @@ export function MailSection({
     setFolder(DEFAULT_FOLDER);
   }, [accountId]);
 
+  // A cold-start notification deep-link (#151): `initialAccountId` names the
+  // Mail Account a `thread`/`screener` target belongs to, seeded from the
+  // URL the same way `initialThreadId`/`initialFolder` are — a previously
+  // narrowed Scope (a Device Preference, not part of the URL) may exclude
+  // it, which would otherwise leave `initialThreadId` unfindable in
+  // `threads` or the Screener showing the wrong account's holds. Captured
+  // once, into a ref, rather than read live off the prop: `router/MailRoute
+  // .tsx`'s own `onLocationChange` drops `?account=` from the URL within
+  // the same tick this mounts (it never mirrors that param back), which
+  // would otherwise race the async Scope resolution below and clear the
+  // target before this ever got to apply it. Widens Scope exactly once,
+  // without the effect above's reset — that reset exists for a
+  // *User-driven* Scope change and would wipe out the
+  // `initialThreadId`/`initialFolder` this same mount already seeded;
+  // stamping `previousPrimaryAccountRef` here (the same trick
+  // `narrowScopeTo` uses) is what keeps it from firing behind this.
+  const initialAccountIdRef = useRef(initialAccountId);
+  const initialAccountAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialAccountAppliedRef.current) return;
+    const target = initialAccountIdRef.current;
+    if (!target || accountId === null) return;
+    initialAccountAppliedRef.current = true;
+    if (target === accountId) return;
+    // Same Mail-Account-id-to-Connected-Account-id translation
+    // `narrowScopeTo` below does (#207) — a no-op, same as there, while the
+    // target's parent Connected Account hasn't synced yet, rather than
+    // writing a Scope that would immediately fall back to "every account".
+    const connectedAccountId = mailAccounts?.find(
+      (account) => account.id === target,
+    )?.connectedAccountId;
+    if (!connectedAccountId) return;
+    previousPrimaryAccountRef.current = target;
+    setConnectedAccountScope([connectedAccountId]);
+  }, [accountId, mailAccounts, setConnectedAccountScope]);
+
   // Narrows Scope to exactly one account: the one path (a notification
   // click landing on an account not currently primary) where a *single*
   // account still has to be picked out from the rest, the same "switch to
@@ -536,6 +622,18 @@ export function MailSection({
           // the restored Draft in the composer, per ADR-0015.
           if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
           reopenCompose(target.compositionId);
+          return;
+        case "screener":
+          // Not `openScreener()` — that reads `accountScope` from this
+          // closure, which still holds the *pre*-narrow value in the same
+          // tick `narrowScopeTo` just fired (a stale-closure read, same
+          // batching `narrowScopeTo`'s own doc comment describes) — so the
+          // "viewed" cursor would advance for the wrong account. Setting
+          // both directly here keeps them in the one account the digest
+          // actually named.
+          if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
+          writeScreenerViewed(target.mailAccountId);
+          setFolder("screener");
           return;
         case "needs-reauth":
           return;
@@ -802,13 +900,23 @@ export function MailSection({
   // disappeared: "nothing open."
   const visibleIds = useMemo(() => visibleThreads.map((thread) => thread.id), [visibleThreads]);
 
-  // Search (#51, `docs/search-ux-spec.md`): one hook owns the route, the
-  // parse, the prefilter + server round trip and the merged result set;
-  // MailSection's only job is feeding it this account and wiring its own
-  // `useTriage` instance — the same "one shared hook so actions mean the
-  // same thing" reasoning as the triage instance above, kept separate only
-  // because a result's selection/neighbor set is a different list.
-  const search = useSearchState(accountScope, mailAccounts ?? []);
+  // This list's own identity for scroll restoration (#142): folder + label
+  // filter + Account Scope, so a saved offset only ever comes back for the
+  // same list it was left at, never a different folder/label the User has
+  // since switched to. `accountScope` is a fresh array identity every
+  // render (`useAccountScope.ts`), so it's joined into the string rather
+  // than compared by reference.
+  const listScrollRestoreKey = scrollRestoreKey({ folder, labelFilter, accountScope });
+
+  // Search (#51, `docs/search-ux-spec.md`): the hook itself moved to Hub
+  // level (#147, `command-palette/PaletteHostContext.tsx`) so the Palette is
+  // mounted once, above every App and screen — MailSection reads the same
+  // shared session rather than owning it, and still just wires its own
+  // `useTriage` instance against it, the same "one shared hook so actions
+  // mean the same thing" reasoning as the triage instance above, kept
+  // separate only because a result's selection/neighbor set is a different
+  // list.
+  const { search, paletteOpen, openPalette } = usePaletteHost();
   const searchOrigin = useMemo<ViewOrigin>(
     () =>
       labelFilter
@@ -819,7 +927,6 @@ export function MailSection({
         : { kind: "inbox" },
     [labelFilter, labelsForPicker],
   );
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Called unconditionally, before the early returns below — Rules of
   // Hooks — and happily a no-op with `accountId: null` or an empty list,
@@ -861,36 +968,18 @@ export function MailSection({
   });
   const searchTriage = wrapSearchTriage(rawSearchTriage, search.results, search.markActedOn);
 
-  // The Command Palette (#79) and the Shortcut Sheet — two independent
-  // overlays, at most one up at a time in practice (opening one while the
-  // other's up just replaces it, no stacking logic needed).
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  // The Shortcut Sheet — its own overlay, independent of the Palette
+  // (`paletteOpen`, now Hub-owned): at most one up at a time in practice
+  // (opening one while the other's up just replaces it, no stacking logic
+  // needed).
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
-  const openPalette = useCallback(() => setPaletteOpen(true), []);
-  const closePalette = useCallback(() => setPaletteOpen(false), []);
-  // Set right before a `/`-triggered `.focus()` call, so the search field's
-  // own `onFocus` (below) can tell "the `/` fast path" apart from a mouse
-  // click on the field itself — only the latter is the Palette's other
-  // entry point (#79's issue text: "the header search field is its other
-  // entry point"). A ref, not state: it has to be readable synchronously by
-  // the very next `focus` event, ahead of any render.
-  const suppressPaletteOnFocusRef = useRef(false);
-  const focusSearchField = useCallback(() => {
-    suppressPaletteOnFocusRef.current = true;
-    searchInputRef.current?.focus();
-  }, []);
 
-  // ⌘K pressed outside `/mail` navigates here and leaves a one-shot request
-  // behind (`router/RootLayout.tsx`, `global-open.ts`) — consumed once, on
-  // mount, same as any other "arrived with an intent" flag in this file.
-  useEffect(() => {
-    if (consumeGlobalPaletteOpenRequest()) setPaletteOpen(true);
-  }, []);
-
-  // …and while it stays mounted, the header's own global search field
-  // (#86, `router/RootLayout.tsx`) raises the same request from a route
-  // that is already `/mail`, where no mount is coming to consume a flag.
-  useEffect(() => subscribeGlobalPaletteOpen(openPalette), [openPalette]);
+  // The phone folder Sheet (#155): controlled from here now rather than
+  // `Sidebar.tsx`'s own uncontrolled `openMobile`, so the bottom bar's
+  // Folders button (`router/BottomBar.tsx`, reached through the Action
+  // registry's `onOpenFolders` below) can open it from outside Mail's own
+  // rendered rail.
+  const [foldersOpen, setFoldersOpen] = useState(false);
 
   // Whichever Thread is actually open right now — the ordinary Inbox
   // pairing, Search's own results-view selection, or an opened search hit
@@ -903,9 +992,20 @@ export function MailSection({
       threads.find((candidate) => candidate.id === selectedThreadId) ??
       null);
   const activeTriage = search.active || openedSearchThread ? searchTriage : triage;
+  // The Back pill and `u` (#140): the one path that means "leave the Reader
+  // for the list", as opposed to any other change that happens to null out
+  // `selectedThreadId` along the way (a folder/label switch, say). Search has
+  // no route of its own (ADR-0017), so only the plain branch stamps
+  // `closingReaderRef` — `router/MailRoute.tsx` is what reads the `"close"`
+  // reason this produces to pop its own pushed entry instead of replacing to
+  // a list URL and leaving it behind as a ghost.
   const backToList = useCallback(() => {
-    if (search.active || openedSearchThread) search.select(null);
-    else setSelectedThreadId(null);
+    if (search.active || openedSearchThread) {
+      search.select(null);
+      return;
+    }
+    closingReaderRef.current = true;
+    setSelectedThreadId(null);
   }, [search.active, search.select, openedSearchThread]);
 
   // The Messages of whichever Thread is open — what makes Reply/Reply
@@ -995,7 +1095,10 @@ export function MailSection({
       onBackToList: backToList,
       onOpenScreener: openScreener,
       screenerCount: screenerSenderCount,
-      onFocusSearch: focusSearchField,
+      onOpenFolders: () => setFoldersOpen(true),
+      // `/` opens the Palette directly now (#147) — there is no field of
+      // Mail's own left to focus.
+      onFocusSearch: openPalette,
       onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream,
@@ -1018,13 +1121,20 @@ export function MailSection({
       backToList,
       openScreener,
       screenerSenderCount,
-      focusSearchField,
       openPalette,
       onOpenStream,
       onAddToNotes,
       moveSelection,
       activeIds.length,
     ],
+  );
+
+  // Publishes this surface's own `ActionContext`/seeded scope for the
+  // Hub-level Palette to read (#147, `actions/active-mail-host.ts`) —
+  // `MailSection` no longer mounts the Palette itself.
+  useEffect(
+    () => publishActiveMailHost({ ctx: actionContext, searchOrigin }),
+    [actionContext, searchOrigin],
   );
 
   // **The** `keydown` listener (#94). Inert while the composer owns the
@@ -1042,43 +1152,6 @@ export function MailSection({
   return (
     <ActionsProvider value={actionContext}>
       <section className="mail-section">
-        {/* Mail's own search bar (#96): all that's left of `mail/TopBar.tsx`
-            after Account Scope moved into the Hub, the label filter and
-            Screener chip were dropped as redundant with the Sidebar's own
-            Labels/Screener entries, and Stream's entry point moved to the
-            Sidebar (`Sidebar.tsx`'s own doc comment) — a single field, not a
-            row of view-mode controls, so this isn't "the Mail toolbar" the
-            ticket's acceptance box says is gone. */}
-        <div className="mail-search-bar">
-          <SearchField
-            search={{
-              active: search.active,
-              queryText: search.queryText,
-              inputRef: searchInputRef,
-              onChange: search.onFieldChange,
-              onCommit: search.onCommit,
-              onEsc: search.onEsc,
-              onBackspaceEmpty: search.onBackspaceEmpty,
-              // The header field's own click/focus (#79: "the header search
-              // field is its other entry point" for the Palette) — unless it
-              // was `/` that focused it a moment ago (`suppressPaletteOnFocusRef`
-              // above), in which case this is the pre-#79 "just open search"
-              // path, matching `search-integration.test.tsx`'s own `/`-driven
-              // coverage exactly.
-              onOpen: () => {
-                if (suppressPaletteOnFocusRef.current) {
-                  suppressPaletteOnFocusRef.current = false;
-                  search.open(searchOrigin);
-                } else {
-                  openPalette();
-                }
-              },
-              recentSearches: search.recentSearches,
-              onRunRecent: search.runRecent,
-              onClearRecent: search.clearRecent,
-            }}
-          />
-        </div>
         {/* Unmounted rather than merely hidden while the Screener is open: a
             `readScreenerSeenUntil` read only happens on mount/account change
             (`GatekeeperBanner`'s own doc comment), and `openScreener` just
@@ -1099,6 +1172,8 @@ export function MailSection({
             screenerCount={screenerSenderCount}
             draftsCount={draftCompositions.length}
             onOpenStream={onOpenStream}
+            foldersOpen={foldersOpen}
+            onFoldersOpenChange={setFoldersOpen}
           />
           <div className="mail-body">
             {screenerOpen && accountScope.length > 0 ? (
@@ -1152,12 +1227,13 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
-                onClearSelection={() => setSelectedThreadId(null)}
+                onClearSelection={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
-                initialScrollThreadId={selectedThreadId}
+                initialScrollThreadId={lastSelectedThreadIdRef.current}
+                scrollRestoreKey={listScrollRestoreKey}
                 density={density}
                 groupBulk={groupBulk}
               />
@@ -1168,12 +1244,13 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
-                onBack={() => setSelectedThreadId(null)}
+                onBack={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
-                initialScrollThreadId={selectedThreadId}
+                initialScrollThreadId={lastSelectedThreadIdRef.current}
+                scrollRestoreKey={listScrollRestoreKey}
                 density={density}
                 groupBulk={groupBulk}
               />
@@ -1185,16 +1262,6 @@ export function MailSection({
         <RollbackToast />
         <NewMailToast />
         <NotificationOfferBanner />
-        <CommandPalette
-          open={paletteOpen}
-          onClose={closePalette}
-          ctx={actionContext}
-          search={search}
-          searchOrigin={searchOrigin}
-          accounts={mailAccounts ?? []}
-          accountScope={accountScope}
-          onOpenLocalHit={onOpenLocalHit}
-        />
         <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
         {composeId && accountId && (
           <Suspense fallback={null}>

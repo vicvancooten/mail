@@ -183,3 +183,48 @@ describe("ThreadRow — the Snooze control", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 });
+
+/**
+ * `hoverCapable` (#134, `useHoverCapable()`'s `(hover: hover) and
+ * (pointer: fine)` — `VirtualizedThreadList` reads the hook and threads the
+ * result down; this row only ever consumes the prop): the row's own Done
+ * glyph is one of the hover-only affordances the ticket names, and its
+ * reserved gutter goes with it — never present without the other.
+ */
+describe("ThreadRow — hoverCapable (#134)", () => {
+  it("defaults to true (today's hover-revealed row) for a caller with no capability read above it", () => {
+    render(
+      <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onArchive={() => {}} />,
+    );
+    expect(screen.getByRole("button", { name: 'Mark "Quarterly numbers" Done' })).not.toBeNull();
+  });
+
+  it("hoverCapable=false drops the Done glyph and its reserved gutter (.row-check) entirely, not just its visibility", () => {
+    render(
+      <ThreadRow
+        thread={makeThread()}
+        selected={false}
+        onSelect={() => {}}
+        onArchive={() => {}}
+        hoverCapable={false}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Done/ })).toBeNull();
+    expect(document.querySelector(".row-check")).toBeNull();
+  });
+
+  it("hoverCapable=false keeps the Snooze/Pin cluster mounted — the phone alternative is permanent, not hover-revealed", () => {
+    render(
+      <ThreadRow
+        thread={makeThread()}
+        selected={false}
+        onSelect={() => {}}
+        onSnooze={() => {}}
+        onTogglePin={() => {}}
+        hoverCapable={false}
+      />,
+    );
+    expect(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
+    expect(screen.getByRole("button", { name: 'Pin "Quarterly numbers"' })).not.toBeNull();
+  });
+});

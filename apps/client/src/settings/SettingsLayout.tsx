@@ -1,5 +1,15 @@
-import { Link, Outlet } from "@tanstack/react-router";
-import { AtSign, Bell, Lock, Monitor, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import {
+  AtSign,
+  Bell,
+  ChevronLeft,
+  Lock,
+  Monitor,
+  Server,
+  ShieldCheck,
+  SlidersHorizontal,
+} from "lucide-react";
+import { useIsPhoneWidth } from "../hooks/use-phone-width.js";
 import { rootRoute } from "../router/routes.js";
 import "./settings.css";
 
@@ -29,6 +39,16 @@ import "./settings.css";
  * same seam `router/RootLayout.tsx` already reads `user` through — a
  * circular import with `router/routes.js` that resolves fine, since both
  * modules are fully evaluated before any component actually renders.
+ *
+ * At phone width (#135, `hooks/use-phone-width.ts`) the rail-plus-Outlet
+ * shape above is wrong: a 200px rail eats most of a phone viewport, and a
+ * squeezed two-column layout is exactly what the epic (#133) calls out.
+ * Instead this renders one of two full-width screens: the nav itself, alone,
+ * when `/settings` is the current route (`settingsIndexRoute`'s own
+ * `beforeLoad` leaves phone width sitting there rather than redirecting to
+ * General); or the current section's `<Outlet/>` plus a Back control that
+ * navigates to `/settings`, once a section is chosen. Desktop's rail stays
+ * exactly as it was — this only ever branches at phone width.
  */
 
 const NAV_ITEMS = [
@@ -45,17 +65,44 @@ const OWNER_ONLY_NAV_ITEM = { to: "/settings/instance", label: "Instance", Icon:
 export function SettingsLayout() {
   const { user } = rootRoute.useRouteContext();
   const navItems = user.role === "owner" ? [...NAV_ITEMS, OWNER_ONLY_NAV_ITEM] : NAV_ITEMS;
+  const isPhone = useIsPhoneWidth();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const atSectionList = pathname === "/settings";
+
+  const nav = (
+    <nav className="settings-nav" aria-label="Settings">
+      {navItems.map(({ to, label, Icon }) => (
+        <Link key={to} to={to} className="settings-nav-item">
+          <Icon size={15} />
+          {label}
+        </Link>
+      ))}
+    </nav>
+  );
+
+  if (isPhone) {
+    if (atSectionList) {
+      // The entry point itself (#135): the section list, full-width, no rail.
+      return <div className="settings-shell settings-shell--phone">{nav}</div>;
+    }
+    return (
+      <div className="settings-shell settings-shell--phone">
+        <div className="settings-page-header">
+          <Link to="/settings" className="settings-back" aria-label="Back to Settings">
+            <ChevronLeft size={16} />
+            Settings
+          </Link>
+        </div>
+        <div className="settings-content">
+          <Outlet />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="settings-shell">
-      <nav className="settings-nav" aria-label="Settings">
-        {navItems.map(({ to, label, Icon }) => (
-          <Link key={to} to={to} className="settings-nav-item">
-            <Icon size={15} />
-            {label}
-          </Link>
-        ))}
-      </nav>
+      {nav}
       <div className="settings-content">
         <Outlet />
       </div>

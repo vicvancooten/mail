@@ -40,6 +40,24 @@ function makeThreads(count: number): CachedThread[] {
   );
 }
 
+/**
+ * Stubs `window.matchMedia` for `useHoverCapable()` (#134): `matches`
+ * answers `(hover: hover) and (pointer: fine)` — `true` simulates a
+ * mouse/trackpad, `false` a touch-only pointer. Real jsdom has no
+ * `matchMedia` at all (`use-mobile.ts`'s own comment), so every test that
+ * never calls this keeps the hook's `true` fallback — today's
+ * hover-revealed behavior, unchanged by this ticket.
+ */
+function stubHoverCapable(matches: boolean) {
+  const mql = {
+    matches,
+    media: "(hover: hover) and (pointer: fine)",
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  } as unknown as MediaQueryList;
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(mql));
+}
+
 beforeEach(() => {
   localStorage.clear();
 });
@@ -47,6 +65,34 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe("VirtualizedThreadList — row gutter on input capability (#134)", () => {
+  it("reserves the row's Done gutter for a hover-capable pointer, and drops it entirely for a touch-only one — never a viewport read", () => {
+    stubHoverCapable(true);
+    render(
+      <VirtualizedThreadList
+        threads={[makeThread("t1", "2026-06-25T09:00:00.000Z")]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    expect(document.querySelector(".row-check")).not.toBeNull();
+
+    cleanup();
+    stubHoverCapable(false);
+    render(
+      <VirtualizedThreadList
+        threads={[makeThread("t1", "2026-06-25T09:00:00.000Z")]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    expect(document.querySelector(".row-check")).toBeNull();
+  });
 });
 
 describe("VirtualizedThreadList", () => {
@@ -448,7 +494,8 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     expect(indices.slice(8)).toEqual(["7", "7"]);
   });
 
-  it("phone's overflow button opens a Sheet offering Done all / Mark all read / Collapse, previewing the group while open (#97)", () => {
+  it("a touch-only pointer's overflow button opens a Sheet offering Done all / Mark all read / Collapse, previewing the group while open (#97, #134)", () => {
+    stubHoverCapable(false);
     const controller = makeController();
     renderWithGroupBulk(controller);
 
@@ -461,6 +508,26 @@ describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => 
     fireEvent.click(sheetDoneAll);
     expect(controller.onDoneAll).toHaveBeenCalledWith("Today");
     expect(cluster.getAttribute("data-group-preview")).toBe("false");
+  });
+
+  it("#134: gates the rail's Done-all node and the trailing bulk actions off on a touch-only pointer, in favor of the overflow button — never both", () => {
+    stubHoverCapable(false);
+    renderWithGroupBulk(makeController());
+
+    expect(screen.queryByRole("button", { name: "Done with Today" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark Today read" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Collapse Today" })).toBeNull();
+    expect(screen.getByRole("button", { name: "More actions for Today" })).toBeDefined();
+  });
+
+  it("#134: keeps the rail's Done-all node and bulk actions — never the overflow button — for a hover-capable pointer", () => {
+    stubHoverCapable(true);
+    renderWithGroupBulk(makeController());
+
+    expect(screen.getByRole("button", { name: "Done with Today" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Mark Today read" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Collapse Today" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "More actions for Today" })).toBeNull();
   });
 });
 

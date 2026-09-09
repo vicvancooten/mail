@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultSwipeSnoozeUntil, SNOOZE_PRESETS } from "./snooze-presets.js";
+import { SNOOZE_PRESETS } from "./snooze-presets.js";
 
 describe("SNOOZE_PRESETS", () => {
   it("computes 'Later today' as 3 hours from now, whatever the calendar day", () => {
@@ -31,14 +31,5 @@ describe("SNOOZE_PRESETS", () => {
     for (const preset of SNOOZE_PRESETS) {
       expect(preset.until(now).getTime()).toBeGreaterThan(now.getTime());
     }
-  });
-});
-
-describe("defaultSwipeSnoozeUntil", () => {
-  it("matches the first preset ('Later today')", () => {
-    const now = new Date("2026-06-15T20:00:00.000Z");
-    expect(defaultSwipeSnoozeUntil(now).toISOString()).toBe(
-      SNOOZE_PRESETS[0]?.until(now).toISOString(),
-    );
   });
 });

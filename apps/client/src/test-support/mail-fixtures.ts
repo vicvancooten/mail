@@ -27,6 +27,11 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     serverKind: null,
     signature: null,
     notificationsEnabled: true,
+    // Matches `gatekeeper.enabled: false` below via `resolveRemoteImagesSetting`'s
+    // own default rule (#146) — a fixture with Gatekeeper off and this still
+    // "approved-only" would be a self-contradictory account no real sync
+    // response could ever produce.
+    remoteImages: "always",
     gatekeeper: { enabled: false, cutoff: null },
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,

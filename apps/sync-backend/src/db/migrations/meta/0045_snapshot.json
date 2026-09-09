@@ -1,6 +1,6 @@
 {
-  "id": "288b4ebd-22bc-493e-adf9-38fb038a0cf6",
-  "prevId": "cb6497ff-7906-4211-a210-8524f4ab1424",
+  "id": "cb6497ff-7906-4211-a210-8524f4ab1424",
+  "prevId": "8ec79c4e-148b-4c25-b753-12cfde8685c8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1878,6 +1878,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2630,19 +2636,7 @@
           "name": "mail_account_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "connected_account_id": {
-          "name": "connected_account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "facet": {
-          "name": "facet",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "kind": {
           "name": "kind",
@@ -2741,19 +2735,6 @@
           "tableTo": "mail_accounts",
           "columnsFrom": [
             "mail_account_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "notifier_outbox_connected_account_id_connected_accounts_id_fk": {
-          "name": "notifier_outbox_connected_account_id_connected_accounts_id_fk",
-          "tableFrom": "notifier_outbox",
-          "tableTo": "connected_accounts",
-          "columnsFrom": [
-            "connected_account_id"
           ],
           "columnsTo": [
             "id"

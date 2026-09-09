@@ -306,6 +306,40 @@ export function clearRecentSearches(): void {
 }
 
 /**
+ * Palette command usage (#148, `docs/search-ux-spec.md` §The empty field:
+ * "the most-used commands"): a plain run-count per Action id, incremented
+ * only when a command is *run from the Palette* — the Palette's own
+ * discoverability surface, not every surface (row cluster, Reader, the
+ * global keyboard listener) an action can run from, each of which would
+ * otherwise need its own call site here for a count the empty state alone
+ * reads. Device-local like the rest of this file: which commands you reach
+ * for from the Palette is a per-device habit, not something to sync.
+ */
+const COMMAND_USAGE_KEY = "mail.devicePref.commandUsage";
+
+export function readCommandUsage(): Readonly<Record<string, number>> {
+  const stored = readStorage(COMMAND_USAGE_KEY);
+  if (!stored) return {};
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const result: Record<string, number> = {};
+    for (const [id, count] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof count === "number" && Number.isFinite(count)) result[id] = count;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export function recordCommandUsage(commandId: string): void {
+  const usage = { ...readCommandUsage() };
+  usage[commandId] = (usage[commandId] ?? 0) + 1;
+  writeStorage(COMMAND_USAGE_KEY, JSON.stringify(usage));
+}
+
+/**
  * Whether the one-time inline notification offer has already been shown on
  * this device (#53, ADR-0015): "permission asked at most twice ... plus one
  * inline offer after the first successful triage session" — never re-shown

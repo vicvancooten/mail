@@ -1,12 +1,8 @@
 import type { Message } from "@mail/shared";
 import {
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
-  ChevronUp,
   Clock,
-  Mail,
-  MailOpen,
   NotebookText,
   Pin,
   Reply,
@@ -17,19 +13,26 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { ReplyMode } from "../compose/reply.js";
+import { useTouchCapablePhone } from "../hooks/use-touch-phone.js";
 import type { CachedThread } from "../store/index.js";
 import { labelNameForId, useLabels } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
-import { actionById } from "./actions/registry.js";
+import { ReaderMoreMenu } from "./actions/ReaderMoreMenu.js";
+import {
+  actionById,
+  PRIMARY_READER_ACTION_IDS,
+  SECONDARY_READER_ACTION_IDS,
+} from "./actions/registry.js";
 import { publishReaderHandle } from "./actions/surface-handles.js";
-import { withThread } from "./actions/types.js";
+import { noopActionContext, withThread } from "./actions/types.js";
 import { LabelPicker } from "./LabelPicker.js";
 import { MessageList } from "./reading/MessageList.js";
 import type { MailtoLink } from "./reading/mailto.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
+import { useSwipeToNavigate } from "./useSwipeToNavigate.js";
 import type { Triage } from "./useTriage.js";
 
 /** Reply / reply-all / forward, against one specific Message (compose-spec §Threading headers). */
@@ -86,7 +89,8 @@ export function ThreadDetailPane({
 }) {
   const participants =
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
-  const unread = thread.unreadCount > 0;
+  // Labels are User-scoped, not Mail-Account-scoped (#186, ADR-0023) —
+  // `useLabels()` takes no account id.
   const labels = useLabels() ?? [];
   const { messages } = useThreadMessages(thread.id);
 
@@ -124,13 +128,26 @@ export function ThreadDetailPane({
   const replyToName =
     replyTarget?.from?.name?.split(" ")[0] ?? replyTarget?.from?.address ?? participants;
 
-  // The reader's own right-click / long-press menu (#94) — the same
-  // registry the toolbar's icons and the keyboard read, narrowed to this
+  // The reader's own right-click / long-press menu (#94), toolbar and More
+  // menu (#143) — the same registry the keyboard reads, narrowed to this
   // Thread. `withThread` is a no-op for the Thread that is already open, so
   // Reply/Snooze/Label stay available here in a way they can't be on a row
-  // whose Messages aren't loaded.
+  // whose Messages aren't loaded. A pane rendered with no `ActionsProvider`
+  // above it (a unit test rendering this component on its own) falls back to
+  // a standalone context built from this pane's own props — `triage`,
+  // `onReply`, `onBack` — so every tier below still renders from the
+  // registry rather than needing its own separate no-provider branch.
   const actions = useActions();
-  const readerCtx = actions ? withThread(actions, thread) : null;
+  const readerCtx = actions
+    ? withThread(actions, thread)
+    : noopActionContext({
+        thread,
+        triage,
+        latestMessage,
+        labels,
+        onReply,
+        onBackToList: onBack ?? (() => {}),
+      });
 
   /**
    * One toolbar button's tooltip, with its keycap taken from the registry
@@ -143,16 +160,58 @@ export function ThreadDetailPane({
     const display = actionById(id)?.binding?.display;
     return display ? `${name} (${display.toLowerCase()})` : `${name} — Command Palette only`;
   };
-  /** Runs a registry action against the open Thread, or — with no provider above this pane — falls back to the `triage` prop the host handed it. */
+  /** Runs a registry action against the open Thread — always through `readerCtx`, which is never absent (see above). */
   const runReader = (id: string, fallback: () => void) => {
     const action = actionById(id);
-    if (readerCtx && action?.availability(readerCtx).available) action.run(readerCtx);
+    if (action?.availability(readerCtx).available) action.run(readerCtx);
     else fallback();
   };
 
+  // The tier hierarchy itself (#143): `primaryIds` and `secondaryIds` are the
+  // registry's own answer for which ids belong to each tier
+  // (`PRIMARY_READER_ACTION_IDS`/`SECONDARY_READER_ACTION_IDS`), not a
+  // separate hand-kept list — they gate the toolbar's own hard-coded buttons
+  // below (Reply/Snooze/Label still need their Popovers, so this pane can't
+  // render a plain generic loop the way the More menu does; each button's
+  // own `disabled` still comes from `availability`, unchanged). The More menu
+  // itself (`ReaderMoreMenu`) reads the registry directly with no
+  // intermediary. A touch-capable phone has no room for the secondary run
+  // inline, so it folds into More instead — the same rule in one place,
+  // read by both.
+  const phone = useTouchCapablePhone();
+  const primaryIds = PRIMARY_READER_ACTION_IDS;
+  const secondaryIds = phone ? new Set<string>() : SECONDARY_READER_ACTION_IDS;
+
+  // #150: swipe right for the previous (newer) Thread, left for the next
+  // (older) one — the same `onPrev`/`onNext` the (desktop-only) chevron
+  // buttons above call, so the neighbour, the end-of-list no-op, and the
+  // history-replace all come free from reusing that one callback pair. Not
+  // gated on `phone`: like #149's row/Stream swipe, the underlying gesture
+  // is already a no-op for anything but a touch pointer, so wiring it
+  // unconditionally costs nothing when a mouse is what's dragging (or when
+  // neither neighbour exists, since `onPrev`/`onNext` are then both absent
+  // and the hook's commits are no-ops). Only spread onto the pane when at
+  // least one neighbour exists, so Stream's own `ThreadDetailPane` — which
+  // never passes either — never gets a second, redundant pointer listener
+  // stacked under its own card-swipe-to-triage surface.
+  const nav = useSwipeToNavigate({ onPrev, onNext });
+  const swipeNavigable = Boolean(onPrev || onNext);
+
   return (
     <ActionMenu ctx={readerCtx} asChild label={`Actions for "${thread.subject || "(no subject)"}"`}>
-      <div className="thread-detail" key={thread.id}>
+      <div
+        className={`thread-detail${swipeNavigable ? " thread-detail-swipeable" : ""}`}
+        key={thread.id}
+        {...(swipeNavigable ? nav.handlers : undefined)}
+        style={
+          swipeNavigable
+            ? {
+                transform: nav.offsetX ? `translateX(${nav.offsetX}px)` : undefined,
+                transition: nav.settling ? undefined : "none",
+              }
+            : undefined
+        }
+      >
         <div className="reading-header">
           <div className="reading-topline">
             {onBack ? (
@@ -171,149 +230,169 @@ export function ThreadDetailPane({
               <h1 className="reading-subject">{thread.subject || "(no subject)"}</h1>
             </div>
             <div className="reading-actions">
-              {onPrev || onNext ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={onPrev}
-                    disabled={!onPrev}
-                    aria-label="Previous thread"
-                    title={buttonTitle("prev-thread", "Previous thread")}
-                  >
-                    <ChevronUp size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onNext}
-                    disabled={!onNext}
-                    aria-label="Next thread"
-                    title={buttonTitle("next-thread", "Next thread")}
-                  >
-                    <ChevronDown size={15} />
-                  </button>
-                  <span className="reading-actions-gap" />
-                </>
+              {/* Prev/next are gone from this row entirely (#155): a
+                touch-capable phone never had them here (#143 user story
+                13 — swipe and Auto-advance carry the User on instead), and
+                desktop's own copy moved out to `ReaderNeighborRail.tsx`, a
+                floating rail beside the pane rather than a row of icons
+                fighting the subject for space. `SplitView.tsx` is what
+                renders that rail now; `onPrev`/`onNext` stay props here
+                purely for `useSwipeToNavigate` below. */}
+              {/* The primary tier (#143): Reply, Done, Snooze, Trash — the
+                registry's `reader-primary` surface, visible on every surface
+                (Split, List, phone, Stream). Rendered by hand rather than a
+                generic loop because Snooze needs its own Popover, but which
+                *ids* show is `primaryIds` — the registry's own answer — not a
+                second list kept here. */}
+              {primaryIds.has("reply") ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (replyTarget) onReply(replyTarget, "reply");
+                  }}
+                  disabled={!replyTarget}
+                  aria-label="Reply"
+                  title={buttonTitle("reply", "Reply")}
+                >
+                  <Reply size={15} />
+                </button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => {
-                  if (replyTarget) onReply(replyTarget, "reply");
-                }}
-                disabled={!replyTarget}
-                aria-label="Reply"
-                title={buttonTitle("reply", "Reply")}
-              >
-                <Reply size={15} />
-              </button>
               {/* Done is the App's primary verb, so it is the one icon in this
                 run that takes the accent when reached for (the comp's own
                 `[data-act="done"]` hover). */}
-              <button
-                type="button"
-                data-act="done"
-                onClick={() => runReader("done", () => triage.archive(thread.id))}
-                aria-label="Done — archive this thread"
-                title={buttonTitle("done", "Done")}
-              >
-                <CheckCircle2 size={15} />
-              </button>
-              <Popover open={snoozeMenuOpen} onOpenChange={setSnoozeMenuOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className={snoozeMenuOpen ? "on" : ""}
-                    aria-label="Snooze"
-                    title={buttonTitle("snooze", "Snooze")}
-                  >
-                    <Clock size={15} />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-auto min-w-[200px] p-1.5">
-                  <SnoozeMenu
-                    thread={thread}
-                    onSnooze={(until) => {
-                      triage.snooze(thread.id, until);
-                      setSnoozeMenuOpen(false);
-                    }}
-                    onClose={() => setSnoozeMenuOpen(false)}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className={pickerOpen ? "on" : ""}
-                    aria-label="Apply or remove a label"
-                    title={buttonTitle("label", "Label")}
-                  >
-                    <Tag size={15} />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-auto min-w-[220px] p-1.5">
-                  <LabelPicker
-                    thread={thread}
-                    labels={labels}
-                    triage={triage}
-                    onClose={() => setPickerOpen(false)}
-                  />
-                </PopoverContent>
-              </Popover>
-              {/* "Add to Notes" (#195) — creates a Note at once, no picker
-                of its own to open, unlike Snooze/Label above. There is no
-                Triage-level fallback for this (it isn't a Triage method at
-                all), so an unwired `ActionsProvider` — never the case in
-                the real app — just does nothing, the same as any other
-                registry action would with no context to run against. */}
-              <button
-                type="button"
-                onClick={() => runReader("add-to-notes", () => {})}
-                aria-label="Add to Notes"
-                title={buttonTitle("add-to-notes", "Add to Notes")}
-              >
-                <NotebookText size={15} />
-              </button>
-              <button
-                type="button"
-                className={thread.pinned ? "on" : ""}
-                aria-pressed={thread.pinned}
-                onClick={() => runReader("pin", () => triage.togglePin(thread.id))}
-                aria-label={thread.pinned ? "Unpin" : "Pin"}
-                title={buttonTitle("pin", "Pin")}
-              >
-                <Pin size={15} />
-              </button>
-              <button
-                type="button"
-                className={thread.starred ? "on" : ""}
-                aria-pressed={thread.starred}
-                onClick={() => runReader("star", () => triage.toggleStar(thread.id))}
-                aria-label={thread.starred ? "Unstar" : "Star"}
-                title={buttonTitle("star", "Star")}
-              >
-                <Star size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={() => runReader("toggle-read", () => triage.toggleRead(thread.id))}
-                aria-label={unread ? "Mark read" : "Mark unread"}
-                title={buttonTitle("toggle-read", "Toggle read/unread")}
-              >
-                {unread ? <MailOpen size={15} /> : <Mail size={15} />}
-              </button>
+              {primaryIds.has("done") ? (
+                <button
+                  type="button"
+                  data-act="done"
+                  onClick={() => runReader("done", () => triage.archive(thread.id))}
+                  aria-label="Done — archive this thread"
+                  title={buttonTitle("done", "Done")}
+                >
+                  <CheckCircle2 size={15} />
+                </button>
+              ) : null}
+              {primaryIds.has("snooze") ? (
+                <Popover open={snoozeMenuOpen} onOpenChange={setSnoozeMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={snoozeMenuOpen ? "on" : ""}
+                      aria-label="Snooze"
+                      title={buttonTitle("snooze", "Snooze")}
+                    >
+                      <Clock size={15} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto min-w-[200px] p-1.5">
+                    <SnoozeMenu
+                      thread={thread}
+                      onSnooze={(until) => {
+                        triage.snooze(thread.id, until);
+                        setSnoozeMenuOpen(false);
+                      }}
+                      onClose={() => setSnoozeMenuOpen(false)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+              {/* The secondary tier (#143): Label, Add to Notes (#195), Pin,
+                Star — the registry's `reader-secondary` surface, inline but
+                visually quieter, and only where `secondaryIds` is non-empty
+                (desktop; `phone` empties it, folding these into the More
+                menu instead). */}
+              {secondaryIds.size > 0 ? (
+                <div className="reading-actions-secondary">
+                  {secondaryIds.has("label") ? (
+                    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={pickerOpen ? "on" : ""}
+                          aria-label="Apply or remove a label"
+                          title={buttonTitle("label", "Label")}
+                        >
+                          <Tag size={15} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-auto min-w-[220px] p-1.5">
+                        <LabelPicker
+                          thread={thread}
+                          labels={labels}
+                          triage={triage}
+                          onClose={() => setPickerOpen(false)}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  ) : null}
+                  {/* "Add to Notes" (#195) — creates a Note at once, no
+                    picker of its own to open, unlike Label above. There is
+                    no Triage-level fallback for this (it isn't a Triage
+                    method at all), so an unwired `ActionsProvider` — never
+                    the case in the real app — just does nothing, the same
+                    as any other registry action would with no context to
+                    run against. */}
+                  {secondaryIds.has("add-to-notes") ? (
+                    <button
+                      type="button"
+                      onClick={() => runReader("add-to-notes", () => {})}
+                      aria-label="Add to Notes"
+                      title={buttonTitle("add-to-notes", "Add to Notes")}
+                    >
+                      <NotebookText size={15} />
+                    </button>
+                  ) : null}
+                  {secondaryIds.has("pin") ? (
+                    <button
+                      type="button"
+                      className={thread.pinned ? "on" : ""}
+                      aria-pressed={thread.pinned}
+                      onClick={() => runReader("pin", () => triage.togglePin(thread.id))}
+                      aria-label={thread.pinned ? "Unpin" : "Pin"}
+                      title={buttonTitle("pin", "Pin")}
+                    >
+                      <Pin size={15} />
+                    </button>
+                  ) : null}
+                  {secondaryIds.has("star") ? (
+                    <button
+                      type="button"
+                      className={thread.starred ? "on" : ""}
+                      aria-pressed={thread.starred}
+                      onClick={() => runReader("star", () => triage.toggleStar(thread.id))}
+                      aria-label={thread.starred ? "Unstar" : "Star"}
+                      title={buttonTitle("star", "Star")}
+                    >
+                      <Star size={15} />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {/* Trash keeps its distance and stays quiet until reached for:
                 in a triage app it is one keystroke away, so the design owes
                 it room rather than a red button in the run. */}
-              <span className="reading-actions-gap" />
-              <button
-                type="button"
-                className="destructive"
-                onClick={() => runReader("trash", () => triage.trash(thread.id))}
-                aria-label="Move to trash"
-                title={buttonTitle("trash", "Trash")}
-              >
-                <Trash2 size={15} />
-              </button>
+              {primaryIds.has("trash") ? (
+                <>
+                  <span className="reading-actions-gap" />
+                  <button
+                    type="button"
+                    className="destructive"
+                    onClick={() => runReader("trash", () => triage.trash(thread.id))}
+                    aria-label="Move to trash"
+                    title={buttonTitle("trash", "Trash")}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </>
+              ) : null}
+              {/* The More menu (#143): the registry's `reader-more` tier —
+                Read/unread, Forward, and whatever #144 adds — joined by the
+                secondary tier too on a touch-capable phone. Adding a new
+                More-tier action needs no change here at all. */}
+              <ReaderMoreMenu
+                ctx={readerCtx}
+                includeSecondary={phone}
+                label={`More actions for "${thread.subject || "(no subject)"}"`}
+              />
             </div>
           </div>
           <div className="reading-meta">

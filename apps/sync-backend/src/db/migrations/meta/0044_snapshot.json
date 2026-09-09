@@ -1,6 +1,6 @@
 {
-  "id": "cb6497ff-7906-4211-a210-8524f4ab1424",
-  "prevId": "8ec79c4e-148b-4c25-b753-12cfde8685c8",
+  "id": "8ec79c4e-148b-4c25-b753-12cfde8685c8",
+  "prevId": "3d4a23c7-e6aa-4f1c-901b-0b359fe5d1ab",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1878,6 +1878,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "remote_images": {
+          "name": "remote_images",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -3060,98 +3066,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.provider_facet_health": {
-      "name": "provider_facet_health",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "facet": {
-          "name": "facet",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "first_granted_at": {
-          "name": "first_granted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_refresh_at": {
-          "name": "last_refresh_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_refresh_error": {
-          "name": "last_refresh_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "api_not_enabled": {
-          "name": "api_not_enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "provider_facet_health_provider_facet_key": {
-          "name": "provider_facet_health_provider_facet_key",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "facet",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

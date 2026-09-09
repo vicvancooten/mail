@@ -83,6 +83,7 @@ export default defineConfig({
       "./src/test-support/indexeddb.ts",
       "./src/test-support/virtualization.ts",
       "./src/test-support/dom-polyfills.ts",
+      "./src/test-support/testing-library-config.ts",
     ],
     // Node >=22.4 ships its own global `localStorage`/`sessionStorage`
     // (behind --experimental-webstorage, on by default on recent 22.x).
@@ -93,5 +94,33 @@ export default defineConfig({
     // shadows jsdom's. The `test` script disables Node's copy via
     // NODE_OPTIONS=--no-experimental-webstorage so jsdom's localStorage is
     // the one every suite sees.
+    //
+    // Uncapped, Vitest's default pool ("forks") spawns one process per
+    // available core — 20+ on a dev box, and each one boots its own jsdom +
+    // React. That oversubscription (not any one test's own logic) is what
+    // was making this suite flaky both locally and in CI: under enough
+    // concurrent load, individual `findByRole`/`waitFor` calls and even
+    // whole tests blow their default timeouts by chance, and *which* tests
+    // lose the race varies run to run. Capping the fork pool keeps each
+    // worker's jsdom+React actually scheduled promptly; verified stable
+    // across repeated full runs at this cap where the uncapped default
+    // wasn't. Confirmed 4 was still *not* low enough: reproduced this same
+    // suite's exact remaining CI failures locally by pinning the process to
+    // 2 real cores (`taskset -c 0,1`) — 4 workers fighting over 2 cores
+    // reliably starved search-integration.test.tsx's prefilter-driven
+    // assertions past even the raised `asyncUtilTimeout` below, and dropping
+    // to 2 workers on that same 2-core pin fixed it outright, in roughly the
+    // same wall-clock time (4-on-2 bought no speedup, only contention). GitHub
+    // Actions' advertised vCPU count doesn't guarantee that much real,
+    // uncontended throughput, so 2 is the safe floor rather than a number
+    // matched to any specific runner.
+    maxWorkers: 2,
+    // Belt-and-braces alongside the worker cap above: a busy CI runner (or
+    // dev box) can still stretch an individual async assertion past
+    // Testing Library's/Vitest's defaults by chance. Doubling both leaves
+    // a real hang just as detectable while giving a merely slow tick room
+    // to finish instead of flaking.
+    testTimeout: 10_000,
+    hookTimeout: 20_000,
   },
 });
