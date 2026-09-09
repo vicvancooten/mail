@@ -108,6 +108,12 @@ function clearBucket(kind: UndoableActionKind): void {
   buckets.delete(kind);
   const index = stackedKinds.indexOf(kind);
   if (index !== -1) stackedKinds.splice(index, 1);
+  // Every caller (Undo clicked, the bucket's own window timer, the test
+  // reset below) retires this kind's bookkeeping — the toast itself has to
+  // go with it, or a kind that outlives its window (sonner's own `duration`
+  // hasn't fired yet — the common case in a test with no real clock) stays
+  // mounted for a later `render()` call with the same id to collide with.
+  dismissActionToast(toastId(kind));
 }
 
 function render(kind: UndoableActionKind): void {
