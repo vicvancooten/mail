@@ -1,8 +1,9 @@
 import type { MailAccount } from "@mail/shared";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { Moon, Search, Sun } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
+import { accountScopeFacetForApp, appForPath } from "../apps/apps.js";
 import { HomeLink } from "../apps/HomeLink.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
@@ -13,10 +14,9 @@ import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
 import { noopActionContext } from "../mail/actions/types.js";
 import { CommandPalette } from "../mail/command-palette/CommandPalette.js";
 import { PaletteHostProvider, usePaletteHost } from "../mail/command-palette/PaletteHostContext.js";
-import { useAccountScope } from "../mail/useAccountScope.js";
-import { scrollToMailAccountSettings } from "../mail-accounts/MailAccountsSection.js";
+import { deriveMailAccountScope, useAccountScope } from "../mail/useAccountScope.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
-import { useMailAccounts } from "../store/index.js";
+import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
 import { BottomBar } from "./BottomBar.js";
@@ -47,6 +47,19 @@ import "./shell.css";
  * appearance toggle, and the User's avatar menu. Nothing here names the
  * signed-in User in prose any more — the avatar and its menu carry that,
  * the way the comp does.
+ *
+ * Account Scope is a per-App question (#187, `apps/apps.ts#AppDef.observesAccountScope`):
+ * Mail, Calendar and Contacts read a Connected Account's data, so narrowing
+ * means something on them; Tasks and Notes belong to the User alone, so the
+ * Hub hides the control there rather than rendering it disabled or empty
+ * over nothing to narrow. Hiding it never touches `accountScope` itself —
+ * the hook's own state (and the Device Preference it rides,
+ * `useAccountScope.ts`) lives independently of which App is current, so the
+ * User's last Scope is exactly what's still selected on returning to an App
+ * that observes it. The rendered App's own Facet (`apps.ts#accountScopeFacetForApp`,
+ * #207) is what the picker mutes rows against — Mail open mutes a
+ * Calendar-only Connected Account's row, Calendar open would mute a
+ * Mail-only one's.
  *
  * The App itself renders inside `.app-card` (#96): a raised card on the
  * Hub's own ground at ≥701px (`shell.css`'s own breakpoint, matching every
@@ -80,7 +93,19 @@ import "./shell.css";
  */
 export function RootLayout() {
   const mailAccounts = useMailAccounts() ?? [];
-  const { scope: accountScope } = useAccountScope(mailAccounts);
+  // The Palette's own search scope (`PaletteHostContext.tsx`'s own doc
+  // comment) is Mail-Account-scoped, not Connected-Account-scoped (#207) —
+  // the same `deriveMailAccountScope` translation `MailSection.tsx` and
+  // `RootLayoutChrome` below both do from the Hub's own Connected Account
+  // Scope, computed independently here since the Palette mounts one level
+  // above the header that owns the picker.
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope: connectedAccountScope } = useAccountScope(connectedAccounts);
+  const accountScope = deriveMailAccountScope(
+    connectedAccounts,
+    connectedAccountScope,
+    mailAccounts,
+  );
   return (
     <PaletteHostProvider accountScope={accountScope} mailAccounts={mailAccounts}>
       <RootLayoutChrome mailAccounts={mailAccounts} />
@@ -91,16 +116,19 @@ export function RootLayout() {
 function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   const { user, onLogout } = rootRoute.useRouteContext();
   const [signingOut, setSigningOut] = useState(false);
-  // Account Scope (#96): moved into the Hub, so it needs the same
-  // `mailAccounts`/`useAccountScope` pair `MailSection.tsx` reads — the two
-  // stay in sync through `device-preferences.ts#subscribeAccountScope`
+  // Account Scope (#96, repointed at Connected Accounts in #207): moved into
+  // the Hub, so it needs the same `connectedAccounts`/`useAccountScope` pair
+  // `MailSection.tsx` reads (via `useAccountScope.ts#deriveMailAccountScope`)
+  // — the two stay in sync through `device-preferences.ts#subscribeAccountScope`
   // (`useAccountScope.ts`'s own doc comment), not through a shared prop.
-  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(connectedAccounts);
   // `Link`'s own `data-status="active"` would do this, but only for exact
   // matches — `/mail` should still read as current while a Thread or label
   // is selected within it (`/mail?thread=…`), which `useRouterState` here
   // (matched against the pathname alone) covers directly.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const currentApp = appForPath(pathname);
   const navigate = rootRoute.useNavigate();
   const [resolvedDark, toggleAppearance] = useResolvedAppearance();
   const { search, paletteOpen, openPalette, closePalette } = usePaletteHost();
@@ -113,19 +141,25 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   const activeHost = useActiveMailHost();
 
   // A `needs-reauth` notification click (#53, ADR-0015: "a click always
-  // lands where the next decision is") names a Mail Account's *Settings* —
-  // a route now (#71), unlike `thread`/`failed-send`, which stay inside
-  // Mail and are handled in `mail/MailSection.tsx` instead. Lives here,
-  // not there, because this is what's mounted regardless of which route is
-  // current when the click arrives. Lands on `/settings/mail-accounts`
-  // directly (#99) — that's the one sub-route `MailAccountsSection`, and so
-  // the row `scrollToMailAccountSettings` targets, actually renders on.
+  // lands where the next decision is") names a Facet's *Settings* cell — a
+  // route now (#71), unlike `thread`/`failed-send`, which stay inside Mail
+  // and are handled in `mail/MailSection.tsx` instead. Lives here, not
+  // there, because this is what's mounted regardless of which route is
+  // current when the click arrives. Lands on `/settings/connected-accounts`
+  // (#201, `/settings/mail-accounts`'s new address) carrying the target
+  // Connected Account's id and Facet in `?account=&facet=` (#204, widened
+  // from a Mail-Account-only `?account=`) —
+  // `connected-accounts/account-focus.ts`'s own doc comment on why this is a
+  // pair of query params now rather than a DOM id to scroll to: a table cell
+  // can hold several accounts' Badges, so there is no longer one row per
+  // account, and a Calendar/Contacts Facet has no Mail Account id to carry.
   useEffect(() => {
     return subscribeNotificationTarget((target) => {
       if (target.kind !== "needs-reauth") return;
-      void navigate({ to: "/settings/mail-accounts" }).then(() =>
-        scrollToMailAccountSettings(target.mailAccountId),
-      );
+      void navigate({
+        to: "/settings/connected-accounts",
+        search: { account: target.connectedAccountId, facet: target.facet },
+      });
     });
   }, [navigate]);
 
@@ -178,6 +212,23 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
       },
     };
   }, [search, pathname, navigate]);
+
+  // A Command Palette local hit's own entry point (#196): `to`/`params` come
+  // from whichever App's own `LocalHitSource` produced the hit
+  // (`mail/command-palette/local-hits.ts`), which knows nothing of the route
+  // tree itself. This lives here rather than in whichever Mail-family
+  // surface happens to be mounted — unlike `ctx`/`searchOrigin`
+  // (`actions/active-mail-host.ts`), a local hit's destination is never
+  // Mail-scoped state, just a plain route the Hub's own `navigate` can reach
+  // directly, the same "erase the per-collection type once, at the
+  // boundary" idiom `sync/collection-registry.ts#asApplyUserDelta` already
+  // uses for the sync side of the same ADR-0023 mechanism.
+  const onOpenLocalHit = useCallback(
+    (to: string, params: Record<string, string>) => {
+      void navigate({ to, params } as unknown as Parameters<typeof navigate>[0]);
+    },
+    [navigate],
+  );
 
   // Nothing Mail-scoped mounted (Settings, a placeholder App): the same
   // "nothing wired" context the Shortcut Sheet already renders against,
@@ -238,7 +289,14 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             </button>
           </div>
           <div className="header-right">
-            <AccountScope accounts={mailAccounts} scope={accountScope} onChange={setAccountScope} />
+            {(currentApp?.observesAccountScope ?? true) ? (
+              <AccountScope
+                accounts={connectedAccounts}
+                scope={accountScope}
+                activeFacet={accountScopeFacetForApp(currentApp)}
+                onChange={setAccountScope}
+              />
+            ) : null}
             {!isPhoneChrome && (
               <button
                 type="button"
@@ -274,6 +332,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
         searchOrigin={activeHost?.searchOrigin ?? { kind: "other" }}
         accounts={mailAccounts}
         accountScope={accountScope}
+        onOpenLocalHit={onOpenLocalHit}
       />
     </TooltipProvider>
   );

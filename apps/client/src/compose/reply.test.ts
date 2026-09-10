@@ -12,6 +12,7 @@ import {
 function makeAccount(overrides: Partial<MailAccount> = {}): MailAccount {
   return {
     id: "acct-1",
+    connectedAccountId: "acct-1-connected",
     emailAddress: "vic@example.test",
     imap: { host: "imap.example.test", port: 993, security: "tls" },
     smtp: { host: "smtp.example.test", port: 587, security: "starttls" },

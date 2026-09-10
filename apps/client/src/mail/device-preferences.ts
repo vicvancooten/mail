@@ -144,15 +144,24 @@ export function useSidebarCollapsed(): [boolean, (collapsed: boolean) => void] {
 }
 
 /**
- * Account Scope (#73, `mail#66` §"Account Scope in the Client's own chrome"):
- * which of the User's Mail Accounts the Thread list draws from — Client-level
- * chrome rather than Mail-level, "because narrowing to one account is a
- * question every App answers". Device-local by the same reasoning as the
- * rest of this file: which accounts you're looking at right now means
- * something different on each device. Supersedes the single
- * `mail.devicePref.lastAccountId` key this replaces — a device upgrading
- * from that key simply falls back to "all accounts" once, the same default
- * a first-ever device gets.
+ * Account Scope (#73, `mail#66` §"Account Scope in the Client's own chrome";
+ * repointed at Connected Accounts in #207): which of the User's Connected
+ * Accounts the Client is currently showing — Client-level chrome rather than
+ * Mail-level, "because narrowing to one account is a question every App
+ * answers". Device-local by the same reasoning as the rest of this file:
+ * which accounts you're looking at right now means something different on
+ * each device.
+ *
+ * Held as **Connected Account** ids since #207 (`AccountScope.tsx`'s own
+ * doc comment on why the picker itself moved), not Mail Account ids —
+ * deliberately the *same* storage key a pre-#207 device already has a Mail
+ * Account id array under: those ids live in a different id space
+ * (`packages/shared/src/mail-accounts.ts#connectedAccountId` is never equal
+ * to its own Mail Account's `id`), so `resolveAccountScope` below already
+ * treats every one of them as "names nothing that still exists" and falls
+ * back to "every account" the first time it's read — the same one-time,
+ * no-migration, no-message reset a device upgrading off the older
+ * `mail.devicePref.lastAccountId` key got.
  *
  * Stored as an id array rather than a set — order carries no meaning of its
  * own (`resolveAccountScope` below is what a caller reads back), but a plain
@@ -204,19 +213,21 @@ export function writeAccountScope(accountIds: AccountScope): void {
 
 const accountScopeListeners = new Set<() => void>();
 
-/** Reactive subscription for the stored Scope (#96): the control moved from `mail/TopBar.tsx` into the Hub (`RootLayout.tsx`), while `MailSection.tsx` still resolves it against its own `mailAccounts` to filter the Thread list — same "one write reaches every mounted subscriber" shape as view mode/density/sidebar-collapsed above, or the two would drift the instant they're rendered by two different components. */
+/** Reactive subscription for the stored Scope (#96): the control moved from `mail/TopBar.tsx` into the Hub (`RootLayout.tsx`), while `MailSection.tsx` still resolves it (via `useAccountScope.ts#deriveMailAccountScope`, #207) against the Connected Accounts that actually carry a Mail Facet to filter the Thread list — same "one write reaches every mounted subscriber" shape as view mode/density/sidebar-collapsed above, or the two would drift the instant they're rendered by two different components. */
 export function subscribeAccountScope(listener: () => void): () => void {
   accountScopeListeners.add(listener);
   return () => accountScopeListeners.delete(listener);
 }
 
 /**
- * The stored Scope narrowed to Mail Accounts that still exist, falling back
- * to "every account" — the documented default — the moment that narrowing
- * (or a never-set/corrupt read) would otherwise leave nothing selected.
- * Order follows `accounts` (created-at, per `useMailAccounts`' own doc
- * comment), not the stored array, so a scope read back after an account was
- * removed and re-added doesn't strand it out of its usual place.
+ * The stored Scope narrowed to accounts that still exist, falling back to
+ * "every account" — the documented default — the moment that narrowing (or a
+ * never-set/corrupt read) would otherwise leave nothing selected. Generic
+ * over anything with an `id` (#207: Connected Accounts now, Mail Accounts
+ * pre-#207) rather than tied to one collection's own type. Order follows
+ * `accounts` (created-at, per `useConnectedAccounts`'/`useMailAccounts`' own
+ * doc comments), not the stored array, so a scope read back after an account
+ * was removed and re-added doesn't strand it out of its usual place.
  */
 export function resolveAccountScope(
   stored: AccountScope | null,

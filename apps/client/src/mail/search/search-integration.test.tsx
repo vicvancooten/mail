@@ -5,9 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../../store/mutation-queue.js";
-import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
+import {
+  applyConnectedAccountDelta,
+  applyMailAccountDelta,
+  applyThreadDelta,
+} from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
-import { delta, makeMailAccount, makeThread } from "../../test-support/mail-fixtures.js";
+import {
+  delta,
+  makeConnectedAccount,
+  makeMailAccount,
+  makeThread,
+} from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { resetActiveMailHost } from "../actions/active-mail-host.js";
 import { resetSurfaceHandles } from "../actions/surface-handles.js";
@@ -424,6 +433,15 @@ describe("search across Account Scope (#80)", () => {
   async function seedTwoAccounts(): Promise<void> {
     await applyMailAccountDelta(
       delta({ created: [makeMailAccount("acct-1"), makeMailAccount("acct-2")] }),
+      { replace: false },
+    );
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected"),
+          makeConnectedAccount("acct-2-connected"),
+        ],
+      }),
       { replace: false },
     );
     await applyThreadDelta(

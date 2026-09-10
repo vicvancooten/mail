@@ -1,16 +1,16 @@
 import {
-  type Provider,
   type ProviderHealth,
   type ProviderMailAccountCountResponse,
   providerMailAccountCountResponseSchema,
   providerRegistrationResponseSchema,
+  type RegisteredProvider,
   type SaveProviderRegistrationRequest,
 } from "@mail/shared";
 import { deleteRequest, getJson, putJson } from "./auth.js";
 
 /** `PUT /instance/providers/:provider` (#115): save (create-or-replace), no restart. */
 export function saveProviderRegistration(
-  provider: Provider,
+  provider: RegisteredProvider,
   input: SaveProviderRegistrationRequest,
 ): Promise<ProviderHealth> {
   return putJson(
@@ -22,7 +22,7 @@ export function saveProviderRegistration(
 
 /** `GET /instance/providers/:provider/delete-preview` (#115, ADR-0021): how many Mail Accounts will stop syncing, before the Owner confirms. */
 export function fetchProviderDeletePreview(
-  provider: Provider,
+  provider: RegisteredProvider,
 ): Promise<ProviderMailAccountCountResponse> {
   return getJson(`/instance/providers/${provider}/delete-preview`, (data) =>
     providerMailAccountCountResponseSchema.parse(data),
@@ -30,6 +30,6 @@ export function fetchProviderDeletePreview(
 }
 
 /** `DELETE /instance/providers/:provider` (#115): parks its Mail Accounts in Needs Reauth, then removes the Registration. */
-export function deleteProviderRegistration(provider: Provider): Promise<void> {
+export function deleteProviderRegistration(provider: RegisteredProvider): Promise<void> {
   return deleteRequest(`/instance/providers/${provider}`);
 }

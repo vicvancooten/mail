@@ -136,6 +136,18 @@ export interface ActionContext {
   onOpenShortcutSheet: () => void;
   /** Enters Stream (#105) from wherever Mail is right now — always runnable, the same "screener" reasoning: no Thread needed to reach for it. */
   onOpenStream: () => void;
+  /**
+   * "Add to Notes" (#195): creates a Note at once around a Thread Link
+   * snapshot of `thread` — no intermediate sheet, unlike a future "Add to
+   * Tasks". Takes the Thread directly rather than reading `ctx.thread`
+   * itself, the same shape `onReply` already has, so the registry's own
+   * `run` stays a one-line forward to whatever this context is wired to
+   * (`mail/MailSection.tsx`'s own handler, which builds the snapshot, calls
+   * `store/notes.ts#createNoteFromThreadLink`, announces Undo, and — via its
+   * own `onAddToNotes` prop, `router/MailRoute.tsx`'s own navigation — opens
+   * the new Note's dialog).
+   */
+  onAddToNotes: (thread: CachedThread) => void;
   /** Moves the selection one Thread `delta` — the list's own collapse-aware mover where one is mounted (`surface-handles.ts`), else the flat neighbour. */
   onMove: (delta: 1 | -1) => void;
   /** How many Threads the current list holds — what makes next/prev available at all. */
@@ -262,6 +274,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onOpenPalette: () => {},
     onOpenShortcutSheet: () => {},
     onOpenStream: () => {},
+    onAddToNotes: () => {},
     onMove: () => {},
     threadCount: 0,
     openPicker: null,

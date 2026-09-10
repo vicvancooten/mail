@@ -7,7 +7,8 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import { bulkTriageBatches, mailAccounts, threads } from "../db/schema.js";
+import { bulkTriageBatches, threads } from "../db/schema.js";
+import { markNeedsReauth } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 
@@ -296,10 +297,7 @@ describe("POST /bulk-triage/batch", () => {
     const cookie = await claimOwner(app);
     const okAccount = await createOwnedMailAccount(app, cookie);
     const reauthAccount = await createOwnedMailAccount(app, cookie);
-    await db
-      .update(mailAccounts)
-      .set({ status: "needs_reauth" })
-      .where(eq(mailAccounts.id, reauthAccount));
+    await markNeedsReauth(db, reauthAccount);
     const strangerAccount = await createTestMailAccount(db);
 
     await insertThread(okAccount, "t-ok");

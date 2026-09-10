@@ -1,0 +1,1 @@
+ALTER TABLE "connected_accounts" RENAME COLUMN "dave_username" TO "dav_username";

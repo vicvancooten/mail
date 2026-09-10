@@ -1,32 +1,41 @@
 import {
-  type MailAccountCredential,
+  type ConnectedAccountCredential,
+  mailOAuthAudience,
   unsealOAuthAccessToken,
   unsealPasswordCredential,
-} from "./credential-crypto.js";
+} from "../connected-accounts/credential-crypto.js";
 
 /**
  * "Give me auth for this connection" (#114): the one place that turns a
- * `MailAccountCredential`'s `kind` into a plaintext secret — a `password`
- * unseals to the IMAP/SMTP password it always has; an `oauth` credential (the
- * Grant, ADR-0021) unseals to the access token XOAUTH2 sends instead of a
- * password. Neither `sync/imap-connection.ts` nor `compose/submit.ts` unseals
- * a credential directly any more; they call this and then adapt the result to
- * their own client library's auth shape with `toImapAuth`/`toSmtpAuth`.
+ * `ConnectedAccountCredential`'s `kind` into a plaintext secret — a
+ * `password` unseals to the IMAP/SMTP password it always has; an `oauth`
+ * credential (the Grant, ADR-0021/ADR-0022) unseals to the Mail Facet's own
+ * audience access token XOAUTH2 sends instead of a password. Neither
+ * `sync/imap-connection.ts` nor `compose/submit.ts` unseals a credential
+ * directly any more; they call this and then adapt the result to their own
+ * client library's auth shape with `toImapAuth`/`toSmtpAuth`.
  */
 export type MailAccountSecret =
   | { kind: "password"; password: string }
   | { kind: "oauth"; accessToken: string };
 
-/** Unseals whichever secret this credential's `kind` actually carries. */
+/** Unseals whichever secret this credential's `kind` actually carries, for the Mail Facet's own audience. */
 export function unsealMailAccountSecret(
-  credential: MailAccountCredential,
-  mailAccountId: string,
+  credential: ConnectedAccountCredential,
+  connectedAccountId: string,
   key: Buffer,
 ): MailAccountSecret {
   if (credential.kind === "oauth") {
-    return { kind: "oauth", accessToken: unsealOAuthAccessToken(credential, mailAccountId, key) };
+    const audience = mailOAuthAudience(credential.provider);
+    return {
+      kind: "oauth",
+      accessToken: unsealOAuthAccessToken(credential, audience, connectedAccountId, key),
+    };
   }
-  return { kind: "password", password: unsealPasswordCredential(credential, mailAccountId, key) };
+  return {
+    kind: "password",
+    password: unsealPasswordCredential(credential, connectedAccountId, key),
+  };
 }
 
 /** imapflow's auth option: `pass` for a password, `accessToken` for XOAUTH2 — never both. */

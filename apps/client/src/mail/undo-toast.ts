@@ -39,6 +39,17 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * visible toast to click in the meantime.
  */
 
+/**
+ * `"noteDelete"` (#194) is Notes' own undoable action — `notes/NotesGrid.tsx`
+ * and `notes/NoteDialog.tsx` call `announceUndoableAction` right after
+ * `store/notes.ts#trashNote` the same way `useTriage.ts`'s `trash` does,
+ * despite this module living under `mail/`: it was already the one place
+ * "render it through the same toast component" (#95's own words) means, and
+ * a Note's delete is exactly as undoable as a Thread's.
+ *
+ * `"addToNotes"` (#195) is the inverse case — `mail/MailSection.tsx`'s
+ * `onAddToNotes` handler undoes itself by deleting the Note it just created.
+ */
 export type UndoableActionKind =
   | "done"
   | "trash"
@@ -47,7 +58,9 @@ export type UndoableActionKind =
   | "spam"
   | "approve"
   | "deny"
-  | "discard";
+  | "discard"
+  | "noteDelete"
+  | "addToNotes";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -68,6 +81,11 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   deny: { one: "Returned", many: (count) => `${count} returned` },
   // Discard (#101) — `Composer.tsx`'s own explicit Discard button.
   discard: { one: "Draft discarded", many: (count) => `${count} drafts discarded` },
+  // Note delete (#194) — `notes/NotesGrid.tsx`'s card control and
+  // `notes/NoteDialog.tsx`'s own Delete button.
+  noteDelete: { one: "Note deleted", many: (count) => `${count} Notes deleted` },
+  // "Add to Notes" (#195) — `mail/MailSection.tsx`'s own `onAddToNotes` handler.
+  addToNotes: { one: "Added to Notes", many: (count) => `${count} added to Notes` },
 };
 
 interface Bucket {
@@ -90,6 +108,12 @@ function clearBucket(kind: UndoableActionKind): void {
   buckets.delete(kind);
   const index = stackedKinds.indexOf(kind);
   if (index !== -1) stackedKinds.splice(index, 1);
+  // Every caller (Undo clicked, the bucket's own window timer, the test
+  // reset below) retires this kind's bookkeeping — the toast itself has to
+  // go with it, or a kind that outlives its window (sonner's own `duration`
+  // hasn't fired yet — the common case in a test with no real clock) stays
+  // mounted for a later `render()` call with the same id to collide with.
+  dismissActionToast(toastId(kind));
 }
 
 function render(kind: UndoableActionKind): void {

@@ -4,10 +4,13 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { buildReplyContent, type ReplyMode } from "../../compose/reply.js";
 import type { CachedThread } from "../../store/index.js";
 import {
+  createNoteFromThreadLink,
+  deleteNote,
   EMPTY_COMPOSE_CONTENT,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
+  useConnectedAccounts,
   useLabels,
   useMailAccounts,
   useThreadWindow,
@@ -26,7 +29,8 @@ import { useThreadMessages } from "../reading/useThreadMessages.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
 import { findThread, neighborId } from "../thread-navigation.js";
 import { PINNED_GROUP_LABEL, timeGroupLabel } from "../time-groups.js";
-import { useAccountScope } from "../useAccountScope.js";
+import { announceUndoableAction } from "../undo-toast.js";
+import { deriveMailAccountScope, useAccountScope } from "../useAccountScope.js";
 import { SWIPE_COMMIT_THRESHOLD_PX, useSwipeToTriage } from "../useSwipeToTriage.js";
 import { useTriage } from "../useTriage.js";
 import "./stream.css";
@@ -44,6 +48,9 @@ const STREAM_LEAVE_MS = 260;
 /** Never a real Thread id (ULIDs never start with a NUL) — what `skip` selects when there is no next card, so the same "selection points at nothing `useThreadWindow` has" plumbing that already renders the ending state after the last Triage action handles "skipped past the last card" too. */
 const STREAM_ENDED_ID = "__stream-ended";
 
+/** `onNoteCreated`'s default for every unrouted caller (every test in this file included) — module-level for a stable identity across renders, the same fix `MailSection.tsx`'s own `noop` doc comment gives its `actionContext` memo. */
+function noop() {}
+
 /**
  * Stream (#105, CONTEXT.md): "processing the Inbox one Thread at a time,
  * full screen, as a stack of cards ... entered deliberately from Mail, ends
@@ -54,8 +61,8 @@ const STREAM_ENDED_ID = "__stream-ended";
  * test), so reload restores it.
  *
  * The stack itself is every Inbox Thread in the current Account Scope
- * (`useAccountScope`, the same device-local scope Mail's own toolbar reads),
- * newest first — `folderToView("inbox")` already excludes Screening Holds
+ * (`useAccountScope`/`deriveMailAccountScope`, the same device-local scope
+ * Mail's own toolbar reads), newest first — `folderToView("inbox")` already excludes Screening Holds
  * (`store/reads.ts`'s own doc comment), so held mail is never in the stack.
  * `topId` is "whose card is on top" and `activeId` is `useTriage`'s own
  * selection: the two start equal and only ever diverge for the
@@ -79,13 +86,26 @@ const STREAM_ENDED_ID = "__stream-ended";
  * registry's context) — Stream is a one-way stack to drain, not a list to
  * browse, and Skip is the one way to move on without acting.
  */
-export function StreamStack({ onLeave }: { onLeave: () => void }) {
+export function StreamStack({
+  onLeave,
+  onNoteCreated = noop,
+}: {
+  onLeave: () => void;
+  /** "Add to Notes" (#195)'s own navigation once the new Note exists — `ThreadDetailPane`'s reader toolbar is shared with Mail's own Split/List view, so Stream needs the same real wiring `router/StreamRoute.tsx` gives it, not a stub that would leave the button silently doing nothing here. A no-op default for every unrouted caller, same posture `onLeave` above takes in every one of this file's own tests. */
+  onNoteCreated?: (noteId: string) => void;
+}) {
   useLocalCacheSync();
   const { paletteOpen, openPalette } = usePaletteHost();
   const mailAccounts = useMailAccounts();
-  const { scope: accountScope } = useAccountScope(mailAccounts);
+  const connectedAccounts = useConnectedAccounts();
+  const { scope: connectedAccountScope } = useAccountScope(connectedAccounts);
+  const accountScope = deriveMailAccountScope(
+    connectedAccounts,
+    connectedAccountScope,
+    mailAccounts ?? [],
+  );
   const accountId = accountScope[0] ?? null;
-  const labels = useLabels(accountId) ?? [];
+  const labels = useLabels() ?? [];
 
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   const page = useThreadWindow(accountScope, { view: folderToView("inbox"), limit });
@@ -253,6 +273,31 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onLeave, composeId, shortcutSheetOpen]);
 
+  // "Add to Notes" (#195) — `MailSection.tsx`'s own `onAddToNotes` doc
+  // comment covers the shape; duplicated here (not shared) because Stream's
+  // `topThreadSnapshot` and Mail's `activeSelectedThread` come from
+  // genuinely different state, the same reason `openReply`/`openCompose`
+  // are each their own callback in this file rather than lifted out.
+  const onAddToNotes = useCallback(
+    (thread: CachedThread) => {
+      const subject = thread.subject || "(no subject)";
+      const participants =
+        thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
+      const date = thread.lastMessageAt ?? new Date().toISOString();
+      void (async () => {
+        const noteId = await createNoteFromThreadLink({
+          threadId: thread.id,
+          subject,
+          participants,
+          date,
+        });
+        announceUndoableAction("addToNotes", () => void deleteNote(noteId));
+        onNoteCreated(noteId);
+      })();
+    },
+    [onNoteCreated],
+  );
+
   const actionContext = useMemo<ActionContext>(
     () => ({
       thread: topThreadSnapshot,
@@ -278,6 +323,7 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream: () => {},
+      onAddToNotes,
       onMove: () => {},
       threadCount: 0,
       openPicker: topThreadSnapshot ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -295,6 +341,7 @@ export function StreamStack({ onLeave }: { onLeave: () => void }) {
       openCompose,
       onLeave,
       skip,
+      onAddToNotes,
       openPalette,
     ],
   );

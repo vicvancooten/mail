@@ -115,7 +115,11 @@ export async function submitComposition(
 }
 
 function build(account: MailAccountRow, credentialKey: Buffer): Transporter {
-  const secret = unsealMailAccountSecret(account.credential, account.id, credentialKey);
+  const secret = unsealMailAccountSecret(
+    account.credential,
+    account.connectedAccountId,
+    credentialKey,
+  );
   return nodemailer.createTransport({
     host: account.smtpHost,
     port: account.smtpPort,

@@ -5,15 +5,18 @@ import {
   compositionSchema,
   undoSendDelaySchema,
 } from "./compose.js";
+import { connectedAccountSchema } from "./connected-accounts.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
+import { noteSaveOutcomeSchema, noteSaveSchema, noteSchema } from "./notes.js";
 
 /**
  * The one delta endpoint (ADR-0011): `POST /sync` carries a map of
  * `{collection → stateToken}`, scoped per Mail Account plus a set of
  * User-scoped collections, and answers with per-collection
  * `{created, updated, destroyed, newState, hasMore}`. `MailAccount` is
- * User-scoped; `Thread`, `Label` and `Composition` are per Mail Account —
+ * User-scoped, and so are `Preference` and `Label` (#186); `Thread` and
+ * `Composition` are per Mail Account —
  * the envelope below is additive-only, so `Preference`/etc. land in their
  * own tickets as new optional fields on the same request/response shapes,
  * never a reshape of them.
@@ -97,7 +100,9 @@ export const threadSchema = z.object({
    */
   pinned: z.boolean(),
   /**
-   * The Labels currently applied to this Thread, as `Label.id`s (#43). An
+   * The Labels currently applied to this Thread, as `Label.id`s (#43,
+   * User-scoped since #186 — an id here belongs to the owning User's one
+   * Label set, not to this Thread's Mail Account). An
    * App Feature, denormalized here the same way `starred` is — the
    * `Label` collection below carries the id→name mapping, this is the
    * per-Thread membership, kept on the Thread row (rather than requiring a
@@ -173,10 +178,17 @@ export type Thread = z.infer<typeof threadSchema>;
  * nesting at PoC scope. `id` is deterministic (`labelId` in
  * `packages/shared/src/labels.ts`) rather than server-minted, so applying a
  * brand-new Label is a single Optimistic Action with no id round trip first.
+ *
+ * **User-scoped** since #186 (ADR-0023): one set of Labels spans every Mail
+ * Account a User owns, so this carries `userId` and the collection rides the
+ * `user` half of the envelope rather than a per-Mail-Account bucket. A Thread
+ * of any of that User's accounts can therefore reference any of these ids in
+ * its `labelIds`. `GmailLabel` below did *not* move — it is genuinely one
+ * Gmail account's own read-only tag set, never a Wicket Label.
  */
 export const labelSchema = z.object({
   id: z.string(),
-  mailAccountId: z.string(),
+  userId: z.string(),
   name: z.string(),
   updatedAt: z.iso.datetime(),
 });
@@ -247,6 +259,10 @@ export type LabelDelta = z.infer<typeof labelDeltaSchema>;
 export const gmailLabelDeltaSchema = collectionDeltaSchema(gmailLabelSchema);
 export type GmailLabelDelta = z.infer<typeof gmailLabelDeltaSchema>;
 
+/** `Note` (#192, ADR-0023): whole-replicated, User-scoped — see `notes.ts#noteSchema`'s own doc comment. */
+export const noteDeltaSchema = collectionDeltaSchema(noteSchema);
+export type NoteDelta = z.infer<typeof noteDeltaSchema>;
+
 /** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
 export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
 export type AutoAdvanceDirection = z.infer<typeof autoAdvanceDirectionSchema>;
@@ -267,11 +283,23 @@ export const DEFAULT_AUTO_ADVANCE_ENABLED = true;
  * same hour want different Appearances, so it moved to a Device Preference
  * (`apps/client/src/theme/device-theme.ts`) — `localStorage`, never synced.
  */
+/**
+ * The IANA zone the Sync Backend uses whenever it must turn a date or a
+ * floating time into a real instant on this User's behalf (#189) — Calendar
+ * reminders and Local Calendars are the first callers (ADR-0028), not yet
+ * landed. `""` is "not seeded yet", never a zone a picker can select: seeding
+ * is the signing-in device's job (`client/src/settings/use-seed-home-time-
+ * zone.ts`), not a server-side default, because the one thing this preference
+ * must never be is "inferred from the server's clock".
+ */
+export const HOME_TIME_ZONE_UNSET = "";
+
 export const preferenceSchema = z.object({
   id: z.string(),
   autoAdvanceEnabled: z.boolean(),
   autoAdvanceDirection: autoAdvanceDirectionSchema,
   undoSendDelaySeconds: undoSendDelaySchema,
+  homeTimeZone: z.string(),
   updatedAt: z.iso.datetime(),
 });
 export type Preference = z.infer<typeof preferenceSchema>;
@@ -294,6 +322,57 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
     direction: autoAdvanceDirectionSchema,
   }),
   z.object({ type: z.literal("setUndoSendDelay"), undoSendDelaySeconds: undoSendDelaySchema }),
+  /**
+   * Home Time Zone (#189): a raw IANA zone name, e.g. `"Europe/Amsterdam"`.
+   * The Client only ever sends a zone `Intl.supportedValuesOf("timeZone")`
+   * itself offered — the picker and the seeding effect are the validation,
+   * the same posture `setUndoSendDelay` takes on its own enum of seconds.
+   */
+  z.object({ type: z.literal("setHomeTimeZone"), homeTimeZone: z.string().min(1) }),
+  /**
+   * A Note's structural actions (#192, ADR-0023; `pinNote`/`unpinNote` joined
+   * in #193): ordinary Optimistic Action intents on the User-scoped queue,
+   * real inverses per ADR-0019, exactly like a Thread's
+   * `applyLabel`/`removeLabel` — the difference is only which queue they
+   * ride, since a Note has no Mail Account to scope to. Body edits are the
+   * different half (`notes.ts#noteSaveSchema`'s own doc comment); none of
+   * these six ever touch a Note's `document`.
+   *
+   * `createNote`/`deleteNote` are a genuine inverse pair (ADR-0019, the same
+   * shape `discardComposition`/`undiscardComposition` already have): `noteId`
+   * is the Client-minted ULID (`notes.ts#noteSchema`'s own doc comment),
+   * already known before this intent is ever enqueued. `deleteNote` here is
+   * the **permanent** delete that undoes a still-queued or already-applied
+   * `createNote` — not the soft-delete/Recently Deleted feature (#194)
+   * below, which arrives with its own intent pair.
+   *
+   * `labelNote`/`unlabelNote` carry the Label's `name`, the same
+   * `applyLabel`/`removeLabel` shape — the id is deterministic
+   * (`labels.ts#labelId`) from `(userId, name)`, so both sides derive it
+   * independently rather than one minting it and handing it to the other.
+   *
+   * `pinNote`/`unpinNote` (#193) are the grid's Pinned/Others split, a
+   * genuine inverse pair the same way `createNote`/`deleteNote` are —
+   * deliberately not a Thread-style absolute `setPinned {pinned: boolean}`,
+   * since that shape has no natural inverse for
+   * `user-mutation-queue.ts#coalesceKey`'s cancel-pair trick to use.
+   *
+   * `trashNote`/`restoreNote` (#194) are Delete and Recently Deleted's own
+   * Restore: a genuine inverse pair too, the same shape as `pinNote`/
+   * `unpinNote` above, except the field they flip is `deletedAt`
+   * (`notes.ts#noteSchema`'s own doc comment) rather than a physical row —
+   * `deleteNote` above stays the permanent delete it always was, this pair
+   * is the undoable, then-recoverable-for-30-days one the User's own
+   * "Delete" control actually fires.
+   */
+  z.object({ type: z.literal("createNote"), noteId: z.string() }),
+  z.object({ type: z.literal("deleteNote"), noteId: z.string() }),
+  z.object({ type: z.literal("labelNote"), noteId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("unlabelNote"), noteId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("pinNote"), noteId: z.string() }),
+  z.object({ type: z.literal("unpinNote"), noteId: z.string() }),
+  z.object({ type: z.literal("trashNote"), noteId: z.string() }),
+  z.object({ type: z.literal("restoreNote"), noteId: z.string() }),
 ]);
 export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
 
@@ -367,6 +446,10 @@ export type CorrespondentSearchResponse = z.infer<typeof correspondentSearchResp
 export const compositionDeltaSchema = collectionDeltaSchema(compositionSchema);
 export type CompositionDelta = z.infer<typeof compositionDeltaSchema>;
 
+/** `ConnectedAccount` (#200, ADR-0023): whole-replicated, User-scoped — see `connected-accounts.ts#connectedAccountSchema`'s own doc comment. */
+export const connectedAccountDeltaSchema = collectionDeltaSchema(connectedAccountSchema);
+export type ConnectedAccountDelta = z.infer<typeof connectedAccountDeltaSchema>;
+
 /**
  * A requested collection's token. `null` asks for a full bootstrap (the
  * Client holds nothing yet — not the same as a stale/unrecognized token,
@@ -378,8 +461,23 @@ const requestedTokenSchema = z.string().nullable();
 export const userSyncRequestSchema = z.object({
   MailAccount: requestedTokenSchema.optional(),
   Preference: requestedTokenSchema.optional(),
+  /** `Label` (#186): User-scoped, one set spanning every Mail Account. */
+  Label: requestedTokenSchema.optional(),
+  /** `Note` (#192, ADR-0023): whole-replicated, User-scoped. */
+  Note: requestedTokenSchema.optional(),
+  /** `ConnectedAccount` (#200, ADR-0023): whole-replicated, User-scoped. */
+  ConnectedAccount: requestedTokenSchema.optional(),
   /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
   mutations: z.array(queuedUserMutationSchema).optional(),
+  /**
+   * Note body autosaves to flush (#192, ADR-0023, `notes.ts#noteSaveSchema`)
+   * — a *separate* array from `mutations` above, not a `UserMutationIntent`
+   * variant, because it coalesces (last-write-wins per Note) rather than
+   * draining FIFO. `composeSaves`'s User-scoped sibling: at most one entry
+   * per Note per round, since `store/notes.ts`'s coalescing queue holds only
+   * the latest save.
+   */
+  noteSaves: z.array(noteSaveSchema).optional(),
 });
 export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
 
@@ -612,7 +710,6 @@ export type MutationOutcome = z.infer<typeof mutationOutcomeSchema>;
 
 export const mailAccountSyncRequestSchema = z.object({
   Thread: requestedTokenSchema.optional(),
-  Label: requestedTokenSchema.optional(),
   GmailLabel: requestedTokenSchema.optional(),
   Composition: requestedTokenSchema.optional(),
   Correspondent: requestedTokenSchema.optional(),
@@ -650,8 +747,13 @@ export type SyncRequest = z.infer<typeof syncRequestSchema>;
 export const userSyncResponseSchema = z.object({
   MailAccount: mailAccountDeltaSchema.optional(),
   Preference: preferenceDeltaSchema.optional(),
+  Label: labelDeltaSchema.optional(),
+  Note: noteDeltaSchema.optional(),
+  ConnectedAccount: connectedAccountDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
+  /** Outcomes in the same order as the request's `noteSaves` array. */
+  noteSaves: z.array(noteSaveOutcomeSchema).optional(),
   /**
    * The app-icon badge (#53, ADR-0015): unread Inbox threads across every
    * Mail Account, Gatekeeper-held mail never counted. The real server always
@@ -669,7 +771,6 @@ export type UserSyncResponse = z.infer<typeof userSyncResponseSchema>;
 
 export const mailAccountSyncResponseSchema = z.object({
   Thread: threadDeltaSchema.optional(),
-  Label: labelDeltaSchema.optional(),
   GmailLabel: gmailLabelDeltaSchema.optional(),
   Composition: compositionDeltaSchema.optional(),
   Correspondent: correspondentDeltaSchema.optional(),

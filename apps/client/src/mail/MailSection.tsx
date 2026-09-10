@@ -9,7 +9,6 @@ import {
   BULK_TRIAGE_UNDO_WINDOW_SECONDS,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
-  labelNameFromId,
 } from "@mail/shared";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,10 +21,16 @@ import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
+  type CachedThread,
+  createNoteFromThreadLink,
+  deleteNote,
   EMPTY_COMPOSE_CONTENT,
+  labelNameForId,
   newCompositionId,
   saveComposition,
+  sessionUserId,
   THREAD_PAGE_SIZE,
+  useConnectedAccounts,
   useDraftCompositions,
   useGmailLabels,
   useLabels,
@@ -68,7 +73,8 @@ import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { wrapSearchTriage } from "./search/useSearchState.js";
 import { timeGroupLabel } from "./time-groups.js";
-import { useAccountScope } from "./useAccountScope.js";
+import { announceUndoableAction } from "./undo-toast.js";
+import { deriveMailAccountScope, useAccountScope } from "./useAccountScope.js";
 import { useTriage } from "./useTriage.js";
 import { GROUP_STAGGER_ROW_CAP, type GroupBulkController } from "./VirtualizedThreadList.js";
 import "./mail.css";
@@ -154,9 +160,11 @@ const Composer = lazy(() =>
  * for why that's a client-side filter over the one synced window rather
  * than a second one.
  *
- * Account Scope (#73, `useAccountScope.ts`) is what `useThreadWindow` reads
- * *which* Mail Accounts from — merged into one newest-first list across
- * every account in Scope. `accountId` below stays a single id: the *primary*
+ * Account Scope (#73, `useAccountScope.ts`; the User-facing Scope itself is
+ * over Connected Accounts since #207 — `deriveMailAccountScope` is what
+ * turns that into this) is what `useThreadWindow` reads *which* Mail
+ * Accounts from — merged into one newest-first list across every account in
+ * Scope. `accountId` below stays a single id: the *primary*
  * in-scope account (Scope's first member), which several surfaces still need
  * one of — Search's account context, and (#81) a new Composition's
  * User-level default From, the last resort in the chain `openCompose` below
@@ -182,6 +190,7 @@ export function MailSection({
   initialAccountId = null,
   onLocationChange,
   onOpenStream = noop,
+  onNoteCreated = noop,
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
@@ -198,9 +207,12 @@ export function MailSection({
   ) => void;
   /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
   onOpenStream?: () => void;
+  /** "Add to Notes" (#195)'s own navigation, fired once the new Note actually exists in the Local Cache (the internal `onAddToNotes` handler below awaits the store write first — `notesNoteRoute`'s own `beforeLoad` redirects a `/notes/$noteId` that doesn't resolve yet) — `router/MailRoute.tsx`'s navigation to that route; a no-op default for every unrouted caller (every test in this file included), same posture `onOpenStream` above takes. */
+  onNoteCreated?: (noteId: string) => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
+  const connectedAccounts = useConnectedAccounts();
 
   // View mode and list density (#99): reactive Device Preferences now
   // (`device-preferences.ts#useViewMode`/`useListDensity`), so a change made
@@ -209,9 +221,18 @@ export function MailSection({
   // criterion ("changing density in Settings updates the list immediately").
   const [viewMode] = useViewMode();
   const [density] = useListDensity();
-  // Account Scope (#73): the Thread list's own accounts; `accountId` below
-  // is derived from it, not tracked separately — see the doc comment above.
-  const { scope: accountScope, setScope: setAccountScope } = useAccountScope(mailAccounts);
+  // Account Scope (#73, repointed at Connected Accounts in #207): the
+  // Hub's own Scope, `deriveMailAccountScope`d down to the Thread list's own
+  // accounts — a Connected Account with no Mail Facet in Scope contributes
+  // nothing here. `accountId` below is derived from that, not tracked
+  // separately — see the doc comment above.
+  const { scope: connectedAccountScope, setScope: setConnectedAccountScope } =
+    useAccountScope(connectedAccounts);
+  const accountScope = deriveMailAccountScope(
+    connectedAccounts,
+    connectedAccountScope,
+    mailAccounts ?? [],
+  );
   const accountId = accountScope[0] ?? null;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
   // #142's scroll-restore fallback ("scroll the previously open Thread into
@@ -270,7 +291,7 @@ export function MailSection({
     initialLabelFilter !== null ? { kind: "label", labelId: initialLabelFilter } : NO_FILTER,
   );
   const labelFilter = filter.kind === "label" ? filter.labelId : null;
-  const labels = useLabels(accountId) ?? [];
+  const labels = useLabels() ?? [];
   // Gmail Labels (#126, ADR-0020): a Gmail Mail Account's own Labels,
   // browsable and read-only, `labelFilter`'s sibling — never merged into it,
   // and mutually exclusive with it (selecting one clears the other, `filter`
@@ -506,9 +527,17 @@ export function MailSection({
     if (!target || accountId === null) return;
     initialAccountAppliedRef.current = true;
     if (target === accountId) return;
+    // Same Mail-Account-id-to-Connected-Account-id translation
+    // `narrowScopeTo` below does (#207) — a no-op, same as there, while the
+    // target's parent Connected Account hasn't synced yet, rather than
+    // writing a Scope that would immediately fall back to "every account".
+    const connectedAccountId = mailAccounts?.find(
+      (account) => account.id === target,
+    )?.connectedAccountId;
+    if (!connectedAccountId) return;
     previousPrimaryAccountRef.current = target;
-    setAccountScope([target]);
-  }, [accountId, setAccountScope]);
+    setConnectedAccountScope([connectedAccountId]);
+  }, [accountId, mailAccounts, setConnectedAccountScope]);
 
   // Narrows Scope to exactly one account: the one path (a notification
   // click landing on an account not currently primary) where a *single*
@@ -520,16 +549,26 @@ export function MailSection({
   // `previousPrimaryAccountRef` itself so that effect doesn't redo (and
   // re-fire a render behind) the same reset once `accountId` actually
   // catches up.
+  //
+  // Takes a Mail Account id — every caller's own target (`notification-router.ts`'s
+  // `mailAccountId`) — and writes the *Connected* Account Scope (#207) that
+  // actually persists, translating through `connectedAccountId`; a target
+  // whose parent Connected Account hasn't synced yet is a no-op rather than
+  // writing a Scope that would immediately fall back to "every account"
+  // (`resolveAccountScope`'s own rule).
   const narrowScopeTo = useCallback(
     (id: string) => {
-      setAccountScope([id]);
+      const connectedAccountId = mailAccounts?.find(
+        (account) => account.id === id,
+      )?.connectedAccountId;
+      if (connectedAccountId) setConnectedAccountScope([connectedAccountId]);
       previousPrimaryAccountRef.current = id;
       setSelectedThreadId(null);
       setLimit(THREAD_PAGE_SIZE);
       setFilter(NO_FILTER);
       setFolder(DEFAULT_FOLDER);
     },
-    [setAccountScope],
+    [mailAccounts, setConnectedAccountScope],
   );
 
   // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own
@@ -637,7 +676,7 @@ export function MailSection({
   // collection, plus any id the currently loaded page's Threads carry that
   // hasn't synced back yet — a Label applied offline is filterable the
   // instant it's applied, not once a round trip confirms it. See
-  // `labelNameFromId`'s doc comment for why decoding the name needs no
+  // `labelNameForId`'s doc comment for why decoding the name needs no
   // lookup.
   const labelsForPicker = useMemo(() => {
     if (!accountId) return [];
@@ -645,10 +684,13 @@ export function MailSection({
     for (const thread of threads) {
       for (const id of thread.labelIds) {
         if (!byId.has(id)) {
+          // A placeholder `Label` for a still-unsynced id: `userId` is
+          // cosmetic here (nothing reads it off a picker entry) and comes
+          // straight off the session (#186) rather than being invented.
           byId.set(id, {
             id,
-            mailAccountId: accountId,
-            name: labelNameFromId(accountId, id),
+            userId: sessionUserId() ?? "",
+            name: labelNameForId(id),
             updatedAt: "",
           });
         }
@@ -999,6 +1041,38 @@ export function MailSection({
   );
 
   /**
+   * "Add to Notes" (#195): creates the Note at once — no intermediate
+   * sheet, unlike a future "Add to Tasks" — from a snapshot of `thread`, the
+   * same `participants`/`subject`/`date` derivation `ThreadDetailPane.tsx`'s
+   * own header already renders. `createNoteFromThreadLink` rides
+   * `createNote`'s own real-inverse Optimistic Action (ADR-0019); this is
+   * the "component wires the toast" half `DraftsView.tsx`'s own Delete
+   * already draws — `deleteNote` is the Undo. Awaited before
+   * `onNoteCreated` fires: `notesNoteRoute`'s own `beforeLoad` redirects a
+   * `/notes/$noteId` that doesn't resolve in the Local Cache yet, so the
+   * router must not be asked to navigate there before the write lands.
+   */
+  const onAddToNotes = useCallback(
+    (thread: CachedThread) => {
+      const subject = thread.subject || "(no subject)";
+      const participants =
+        thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
+      const date = thread.lastMessageAt ?? new Date().toISOString();
+      void (async () => {
+        const noteId = await createNoteFromThreadLink({
+          threadId: thread.id,
+          subject,
+          participants,
+          date,
+        });
+        announceUndoableAction("addToNotes", () => void deleteNote(noteId));
+        onNoteCreated(noteId);
+      })();
+    },
+    [onNoteCreated],
+  );
+
+  /**
    * The Action registry's context (#94) — built once, here, and handed both
    * to the single `keydown` listener and (through `ActionsProvider`) to
    * every surface that draws a control: the row cluster, the row/reader/
@@ -1028,6 +1102,7 @@ export function MailSection({
       onOpenPalette: openPalette,
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream,
+      onAddToNotes,
       onMove: moveSelection,
       threadCount: activeIds.length,
       openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -1048,6 +1123,7 @@ export function MailSection({
       screenerSenderCount,
       openPalette,
       onOpenStream,
+      onAddToNotes,
       moveSelection,
       activeIds.length,
     ],

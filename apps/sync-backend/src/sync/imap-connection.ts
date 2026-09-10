@@ -10,7 +10,7 @@ import {
   markNeedsReauth,
   updateMailAccountServerKind,
 } from "../mail-accounts/store.js";
-import { recordNeedsReauthNotification } from "../notifier/record.js";
+import { recordMailFacetNeedsReauthNotification } from "../notifier/record.js";
 
 /**
  * The one IMAP connection a Mail Account gets (ADR-0005: "one IMAP
@@ -132,7 +132,11 @@ async function attemptConnect(
   allowGrantRetry: boolean,
 ): Promise<ImapFlow> {
   const { credentialKey, logger = false, qresync = false, autoIdleDelay } = options;
-  const secret = unsealMailAccountSecret(account.credential, account.id, credentialKey);
+  const secret = unsealMailAccountSecret(
+    account.credential,
+    account.connectedAccountId,
+    credentialKey,
+  );
   const client = new ImapFlow({
     host: account.imapHost,
     port: account.imapPort,
@@ -176,7 +180,7 @@ async function attemptConnect(
     }
 
     const transitioned = await markNeedsReauth(db, account.id);
-    if (transitioned) await recordNeedsReauthNotification(db, transitioned);
+    if (transitioned) await recordMailFacetNeedsReauthNotification(db, transitioned);
     throw new MailAccountNeedsReauthError(account.id, err.message);
   }
 

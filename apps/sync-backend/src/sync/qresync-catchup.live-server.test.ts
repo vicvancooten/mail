@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { mailAccounts, messages } from "../db/schema.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -54,7 +54,7 @@ beforeEach(async () => {
     .set({ imapSecurity: SECURITY, username: USER })
     .where(eq(mailAccounts.id, account.id))
     .returning();
-  if (updated) account = updated;
+  if (updated) account = { ...account, ...updated };
 });
 
 afterAll(async () => {

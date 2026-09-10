@@ -1,6 +1,7 @@
 export * from "./auth.js";
 export * from "./bulk-triage.js";
 export * from "./compose.js";
+export * from "./connected-accounts.js";
 export * from "./correspondents.js";
 export * from "./gatekeeper.js";
 export * from "./gmail-labels.js";
@@ -9,6 +10,7 @@ export * from "./instance.js";
 export * from "./labels.js";
 export * from "./mail-accounts.js";
 export * from "./messages.js";
+export * from "./notes.js";
 export * from "./providers.js";
 export * from "./push.js";
 export * from "./routing.js";

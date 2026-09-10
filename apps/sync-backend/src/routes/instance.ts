@@ -1,14 +1,17 @@
 import {
+  type ConnectedAccountFacetKind,
   generateVapidKeysResponseSchema,
   instanceInfoResponseSchema,
-  PROVIDERS,
-  type Provider,
+  type ProviderFacetHealth,
   type ProviderHealth,
   providerMailAccountCountResponseSchema,
   providerRegistrationResponseSchema,
+  REGISTERED_PROVIDERS,
+  type RegisteredProvider,
   saveProviderRegistrationRequestSchema,
 } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import {
   buildProviderRedirectUri,
@@ -16,21 +19,25 @@ import {
   getAppVersion,
   isSecureContext,
 } from "../instance-info.js";
-import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
-import { markNeedsReauth } from "../mail-accounts/store.js";
-import { recordNeedsReauthNotification } from "../notifier/record.js";
+import { listMailAccountsForProvider, markNeedsReauth } from "../mail-accounts/store.js";
+import { recordMailFacetNeedsReauthNotification } from "../notifier/record.js";
 import type { VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
+  countConnectedAccountsForProviderFacet,
+  getProviderFacetHealth,
+} from "../provider-registrations/facet-health-store.js";
+import {
   countMailAccountsForProvider,
-  countNeedsReauthMailAccountsForProvider,
   deleteProviderRegistration,
   getProviderRegistration,
-  listMailAccountsForProvider,
   type ProviderRegistrationRow,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
 import { AUTHORIZATION_RATE_LIMIT } from "./rate-limit.js";
 import { parseProviderParam } from "./route-params.js";
+
+/** `providerHealthSchema.facets`' fixed order (#205) — every Provider row always carries exactly these three, `providersServingFacet`/`FACET_COLUMNS` in the Client's own table share the same order. */
+const HEALTH_FACET_KINDS: readonly ConnectedAccountFacetKind[] = ["mail", "calendar", "contacts"];
 
 export interface InstanceRoutesOptions {
   db: Db;
@@ -83,26 +90,58 @@ export async function instanceRoutes(
 ) {
   const key = deriveCredentialKey(mailCredentialKey);
 
-  async function buildProviderHealth(provider: Provider): Promise<ProviderHealth> {
-    const [registration, mailAccountCount, needsReauthCount] = await Promise.all([
+  /**
+   * The per-Facet breakdown (#205, ADR-0022) — always the same three
+   * `HEALTH_FACET_KINDS` in order, so a Client never has to guess which
+   * Facets are missing. `everGranted`/refresh fields come from
+   * `provider_facet_health` (missing entirely until something's happened
+   * for that Facet, hence the `?? null`/`?? false` defaults); the counts
+   * come straight from `connected_account_facets`, independent of whether a
+   * health row exists yet.
+   */
+  async function buildFacetHealth(provider: RegisteredProvider): Promise<ProviderFacetHealth[]> {
+    const facetHealthByKind = await getProviderFacetHealth(db, provider);
+    return Promise.all(
+      HEALTH_FACET_KINDS.map(async (facet) => {
+        const [health, counts] = await Promise.all([
+          Promise.resolve(facetHealthByKind.get(facet) ?? null),
+          countConnectedAccountsForProviderFacet(db, provider, facet),
+        ]);
+        return {
+          facet,
+          everGranted: health?.firstGrantedAt != null,
+          connectedAccountCount: counts.connectedAccountCount,
+          parkedCount: counts.parkedCount,
+          lastRefreshAt: health?.lastRefreshAt?.toISOString() ?? null,
+          lastRefreshError: health?.lastRefreshError ?? null,
+          apiNotEnabled: health?.apiNotEnabled ?? false,
+        };
+      }),
+    );
+  }
+
+  async function buildProviderHealth(provider: RegisteredProvider): Promise<ProviderHealth> {
+    const [registration, facets] = await Promise.all([
       getProviderRegistration(db, provider),
-      countMailAccountsForProvider(db, provider),
-      countNeedsReauthMailAccountsForProvider(db, provider),
+      buildFacetHealth(provider),
     ]);
     return {
       provider,
       status: providerStatus(registration),
       redirectUri: buildProviderRedirectUri(publicUrl, provider),
       clientIdPreview: registration?.clientId ?? null,
-      mailAccountCount,
-      needsReauthCount,
       lastRefreshAt: registration?.lastRefreshAt?.toISOString() ?? null,
       lastRefreshError: registration?.lastRefreshError ?? null,
+      calendarApiEnabled: registration?.calendarApiEnabled ?? false,
+      contactsApiEnabled: registration?.contactsApiEnabled ?? false,
+      facets,
     };
   }
 
   app.get("/instance/health", { preHandler: app.requireOwner }, async () => {
-    const providers = await Promise.all(PROVIDERS.map((provider) => buildProviderHealth(provider)));
+    const providers = await Promise.all(
+      REGISTERED_PROVIDERS.map((provider) => buildProviderHealth(provider)),
+    );
     return instanceInfoResponseSchema.parse({
       version: getAppVersion(),
       imageTag,
@@ -181,6 +220,10 @@ export async function instanceRoutes(
         provider,
         body.data.clientId,
         sealSecret(body.data.clientSecret, provider, key),
+        {
+          calendarApiEnabled: body.data.calendarApiEnabled,
+          contactsApiEnabled: body.data.contactsApiEnabled,
+        },
       );
 
       return providerRegistrationResponseSchema.parse({
@@ -205,7 +248,11 @@ export async function instanceRoutes(
 
   // Confirm (#115, ADR-0021): parks every Mail Account on this Provider in
   // Needs Reauth via the existing atomic transition, then removes the
-  // Registration. `markNeedsReauth`'s own conditional update means an
+  // Registration. Account-level, explicitly (#204): removing the
+  // Registration kills the whole Grant (no client id/secret left to refresh
+  // or widen it with), not one Facet's own scope, so this passes
+  // `{ scope: "account" }` rather than relying on `markNeedsReauth`'s
+  // Facet-scoped default. `markNeedsReauth`'s own conditional update means an
   // account already in Needs Reauth is skipped rather than re-notified —
   // "one notification each" is per genuine transition, not per account.
   app.delete(
@@ -217,8 +264,8 @@ export async function instanceRoutes(
 
       const accounts = await listMailAccountsForProvider(db, provider);
       for (const account of accounts) {
-        const transitioned = await markNeedsReauth(db, account.id);
-        if (transitioned) await recordNeedsReauthNotification(db, transitioned);
+        const transitioned = await markNeedsReauth(db, account.id, { scope: "account" });
+        if (transitioned) await recordMailFacetNeedsReauthNotification(db, transitioned);
       }
       await deleteProviderRegistration(db, provider);
 

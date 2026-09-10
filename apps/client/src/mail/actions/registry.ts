@@ -1,4 +1,3 @@
-import { labelNameFromId } from "@mail/shared";
 import {
   Ban,
   Check,
@@ -12,6 +11,7 @@ import {
   Keyboard,
   Layers,
   MailOpen,
+  NotebookText,
   PenSquare,
   Pin,
   Reply,
@@ -24,6 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { labelNameForId } from "../../store/index.js";
 import { SNOOZE_PRESETS } from "../snooze-presets.js";
 import { currentReaderHandle } from "./surface-handles.js";
 import type { Action, ActionChoice, ActionContext, ActionSurface } from "./types.js";
@@ -104,13 +105,13 @@ function snoozeChoices(ctx: ActionContext): ActionChoice[] {
   }));
 }
 
-/** Label's toggles as menu choices — the Mail Account's known Labels plus anything the Thread already carries that hasn't synced back yet, exactly as `LabelPicker` resolves them. Naming a brand-new Label needs a text field, so that stays on the Popover. */
+/** Label's toggles as menu choices — the User's known Labels (#186) plus anything the Thread already carries that hasn't synced back yet, exactly as `LabelPicker` resolves them. Naming a brand-new Label needs a text field, so that stays on the Popover. */
 function labelChoices(ctx: ActionContext): ActionChoice[] {
   const thread = ctx.thread;
   if (!thread) return [];
   const known = new Map(ctx.labels.map((label) => [label.id, label.name]));
   for (const id of thread.labelIds) {
-    if (!known.has(id)) known.set(id, labelNameFromId(thread.mailAccountId, id));
+    if (!known.has(id)) known.set(id, labelNameForId(id));
   }
   return [...known.entries()]
     .sort((left, right) => left[1].localeCompare(right[1]))
@@ -202,6 +203,27 @@ export const ACTIONS: readonly Action[] = [
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.toggleStar(ctx.thread.id);
+    },
+  },
+  // "Add to Notes" (#195): the Reader's own bridge into Notes — creates a
+  // Note at once (no intermediate sheet, unlike a future "Add to Tasks",
+  // which will sit beside this one once its own spec lands). Reader/menu
+  // only, matching Label's own surfaces: there is no row-hover cluster
+  // control for this any more than there is one for Label. Declared after
+  // Pin/Star (not beside Label, where #195 first placed it) so the Palette's
+  // own registry-order "most-used" fallback (#148) still surfaces the
+  // original five core Triage actions — Compose, Done, Snooze, Label, Pin —
+  // before this newer one.
+  {
+    id: "add-to-notes",
+    label: "Add to Notes",
+    icon: NotebookText,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-secondary", "menu"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.onAddToNotes(ctx.thread);
     },
   },
   // Unbound since #79 gave `u` to "back to list" — reachable from the

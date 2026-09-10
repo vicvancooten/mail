@@ -2,11 +2,14 @@ import type {
   AttachmentMeta,
   ComposeDocument,
   CompositionStatus,
+  ConnectedAccount,
   Correspondent,
   GmailLabel,
   Label,
   MailAccount,
   MutationIntent,
+  Note,
+  NoteDocument,
   Preference,
   Recipient,
   Thread,
@@ -33,7 +36,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 7; // #126: `gmailLabels` (Gmail's own Labels, browsable and read-only, ADR-0020)
+export const CACHE_SCHEMA_VERSION = 11; // #200: `connectedAccounts` table added
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -225,6 +228,23 @@ export interface PendingComposeSave {
 }
 
 /**
+ * The `noteSaves` channel's coalescing queue (#192, ADR-0023) —
+ * `PendingComposeSave`'s sibling, deliberately simpler: no `version`, since a
+ * Note body write is never rejected (`@mail/shared`'s `noteSaveSchema` own
+ * doc comment). Keyed by `noteId` rather than a fresh id per save, the same
+ * `put()`-is-the-coalescer trick `PendingComposeSave` uses — a later edit's
+ * `put()` simply overwrites a still-unflushed earlier one in place.
+ * `saveId` is a fresh ULID minted on every overwrite, the idempotency/replay
+ * key `store/notes.ts`'s dequeue logic matches an outcome against.
+ */
+export interface PendingNoteSave {
+  noteId: string;
+  saveId: string;
+  document: NoteDocument;
+  queuedAt: string;
+}
+
+/**
  * The durable Optimistic Action queue (ADR-0010, #39). Two of #38's cache
  * invariants are stated in terms of it: wipe-and-resync must never discard
  * a non-empty queue, and eviction must never drop a Thread a queued action
@@ -271,10 +291,16 @@ export const SCHEMA_VERSION_META_KEY = "schemaVersion";
 export class LocalCache extends Dexie {
   mailAccounts!: EntityTable<MailAccount, "id">;
   threads!: EntityTable<CachedThread, "id">;
+  /** `Label` (#43), **User-scoped** since #186: one set spanning every Mail Account this User owns. */
   labels!: EntityTable<Label, "id">;
   /** `GmailLabel` (#126, ADR-0020): a Gmail Mail Account's own Labels, browsable and read-only — never merged into `labels`. */
   gmailLabels!: EntityTable<GmailLabel, "id">;
   correspondents!: EntityTable<Correspondent, "id">;
+  /** `Note` (#192, ADR-0023), User-scoped, whole-replicated — `labels`' sibling, minus the "moved here from Mail Account scope" history. */
+  notes!: EntityTable<Note, "id">;
+  /** `ConnectedAccount` (#199, #200, ADR-0022), User-scoped, whole-replicated — `notes`' sibling, no `deletedAt` (no soft delete on a Connected Account). */
+  connectedAccounts!: EntityTable<ConnectedAccount, "id">;
+  pendingNoteSaves!: EntityTable<PendingNoteSave, "noteId">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
   syncState!: EntityTable<SyncStateRow, "key">;
@@ -295,7 +321,13 @@ export class LocalCache extends Dexie {
     this.version(schemaVersion).stores({
       mailAccounts: "id, createdAt",
       threads: "id, mailAccountId, [mailAccountId+sortKey]",
-      labels: "id, mailAccountId",
+      // User-scoped since #186 (ADR-0023): one set per User, so there is no
+      // per-Mail-Account index to keep — every read wants all of them, and a
+      // `labelIds` entry on a Thread of any of the User's accounts resolves
+      // here. Re-keying is exactly what `CACHE_SCHEMA_VERSION`'s bump above
+      // discards: the stale account-scoped rows and their state tokens go,
+      // and the next sync round re-bootstraps the merged set.
+      labels: "id, userId",
       gmailLabels: "id, mailAccountId",
       // Sorted by score descending at read time (`reads.ts#readCorrespondents`)
       // — the `[mailAccountId+score]` index is what makes that a fast
@@ -303,6 +335,13 @@ export class LocalCache extends Dexie {
       // whole (bounded, ~500-row) top-500, which is the first-keystroke
       // <50ms budget's real headroom.
       correspondents: "id, mailAccountId, [mailAccountId+score]",
+      // `deletedAt` indexed for #194: `store/notes.ts#readNotes`/
+      // `readDeletedNotes` both filter on it (`toArray()` + JS `.filter`
+      // today, an index kept here regardless so a future range query over
+      // the grid/Recently Deleted split doesn't need its own schema bump).
+      notes: "id, userId, deletedAt",
+      pendingNoteSaves: "noteId",
+      connectedAccounts: "id, userId",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -333,6 +372,8 @@ const DATA_TABLES = [
   "labels",
   "gmailLabels",
   "correspondents",
+  "notes",
+  "connectedAccounts",
   "listWindows",
   "cachePins",
   "syncState",
@@ -359,6 +400,7 @@ export type CacheSchemaOutcome =
       pendingMutations: number;
       pendingComposeSaves: number;
       pendingUserMutations: number;
+      pendingNoteSaves: number;
     };
 
 /**
@@ -379,13 +421,20 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
   const pendingMutations = await db.pendingMutations.count();
   const pendingComposeSaves = await db.pendingComposeSaves.count();
   const pendingUserMutations = await db.pendingUserMutations.count();
-  if (pendingMutations > 0 || pendingComposeSaves > 0 || pendingUserMutations > 0) {
+  const pendingNoteSaves = await db.pendingNoteSaves.count();
+  if (
+    pendingMutations > 0 ||
+    pendingComposeSaves > 0 ||
+    pendingUserMutations > 0 ||
+    pendingNoteSaves > 0
+  ) {
     return {
       status: "deferred",
       from,
       pendingMutations,
       pendingComposeSaves,
       pendingUserMutations,
+      pendingNoteSaves,
     };
   }
 

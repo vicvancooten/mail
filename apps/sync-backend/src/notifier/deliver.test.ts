@@ -162,6 +162,8 @@ describe("deliverPending", () => {
     await insertOutboxEntry(db, {
       userId: account.userId,
       mailAccountId: account.id,
+      connectedAccountId: account.connectedAccountId,
+      facet: "mail",
       kind: "needs_reauth",
       dedupKey: `${account.id}:1`,
       payload: { kind: "needs_reauth", emailAddress: account.emailAddress },

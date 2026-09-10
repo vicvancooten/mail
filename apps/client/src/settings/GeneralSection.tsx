@@ -4,11 +4,19 @@ import { useCallback } from "react";
 import { enqueueUserMutation, usePreference } from "../store/index.js";
 
 /**
- * Settings' General page (#99): the two User-scoped, synced `Preference`
- * fields — Auto-advance on/off + direction, and the Undo Send delay. Split
- * out of the old monolithic `SettingsSection` (#71-era), which stacked this
- * alongside Device Preferences and per-account controls in one long scroll;
- * this page carries only what actually follows the User to another device.
+ * Every IANA zone this browser knows, for the Home Time Zone picker (#189).
+ * `Intl.supportedValuesOf` is the platform's own zone database — no bundled
+ * list to keep in sync with tzdata, and never a network round trip.
+ */
+const TIME_ZONES = Intl.supportedValuesOf("timeZone");
+
+/**
+ * Settings' General page (#99): the User-scoped, synced `Preference` fields —
+ * Auto-advance on/off + direction, the Undo Send delay, and the Home Time
+ * Zone (#189). Split out of the old monolithic `SettingsSection` (#71-era),
+ * which stacked this alongside Device Preferences and per-account controls
+ * in one long scroll; this page carries only what actually follows the User
+ * to another device.
  *
  * Every control writes through the Optimistic Action queue
  * (`enqueueUserMutation`) and reads back through `usePreference`'s `base ⊕
@@ -45,6 +53,10 @@ export function GeneralSection() {
 
   const changeUndoSendDelay = useCallback((undoSendDelaySeconds: UndoSendDelaySeconds) => {
     void enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds });
+  }, []);
+
+  const changeHomeTimeZone = useCallback((homeTimeZone: string) => {
+    void enqueueUserMutation({ type: "setHomeTimeZone", homeTimeZone });
   }, []);
 
   return (
@@ -90,6 +102,24 @@ export function GeneralSection() {
               {UNDO_SEND_DELAY_OPTIONS.map((seconds) => (
                 <option key={seconds} value={seconds}>
                   {seconds === 0 ? "off" : `${seconds}s`}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Home Time Zone
+            <select
+              value={preference.homeTimeZone}
+              onChange={(event) => changeHomeTimeZone(event.target.value)}
+            >
+              {/* Seeding (`use-seed-home-time-zone.ts`) races the first paint here on a
+                  brand-new device — an empty option keeps the `<select>` valid rather than
+                  silently snapping to whatever zone sorts first while it settles. */}
+              {preference.homeTimeZone === "" && <option value="">Detecting…</option>}
+              {TIME_ZONES.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
                 </option>
               ))}
             </select>

@@ -1,4 +1,4 @@
-import type { MailAccountConnection, Provider } from "@mail/shared";
+import type { GrantableFacetKind, MailAccountConnection, RegisteredProvider } from "@mail/shared";
 
 /**
  * The one new seam this ticket introduces (#116, ADR-0021): everything that
@@ -24,8 +24,16 @@ export interface AuthorizationUrlInput {
   state: string;
   /** PKCE's S256 challenge; the adapter never sees the verifier until `exchangeCode`. */
   codeChallenge: string;
-  /** The address to pre-select, for a reauth of a known Mail Account. Omitted on a fresh add, which always shows the account chooser. */
+  /** The address to pre-select, for a reauth of a known Mail Account or an `add_facet` attempt's already-known identity. Omitted on a fresh add, which always shows the account chooser. */
   loginHint?: string;
+  /**
+   * Narrows the request to a single Facet's own scope (#202) instead of the
+   * adapter's Mail-only `scopes` default — set only for an `add_facet`
+   * attempt, alongside `facetGrantScopes` below.
+   */
+  scope?: string[];
+  /** Google's `include_granted_scopes=true` (#202, ADR-0022) — asks only for the new Facet's scopes while keeping every previously granted one true on the Provider's side. Ignored by an adapter (Microsoft) that is additive per-resource by default. */
+  includeGrantedScopes?: boolean;
 }
 
 export interface ExchangeCodeInput {
@@ -34,6 +42,8 @@ export interface ExchangeCodeInput {
   redirectUri: string;
   code: string;
   codeVerifier: string;
+  /** Must match what `authorizationUrl` requested (#202) — omit for the Mail-only default. */
+  scope?: string[];
 }
 
 /**
@@ -99,6 +109,20 @@ export interface ProviderAdapter {
   readonly connection: { imap: MailAccountConnection; smtp: MailAccountConnection };
   /** Mail-only, per ADR-0021 — quoted back in the authorization URL and stored on the Grant. */
   readonly scopes: string[];
+  /**
+   * The Provider-side scope needed to turn on one more Facet beyond Mail
+   * (#202, ADR-0022), and the one scope string out of it whose absence from
+   * what the Provider actually granted means the User partly declined —
+   * `routes/oauth-signin.ts`'s own acceptance criterion ("a consent screen
+   * the User partly declined ... writes no Facet row and says so"). Optional:
+   * an adapter that doesn't implement this can't serve Calendar or Contacts
+   * at all, and the facet-grant start route reads a missing implementation
+   * the same way it reads a missing Registration — unavailable, never a
+   * consent flow offered.
+   */
+  facetGrantScopes?(facet: GrantableFacetKind): { requestScopes: string[]; coreScope: string };
+  /** Google's `include_granted_scopes=true` (#202, ADR-0022) — Microsoft is additive per-resource by default and omits this. */
+  readonly includeGrantedScopesOnFacetGrant?: boolean;
   authorizationUrl(input: AuthorizationUrlInput): string;
   exchangeCode(input: ExchangeCodeInput): Promise<ProviderGrant>;
   refresh(input: RefreshInput): Promise<ProviderRefreshResult>;
@@ -111,6 +135,15 @@ export interface ProviderAdapter {
    * failure of its stays `provider_error` (#117).
    */
   isTenantRefusal?(failure: AuthorizationCallbackError): boolean;
+  /**
+   * Best-effort Grant revocation on Connected Account removal (#206,
+   * ADR-0029: "Google's Grant is revoked best-effort ... a failure never
+   * fails the removal"). Optional: Microsoft's identity platform has no
+   * programmatic revoke endpoint a confidential client can call on the
+   * User's behalf, so its adapter leaves this out and the removal route
+   * shows the User a link to their own Microsoft account page instead.
+   */
+  revoke?(refreshToken: string): Promise<void>;
 }
 
 /**
@@ -122,4 +155,4 @@ export interface ProviderAdapter {
  * unavailable ... never hidden" applies to a missing adapter as much as to a
  * missing Registration.
  */
-export type ProviderAdapters = Partial<Record<Provider, ProviderAdapter>>;
+export type ProviderAdapters = Partial<Record<RegisteredProvider, ProviderAdapter>>;

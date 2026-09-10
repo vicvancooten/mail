@@ -1,5 +1,11 @@
-import type { Composition, Correspondent, GmailLabel, Label, Thread } from "@mail/shared";
-import type { CompositionRow, CorrespondentRow, GmailLabelRow, LabelRow } from "../db/schema.js";
+import type { Composition, Correspondent, GmailLabel, Label, Note, Thread } from "@mail/shared";
+import type {
+  CompositionRow,
+  CorrespondentRow,
+  GmailLabelRow,
+  LabelRow,
+  NoteRow,
+} from "../db/schema.js";
 import type { ThreadRow } from "./threading.js";
 
 /** Maps a stored Thread row to ADR-0011's wire projection — the list row, never a Message body. */
@@ -30,12 +36,26 @@ export function toWireThread(row: ThreadRow): Thread {
   };
 }
 
-/** Maps a stored Label row (#43) to ADR-0011's wire projection. */
+/** Maps a stored Label row (#43) to ADR-0011's wire projection — User-scoped since #186, so it carries `userId` rather than a Mail Account's id. */
 export function toWireLabel(row: LabelRow): Label {
   return {
     id: row.id,
-    mailAccountId: row.mailAccountId,
+    userId: row.userId,
     name: row.name,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Maps a stored Note row (#192, ADR-0023) to ADR-0011's wire projection — User-scoped, the same shape `toWireLabel` above carries. */
+export function toWireNote(row: NoteRow): Note {
+  return {
+    id: row.id,
+    userId: row.userId,
+    document: row.document,
+    labelIds: row.labelIds,
+    pinned: row.pinned,
+    deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }

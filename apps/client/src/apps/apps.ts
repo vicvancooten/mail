@@ -1,13 +1,18 @@
+import type { ConnectedAccountFacetKind } from "@mail/shared";
 import type { LucideIcon } from "lucide-react";
-import { Calendar, ListChecks, Mail, Users } from "lucide-react";
+import { Calendar, ListChecks, Mail, NotebookText, Users } from "lucide-react";
 
 /**
- * The four Apps the App Switcher names (#72, part of #66): Mail, live today,
- * plus three reserved Apps that are named and reachable — never hidden —
- * long before anything is built behind them. `available: false` is what
- * routes a click to `PlaceholderRoute` instead of a real screen; it is not a
- * disabled state, since the whole point of naming a reserved App is that it
- * stays a real, clickable destination.
+ * The five Apps the App Switcher names (#72, part of #66; grown to five and
+ * given per-App Account Scope in #187): Mail and, since #193, Notes are both
+ * live; Contacts, Calendar and Tasks stay reserved — named and reachable,
+ * never hidden — long before anything is built behind them. `available:
+ * false` is what routes a click to `PlaceholderRoute` instead of a real
+ * screen; it is not a disabled state, since the whole point of naming a
+ * reserved App is that it stays a real, clickable destination. Notes is last
+ * (`docs/hub-apps-foundations-spec.md`'s own App order) — it was reserved the
+ * same way Contacts/Calendar/Tasks still are, until its own epic (`mail#190`)
+ * landed behind it.
  */
 export interface AppDef {
   key: string;
@@ -16,6 +21,15 @@ export interface AppDef {
   /** The placeholder's one line of what the App will be — never a date, never a waitlist. */
   description: string;
   available: boolean;
+  /**
+   * Whether narrowing to a subset of the User's Mail Accounts means anything
+   * for this App's data (#187) — Mail, Calendar and Contacts read a Mail
+   * Account's data, so Scope narrows what they show; Tasks and Notes belong
+   * to the User alone, so a Scope over Mail Accounts has nothing to narrow.
+   * `RootLayout.tsx` reads this to hide the Hub's Account Scope control
+   * rather than rendering it disabled or empty.
+   */
+  observesAccountScope: boolean;
 }
 
 export const APPS: readonly AppDef[] = [
@@ -25,6 +39,7 @@ export const APPS: readonly AppDef[] = [
     name: "Mail",
     description: "Read, triage and send your mail.",
     available: true,
+    observesAccountScope: true,
   },
   {
     key: "contacts",
@@ -32,6 +47,7 @@ export const APPS: readonly AppDef[] = [
     name: "Contacts",
     description: "Everyone you've written to, gathered in one address book.",
     available: false,
+    observesAccountScope: true,
   },
   {
     key: "calendar",
@@ -39,6 +55,7 @@ export const APPS: readonly AppDef[] = [
     name: "Calendar",
     description: "Meetings and events, alongside your mail.",
     available: false,
+    observesAccountScope: true,
   },
   {
     key: "tasks",
@@ -46,10 +63,21 @@ export const APPS: readonly AppDef[] = [
     name: "Tasks",
     description: "Turn a thread into something to do.",
     available: false,
+    observesAccountScope: false,
+  },
+  {
+    key: "notes",
+    path: "/notes",
+    name: "Notes",
+    description: "Quick notes, alongside your mail.",
+    // Real behind this since #193 — the grid and dialog editing, Notes'
+    // first built-out screen.
+    available: true,
+    observesAccountScope: false,
   },
 ];
 
-type AppKey = "mail" | "contacts" | "calendar" | "tasks";
+type AppKey = "mail" | "contacts" | "calendar" | "tasks" | "notes";
 
 /**
  * One icon per App — the App Switcher's tab row and hub-mark badge, and
@@ -57,7 +85,7 @@ type AppKey = "mail" | "contacts" | "calendar" | "tasks";
  * above a reserved App's heading, `docs/design/prototypes/the-instrument.html`).
  * Declared once here rather than in either consumer, so the two can never
  * pick a different glyph for the same App. Keyed on the literal `AppKey`
- * union, same reasoning as `APPS_BY_KEY` below: a lookup by one of the four
+ * union, same reasoning as `APPS_BY_KEY` below: a lookup by one of the five
  * known keys skips `noUncheckedIndexedAccess`'s `| undefined` entirely.
  */
 export const APP_ICONS: Record<AppKey, LucideIcon> = {
@@ -65,10 +93,25 @@ export const APP_ICONS: Record<AppKey, LucideIcon> = {
   contacts: Users,
   calendar: Calendar,
   tasks: ListChecks,
+  notes: NotebookText,
 };
 
 export function appForPath(pathname: string): AppDef | undefined {
   return APPS.find((app) => pathname.startsWith(app.path));
+}
+
+/**
+ * Which Connected Account Facet an `observesAccountScope` App's data rides
+ * (#207) — `mail`/`calendar`/`contacts` all share their `AppDef.key` with
+ * their `ConnectedAccountFacetKind`, so this is a lookup rather than a
+ * second table to keep in sync. Never called for Tasks/Notes
+ * (`observesAccountScope: false` already hides the picker for both), and
+ * falls back to `"mail"` for the one caller (`RootLayout.tsx`) that can
+ * still hand it `undefined` — a pathname matching no App, the same "show it
+ * anyway" default `observesAccountScope ?? true` already takes there.
+ */
+export function accountScopeFacetForApp(app: AppDef | undefined): ConnectedAccountFacetKind {
+  return app?.key === "calendar" || app?.key === "contacts" ? app.key : "mail";
 }
 
 /**

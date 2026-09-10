@@ -1,12 +1,21 @@
 import type { Message } from "@mail/shared";
-import { labelNameFromId } from "@mail/shared";
-import { CheckCircle2, ChevronLeft, Clock, Pin, Reply, Star, Tag, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  Clock,
+  NotebookText,
+  Pin,
+  Reply,
+  Star,
+  Tag,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import type { ReplyMode } from "../compose/reply.js";
 import { useTouchCapablePhone } from "../hooks/use-touch-phone.js";
 import type { CachedThread } from "../store/index.js";
-import { useLabels } from "../store/index.js";
+import { labelNameForId, useLabels } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
@@ -80,7 +89,9 @@ export function ThreadDetailPane({
 }) {
   const participants =
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
-  const labels = useLabels(thread.mailAccountId) ?? [];
+  // Labels are User-scoped, not Mail-Account-scoped (#186, ADR-0023) —
+  // `useLabels()` takes no account id.
+  const labels = useLabels() ?? [];
   const { messages } = useThreadMessages(thread.id);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -284,12 +295,52 @@ export function ThreadDetailPane({
                   </PopoverContent>
                 </Popover>
               ) : null}
-              {/* The secondary tier (#143): Pin, Star, Label — the registry's
-                `reader-secondary` surface, inline but visually quieter, and
-                only where `secondaryIds` is non-empty (desktop; `phone`
-                empties it, folding these into the More menu instead). */}
+              {/* The secondary tier (#143): Label, Add to Notes (#195), Pin,
+                Star — the registry's `reader-secondary` surface, inline but
+                visually quieter, and only where `secondaryIds` is non-empty
+                (desktop; `phone` empties it, folding these into the More
+                menu instead). */}
               {secondaryIds.size > 0 ? (
                 <div className="reading-actions-secondary">
+                  {secondaryIds.has("label") ? (
+                    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={pickerOpen ? "on" : ""}
+                          aria-label="Apply or remove a label"
+                          title={buttonTitle("label", "Label")}
+                        >
+                          <Tag size={15} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-auto min-w-[220px] p-1.5">
+                        <LabelPicker
+                          thread={thread}
+                          labels={labels}
+                          triage={triage}
+                          onClose={() => setPickerOpen(false)}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  ) : null}
+                  {/* "Add to Notes" (#195) — creates a Note at once, no
+                    picker of its own to open, unlike Label above. There is
+                    no Triage-level fallback for this (it isn't a Triage
+                    method at all), so an unwired `ActionsProvider` — never
+                    the case in the real app — just does nothing, the same
+                    as any other registry action would with no context to
+                    run against. */}
+                  {secondaryIds.has("add-to-notes") ? (
+                    <button
+                      type="button"
+                      onClick={() => runReader("add-to-notes", () => {})}
+                      aria-label="Add to Notes"
+                      title={buttonTitle("add-to-notes", "Add to Notes")}
+                    >
+                      <NotebookText size={15} />
+                    </button>
+                  ) : null}
                   {secondaryIds.has("pin") ? (
                     <button
                       type="button"
@@ -313,28 +364,6 @@ export function ThreadDetailPane({
                     >
                       <Star size={15} />
                     </button>
-                  ) : null}
-                  {secondaryIds.has("label") ? (
-                    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className={pickerOpen ? "on" : ""}
-                          aria-label="Apply or remove a label"
-                          title={buttonTitle("label", "Label")}
-                        >
-                          <Tag size={15} />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="end" className="w-auto min-w-[220px] p-1.5">
-                        <LabelPicker
-                          thread={thread}
-                          labels={labels}
-                          triage={triage}
-                          onClose={() => setPickerOpen(false)}
-                        />
-                      </PopoverContent>
-                    </Popover>
                   ) : null}
                 </div>
               ) : null}
@@ -376,8 +405,7 @@ export function ThreadDetailPane({
                   <span className="reading-labels">
                     {thread.labelIds.map((id) => (
                       <span key={id} className="label-chip">
-                        {labels.find((label) => label.id === id)?.name ??
-                          labelNameFromId(thread.mailAccountId, id)}
+                        {labels.find((label) => label.id === id)?.name ?? labelNameForId(id)}
                       </span>
                     ))}
                   </span>

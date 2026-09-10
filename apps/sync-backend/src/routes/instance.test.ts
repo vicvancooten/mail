@@ -1,19 +1,19 @@
 import { randomUUID } from "node:crypto";
-import type { MailAccountConnection } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession } from "../auth/sessions.js";
+import { deriveCredentialKey, sealSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
-import { mailAccounts, notifierOutbox, users } from "../db/schema.js";
-import { deriveCredentialKey, sealSecret } from "../mail-accounts/credential-crypto.js";
-import { getMailAccountById } from "../mail-accounts/store.js";
+import { notifierOutbox, users } from "../db/schema.js";
+import { getMailAccountById, markNeedsReauth } from "../mail-accounts/store.js";
 import { createVapidKeyStore, type VapidKeyStore } from "../notifier/vapid-keys.js";
 import {
   recordProviderRefreshOutcome,
   upsertProviderRegistration,
 } from "../provider-registrations/store.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
+import { createTestMailAccount } from "../test-support/mail-account.js";
 
 /**
  * `GET /instance/health` (#104, #115): the Owner-only Instance page's data
@@ -22,7 +22,6 @@ import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-sup
  */
 
 const PUBLIC_URL = "http://localhost:3000";
-const CONNECTION: MailAccountConnection = { host: "imap.example.com", port: 993, security: "tls" };
 
 let db: Db;
 let closeDb: () => Promise<void>;
@@ -77,37 +76,20 @@ async function createOauthMailAccount(
   provider: "google" | "microsoft",
   status: "active" | "needs_reauth" = "active",
 ): Promise<string> {
-  const userId = randomUUID();
-  await db.insert(users).values({
-    id: userId,
-    username: `user-${userId}`,
-    passwordHash: "not-a-real-hash",
-    role: "member",
+  const account = await createTestMailAccount(db, {
+    emailAddress: `${randomUUID()}@example.com`,
+    oauth: { provider, accessToken: "at" },
   });
-  const id = randomUUID();
-  const key = deriveCredentialKey(TEST_MAIL_CREDENTIAL_KEY);
-  await db.insert(mailAccounts).values({
-    id,
-    userId,
-    emailAddress: `${id}@example.com`,
-    imapHost: CONNECTION.host,
-    imapPort: CONNECTION.port,
-    imapSecurity: CONNECTION.security,
-    smtpHost: CONNECTION.host,
-    smtpPort: 587,
-    smtpSecurity: "starttls",
-    username: `${id}@example.com`,
-    status,
-    credential: {
-      kind: "oauth",
-      provider,
-      accessToken: sealSecret("at", provider, key),
-      refreshToken: sealSecret("rt", provider, key),
-      expiresAt: new Date().toISOString(),
-      scope: [],
-    },
-  });
-  return id;
+  if (status === "needs_reauth") {
+    // Account-level (#204) — this fixture models an account the
+    // `DELETE /instance/providers/:provider` route (or an earlier run of it)
+    // already parked, and that route's own park is always account-level
+    // (removing the Registration kills the whole Grant, not one Facet's
+    // scope), so the "already parked, skipped" test below only holds if
+    // this fixture parks the same level that route does.
+    await markNeedsReauth(db, account.id, { scope: "account" });
+  }
+  return account.id;
 }
 
 describe("GET /instance/health", () => {
@@ -243,10 +225,13 @@ describe("GET /instance/health", () => {
           status: "not_registered",
           redirectUri: "https://mail.example.com/auth/oauth/google/callback",
           clientIdPreview: null,
-          mailAccountCount: 0,
-          needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+          facets: [
+            { facet: "mail", everGranted: false, connectedAccountCount: 0, parkedCount: 0 },
+            { facet: "calendar", everGranted: false, connectedAccountCount: 0, parkedCount: 0 },
+            { facet: "contacts", everGranted: false, connectedAccountCount: 0, parkedCount: 0 },
+          ],
         },
         {
           provider: "microsoft",

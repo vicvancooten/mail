@@ -1,3 +1,5 @@
+import type { ConnectedAccountFacetKind } from "@mail/shared";
+
 /**
  * Where a notification click lands, once it reaches an open window (#53,
  * ADR-0015). The service worker can only `postMessage` a focused/opened
@@ -15,7 +17,10 @@
 export type NotificationTarget =
   | { kind: "thread"; mailAccountId: string; threadId: string }
   | { kind: "failed-send"; mailAccountId: string; compositionId: string }
-  | { kind: "needs-reauth"; mailAccountId: string }
+  /** Widened by #204: `connectedAccountId`+`facet` name which Facet cell to
+   * open — every `needs_reauth` push carries both now, Mail Facet included,
+   * so this never needs `mailAccountId` to resolve a click. */
+  | { kind: "needs-reauth"; connectedAccountId: string; facet: ConnectedAccountFacetKind }
   | { kind: "screener"; mailAccountId: string };
 
 const listeners = new Set<(target: NotificationTarget) => void>();
@@ -46,16 +51,20 @@ function isNotificationTarget(data: unknown): data is NotificationTarget {
     mailAccountId?: unknown;
     threadId?: unknown;
     compositionId?: unknown;
+    connectedAccountId?: unknown;
+    facet?: unknown;
   };
-  if (typeof target.mailAccountId !== "string") return false;
   switch (target.kind) {
     case "thread":
-      return typeof target.threadId === "string";
+      return typeof target.mailAccountId === "string" && typeof target.threadId === "string";
     case "failed-send":
-      return typeof target.compositionId === "string";
-    case "needs-reauth":
+      return typeof target.mailAccountId === "string" && typeof target.compositionId === "string";
     case "screener":
-      return true;
+      return typeof target.mailAccountId === "string";
+    case "needs-reauth":
+      // Widened by #204: keyed by Connected Account + Facet, not a Mail
+      // Account (this type's own doc comment above).
+      return typeof target.connectedAccountId === "string" && typeof target.facet === "string";
     default:
       return false;
   }

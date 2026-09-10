@@ -1,4 +1,5 @@
 import type {
+  ConnectedAccount,
   Correspondent,
   GatekeeperSender,
   GmailLabel,
@@ -11,7 +12,7 @@ import {
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
-  labelId,
+  HOME_TIME_ZONE_UNSET,
   normalizeSenderAddress,
   senderDomain,
 } from "@mail/shared";
@@ -28,6 +29,7 @@ import {
 } from "./db.js";
 import { localCache } from "./local-cache.js";
 import { threadsInWindow } from "./server-writes.js";
+import { labelIdForName } from "./session.js";
 import { threadSortKey } from "./thread-sort-key.js";
 
 /**
@@ -113,6 +115,27 @@ async function overlayMailAccountMutations(
 }
 
 /**
+ * Every Connected Account this User owns (#199, #200, ADR-0022), the
+ * Connected Accounts settings table's whole data source (#201) and — once
+ * Calendar/Contacts pick up Account Scope — the picker's own source too
+ * (#166). No overlay: nothing mutates a Connected Account through the
+ * Optimistic Action queue yet, so this is a plain read of the whole-
+ * replicated collection, `useMailAccounts`' own doc comment's simpler
+ * cousin.
+ */
+export function useConnectedAccounts(): ConnectedAccount[] | undefined {
+  return useLiveQuery(() => readConnectedAccounts(), []);
+}
+
+export async function readConnectedAccounts(): Promise<ConnectedAccount[]> {
+  // `createdAt` isn't an indexed field (`db.ts`'s schema: "id, userId"), so
+  // this sorts in JS rather than via `orderBy`, the same trade `readLabels`
+  // above makes for its own unindexed sort key.
+  const accounts = await localCache().connectedAccounts.toArray();
+  return accounts.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+/**
  * The synced `Preference` row (#54), before this Client has ever synced one:
  * the same defaults `sync/mutations.ts` seeds a new `users` row with, so a
  * fresh install's settings screen shows sensible values from the first paint
@@ -126,6 +149,7 @@ function defaultPreference(): Preference {
     autoAdvanceEnabled: DEFAULT_AUTO_ADVANCE_ENABLED,
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
+    homeTimeZone: HOME_TIME_ZONE_UNSET,
     updatedAt: new Date(0).toISOString(),
   };
 }
@@ -163,21 +187,29 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
       case "setUndoSendDelay":
         overlaid = { ...overlaid, undoSendDelaySeconds: intent.undoSendDelaySeconds };
         break;
+      case "setHomeTimeZone":
+        overlaid = { ...overlaid, homeTimeZone: intent.homeTimeZone };
+        break;
     }
   }
   return overlaid;
 }
 
-/** Every Label (#43) a Mail Account has, name-ordered — the "filter by label" picker's whole data source. */
-export function useLabels(mailAccountId: string | null): Label[] | undefined {
-  return useLiveQuery(
-    () => (mailAccountId === null ? Promise.resolve([]) : readLabels(mailAccountId)),
-    [mailAccountId],
-  );
+/**
+ * Every Label (#43) this **User** has, name-ordered — the "filter by label"
+ * picker's whole data source, and the sidebar's Labels section.
+ *
+ * Takes no Mail Account since #186 (ADR-0023): there is one set of Labels
+ * per User, so the same list is the right answer under every Account Scope,
+ * including the one spanning several accounts. `useGmailLabels` below did
+ * *not* move — a Gmail Label really is one account's own.
+ */
+export function useLabels(): Label[] | undefined {
+  return useLiveQuery(() => readLabels(), []);
 }
 
-export async function readLabels(mailAccountId: string): Promise<Label[]> {
-  const rows = await localCache().labels.where("mailAccountId").equals(mailAccountId).toArray();
+export async function readLabels(): Promise<Label[]> {
+  const rows = await localCache().labels.toArray();
   return rows.sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -705,19 +737,24 @@ function applyOverlay(thread: CachedThread, mutations: PendingMutation[]): Cache
         break;
       case "applyLabel": {
         // Same deterministic id both sides derive independently (#43) — see
-        // `packages/shared/src/labels.ts`'s doc comment.
-        const id = labelId(overlaid.mailAccountId, mutation.intent.name);
-        if (!overlaid.labelIds.includes(id)) {
+        // `packages/shared/src/labels.ts`'s doc comment. Derived from the
+        // signed-in User since #186, not this Thread's Mail Account, which
+        // is why it can be `null`: no session, no prediction (`store/
+        // session.ts`), and the overlay simply leaves `labelIds` alone.
+        const id = labelIdForName(mutation.intent.name);
+        if (id !== null && !overlaid.labelIds.includes(id)) {
           overlaid = { ...overlaid, labelIds: [...overlaid.labelIds, id] };
         }
         break;
       }
       case "removeLabel": {
-        const id = labelId(overlaid.mailAccountId, mutation.intent.name);
-        overlaid = {
-          ...overlaid,
-          labelIds: overlaid.labelIds.filter((existing) => existing !== id),
-        };
+        const id = labelIdForName(mutation.intent.name);
+        if (id !== null) {
+          overlaid = {
+            ...overlaid,
+            labelIds: overlaid.labelIds.filter((existing) => existing !== id),
+          };
+        }
         break;
       }
       // #144: Spam/Block reached from an Inbox Thread rather than the
@@ -806,7 +843,7 @@ export async function readSearchPrefilter(
 
   let labelIdFilter: string | null = null;
   if (filters.label) {
-    const labels = await readLabels(mailAccountId);
+    const labels = await readLabels();
     const match = labels.find((label) => label.name.toLowerCase() === filters.label?.toLowerCase());
     // No such Label held locally: nothing can match, rather than silently
     // ignoring the filter and showing everything.
@@ -897,4 +934,37 @@ export function useSearchResultThreads(results: readonly { thread: Thread }[]): 
     // would resubscribe on every render for no reason.
   }, [ids.join(",")]);
   return overlaid ?? [...snapshots.values()];
+}
+
+/**
+ * The Thread Link picker's own listing (#195, `notes/ThreadLinkPickerDialog.tsx`):
+ * every cached Thread across every synced Mail Account, newest first,
+ * flatly capped — unlike `useThreadWindow` this reads no Account Scope at
+ * all, because Notes doesn't observe one (`apps/apps.ts`'s own `notes`
+ * entry, `observesAccountScope: false`) and linking a Thread from a Note
+ * isn't a folder-scoped Triage view to begin with, just "what's been synced,
+ * searchable by subject or participant". Trash and Junk are left out
+ * (`folderRole`, same "left every folder-scoped view" rule
+ * `readThreadWindow`'s own doc comment gives Sent/Pinned/Snoozed) — nothing
+ * stops a Thread Link naming a Thread that leaves Trash *after* linking, the
+ * same "the snapshot renders unchanged" acceptance line covers.
+ */
+const THREAD_LINK_PICKER_LIMIT = 50;
+
+export function useRecentThreadsForLinking(
+  limit: number = THREAD_LINK_PICKER_LIMIT,
+): CachedThread[] | undefined {
+  return useLiveQuery(() => readRecentThreadsForLinking(limit), [limit]);
+}
+
+export async function readRecentThreadsForLinking(
+  limit: number = THREAD_LINK_PICKER_LIMIT,
+): Promise<CachedThread[]> {
+  const db = localCache();
+  const all = await db.threads.toArray();
+  const overlaid = await overlayPendingMutations(db, all);
+  return overlaid
+    .filter((thread) => !hasLeftFolderScopedViews(thread))
+    .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
+    .slice(0, limit);
 }

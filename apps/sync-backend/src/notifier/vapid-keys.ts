@@ -1,11 +1,11 @@
 import webPush from "web-push";
-import type { Db } from "../db/client.js";
-import { VAPID_KEYS_ROW_ID, vapidKeys } from "../db/schema.js";
 import {
   deriveCredentialKey,
   sealSecret,
   unsealSecret,
-} from "../mail-accounts/credential-crypto.js";
+} from "../connected-accounts/credential-crypto.js";
+import type { Db } from "../db/client.js";
+import { VAPID_KEYS_ROW_ID, vapidKeys } from "../db/schema.js";
 
 /**
  * Where the instance's Web Push VAPID keypair comes from (#53, ADR-0015 as

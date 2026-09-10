@@ -1,13 +1,34 @@
 import { z } from "zod";
 
 /**
- * The two Providers a Provider Registration exists for (CONTEXT.md, ADR-0021)
- * — Other IMAP needs no Registration at all, so it never appears here. Also
- * the display order the Instance page's Providers section lists them in.
+ * The glossary's **Provider** (CONTEXT.md, ADR-0022): one of four identity
+ * kinds a Connected Account can hold. Only Google and Microsoft ever need a
+ * Provider Registration (below) — Other IMAP and CalDAV/CardDAV never do,
+ * since a password or app password needs nothing an Owner registers.
  */
-export const PROVIDERS = ["google", "microsoft"] as const;
+export const PROVIDERS = ["google", "microsoft", "other_imap", "caldav_carddav"] as const;
 export const providerSchema = z.enum(PROVIDERS);
 export type Provider = z.infer<typeof providerSchema>;
+
+/**
+ * The two Providers a Provider Registration exists for (CONTEXT.md, ADR-0021)
+ * — the subset of `Provider` above that needs one. Also the display order
+ * the Instance page's Providers section lists them in.
+ */
+export const REGISTERED_PROVIDERS = ["google", "microsoft"] as const;
+export const registeredProviderSchema = z.enum(REGISTERED_PROVIDERS);
+export type RegisteredProvider = z.infer<typeof registeredProviderSchema>;
+
+/**
+ * Which thing a Connected Account is turned on for (#199, ADR-0022,
+ * CONTEXT.md's Facet). `mail` is the one every Connected Account created by
+ * today's add-a-Mail-Account flows already carries; `calendar`/`contacts`
+ * are Calendar and Contacts' own doors (#201+). Lives here rather than
+ * `connected-accounts.ts` (which re-exports it) so `providerFacetHealthSchema`
+ * below can use it without a circular import.
+ */
+export const connectedAccountFacetKindSchema = z.enum(["mail", "calendar", "contacts"]);
+export type ConnectedAccountFacetKind = z.infer<typeof connectedAccountFacetKindSchema>;
 
 /**
  * `PUT /instance/providers/:provider` (#115, ADR-0021): the Owner pastes
@@ -15,9 +36,35 @@ export type Provider = z.infer<typeof providerSchema>;
  * it never comes back in any response (ADR-0003's same rule for a Mail
  * Account's own credential).
  */
+/**
+ * The two Facets a User can ever *turn on* by consent (#202, ADR-0022):
+ * `mail` is never one of these — a Mail Facet is created by signing in or
+ * entering credentials in the first place (`AddMailAccountForm`), never
+ * added onto an existing Connected Account. `POST /auth/oauth/:provider/start`'s
+ * `facet` field is validated against this narrower schema, not
+ * `connected-accounts.ts#connectedAccountFacetKindSchema`, so a request
+ * naming `mail` is rejected at the boundary rather than reaching a route
+ * that has no idea what to do with it.
+ */
+export const grantableFacetKindSchema = z.enum(["calendar", "contacts"]);
+export type GrantableFacetKind = z.infer<typeof grantableFacetKindSchema>;
+
 export const saveProviderRegistrationRequestSchema = z.object({
   clientId: z.string().trim().min(1, "Client ID is required"),
   clientSecret: z.string().min(1, "Client secret is required"),
+  /**
+   * Owner-declared, unvalidated the same way every other Registration fact
+   * is (ADR-0021) — whether Google's Calendar API/People API, or Microsoft
+   * Graph's calendar/contacts permissions, have been enabled on the Owner's
+   * own project/app registration (ADR-0022: "Owner-only failures never show
+   * as Needs Reauth ... a 403 for a missing API is a Registration problem").
+   * Neither this instance nor any Grant can detect that fact from here, so
+   * the Owner states it directly, the same way they confirm the consent
+   * screen is In Production. Defaults to `false` — a fresh Registration
+   * offers Mail only until the Owner says otherwise.
+   */
+  calendarApiEnabled: z.boolean().default(false),
+  contactsApiEnabled: z.boolean().default(false),
 });
 export type SaveProviderRegistrationRequest = z.infer<typeof saveProviderRegistrationRequestSchema>;
 
@@ -40,25 +87,56 @@ export const providerStatusSchema = z.enum([
 export type ProviderStatus = z.infer<typeof providerStatusSchema>;
 
 /**
+ * One Facet's own health at one Provider (#205, ADR-0022's "Provider Health
+ * gains a per-Facet reading") — `db/schema.ts#providerFacetHealth`'s wire
+ * shape, plus the two counts derived from `connected_account_facets`
+ * (`provider-registrations/facet-health-store.ts#countConnectedAccountsForProviderFacet`)
+ * that used to be `ProviderHealth`'s own flat `mailAccountCount`/
+ * `needsReauthCount` before this ticket — the Mail Facet's own entry here is
+ * where those two numbers now live. `everGranted` is `firstGrantedAt !==
+ * null`, so a Client never has to parse the timestamp just to answer "has
+ * this ever worked". `apiNotEnabled` is the runtime-detected twin of
+ * `ProviderHealth.calendarApiEnabled`/`contactsApiEnabled` below — always
+ * `false` for the Mail Facet, which needs no Provider-side API to be
+ * switched on.
+ */
+export const providerFacetHealthSchema = z.object({
+  facet: connectedAccountFacetKindSchema,
+  everGranted: z.boolean(),
+  connectedAccountCount: z.int().nonnegative(),
+  parkedCount: z.int().nonnegative(),
+  lastRefreshAt: z.iso.datetime().nullable(),
+  lastRefreshError: z.string().nullable(),
+  apiNotEnabled: z.boolean(),
+});
+export type ProviderFacetHealth = z.infer<typeof providerFacetHealthSchema>;
+
+/**
  * One Provider's entry in `GET /instance/health`'s `providers` section
- * (#115, #118, CONTEXT.md's Provider Health) — the same shape `PUT
+ * (#115, #118, #205, CONTEXT.md's Provider Health) — the same shape `PUT
  * /instance/providers/:provider` hands back for the one Provider it just
- * saved. `lastRefreshAt` is the last refresh attempt's time regardless of
- * outcome (`routes/instance.ts` derives `working`/`failing` from whether
- * `lastRefreshError` is set alongside it); both stay null until the first
- * attempt.
+ * saved. `lastRefreshAt`/`lastRefreshError` are the whole-Provider pair
+ * (#118: every Mail Facet refresh attempt across every Connected Account on
+ * it); `routes/instance.ts` derives `working`/`failing` from whether
+ * `lastRefreshError` is set alongside it, both stay null until the first
+ * attempt. `facets` is the per-Facet breakdown (#205), always carrying
+ * exactly `mail`, `calendar` and `contacts` in that order, replacing the
+ * flat `mailAccountCount`/`needsReauthCount` this shape used to carry — the
+ * Mail Facet's own entry in `facets` is where those two numbers live now.
  */
 export const providerHealthSchema = z.object({
-  provider: providerSchema,
+  provider: registeredProviderSchema,
   status: providerStatusSchema,
   /** Derived from `PUBLIC_URL`, exact — what to paste into the Provider's own console (ADR-0021). */
   redirectUri: z.string(),
   /** The registered client ID, verbatim — never the secret. Null before a Registration exists. */
   clientIdPreview: z.string().nullable(),
-  mailAccountCount: z.int().nonnegative(),
-  needsReauthCount: z.int().nonnegative(),
   lastRefreshAt: z.iso.datetime().nullable(),
   lastRefreshError: z.string().nullable(),
+  /** ADR-0022's per-Facet Provider Health reading: the Owner's own declaration, `false` before a Registration exists. */
+  calendarApiEnabled: z.boolean(),
+  contactsApiEnabled: z.boolean(),
+  facets: z.array(providerFacetHealthSchema),
 });
 export type ProviderHealth = z.infer<typeof providerHealthSchema>;
 
@@ -98,13 +176,25 @@ export type ProviderUnavailableReason = z.infer<typeof providerUnavailableReason
 
 export const providerAvailabilitySchema = z.discriminatedUnion("available", [
   z.object({
-    provider: providerSchema,
+    provider: registeredProviderSchema,
     available: z.literal(true),
     /** Null exactly when `available` is true. */
     unavailableReason: z.null(),
+    /**
+     * The Owner's per-Facet declaration (#202, ADR-0022), readable here by
+     * any User — not just the Owner-only `ProviderHealth` — because a
+     * Member has to see a Facet as unavailable ("ask the Owner") the same
+     * way they already see an unregistered Provider that way. `false`
+     * whenever the whole Provider is unavailable too, though the
+     * `available: false` branch below doesn't carry either field: nothing
+     * about a Facet matters once signing in with the Provider at all
+     * doesn't work.
+     */
+    calendarApiEnabled: z.boolean(),
+    contactsApiEnabled: z.boolean(),
   }),
   z.object({
-    provider: providerSchema,
+    provider: registeredProviderSchema,
     available: z.literal(false),
     unavailableReason: providerUnavailableReasonSchema,
   }),
@@ -120,16 +210,29 @@ export type ProviderAvailabilityListResponse = z.infer<
 >;
 
 /**
- * `POST /auth/oauth/:provider/start` (#116, #119). Omitting `mailAccountId`
- * starts an `add_mail_account` attempt with the account chooser shown;
- * naming one starts a `reauth` attempt instead — the same door for "sign in
- * again" on an OAuth account and "switch this password account to a Grant"
- * — and the start route sets `login_hint` to that Mail Account's own address
- * itself, never taking it from the Client.
+ * `POST /auth/oauth/:provider/start` (#116, #119, #202). Omitting every
+ * field starts an `add_mail_account` attempt with the account chooser
+ * shown; naming `mailAccountId` starts a `reauth` attempt instead — the same
+ * door for "sign in again" on an OAuth account and "switch this password
+ * account to a Grant". Naming `connectedAccountId` and `facet` together
+ * starts an `add_facet` attempt: turning on Calendar or Contacts for that
+ * already-connected identity by incremental consent (ADR-0022) — the two
+ * always travel together, since a Facet grant with nothing to attach it to
+ * (or vice versa) means nothing. Every case sets `login_hint` from a row
+ * the start route already looked up itself, never from the Client.
  */
-export const startProviderSignInRequestSchema = z.object({
-  mailAccountId: z.string().min(1).optional(),
-});
+export const startProviderSignInRequestSchema = z
+  .object({
+    mailAccountId: z.string().min(1).optional(),
+    connectedAccountId: z.string().min(1).optional(),
+    facet: grantableFacetKindSchema.optional(),
+  })
+  .refine((data) => !(data.mailAccountId && data.connectedAccountId), {
+    message: "mailAccountId and connectedAccountId are two different attempts; only one at a time.",
+  })
+  .refine((data) => Boolean(data.connectedAccountId) === Boolean(data.facet), {
+    message: "connectedAccountId and facet are only meaningful together.",
+  });
 export type StartProviderSignInRequest = z.infer<typeof startProviderSignInRequestSchema>;
 
 /** `POST /auth/oauth/:provider/start` (#116): the Provider's own authorization URL for the Client to send the browser to as a full-page redirect. */
@@ -184,5 +287,23 @@ export const oauthSignInOutcomeSchema = z.enum([
    * Registration or a second attempt can do about it.
    */
   "tenant_refused",
+  /** An `add_facet` attempt's Grant widened the Connected Account's credential and a new Facet row now reads `active` (#202). */
+  "facet_added",
+  /**
+   * An `add_facet` attempt whose Provider identity didn't match the
+   * Connected Account's own (#202, ADR-0022: "the address the Provider
+   * returns must match the account's own identity, exactly as reauth
+   * already demands"). Deliberately its own outcome rather than reusing
+   * `reauth_address_mismatch` — the ticket's own acceptance criterion asks
+   * for a message "distinctly from a reauth mismatch", since nothing about
+   * a Mail Account is even involved here.
+   */
+  "facet_grant_address_mismatch",
+  /**
+   * The consent screen came back without the Facet's own scope granted —
+   * the User unchecked it, or otherwise partly declined (#202). No Facet
+   * row was written and the stored credential is untouched.
+   */
+  "facet_grant_incomplete",
 ]);
 export type OAuthSignInOutcome = z.infer<typeof oauthSignInOutcomeSchema>;

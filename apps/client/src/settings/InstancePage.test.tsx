@@ -1,4 +1,4 @@
-import type { InstanceInfoResponse } from "@mail/shared";
+import type { InstanceInfoResponse, ProviderFacetHealth } from "@mail/shared";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,19 @@ vi.mock("../api/providers.js", () => ({
   fetchProviderDeletePreview: vi.fn(),
   deleteProviderRegistration: vi.fn(),
 }));
+
+/** #205: `ProviderHealth.facets` always carries all three, mail/calendar/contacts, in order — these fixtures only ever vary the Mail Facet's own counts. */
+function mailFacets(connectedAccountCount: number, parkedCount: number): ProviderFacetHealth[] {
+  return (["mail", "calendar", "contacts"] as const).map((facet) => ({
+    facet,
+    everGranted: false,
+    connectedAccountCount: facet === "mail" ? connectedAccountCount : 0,
+    parkedCount: facet === "mail" ? parkedCount : 0,
+    lastRefreshAt: null,
+    lastRefreshError: null,
+    apiNotEnabled: false,
+  }));
+}
 
 /**
  * The Owner-only Instance page (#104, #115): the Web Push keypair repair
@@ -41,20 +54,22 @@ function instanceInfo(overrides: Partial<InstanceInfoResponse> = {}): InstanceIn
         status: "not_registered",
         redirectUri: "https://mail.example.com/auth/oauth/google/callback",
         clientIdPreview: null,
-        mailAccountCount: 0,
-        needsReauthCount: 0,
         lastRefreshAt: null,
         lastRefreshError: null,
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
+        facets: mailFacets(0, 0),
       },
       {
         provider: "microsoft",
         status: "not_registered",
         redirectUri: "https://mail.example.com/auth/oauth/microsoft/callback",
         clientIdPreview: null,
-        mailAccountCount: 0,
-        needsReauthCount: 0,
         lastRefreshAt: null,
         lastRefreshError: null,
+        calendarApiEnabled: false,
+        contactsApiEnabled: false,
+        facets: mailFacets(0, 0),
       },
     ],
     ...overrides,
@@ -99,20 +114,22 @@ describe("InstancePage", () => {
             status: "registered_untested",
             redirectUri: "https://mail.example.com/auth/oauth/google/callback",
             clientIdPreview: "abc.apps.googleusercontent.com",
-            mailAccountCount: 2,
-            needsReauthCount: 0,
             lastRefreshAt: null,
             lastRefreshError: null,
+            calendarApiEnabled: false,
+            contactsApiEnabled: false,
+            facets: mailFacets(2, 0),
           },
           {
             provider: "microsoft",
             status: "not_registered",
             redirectUri: "https://mail.example.com/auth/oauth/microsoft/callback",
             clientIdPreview: null,
-            mailAccountCount: 0,
-            needsReauthCount: 0,
             lastRefreshAt: null,
             lastRefreshError: null,
+            calendarApiEnabled: false,
+            contactsApiEnabled: false,
+            facets: mailFacets(0, 0),
           },
         ],
       }),
@@ -218,20 +235,22 @@ describe("InstancePage", () => {
           status: "registered_untested",
           redirectUri: "https://mail.example.com/auth/oauth/google/callback",
           clientIdPreview: "abc.apps.googleusercontent.com",
-          mailAccountCount: 1,
-          needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+          calendarApiEnabled: false,
+          contactsApiEnabled: false,
+          facets: mailFacets(1, 0),
         },
         {
           provider: "microsoft",
           status: "not_registered",
           redirectUri: "https://mail.example.com/auth/oauth/microsoft/callback",
           clientIdPreview: null,
-          mailAccountCount: 0,
-          needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+          calendarApiEnabled: false,
+          contactsApiEnabled: false,
+          facets: mailFacets(0, 0),
         },
       ],
     });
@@ -275,20 +294,22 @@ describe("InstancePage", () => {
           status: "registered_untested",
           redirectUri: "https://mail.example.com/auth/oauth/google/callback",
           clientIdPreview: "abc.apps.googleusercontent.com",
-          mailAccountCount: 1,
-          needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+          calendarApiEnabled: false,
+          contactsApiEnabled: false,
+          facets: mailFacets(1, 0),
         },
         {
           provider: "microsoft",
           status: "not_registered",
           redirectUri: "https://mail.example.com/auth/oauth/microsoft/callback",
           clientIdPreview: null,
-          mailAccountCount: 0,
-          needsReauthCount: 0,
           lastRefreshAt: null,
           lastRefreshError: null,
+          calendarApiEnabled: false,
+          contactsApiEnabled: false,
+          facets: mailFacets(0, 0),
         },
       ],
     });

@@ -108,6 +108,23 @@
 .switcher-wrap {
   display: flex;
   align-items: center;
+  /* Without this, a flex item's default `min-width: auto` floors it at its
+     content's own size, so the header's `minmax(0, 1fr)` left column
+     couldn't actually squeeze it — `AppSwitcher.tsx`'s own icon-only
+     measurement reads `min-width: 0` all the way down the chain to work. */
+  min-width: 0;
+  position: relative;
+}
+
+/* The desktop row's off-screen measuring clone (`AppSwitcher.tsx#SwitcherDesktop`)
+   — full names, out of flow, never `display: none` (which would report a
+   zero size instead of the row's true width). */
+.tabs-row-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  top: 0;
+  left: 0;
 }
 
 .switcher-cell {
@@ -241,6 +258,37 @@
   opacity: 0.7;
 }
 
+/* Five Apps' names don't always fit the header (#187) — `icon-only` (set by
+   `AppSwitcher.tsx#SwitcherDesktop`'s own width measurement) hides each
+   pill's name, tightens its padding to an icon-sized square, and *shrinks*
+   the reserved-App marker to a small dot rather than hiding it outright —
+   "SOON" still says something without the room to spell it. The expand/
+   collapse animation itself is untouched: this only changes what the tab row
+   contains, never the `grid-template-columns` transition around it. */
+.tabs-row.icon-only .tab-pill {
+  gap: 0;
+  padding: 0 8px;
+}
+
+.tabs-row.icon-only .tab-pill span:not(.tp-soon) {
+  display: none;
+}
+
+.tabs-row.icon-only .tab-pill .tp-soon {
+  width: 5px;
+  height: 5px;
+  margin-left: 3px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--color-ink-faint);
+  overflow: hidden;
+  text-indent: -999px;
+}
+
+.tabs-row.icon-only .tab-pill.current .tp-soon {
+  background: var(--color-accent);
+}
+
 /* ---------- the global search entry ---------- */
 
 /* A button, not an input: this raises the Command Palette (the direction
@@ -369,6 +417,47 @@
   color: var(--color-ink);
   font-size: 13px;
   white-space: nowrap;
+}
+
+.account-scope-identity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An account with nothing feeding the current App (#207) — listed and
+   checkable, just visibly dimmed, so narrowing to it doesn't read as a
+   broken Scope when the Thread list doesn't change. */
+.account-scope-muted {
+  opacity: 0.55;
+}
+
+/* Facet dots (#207's acceptance criteria: "small Facet dots so what an
+   account actually feeds is visible in the picker") — pinned to the row's
+   trailing edge, one per Facet the Connected Account has turned on. */
+.account-scope-facets {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.account-scope-facet-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.account-scope-facet-dot--mail {
+  background: var(--color-accent);
+}
+
+.account-scope-facet-dot--calendar {
+  background: var(--color-warn);
+}
+
+.account-scope-facet-dot--contacts {
+  background: var(--color-success);
 }
 
 /* ---------- header-right ---------- */

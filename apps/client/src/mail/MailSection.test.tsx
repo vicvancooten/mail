@@ -9,18 +9,21 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
-import { enqueueUserMutation, useMailAccounts } from "../store/index.js";
+import { enqueueUserMutation, readNote, useConnectedAccounts } from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
+  applyConnectedAccountDelta,
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyThreadDelta,
 } from "../store/server-writes.js";
+import { setSessionUserId } from "../store/session.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
 import {
   delta,
+  makeConnectedAccount,
   makeGmailLabel,
   makeLabel,
   makeMailAccount,
@@ -70,6 +73,7 @@ vi.mock("../api/attachments.js", () => ({
  * network to paint.
  */
 
+const USER = "user-1";
 let counter = 0;
 const names: string[] = [];
 
@@ -129,6 +133,10 @@ beforeEach(async () => {
   const name = `mail-section-test-${counter++}`;
   names.push(name);
   await openLocalCache({ name, schemaVersion: 1 });
+  // A Label id is derived from the signed-in User (#186). `AuthProvider`
+  // mirrors it in the real app; here `stubFetch` never answers
+  // `/auth/session`, so the tests state it directly.
+  setSessionUserId(USER);
   // View mode / last account are Device Preferences stored in `localStorage`
   // (device-preferences.ts) — never leak one test's choice into the next.
   localStorage.clear();
@@ -141,6 +149,7 @@ afterEach(async () => {
   // (its dismiss timer not yet due) would otherwise bleed into the next.
   toast.dismiss();
   vi.unstubAllGlobals();
+  setSessionUserId(null);
   localCache().close();
   for (const name of names.splice(0)) await Dexie.delete(name);
 });
@@ -150,6 +159,20 @@ async function seedCachedMail(): Promise<void> {
   await applyThreadDelta(
     "acct-1",
     delta({ created: [makeThread("t1", "acct-1", { subject: "Last state" })] }),
+    { replace: false },
+  );
+}
+
+/**
+ * The Connected Account each `makeMailAccount(id)` above joins to (#207,
+ * `mail-fixtures.ts#makeConnectedAccount`'s own doc comment on the shared
+ * `${id}-connected` default id) — every Account Scope test below needs a
+ * matching row here too, since `AccountScope.tsx` picks its rows from the
+ * Connected Accounts collection now, not `MailAccount`.
+ */
+async function seedConnectedAccountsFor(...mailAccountIds: string[]): Promise<void> {
+  await applyConnectedAccountDelta(
+    delta({ created: mailAccountIds.map((id) => makeConnectedAccount(`${id}-connected`)) }),
     { replace: false },
   );
 }
@@ -213,14 +236,24 @@ async function seedThreeThreads(): Promise<void> {
  * (`useAccountScope.ts`) `MailSection` itself reads, so these tests still
  * exercise the real production components (`AccountScope.tsx`,
  * `useAccountScope`) end to end rather than asserting on `MailSection`'s
- * internals directly. Renders nothing with 0-1 Mail Accounts
- * (`AccountScope.tsx`'s own guard), so every single-account test above is
- * unaffected.
+ * internals directly. Renders nothing with 0-1 Connected Accounts
+ * (`AccountScope.tsx`'s own guard) — a single-account test that seeds no
+ * Connected Account row at all reads as zero here, same result as one.
+ * `activeFacet="mail"` throughout — every test in this file is Mail's own
+ * suite, so this harness never needs to exercise the muted-row path a
+ * different App's Facet would trigger.
  */
 function AccountScopeHarness() {
-  const mailAccounts = useMailAccounts() ?? [];
-  const { scope, setScope } = useAccountScope(mailAccounts);
-  return <AccountScope accounts={mailAccounts} scope={scope} onChange={setScope} />;
+  const connectedAccounts = useConnectedAccounts() ?? [];
+  const { scope, setScope } = useAccountScope(connectedAccounts);
+  return (
+    <AccountScope
+      accounts={connectedAccounts}
+      scope={scope}
+      activeFacet="mail"
+      onChange={setScope}
+    />
+  );
 }
 
 function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
@@ -366,6 +399,33 @@ describe("MailSection", () => {
     expect(document.querySelector(".split-view")).not.toBeNull();
   });
 
+  it('"Add to Notes" (#195) creates the Note at once and hands its id to onNoteCreated', async () => {
+    await seedCachedMail();
+    stubFetch(never);
+    const onNoteCreated = vi.fn();
+
+    renderMail({ onNoteCreated });
+    await screen.findByText("Last state");
+    fireEvent.keyDown(window, { key: "j" });
+    await screen.findByRole("button", { name: "Add to Notes" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Notes" }));
+
+    await waitFor(() => expect(onNoteCreated).toHaveBeenCalledOnce());
+    const noteId = onNoteCreated.mock.calls[0]?.[0] as string;
+    const note = await readNote(noteId);
+    expect(note?.document).toMatchObject([
+      { type: "paragraph", content: [{ type: "text", text: "Last state", styles: {} }] },
+      { type: "threadLink", props: { threadId: "t1", subject: "Last state" } },
+    ]);
+
+    // The same Undo path every other structural action gets (ADR-0019):
+    // Undo enqueues `deleteNote`'s own inverse intent, removing the row.
+    expect(await screen.findByText("Added to Notes")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(async () => expect(await readNote(noteId)).toBeUndefined());
+  });
+
   it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {
     await applyMailAccountDelta(
       delta({
@@ -376,6 +436,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     await applyThreadDelta(
       "acct-1",
       delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
@@ -413,6 +474,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     stubFetch(never);
 
     renderMail();
@@ -442,6 +504,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     await applyThreadDelta(
       "acct-1",
       delta({ created: [makeThread("t1", "acct-1", { subject: "Account one thread" })] }),
@@ -488,6 +551,7 @@ describe("MailSection", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     await saveComposition(
       "comp-failed",
       "acct-2",
@@ -1278,8 +1342,7 @@ describe("MailSection", () => {
     cleanup();
 
     await applyLabelDelta(
-      "acct-1",
-      delta({ created: [makeLabel(labelId("acct-1", "Work"), "acct-1", { name: "Work" })] }),
+      delta({ created: [makeLabel(labelId(USER, "Work"), USER, { name: "Work" })] }),
       { replace: false },
     );
     renderMail();
@@ -1711,6 +1774,7 @@ describe("Gmail labels (#126, ADR-0020)", () => {
       }),
       { replace: false },
     );
+    await seedConnectedAccountsFor("acct-1", "acct-2");
     const kidsId = gmailLabelId("acct-1", "Family/Kids");
     await applyThreadDelta(
       "acct-1",

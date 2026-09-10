@@ -307,11 +307,25 @@ phone's own chrome (status bar/task switcher) reads as part of the same instrume
 in #96): a plain `Link` **Home mark** (`.home-link` — the mark, the wordmark, to `/mail`)
 and, beside it, the **App Switcher** itself — a `hub-mark` tile carrying the current App's
 icon that expands, via a `grid-template-columns` 0fr→1fr transition (280ms), into a row of
-pill tabs, one per App (Mail, Contacts, Calendar, Tasks). The current tab takes
-`{colors.accent-soft}` + accent ink and bold weight; a reserved App's tab carries a small
-"SOON" caption rather than being disabled or hidden. This is the desktop shape only as of
-#155 — see the phone bottom bar below for where the Home mark and the App Switcher go on
-phone instead.
+pill tabs, one per App (Mail, Contacts, Calendar, Tasks, Notes — five as of #187). The
+current tab takes `{colors.accent-soft}` + accent ink and bold weight; a reserved App's tab
+carries a small "SOON" caption rather than being disabled or hidden. On desktop, once the
+header runs out of room for five full names the row goes icon-only — a width measurement
+(`AppSwitcher.tsx`'s own `ResizeObserver`), not a fixed breakpoint, since what fits depends
+on the rest of the header's own content, not just viewport width; the SOON caption shrinks
+to a small dot alongside its icon rather than disappearing. This is the desktop shape only
+as of #155 — the header's own instance of the switcher (and the Home mark beside it) drops
+out of the tree entirely below 768px (`AppSwitcher.tsx`'s own `useIsMobile`,
+`RootLayout.tsx`'s `isPhoneChrome`); see the phone bottom bar below, where the same toggle
+opens a real bottom `Sheet` (`PhoneSwitcher`) listing all five Apps by full name — a sheet
+has the vertical room a 60px header never does.
+
+**Account Scope is a per-App question (#187).** `apps.ts#AppDef.observesAccountScope` — true
+for Mail, Calendar and Contacts (each reads a Mail Account's data), false for Tasks and Notes
+(User-scoped data, nothing to narrow). The Hub hides the header-right control entirely on an
+App that doesn't observe it, rather than rendering it disabled or empty; the underlying Scope
+state is untouched while hidden, so it's exactly the User's last selection on returning to an
+App that does.
 
 **The global header** is a fixed 60px (54px on phone), three-column grid
 (`minmax(0,1fr) auto minmax(0,1fr)`) — Home mark + App Switcher on the left, one centered

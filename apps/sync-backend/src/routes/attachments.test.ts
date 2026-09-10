@@ -4,8 +4,9 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import type { Db } from "../db/client.js";
-import { mailAccounts, users } from "../db/schema.js";
+import { users } from "../db/schema.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
+import { createTestMailAccount } from "../test-support/mail-account.js";
 
 /**
  * The Blob Store's HTTP surface (#48): upload/download/delete over
@@ -214,22 +215,7 @@ describe("GET and DELETE /compositions/:compositionId/attachments/:attachmentId"
       passwordHash: "not-a-real-hash",
       role: "member",
     });
-    await db.insert(mailAccounts).values({
-      id: randomUUID(),
-      userId: otherUserId,
-      emailAddress: "other@example.com",
-      imapHost: "imap.example.com",
-      imapPort: 993,
-      imapSecurity: "tls",
-      smtpHost: "smtp.example.com",
-      smtpPort: 587,
-      smtpSecurity: "starttls",
-      username: "other@example.com",
-      credential: {
-        kind: "password",
-        secret: { keyVersion: 1, iv: "", ciphertext: "", authTag: "" },
-      },
-    });
+    await createTestMailAccount(db, { userId: otherUserId, emailAddress: "other@example.com" });
 
     const response = await app.inject({
       method: "GET",

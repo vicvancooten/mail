@@ -12,11 +12,11 @@ import { useIsMobile } from "../hooks/use-mobile.js";
 import { APPS, appForPath, appIconFor } from "./apps.js";
 
 /**
- * The App Switcher (#72, part of #66; rebuilt against the comp in #86;
- * split from the home mark in #96) — a compact toggle naming the current
- * App. On desktop it expands *in place* into a row of pill tabs naming all
- * four Apps — Mail live, Contacts/Calendar/Tasks named and reachable but
- * marked SOON, never hidden.
+ * The App Switcher (#72, part of #66; rebuilt against the comp in #86; split
+ * from the home mark in #96; grown to five Apps with a real phone sheet in
+ * #187) — a compact toggle naming the current App. On desktop it expands *in
+ * place* into a row of pill tabs naming all five Apps — Mail and Notes live,
+ * Contacts/Calendar/Tasks named and reachable but marked SOON, never hidden.
  *
  * Before #96 this toggle *was* the hub mark — the only way home, App
  * identity and App switching were all one control, with no click that just
@@ -43,12 +43,36 @@ import { APPS, appForPath, appIconFor } from "./apps.js";
  * hand-rolled listener on this branch: Radix's `Dialog` already dismisses on
  * both, over pointer events, so touch closes it the same way a mouse would.
  * The desktop branch keeps its own manual listeners, since the inline
- * expansion is a plain positioned `div`, not a Radix `Dialog`.
+ * expansion is a plain positioned `div`, not a Radix `Dialog`. `useIsMobile`
+ * (768px, `hooks/use-mobile.ts`) is the line between the two branches —
+ * `RootLayout.tsx` reads this same hook for `isPhoneChrome`, so the header's
+ * own instance of this component and the phone bottom bar's are never both
+ * mounted at once (see `PhoneSwitcher` below).
  *
  * Each tab is a router `Link` on both branches, so a reserved App is a real
  * destination (`PlaceholderRoute`) rather than a disabled control.
  */
+export function AppSwitcher({ pathname }: { pathname: string }) {
+  const current = appForPath(pathname);
+  const [open, setOpen] = useState(false);
+  const isPhone = useIsMobile();
+  const CurrentIcon = appIconFor(current?.key ?? "mail");
 
+  return isPhone ? (
+    <PhoneSwitcher current={current} CurrentIcon={CurrentIcon} open={open} setOpen={setOpen} />
+  ) : (
+    <DesktopSwitcher current={current} CurrentIcon={CurrentIcon} open={open} setOpen={setOpen} />
+  );
+}
+
+/**
+ * The tab row shared by both the phone Sheet and the desktop expansion — one
+ * `<Link>` per App, always rendered (a reserved App is a real destination),
+ * `tabbable` letting the desktop branch keep its collapsed row's links out
+ * of tab order without unmounting them (see `DesktopSwitcher` below; the
+ * phone Sheet unmounts its content on close via Radix `Dialog` `Presence`,
+ * so it has no need of the same trick and leaves this at its default).
+ */
 function AppTabs({
   current,
   onNavigate,
@@ -56,12 +80,6 @@ function AppTabs({
 }: {
   current: ReturnType<typeof appForPath>;
   onNavigate: () => void;
-  /** Desktop's own inline expansion never unmounts the collapsed tab row —
-   * it squeezes `grid-template-columns` to `0fr` — so a closed switcher's
-   * links stay in the DOM and would still be keyboard-focusable without
-   * this. The phone Sheet unmounts its content on close (Radix `Dialog`
-   * `Presence`), so it has no need of the same trick and leaves this at its
-   * default. */
   tabbable?: boolean;
 }) {
   return (
@@ -87,17 +105,24 @@ function AppTabs({
 }
 
 /**
- * Exported as of #155: the phone bottom bar (`router/BottomBar.tsx`) renders
- * this directly rather than going through `AppSwitcher`'s own `useIsMobile`
- * branch — the bottom bar is already CSS-gated to the app's 700px phone
- * breakpoint, so a second, differently-thresholded JS check here would just
- * be a chance for the two to disagree.
+ * The phone switcher (#136, exported as of #155): below 700px there's no
+ * header width left for an inline-expanding tab row at all, icon-only or
+ * otherwise, so the toggle opens a real bottom `Sheet` instead — the same
+ * move `Sidebar.tsx`'s own `MobileSheet` made for the folder rail. Unlike
+ * the desktop row, this always lists every App's full name (five, since
+ * #187): a sheet has the vertical room a 60px header never does, so there's
+ * no "out of room" question here to answer.
  *
- * `variant="bottom-bar"` swaps the header's icon-plus-chevron trigger for
- * one that matches its two siblings there (Folders, Compose) — the current
- * App's name as a caption, no chevron, since a persistent tab item is never
- * "expanded" the way the header's own disclosure toggle can read. The Sheet
- * itself, and everything in it, is unchanged either way.
+ * The phone bottom bar (`router/BottomBar.tsx`) renders this directly
+ * rather than going through `AppSwitcher`'s own `useIsMobile` branch — the
+ * bottom bar is already CSS-gated to the app's 700px phone breakpoint, so a
+ * second, differently-thresholded JS check here would just be a chance for
+ * the two to disagree. `variant="bottom-bar"` swaps the header's
+ * icon-plus-chevron trigger for one that matches its two siblings there
+ * (Folders, Compose) — the current App's name as a caption, no chevron,
+ * since a persistent tab item is never "expanded" the way the header's own
+ * disclosure toggle can read. The Sheet itself, and everything in it, is
+ * unchanged either way.
  */
 export function PhoneSwitcher({
   current,
@@ -156,6 +181,28 @@ export function PhoneSwitcher({
   );
 }
 
+/**
+ * The desktop switcher (#96's own expand-in-place control, kept intact by
+ * #187): two grid cells that trade a `grid-template-columns: 0fr → 1fr`
+ * transition (the comp's own `.switcher-cell` in
+ * `docs/design/prototypes/the-instrument.html`), so the tab row grows out of
+ * the toggle's own position rather than dropping as a menu over the page.
+ * That is why this is a pair of cells and a piece of local state instead of
+ * a shadcn `DropdownMenu` — a popover cannot animate from zero width in the
+ * header's own flow.
+ *
+ * Five Apps' full names no longer fit every header width once Notes joined
+ * the row (#187) — rather than wrap (there is no second line in a 60px
+ * header) or let the row bleed past the header's edge, `.tabs-row` measures
+ * itself against a hidden clone (`measureRef`) carrying the same five pills
+ * at full width, and goes icon-only the moment the real space (`wrapRef`'s
+ * own clientWidth, which CSS Grid — not flex shrink-to-fit — keeps pinned to
+ * whatever the header's `minmax(0, 1fr)` left column actually has) can't fit
+ * it. `ResizeObserver` is a no-op under jsdom (`test-support/dom-polyfills.ts`),
+ * same gap `VirtualizedThreadList.tsx` already lives with — a real browser
+ * corrects this on layout; a layout-less test only needs both DOM states to
+ * render correctly, not the measurement itself.
+ */
 function DesktopSwitcher({
   current,
   CurrentIcon,
@@ -167,7 +214,9 @@ function DesktopSwitcher({
   open: boolean;
   setOpen: (open: boolean | ((current: boolean) => boolean)) => void;
 }) {
+  const [iconOnly, setIconOnly] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
 
   // A click anywhere else, or Escape, closes it — the comp's own two exits.
   // Bound only while open, so the shell carries no idle document listener.
@@ -187,8 +236,42 @@ function DesktopSwitcher({
     };
   }, [open, setOpen]);
 
+  // The header's left column (`shell.css`'s `minmax(0, 1fr)` grid track) is
+  // what actually bounds this control, not `.switcher-wrap`'s own box — a
+  // flex item without `min-grow` only ever reports what it currently needs,
+  // which is why the comparison reads `wrapRef`'s *parent* (`.header-left`)
+  // rather than `wrapRef` itself.
+  useEffect(() => {
+    const headerLeft = wrapRef.current?.parentElement;
+    const measure = measureRef.current;
+    if (!headerLeft || !measure) return;
+    function recompute() {
+      if (!headerLeft || !measure) return;
+      const homeLink = headerLeft.querySelector<HTMLElement>(".home-link");
+      const gap = 10; // `.header-left`'s own `gap`
+      const available = headerLeft.clientWidth - (homeLink?.offsetWidth ?? 0) - gap;
+      setIconOnly(measure.scrollWidth > available);
+    }
+    const observer = new ResizeObserver(recompute);
+    observer.observe(headerLeft);
+    recompute();
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="switcher-wrap" ref={wrapRef}>
+      {/* Off-screen, full-width clone — never `display: none` (that reports
+          a zero size), just clipped out of the header's own flow so its
+          `scrollWidth` is always the row's true "every name spelled out"
+          width regardless of the real row's current open/icon-only state. */}
+      <div className="tabs-row tabs-row-measure" ref={measureRef} aria-hidden="true">
+        {APPS.map((app) => (
+          <span key={app.key} className="tab-pill">
+            {app.name}
+            {app.available ? null : <span className="tp-soon">SOON</span>}
+          </span>
+        ))}
+      </div>
       <div className={`switcher-cell${open ? " open" : ""}`}>
         <div>
           <button
@@ -196,7 +279,7 @@ function DesktopSwitcher({
             className="switcher-compact-btn"
             aria-label="Switch app"
             aria-expanded={open}
-            onClick={() => setOpen((current) => !current)}
+            onClick={() => setOpen((value) => !value)}
           >
             <span className="app-tile">
               <CurrentIcon size={15} />
@@ -207,24 +290,11 @@ function DesktopSwitcher({
       </div>
       <div className={`switcher-cell${open ? " open" : ""}`}>
         <div>
-          <div className="tabs-row">
+          <div className={`tabs-row${iconOnly ? " icon-only" : ""}`}>
             <AppTabs current={current} onNavigate={() => setOpen(false)} tabbable={open} />
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-export function AppSwitcher({ pathname }: { pathname: string }) {
-  const current = appForPath(pathname);
-  const [open, setOpen] = useState(false);
-  const isPhone = useIsMobile();
-  const CurrentIcon = appIconFor(current?.key ?? "mail");
-
-  return isPhone ? (
-    <PhoneSwitcher current={current} CurrentIcon={CurrentIcon} open={open} setOpen={setOpen} />
-  ) : (
-    <DesktopSwitcher current={current} CurrentIcon={CurrentIcon} open={open} setOpen={setOpen} />
   );
 }

@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { ImapFlow } from "imapflow";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { messages, threads } from "../db/schema.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { listUndelivered } from "../notifier/outbox.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";

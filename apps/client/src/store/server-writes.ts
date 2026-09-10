@@ -1,10 +1,12 @@
 import type {
   CollectionDelta,
   Composition,
+  ConnectedAccount,
   Correspondent,
   GmailLabel,
   Label,
   MailAccount,
+  Note,
   Preference,
   Thread,
 } from "@mail/shared";
@@ -45,13 +47,15 @@ export const THREAD_WINDOW_HIGH_WATER = 2 * THREAD_WINDOW_FLOOR;
 
 export const MAIL_ACCOUNT_TOKEN_KEY = "user:MailAccount";
 export const PREFERENCE_TOKEN_KEY = "user:Preference";
+/** `Label` is User-scoped since #186, so its token is keyed like `Preference`'s, not per Mail Account. */
+export const LABEL_TOKEN_KEY = "user:Label";
+/** `Note` (#192, ADR-0023): User-scoped from the start, so its token is keyed like `Label`'s. */
+export const NOTE_TOKEN_KEY = "user:Note";
+/** `ConnectedAccount` (#199, #200, ADR-0022): User-scoped from the start, so its token is keyed like `Note`'s. */
+export const CONNECTED_ACCOUNT_TOKEN_KEY = "user:ConnectedAccount";
 
 export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
-}
-
-export function labelTokenKey(mailAccountId: string): string {
-  return `account:${mailAccountId}:Label`;
 }
 
 export function gmailLabelTokenKey(mailAccountId: string): string {
@@ -97,7 +101,6 @@ export async function applyMailAccountDelta(
     [
       db.mailAccounts,
       db.threads,
-      db.labels,
       db.gmailLabels,
       db.correspondents,
       db.compositions,
@@ -208,23 +211,79 @@ export async function applyThreadDelta(
 }
 
 /**
- * `Label`, scoped to one Mail Account (#43, ADR-0011). No windowing — unlike
- * `Thread` there is no bounded working set to maintain, a Mail Account has
- * at most a handful of Labels at PoC scope (no management UI to make many
- * of them), so every Label this account has is simply held in full.
+ * `Label`, User-scoped (#43, ADR-0011; #186, ADR-0023). One set spanning
+ * every Mail Account, so a `replace` clears the whole table rather than one
+ * account's rows. No windowing — unlike `Thread` there is no bounded working
+ * set to maintain, a User has at most a handful of Labels at PoC scope (no
+ * management UI to make many of them), so every Label they have is simply
+ * held in full.
  */
 export async function applyLabelDelta(
-  mailAccountId: string,
   delta: CollectionDelta<Label>,
   { replace }: ApplyDeltaOptions,
 ): Promise<void> {
   const db = localCache();
   await db.transaction("rw", [db.labels, db.syncState], async () => {
-    if (replace) await db.labels.where("mailAccountId").equals(mailAccountId).delete();
+    if (replace) await db.labels.clear();
     const upserts = [...delta.created, ...delta.updated];
     if (upserts.length > 0) await db.labels.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.labels.bulkDelete(delta.destroyed);
-    await db.syncState.put({ key: labelTokenKey(mailAccountId), token: delta.newState });
+    await db.syncState.put({ key: LABEL_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `Note` (#192, ADR-0023). `Label`'s sibling above for the whole-replication
+ * shape, but — like `Composition` below — the only *other* delta with a
+ * merge rule: a Note with an unflushed `pendingNoteSaves` row holds a
+ * `document` the server has not seen, and taking the wire's older copy would
+ * destroy exactly what the `noteSaves` channel exists to protect. Once the
+ * save lands there is no queued row and the server's copy is simply
+ * adopted, which is also how the *other* device's edit shows up here once
+ * this one has nothing outstanding of its own.
+ */
+export async function applyNoteDelta(
+  delta: CollectionDelta<Note>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.notes, db.pendingNoteSaves, db.syncState], async () => {
+    if (replace) await db.notes.clear();
+
+    for (const wire of [...delta.created, ...delta.updated]) {
+      const hasUnflushedEdit = (await db.pendingNoteSaves.get(wire.id)) !== undefined;
+      const local = await db.notes.get(wire.id);
+      await db.notes.put(hasUnflushedEdit && local ? { ...wire, document: local.document } : wire);
+    }
+
+    if (delta.destroyed.length > 0) {
+      await db.notes.bulkDelete(delta.destroyed);
+      await db.pendingNoteSaves.bulkDelete(delta.destroyed);
+    }
+    await db.syncState.put({ key: NOTE_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `ConnectedAccount` (#199, #200, ADR-0022). `Label`'s sibling above: whole-
+ * replicated, no windowing, no per-Mail-Account split — every Connected
+ * Account a User holds is simply held in full, the same "a handful of rows
+ * every surface wants to label things with" reasoning the ticket itself
+ * gives. No merge rule: unlike `Note`, nothing here is ever edited locally
+ * ahead of the server (there is no Optimistic Action that writes a Connected
+ * Account), so the wire's copy is always adopted as-is.
+ */
+export async function applyConnectedAccountDelta(
+  delta: CollectionDelta<ConnectedAccount>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.connectedAccounts, db.syncState], async () => {
+    if (replace) await db.connectedAccounts.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.connectedAccounts.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.connectedAccounts.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: CONNECTED_ACCOUNT_TOKEN_KEY, token: delta.newState });
   });
 }
 
@@ -382,7 +441,6 @@ export async function pruneOrphanedMailAccountData(): Promise<void> {
     [
       db.mailAccounts,
       db.threads,
-      db.labels,
       db.gmailLabels,
       db.correspondents,
       db.compositions,
@@ -407,7 +465,9 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   if (mailAccountIds.length === 0) return;
   await db.mailAccounts.bulkDelete(mailAccountIds);
   await db.threads.where("mailAccountId").anyOf(mailAccountIds).delete();
-  await db.labels.where("mailAccountId").anyOf(mailAccountIds).delete();
+  // `labels` is deliberately absent: a Label belongs to the User, not to any
+  // one Mail Account (#186), so removing an account leaves the Label set
+  // whole — only the `labelIds` of the Threads going away with it disappear.
   await db.gmailLabels.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.correspondents.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.compositions.where("mailAccountId").anyOf(mailAccountIds).delete();
@@ -415,7 +475,6 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
   await db.cachePins.where("mailAccountId").anyOf(mailAccountIds).delete();
   await db.syncState.bulkDelete([
     ...mailAccountIds.map(threadTokenKey),
-    ...mailAccountIds.map(labelTokenKey),
     ...mailAccountIds.map(gmailLabelTokenKey),
     ...mailAccountIds.map(correspondentTokenKey),
     ...mailAccountIds.map(compositionTokenKey),

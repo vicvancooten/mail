@@ -107,7 +107,7 @@ describe("Settings at phone width (#135)", () => {
     for (const [linkName, path, headingName] of [
       ["General", "/settings/general", "General"],
       ["This device", "/settings/this-device", "This device"],
-      ["Mail Accounts", "/settings/mail-accounts", "Mail Accounts"],
+      ["Connected Accounts", "/settings/connected-accounts", "Connected Accounts"],
       ["Gatekeeper", "/settings/gatekeeper", "Gatekeeper"],
       ["Notifications", "/settings/notifications", "Notifications"],
       ["Security", "/settings/security", "Security"],

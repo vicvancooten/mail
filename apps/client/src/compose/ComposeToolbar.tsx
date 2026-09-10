@@ -79,7 +79,7 @@ export function ComposeToolbar({ editor }: { editor: Editor }) {
       </ToolbarButton>
       <ToolbarButton
         editor={editor}
-        label="Task list"
+        label="Checklist"
         onClick={() => editor.chain().focus().toggleTaskList().run()}
         active={editor.isActive("taskList")}
       >

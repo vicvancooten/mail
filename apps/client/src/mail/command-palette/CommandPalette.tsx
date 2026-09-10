@@ -8,22 +8,42 @@ import { readCommandUsage, recordCommandUsage } from "../device-preferences.js";
 import type { ViewOrigin } from "../search/scope.js";
 import { formatIndexWatermark, type SearchState } from "../search/useSearchState.js";
 import { buildCommands, type PaletteCommand } from "./commands.js";
+import { type LocalHit, useLocalHits } from "./local-hits.js";
+
+/** `onOpenLocalHit`'s own no-op default — see that prop's doc comment below. */
+function noop() {}
 
 /** At most this many most-used commands in the empty state (#148) — same size as the "~5 recent searches" it sits beside. */
 const MOST_USED_LIMIT = 5;
 
-/** A palette row is either a Command, a mail hit, or a recent search — one flat, keyboard-navigable list (#79's "keyboard-complete"). */
+/** A palette row is a Command, a mail hit, a local hit (#196, ADR-0023), or a recent search (#148) — one flat, keyboard-navigable list (#79's "keyboard-complete"). */
 type PaletteRow =
   | { kind: "command"; command: PaletteCommand }
   | { kind: "hit"; thread: CachedThread }
+  | { kind: "local"; hit: LocalHit }
   | { kind: "see-all"; count: number }
   | { kind: "recent"; query: string };
 
 function rowValue(row: PaletteRow): string {
   if (row.kind === "command") return `command:${row.command.id}`;
   if (row.kind === "hit") return `hit:${row.thread.id}`;
+  if (row.kind === "local") return `local:${row.hit.key}`;
   if (row.kind === "recent") return `recent:${row.query}`;
   return "see-all";
+}
+
+/** How many local hits the Palette shows inline — `search.results.slice(0, 5)` below's own cap, matched rather than invented fresh. */
+const LOCAL_HITS_LIMIT = 5;
+
+/** One `LocalHit` group per section, in first-seen order — generic over however many Apps have joined the mechanism (#196: "so Contacts and Tasks can declare into it"), not hardcoded to Notes' one section. */
+function groupLocalHitsBySection(hits: readonly LocalHit[]): [string, LocalHit[]][] {
+  const bySection = new Map<string, LocalHit[]>();
+  for (const hit of hits) {
+    const group = bySection.get(hit.section);
+    if (group) group.push(hit);
+    else bySection.set(hit.section, [hit]);
+  }
+  return [...bySection.entries()];
 }
 
 function matchesQuery(command: PaletteCommand, query: string): boolean {
@@ -82,6 +102,7 @@ export function CommandPalette({
   searchOrigin,
   accounts,
   accountScope,
+  onOpenLocalHit = noop,
 }: {
   open: boolean;
   onClose: () => void;
@@ -92,6 +113,20 @@ export function CommandPalette({
   accounts: readonly MailAccount[];
   /** Which Mail Account a hit came from is only worth naming once a search actually spans more than one (#80, same "several are in Scope" gate `SearchResultsView`'s own row badge uses). */
   accountScope: readonly string[];
+  /**
+   * Selecting a local hit (#196) navigates outside Mail entirely
+   * (`/notes/:noteId` today) — a plain `to`/`params` pair rather than a
+   * typed route, since this component has no business knowing every App's
+   * routes. `router/RootLayout.tsx` is the one caller that actually holds a
+   * `navigate` (moved there with the Palette itself, #147/#133 — a local
+   * hit's destination is never Mail-scoped state, so it needs no relay
+   * through whichever Mail-family surface happens to be mounted, unlike
+   * `ctx`/`searchOrigin` above).
+   *
+   * Optional, no-op default only so a bare `<CommandPalette>` in a test
+   * keeps compiling without inventing a handler it never exercises.
+   */
+  onOpenLocalHit?: (to: string, params: Record<string, string>) => void;
 }) {
   // `search.engage` (#100) seeds the scope from `searchOrigin` the same way
   // `open` does, so it must fire once per Palette session rather than on
@@ -133,6 +168,19 @@ export function CommandPalette({
   const showHits = !commandOnly && !isEmptyField && search.meetsFloor;
   const hits = showHits ? search.results.slice(0, 5) : [];
   const showAccountBadge = accountScope.length > 1;
+
+  // Local hits (#196, ADR-0023): a plain client-side match over an
+  // already-whole-replicated collection (`local-hits.ts`'s own doc comment)
+  // — no floor, no debounce, unlike Mail's server-backed `hits` above, since
+  // there is no round trip here to protect from firing on every keystroke.
+  // Ranked beneath commands and mail hits in the merged list (the ticket's
+  // own words) simply by being the third Group rendered, below — gated on a
+  // non-empty query the same way `showHits` is, so the empty-field state
+  // (recent searches / most-used commands, #148) never has a Local section
+  // to disagree with.
+  const allLocalHits = useLocalHits(query);
+  const localHits = query.trim().length > 0 ? allLocalHits.slice(0, LOCAL_HITS_LIMIT) : [];
+  const localHitsBySection = groupLocalHitsBySection(localHits);
 
   // Ranking (#148, docs/search-ux-spec.md §Search & commands): matching
   // commands first, capped at three *only* once Mail hits are also on
@@ -181,9 +229,11 @@ export function CommandPalette({
   // results for a frame. Since this component already knows the true
   // count, `Command.Empty` (whose visibility cmdk drives from that
   // separate, async-desynced source) is skipped entirely in favor of this.
+  // The empty-field branch never has Local hits (gated above), so only the
+  // non-empty-field branch needs `localHits` in the check.
   const isEmpty = isEmptyField
     ? mostUsedCommands.length === 0 && recentSearches.length === 0
-    : rankedCommands.length === 0 && hits.length === 0;
+    : rankedCommands.length === 0 && hits.length === 0 && localHits.length === 0;
 
   function runRow(row: PaletteRow) {
     if (row.kind === "command") {
@@ -198,6 +248,15 @@ export function CommandPalette({
       // only. The list pane stays exactly what it already was; "See all
       // results", below, is the only row that swaps it (#100).
       search.select(row.thread.id);
+      onClose();
+      return;
+    }
+    if (row.kind === "local") {
+      // Unlike a mail hit, a local hit's own App owns the whole screen it
+      // navigates to — there is no reading-pane-only middle ground here
+      // (the ticket's own "navigates to /notes/:noteId and opens the
+      // Note's dialog over the grid").
+      onOpenLocalHit(row.hit.to, row.hit.params);
       onClose();
       return;
     }
@@ -396,6 +455,29 @@ export function CommandPalette({
                   {watermark ? <p className="command-palette-watermark">{watermark}</p> : null}
                 </CommandPrimitive.Group>
               ) : null}
+
+              {/* Local hits (#196): ranked beneath Commands and Mail, per section — one Group per App that has joined the mechanism, "Notes" today. Gated on a non-empty query (`localHits` above), so this never renders in the empty-field branch. */}
+              {localHitsBySection.map(([section, sectionHits]) => (
+                <CommandPrimitive.Group
+                  key={section}
+                  className="command-palette-section"
+                  heading={section}
+                >
+                  {sectionHits.map((hit) => {
+                    const row: PaletteRow = { kind: "local", hit };
+                    return (
+                      <CommandPrimitive.Item
+                        key={hit.key}
+                        value={rowValue(row)}
+                        onSelect={() => runRow(row)}
+                        className="command-palette-row"
+                      >
+                        <span className="command-palette-hit-subject">{hit.title}</span>
+                      </CommandPrimitive.Item>
+                    );
+                  })}
+                </CommandPrimitive.Group>
+              ))}
             </>
           )}
         </CommandPrimitive.List>

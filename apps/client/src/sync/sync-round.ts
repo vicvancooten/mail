@@ -1,6 +1,7 @@
 import type {
   ComposeSave,
   MailAccount,
+  NoteSave,
   QueuedMutation,
   QueuedUserMutation,
   SyncRequest,
@@ -16,29 +17,17 @@ import {
 } from "../store/compositions.js";
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
+import { listQueuedNoteSaves, resolveNoteSaveOutcomes, toWireNoteSave } from "../store/notes.js";
 import {
-  applyCompositionDelta,
-  applyCorrespondentDelta,
-  applyGmailLabelDelta,
-  applyLabelDelta,
-  applyMailAccountDelta,
-  applyPreferenceDelta,
-  applyThreadDelta,
-  compositionTokenKey,
-  correspondentTokenKey,
   getSyncToken,
-  gmailLabelTokenKey,
-  labelTokenKey,
   listCachedMailAccountIds,
-  MAIL_ACCOUNT_TOKEN_KEY,
-  PREFERENCE_TOKEN_KEY,
   pruneOrphanedMailAccountData,
-  threadTokenKey,
 } from "../store/server-writes.js";
 import {
   listQueuedUserMutations,
   resolveUserMutationOutcomes,
 } from "../store/user-mutation-queue.js";
+import { MAIL_ACCOUNT_COLLECTIONS, USER_COLLECTIONS } from "./collection-registry.js";
 import { type PostSync, postSync } from "./sync-api.js";
 
 /**
@@ -110,83 +99,29 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       await applyMutationOutcomes(request, response);
       await applyComposeSaveOutcomes(request, response);
       await applyUserMutationOutcomes(request, response);
+      await applyNoteSaveOutcomes(request, response);
     }
 
     let hasMore = false;
 
-    const mailAccountDelta = response.user.MailAccount;
-    if (mailAccountDelta) {
+    for (const collection of USER_COLLECTIONS) {
+      const delta = response.user[collection.wireKey];
+      if (!delta) continue;
       changed = true;
-      hasMore ||= mailAccountDelta.hasMore;
-      await applyMailAccountDelta(mailAccountDelta, {
-        replace: startsReplay(replaysStarted, MAIL_ACCOUNT_TOKEN_KEY, mailAccountDelta.reset),
-      });
-    }
-
-    const preferenceDelta = response.user.Preference;
-    if (preferenceDelta) {
-      changed = true;
-      hasMore ||= preferenceDelta.hasMore;
-      await applyPreferenceDelta(preferenceDelta, {
-        replace: startsReplay(replaysStarted, PREFERENCE_TOKEN_KEY, preferenceDelta.reset),
+      hasMore ||= delta.hasMore;
+      await collection.apply(delta, {
+        replace: startsReplay(replaysStarted, collection.tokenKey, delta.reset),
       });
     }
 
     for (const [mailAccountId, collections] of Object.entries(response.mailAccounts)) {
-      const threadDelta = collections.Thread;
-      if (threadDelta) {
+      for (const collection of MAIL_ACCOUNT_COLLECTIONS) {
+        const delta = collections[collection.wireKey];
+        if (!delta) continue;
         changed = true;
-        hasMore ||= threadDelta.hasMore;
-        await applyThreadDelta(mailAccountId, threadDelta, {
-          replace: startsReplay(replaysStarted, threadTokenKey(mailAccountId), threadDelta.reset),
-        });
-      }
-
-      const labelDelta = collections.Label;
-      if (labelDelta) {
-        changed = true;
-        hasMore ||= labelDelta.hasMore;
-        await applyLabelDelta(mailAccountId, labelDelta, {
-          replace: startsReplay(replaysStarted, labelTokenKey(mailAccountId), labelDelta.reset),
-        });
-      }
-
-      const gmailLabelDelta = collections.GmailLabel;
-      if (gmailLabelDelta) {
-        changed = true;
-        hasMore ||= gmailLabelDelta.hasMore;
-        await applyGmailLabelDelta(mailAccountId, gmailLabelDelta, {
-          replace: startsReplay(
-            replaysStarted,
-            gmailLabelTokenKey(mailAccountId),
-            gmailLabelDelta.reset,
-          ),
-        });
-      }
-
-      const compositionDelta = collections.Composition;
-      if (compositionDelta) {
-        changed = true;
-        hasMore ||= compositionDelta.hasMore;
-        await applyCompositionDelta(mailAccountId, compositionDelta, {
-          replace: startsReplay(
-            replaysStarted,
-            compositionTokenKey(mailAccountId),
-            compositionDelta.reset,
-          ),
-        });
-      }
-
-      const correspondentDelta = collections.Correspondent;
-      if (correspondentDelta) {
-        changed = true;
-        hasMore ||= correspondentDelta.hasMore;
-        await applyCorrespondentDelta(mailAccountId, correspondentDelta, {
-          replace: startsReplay(
-            replaysStarted,
-            correspondentTokenKey(mailAccountId),
-            correspondentDelta.reset,
-          ),
+        hasMore ||= delta.hasMore;
+        await collection.apply(mailAccountId, delta, {
+          replace: startsReplay(replaysStarted, collection.tokenKey(mailAccountId), delta.reset),
         });
       }
     }
@@ -219,7 +154,8 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
   const request = await buildSyncRequest({ includeCollections: false, includeMutations: true });
   if (
     Object.keys(request.mailAccounts ?? {}).length === 0 &&
-    (request.user?.mutations?.length ?? 0) === 0
+    (request.user?.mutations?.length ?? 0) === 0 &&
+    (request.user?.noteSaves?.length ?? 0) === 0
   ) {
     return 0;
   }
@@ -228,6 +164,7 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
   await applyMutationOutcomes(request, response);
   await applyComposeSaveOutcomes(request, response);
   await applyUserMutationOutcomes(request, response);
+  await applyNoteSaveOutcomes(request, response);
   return 1;
 }
 
@@ -269,6 +206,15 @@ async function applyUserMutationOutcomes(
   const outcomes = response.user.mutations;
   if (!outcomes || outcomes.length === 0) return;
   await resolveUserMutationOutcomes(outcomes);
+}
+
+/** Same shape as `applyUserMutationOutcomes`, for the `noteSaves` channel (#192, ADR-0023). */
+async function applyNoteSaveOutcomes(request: SyncRequest, response: SyncResponse): Promise<void> {
+  const queued = request.user?.noteSaves;
+  if (!queued || queued.length === 0) return;
+  const outcomes = response.user.noteSaves;
+  if (!outcomes || outcomes.length === 0) return;
+  await resolveNoteSaveOutcomes(queued, outcomes);
 }
 
 /** Same shape as `applyMutationOutcomes`, for Composition autosaves (ADR-0014, #45). */
@@ -316,11 +262,9 @@ async function buildSyncRequest({
   for (const account of accounts) {
     const entry: MailAccountRequestEntry = {};
     if (includeCollections) {
-      entry.Thread = await getSyncToken(threadTokenKey(account.id));
-      entry.Label = await getSyncToken(labelTokenKey(account.id));
-      entry.GmailLabel = await getSyncToken(gmailLabelTokenKey(account.id));
-      entry.Composition = await getSyncToken(compositionTokenKey(account.id));
-      entry.Correspondent = await getSyncToken(correspondentTokenKey(account.id));
+      for (const collection of MAIL_ACCOUNT_COLLECTIONS) {
+        entry[collection.wireKey] = await getSyncToken(collection.tokenKey(account.id));
+      }
     }
     if (includeMutations) {
       const mutations = await mutationsToFlush(account);
@@ -329,11 +273,7 @@ async function buildSyncRequest({
       if (composeSaves.length > 0) entry.composeSaves = composeSaves;
     }
     if (
-      entry.Thread !== undefined ||
-      entry.Label !== undefined ||
-      entry.GmailLabel !== undefined ||
-      entry.Composition !== undefined ||
-      entry.Correspondent !== undefined ||
+      MAIL_ACCOUNT_COLLECTIONS.some((collection) => entry[collection.wireKey] !== undefined) ||
       entry.mutations !== undefined ||
       entry.composeSaves !== undefined
     ) {
@@ -343,12 +283,15 @@ async function buildSyncRequest({
 
   const user: NonNullable<SyncRequest["user"]> = {};
   if (includeCollections) {
-    user.MailAccount = await getSyncToken(MAIL_ACCOUNT_TOKEN_KEY);
-    user.Preference = await getSyncToken(PREFERENCE_TOKEN_KEY);
+    for (const collection of USER_COLLECTIONS) {
+      user[collection.wireKey] = await getSyncToken(collection.tokenKey);
+    }
   }
   if (includeMutations) {
     const userMutations = await userMutationsToFlush();
     if (userMutations.length > 0) user.mutations = userMutations;
+    const noteSaves = await noteSavesToFlush();
+    if (noteSaves.length > 0) user.noteSaves = noteSaves;
   }
 
   return {
@@ -365,6 +308,12 @@ async function buildSyncRequest({
 async function userMutationsToFlush(): Promise<QueuedUserMutation[]> {
   const queued = await listQueuedUserMutations();
   return queued.map((mutation) => ({ id: mutation.id, intent: mutation.intent }));
+}
+
+/** The `noteSaves` channel's own flush (#192, ADR-0023): no Needs Reauth to gate on, same reason `userMutationsToFlush` has none — a Note is never about a Mail Account. */
+async function noteSavesToFlush(): Promise<NoteSave[]> {
+  const queued = await listQueuedNoteSaves();
+  return queued.map((save) => toWireNoteSave(save));
 }
 
 /**

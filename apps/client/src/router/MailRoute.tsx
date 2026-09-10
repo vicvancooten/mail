@@ -101,6 +101,18 @@ export function MailRoute() {
     void navigate({ to: "/mail/stream" });
   }, [navigate]);
 
+  // "Add to Notes" (#195): once `MailSection`'s own handler has actually
+  // created the Note (awaited — `notesNoteRoute`'s `beforeLoad` would
+  // otherwise redirect a `/notes/$noteId` that doesn't resolve yet), this is
+  // what opens its dialog — the same "one place that knows [it] lives at a
+  // route at all" role every navigation in this file already plays.
+  const onNoteCreated = useCallback(
+    (noteId: string) => {
+      void navigate({ to: "/notes/$noteId", params: { noteId } });
+    },
+    [navigate],
+  );
+
   return (
     <MailSection
       initialLabelFilter={search.label ?? null}
@@ -109,6 +121,7 @@ export function MailRoute() {
       initialAccountId={search.account ?? null}
       onLocationChange={onLocationChange}
       onOpenStream={onOpenStream}
+      onNoteCreated={onNoteCreated}
     />
   );
 }

@@ -179,6 +179,8 @@ describe("NewMailToast", () => {
       payload: {
         kind: "needs_reauth",
         mailAccountId: "acct-1",
+        connectedAccountId: "conn-1",
+        facet: "mail",
         emailAddress: "vic@example.com",
         badgeCount: 0,
       },
@@ -186,7 +188,9 @@ describe("NewMailToast", () => {
     await waitFor(() => screen.getByRole("button", { name: /Reconnect your account/ }));
     fireEvent.click(screen.getByRole("button", { name: /Reconnect your account/ }));
 
-    expect(received).toEqual([{ kind: "needs-reauth", mailAccountId: "acct-1" }]);
+    expect(received).toEqual([
+      { kind: "needs-reauth", connectedAccountId: "conn-1", facet: "mail" },
+    ]);
     unsubscribe();
   });
 });

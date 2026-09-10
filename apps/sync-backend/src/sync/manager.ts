@@ -18,6 +18,13 @@ export interface SyncManager {
   start(account: MailAccountRow): void;
   /** Stops any running session and starts a fresh one from the account's current row — the reauth path's hook. */
   restart(accountId: string): Promise<void>;
+  /**
+   * Stops one Mail Account's running session without starting a fresh one —
+   * the Facet-removal route's own hook (#206): closes the IDLE connection
+   * before anything else notices the row is gone, the same first half
+   * `restart` already runs.
+   */
+  stop(accountId: string): Promise<void>;
   /** Stops every running session. Awaited from `main.ts`'s `SIGTERM` handler so IDLE connections close cleanly. */
   stopAll(): Promise<void>;
 }
@@ -49,6 +56,12 @@ export function createSyncManager(
       sessions.set(accountId, handle);
     },
 
+    async stop(accountId) {
+      const existing = sessions.get(accountId);
+      sessions.delete(accountId);
+      await existing?.stop();
+    },
+
     async stopAll() {
       const handles = [...sessions.values()];
       sessions.clear();
@@ -67,5 +80,6 @@ export async function startAllMailAccountSyncs(db: Db, manager: SyncManager): Pr
 export const noopSyncManager: SyncManager = {
   start() {},
   async restart() {},
+  async stop() {},
   async stopAll() {},
 };

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import type { Db } from "../db/client.js";
+import type { Db, Tx } from "../db/client.js";
 import { syncTombstones } from "../db/schema.js";
 
 /**
@@ -15,9 +15,13 @@ import { syncTombstones } from "../db/schema.js";
  * revision across several tombstones would let `collection-sync.ts`'s
  * page-boundary `> cursor` query split a same-revision batch across two
  * pages and silently drop whichever half landed in the first one.
+ *
+ * Takes `Db | Tx` (#206): a Connected Account removal's tombstone(s) and its
+ * row deletion need to commit or roll back together, which only holds
+ * inside one `db.transaction(...)` callback.
  */
 export async function recordTombstones(
-  db: Db,
+  db: Db | Tx,
   params: { mailAccountId: string | null; collection: string; entityIds: string[] },
 ): Promise<void> {
   const { mailAccountId, collection, entityIds } = params;
@@ -36,7 +40,7 @@ export async function recordTombstones(
   );
 }
 
-async function nextSyncRevs(db: Db, count: number): Promise<number[]> {
+async function nextSyncRevs(db: Db | Tx, count: number): Promise<number[]> {
   const rows = await db.execute<{ rev: string }>(
     sql`select nextval('sync_rev_seq') as rev from generate_series(1, ${count})`,
   );

@@ -47,6 +47,12 @@ describe("announceUndoableAction", () => {
     expect(lastToastFor("undo-toast-done").message).toBe("Done");
   });
 
+  it('gives "Add to Notes" (#195) its own label', () => {
+    announceUndoableAction("addToNotes", vi.fn());
+
+    expect(lastToastFor("undo-toast-addToNotes").message).toBe("Added to Notes");
+  });
+
   it("coalesces repeats of the same kind into one toast with a running count (#95, ADR-0019)", () => {
     for (let i = 0; i < 8; i++) announceUndoableAction("done", vi.fn());
 
@@ -74,6 +80,14 @@ describe("announceUndoableAction", () => {
 
     expect(lastToastFor("undo-toast-done").message).toBe("Done");
     expect(lastToastFor("undo-toast-trash").message).toBe("Moved to trash");
+  });
+
+  it("Notes' own delete (#194) coalesces and labels the same way every other kind does", () => {
+    announceUndoableAction("noteDelete", vi.fn());
+    expect(lastToastFor("undo-toast-noteDelete").message).toBe("Note deleted");
+
+    announceUndoableAction("noteDelete", vi.fn());
+    expect(lastToastFor("undo-toast-noteDelete").message).toBe("2 Notes deleted");
   });
 
   it("stacks at most two distinct kinds — a third evicts the oldest still-open toast", () => {

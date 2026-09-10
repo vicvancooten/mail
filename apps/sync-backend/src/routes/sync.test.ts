@@ -2,26 +2,31 @@ import { randomUUID } from "node:crypto";
 import type {
   ComposeSaveOutcome,
   CompositionDelta,
+  ConnectedAccountDelta,
   GmailLabelDelta,
   LabelDelta,
   MailAccountDelta,
   MutationOutcome,
+  NoteDelta,
   ThreadDelta,
 } from "@mail/shared";
-import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
+import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
+import { markConnectedAccountNeedsReauth } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
   composeSaveLedger,
   compositions,
+  connectedAccountFacets,
   folders,
   mailAccounts,
   messages,
+  notes,
   threads,
 } from "../db/schema.js";
 import { persistGmailLabels } from "../sync/gmail-labels.js";
@@ -71,21 +76,35 @@ async function claimOwner(app: FastifyInstance): Promise<string> {
 }
 
 /** Creates a Mail Account owned by the signed-in user, through the real route so it has every trigger-stamped column. */
-async function createOwnedMailAccount(app: FastifyInstance, cookie: string): Promise<string> {
+async function createOwnedMailAccount(
+  app: FastifyInstance,
+  cookie: string,
+  overrides: { emailAddress?: string } = {},
+): Promise<string> {
   const response = await app.inject({
     method: "POST",
     url: "/mail-accounts",
     headers: { cookie },
     payload: {
-      emailAddress: "vic@example.com",
+      emailAddress: overrides.emailAddress ?? "vic@example.com",
       imap: { host: "imap.example.com", port: 993, security: "tls" },
       smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
-      username: "vic@example.com",
+      username: overrides.emailAddress ?? "vic@example.com",
       password: "correct-horse-battery-staple",
     },
   });
   expect(response.statusCode).toBe(201);
   return (response.json().mailAccount as { id: string }).id;
+}
+
+/** The Connected Account (#199, ADR-0022) a Mail Account's own creation always mints alongside it. */
+async function connectedAccountIdFor(mailAccountId: string): Promise<string> {
+  const [row] = await db
+    .select({ connectedAccountId: mailAccounts.connectedAccountId })
+    .from(mailAccounts)
+    .where(eq(mailAccounts.id, mailAccountId));
+  if (!row) throw new Error(`no Mail Account ${mailAccountId}`);
+  return row.connectedAccountId;
 }
 
 async function insertThread(
@@ -308,7 +327,7 @@ describe("POST /sync", () => {
     });
   });
 
-  describe("Label (per Mail Account, #43)", () => {
+  describe("Label (User-scoped, #43, #186)", () => {
     it("bootstraps, then reports a newly created Label across a token round-trip", async () => {
       const app = buildTestApp();
       const cookie = await claimOwner(app);
@@ -319,13 +338,13 @@ describe("POST /sync", () => {
         method: "POST",
         url: "/sync",
         headers: { cookie },
-        payload: { mailAccounts: { [accountId]: { Label: null } } },
+        payload: { user: { Label: null } },
       });
       expect(bootstrap.statusCode).toBe(200);
       // A bootstrap (#41) still carries a delta even with zero Labels: the
       // Client needs a `newState` to persist for this collection, or it can
       // never tell "bootstrapped, got nothing" from "haven't asked yet".
-      expect(bootstrap.json().mailAccounts[accountId].Label).toMatchObject({
+      expect(bootstrap.json().user.Label).toMatchObject({
         created: [],
         updated: [],
         destroyed: [],
@@ -337,9 +356,9 @@ describe("POST /sync", () => {
         url: "/sync",
         headers: { cookie },
         payload: {
+          user: { Label: null },
           mailAccounts: {
             [accountId]: {
-              Label: null,
               mutations: [
                 {
                   id: "01LABEL",
@@ -350,19 +369,62 @@ describe("POST /sync", () => {
           },
         },
       });
-      const body = applied.json().mailAccounts[accountId];
-      expect(body.mutations).toEqual([{ id: "01LABEL", status: "applied" }]);
-      const delta = body.Label as LabelDelta;
+      expect(applied.json().mailAccounts[accountId].mutations).toEqual([
+        { id: "01LABEL", status: "applied" },
+      ]);
+      const delta = applied.json().user.Label as LabelDelta;
       expect(delta.created).toHaveLength(1);
-      expect(delta.created[0]).toMatchObject({ mailAccountId: accountId, name: "Work" });
+      expect(delta.created[0]).toMatchObject({ name: "Work" });
+      // The owning User, never a Mail Account (#186).
+      expect(delta.created[0]).not.toHaveProperty("mailAccountId");
 
       const unchanged = await app.inject({
         method: "POST",
         url: "/sync",
         headers: { cookie },
-        payload: { mailAccounts: { [accountId]: { Label: delta.newState } } },
+        payload: { user: { Label: delta.newState } },
       });
-      expect(unchanged.json().mailAccounts).toEqual({});
+      expect(unchanged.json().user.Label).toBeUndefined();
+    });
+
+    it("carries one Label for a name applied from two of the User's Mail Accounts (#186)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const firstAccountId = await createOwnedMailAccount(app, cookie);
+      const secondAccountId = await createOwnedMailAccount(app, cookie, {
+        emailAddress: "second@mail.test",
+      });
+      await insertThreadWithMessage(firstAccountId, "thread-1");
+      await insertThreadWithMessage(secondAccountId, "thread-2");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: { Label: null },
+          mailAccounts: {
+            [firstAccountId]: {
+              mutations: [
+                {
+                  id: "01FIRST",
+                  intent: { type: "applyLabel", threadId: "thread-1", name: "Follow up" },
+                },
+              ],
+            },
+            [secondAccountId]: {
+              mutations: [
+                {
+                  id: "01SECOND",
+                  intent: { type: "applyLabel", threadId: "thread-2", name: "Follow up" },
+                },
+              ],
+            },
+          },
+        },
+      });
+      const delta = response.json().user.Label as LabelDelta;
+      expect(delta.created.map((row) => row.name)).toEqual(["Follow up"]);
     });
 
     it("is not requested unless asked — an ordinary Thread sync never carries a Label delta", async () => {
@@ -401,7 +463,328 @@ describe("POST /sync", () => {
       // asserts is that requesting only `Thread` never triggers a `Label`
       // collection query or response entry alongside it.
       expect(threadDelta.created[0]?.labelIds).toHaveLength(1);
-      expect(response.json().mailAccounts[accountId].Label).toBeUndefined();
+      expect(response.json().user.Label).toBeUndefined();
+    });
+  });
+
+  describe("Note (User-scoped, #192, ADR-0023)", () => {
+    it("bootstraps empty, then reports a Note created through createNote across a token round-trip", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: null } },
+      });
+      expect(bootstrap.statusCode).toBe(200);
+      expect(bootstrap.json().user.Note).toMatchObject({
+        created: [],
+        updated: [],
+        destroyed: [],
+        hasMore: false,
+      });
+
+      const applied = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: null,
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      expect(applied.json().user.mutations).toEqual([{ id: "01CREATE", status: "applied" }]);
+      const delta = applied.json().user.Note as NoteDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ id: "note-1", labelIds: [] });
+
+      const unchanged = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: delta.newState } },
+      });
+      expect(unchanged.json().user.Note).toBeUndefined();
+    });
+
+    it("carries the second Client's create on the next sync round — the acceptance line itself", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      // One Client creates...
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      // ...and saves a body.
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            noteSaves: [{ id: "note-1", saveId: "01SAVE", document: EMPTY_NOTE_DOCUMENT }],
+          },
+        },
+      });
+
+      // A second Client's next sync round, from nothing held, sees both.
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: null } },
+      });
+      const delta = secondClient.json().user.Note as NoteDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ id: "note-1", document: EMPTY_NOTE_DOCUMENT });
+    });
+
+    it("removes a deleted Note from the collection — deleteNote, create's real inverse", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const created = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: null,
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      const token = (created.json().user.Note as NoteDelta).newState;
+
+      const deleted = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: token,
+            mutations: [{ id: "01DELETE", intent: { type: "deleteNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      expect(deleted.json().user.mutations).toEqual([{ id: "01DELETE", status: "applied" }]);
+      expect((deleted.json().user.Note as NoteDelta).destroyed).toEqual(["note-1"]);
+    });
+
+    it("soft-deletes with trashNote — the row rides `updated`, not `destroyed` (#194)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const created = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: null,
+            mutations: [{ id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      const token = (created.json().user.Note as NoteDelta).newState;
+
+      const trashed = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: token,
+            mutations: [{ id: "01TRASH", intent: { type: "trashNote", noteId: "note-1" } }],
+          },
+        },
+      });
+
+      expect(trashed.json().user.mutations).toEqual([{ id: "01TRASH", status: "applied" }]);
+      const delta = trashed.json().user.Note as NoteDelta;
+      expect(delta.destroyed).toEqual([]);
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({ id: "note-1" });
+      expect(delta.updated[0]?.deletedAt).not.toBeNull();
+    });
+
+    it("restores across the second Client — the delta round trip #194's own acceptance line asks for", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              { id: "01CREATE", intent: { type: "createNote", noteId: "note-1" } },
+              { id: "01TRASH", intent: { type: "trashNote", noteId: "note-1" } },
+            ],
+          },
+        },
+      });
+
+      // A second Client, from nothing held, sees the Note already deleted.
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Note: null } },
+      });
+      const firstDelta = secondClient.json().user.Note as NoteDelta;
+      expect(firstDelta.created[0]?.deletedAt).not.toBeNull();
+
+      const restored = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Note: firstDelta.newState,
+            mutations: [{ id: "01RESTORE", intent: { type: "restoreNote", noteId: "note-1" } }],
+          },
+        },
+      });
+      const secondDelta = restored.json().user.Note as NoteDelta;
+      expect(secondDelta.updated[0]?.deletedAt).toBeNull();
+    });
+  });
+
+  describe("ConnectedAccount (User-scoped, #200, ADR-0022)", () => {
+    it("bootstraps with the Connected Account a Mail Account add creates, then reports nothing on an unchanged token", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      const connectedAccountId = await connectedAccountIdFor(accountId);
+
+      const first = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: null } },
+      });
+      expect(first.statusCode).toBe(200);
+      const delta = first.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({
+        id: connectedAccountId,
+        provider: "other_imap",
+        status: "active",
+        facets: [{ kind: "mail", status: "active" }],
+      });
+      // Never a credential, not even a masked one (ADR-0003).
+      expect(delta.created[0]).not.toHaveProperty("credential");
+      expect(JSON.stringify(delta.created[0])).not.toContain("credential");
+      expect(delta.updated).toEqual([]);
+      expect(delta.destroyed).toEqual([]);
+      expect(delta.hasMore).toBe(false);
+
+      const second = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: delta.newState } },
+      });
+      expect(second.statusCode).toBe(200);
+      expect(second.json().user.ConnectedAccount).toBeUndefined();
+    });
+
+    it("answers reset: true for a token the server no longer knows", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      await createOwnedMailAccount(app, cookie);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: "this-is-not-a-real-token" } },
+      });
+      expect(response.statusCode).toBe(200);
+      const delta = response.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.reset).toBe(true);
+      expect(delta.created).toHaveLength(1);
+    });
+
+    it("carries an account-level Needs Reauth transition as an update, and a Client that missed the change picks it up next poll (#200's own acceptance line)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      const connectedAccountId = await connectedAccountIdFor(accountId);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: null } },
+      });
+      const token = (bootstrap.json().user.ConnectedAccount as ConnectedAccountDelta).newState;
+
+      await markConnectedAccountNeedsReauth(db, connectedAccountId);
+
+      const polled = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: token } },
+      });
+      const delta = polled.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.created).toEqual([]);
+      expect(delta.destroyed).toEqual([]);
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({
+        id: connectedAccountId,
+        status: "needs_reauth",
+        facets: [{ kind: "mail", status: "needs_reauth" }],
+      });
+    });
+
+    it("carries a Facet-only status change as an update — a Facet has no sync_rev of its own to bump", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const accountId = await createOwnedMailAccount(app, cookie);
+      const connectedAccountId = await connectedAccountIdFor(accountId);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: null } },
+      });
+      const token = (bootstrap.json().user.ConnectedAccount as ConnectedAccountDelta).newState;
+
+      // A Facet-only write — no column on `connected_accounts` itself
+      // changes — still has to surface on the collection's own next delta
+      // round: the parent-bump trigger (`db/migrations/0042_*.sql`) is what
+      // makes that true.
+      await db
+        .update(connectedAccountFacets)
+        .set({ status: "needs_reauth" })
+        .where(eq(connectedAccountFacets.connectedAccountId, connectedAccountId));
+
+      const polled = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { ConnectedAccount: token } },
+      });
+      const delta = polled.json().user.ConnectedAccount as ConnectedAccountDelta;
+      expect(delta.updated).toHaveLength(1);
+      expect(delta.updated[0]).toMatchObject({
+        id: connectedAccountId,
+        status: "active",
+        facets: [{ kind: "mail", status: "needs_reauth" }],
+      });
     });
   });
 
@@ -528,6 +911,7 @@ describe("POST /sync", () => {
         autoAdvanceEnabled: true,
         autoAdvanceDirection: "older",
         undoSendDelaySeconds: 10,
+        homeTimeZone: "",
       });
 
       const edited = await app.inject({
@@ -546,6 +930,10 @@ describe("POST /sync", () => {
                 id: "01DELAY",
                 intent: { type: "setUndoSendDelay", undoSendDelaySeconds: 30 },
               },
+              {
+                id: "01TIMEZONE",
+                intent: { type: "setHomeTimeZone", homeTimeZone: "Europe/Amsterdam" },
+              },
             ],
           },
         },
@@ -554,11 +942,13 @@ describe("POST /sync", () => {
       expect(editedBody.mutations).toEqual([
         { id: "01ADVANCE", status: "applied" },
         { id: "01DELAY", status: "applied" },
+        { id: "01TIMEZONE", status: "applied" },
       ]);
       expect(editedBody.Preference.updated[0]).toMatchObject({
         autoAdvanceEnabled: false,
         autoAdvanceDirection: "newer",
         undoSendDelaySeconds: 30,
+        homeTimeZone: "Europe/Amsterdam",
       });
 
       // A retried id (a dropped response over a flaky connection) replays the
@@ -1050,6 +1440,172 @@ describe("POST /sync", () => {
       ]);
     });
   });
+
+  describe("noteSaves (#192, ADR-0023)", () => {
+    /** The text of a stored Note's first block — `NoteBlock.content`'s loose union needs narrowing before an index reads it. */
+    function firstText(document: unknown): unknown {
+      const blocks = document as { content?: unknown }[];
+      const content = blocks[0]?.content as { text?: string }[] | undefined;
+      return content?.[0]?.text;
+    }
+
+    it("creates the Note lazily on the first save for an unseen id", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            noteSaves: [{ id: "note-1", saveId: "01SAVE-A", document: EMPTY_NOTE_DOCUMENT }],
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01SAVE-A", status: "applied" },
+      ]);
+      const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
+      expect(row?.document).toEqual(EMPTY_NOTE_DOCUMENT);
+    });
+
+    it("never rejects a later save — takes the latest by receipt, no etag, no conflict (ADR-0023)", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const save = (saveId: string, text: string) => ({
+        method: "POST" as const,
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            noteSaves: [
+              {
+                id: "note-1",
+                saveId,
+                document: [
+                  {
+                    id: "b1",
+                    type: "paragraph",
+                    props: {},
+                    content: [{ type: "text", text, styles: {} }],
+                    children: [],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      await app.inject(save("01A", "first"));
+      // A "stale" save, in the sense a version-checked channel like
+      // `composeSaves` would reject — here it simply applies, last write
+      // (by receipt, not by content) wins, silently.
+      const second = await app.inject(save("01B", "second"));
+
+      expect(second.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01B", status: "applied" },
+      ]);
+      const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
+      expect(firstText(row?.document)).toBe("second");
+    });
+
+    it("two Clients editing one Note while offline both flush without error — the last to arrive is the stored body", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const deviceA = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            user: {
+              noteSaves: [
+                {
+                  id: "note-1",
+                  saveId: "01A",
+                  document: [
+                    {
+                      id: "b1",
+                      type: "paragraph",
+                      props: {},
+                      content: [{ type: "text", text: "from A", styles: {} }],
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        });
+      const deviceB = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            user: {
+              noteSaves: [
+                {
+                  id: "note-1",
+                  saveId: "01B",
+                  document: [
+                    {
+                      id: "b1",
+                      type: "paragraph",
+                      props: {},
+                      content: [{ type: "text", text: "from B", styles: {} }],
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        });
+
+      const [responseA, responseB] = await Promise.all([deviceA(), deviceB()]);
+
+      expect(responseA.statusCode).toBe(200);
+      expect(responseB.statusCode).toBe(200);
+      expect(responseA.json().user.noteSaves[0].status).toBe("applied");
+      expect(responseB.json().user.noteSaves[0].status).toBe("applied");
+      const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
+      // Whichever reached the Sync Backend last (by receipt) is what stuck —
+      // exactly one of the two, not a merge of both.
+      expect(["from A", "from B"]).toContain(firstText(row?.document));
+    });
+
+    it("is exactly-once at the Client's dequeue: replaying the same saveId still answers applied", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const save = () =>
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: {
+            user: {
+              noteSaves: [{ id: "note-1", saveId: "01RETRY", document: EMPTY_NOTE_DOCUMENT }],
+            },
+          },
+        });
+
+      const first = await save();
+      expect(first.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01RETRY", status: "applied" },
+      ]);
+
+      const retry = await save();
+      expect(retry.json().user.noteSaves).toEqual([
+        { id: "note-1", saveId: "01RETRY", status: "applied" },
+      ]);
+    });
+  });
+
   describe("Composition + the send path (#46, ADR-0007)", () => {
     /** One `POST /sync` that saves a sendable Composition and asks for the collection back. */
     async function saveSendableDraft(

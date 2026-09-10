@@ -21,6 +21,21 @@ if (!Element.prototype.scrollIntoView) {
 }
 
 /**
+ * jsdom has no hit-testing either — BlockNote's own drag-handle/side-menu
+ * extension (`apps/client/src/notes/`, #191) calls this on every
+ * `mousemove` over the document to find which block the pointer is over, an
+ * uncaught `TypeError` (not a failed assertion) any test rendering a
+ * BlockNote editor risks the moment `userEvent` dispatches a synthetic
+ * pointer move anywhere on the page (#193's own grid, more than one editor
+ * instance mounted at once, first hit this). An empty result is a safe
+ * stand-in: nothing under test depends on which element a real hit-test
+ * would have found.
+ */
+if (!document.elementsFromPoint) {
+  document.elementsFromPoint = () => [];
+}
+
+/**
  * jsdom ships no `Element.scrollTo` at all (#142) — `@tanstack/react-virtual`'s
  * `scrollToOffset`/`scrollToIndex` call it (`elementScroll` in
  * `@tanstack/virtual-core`) to move the real scroll container, which a test

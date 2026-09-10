@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
-import { mailAccounts, threads } from "../db/schema.js";
+import { threads } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
@@ -61,14 +61,12 @@ describe("computeUnreadInboxCount", () => {
 
   it("sums across every Mail Account this User owns, not just one", async () => {
     // A second Mail Account under the *same* User (CONTEXT.md: a User owns
-    // one or more) — `createTestMailAccount` mints a fresh User per call, so
-    // the second account is inserted directly, reusing `account`'s own
-    // connection details.
-    const [second] = await db
-      .insert(mailAccounts)
-      .values({ ...account, id: randomUUID(), emailAddress: `second-${randomUUID()}@mail.test` })
-      .returning();
-    if (!second) throw new Error("second Mail Account insert returned no row");
+    // one or more) — its own Connected Account and Mail Facet, `userId`
+    // pinned to the first account's own User.
+    const second = await createTestMailAccount(db, {
+      userId: account.userId,
+      emailAddress: `second-${randomUUID()}@mail.test`,
+    });
 
     await seedThread({ unreadCount: 3, inInbox: true });
     await db.insert(threads).values({

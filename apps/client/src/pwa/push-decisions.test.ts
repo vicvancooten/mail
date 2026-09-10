@@ -92,11 +92,25 @@ describe("buildNotificationContent", () => {
     const content = buildNotificationContent({
       kind: "needs_reauth",
       mailAccountId: "acct-1",
+      connectedAccountId: "conn-1",
+      facet: "mail",
       emailAddress: "vic@example.com",
       badgeCount: 0,
     });
     expect(content.body).toContain("vic@example.com");
     expect(content.actions).toBeUndefined();
+  });
+
+  it("names the Facet, not a password, for a Calendar/Contacts needs_reauth (#204)", () => {
+    const content = buildNotificationContent({
+      kind: "needs_reauth",
+      mailAccountId: null,
+      connectedAccountId: "conn-1",
+      facet: "calendar",
+      emailAddress: "vic@example.com",
+      badgeCount: 0,
+    });
+    expect(content.body).toBe("Calendar for vic@example.com needs reconnecting.");
   });
 });
 
@@ -142,15 +156,17 @@ describe("notificationClickTarget", () => {
     ).toEqual({ kind: "failed-send", mailAccountId: "acct-1", compositionId: "c" });
   });
 
-  it("names the Mail Account whose settings/reauth screen to jump to for needs_reauth", () => {
+  it("names the Facet cell whose settings/reauth screen to jump to for needs_reauth (#204)", () => {
     expect(
       notificationClickTarget({
         kind: "needs_reauth",
         mailAccountId: "acct-1",
+        connectedAccountId: "conn-1",
+        facet: "mail",
         emailAddress: "x@example.com",
         badgeCount: 0,
       }),
-    ).toEqual({ kind: "needs-reauth", mailAccountId: "acct-1" });
+    ).toEqual({ kind: "needs-reauth", connectedAccountId: "conn-1", facet: "mail" });
   });
 
   it("is focus-only for a collapsed burst — an Inbox digest is ambiguous about which Thread to land on", () => {
@@ -190,10 +206,10 @@ describe("notificationTargetUrl", () => {
     );
   });
 
-  it("deep-links Needs Reauth into Mail Accounts settings", () => {
-    expect(notificationTargetUrl({ kind: "needs-reauth", mailAccountId: "acct-1" })).toBe(
-      "/settings/mail-accounts?account=acct-1",
-    );
+  it("deep-links Needs Reauth into Mail Accounts settings, naming the Connected Account and Facet (#204)", () => {
+    expect(
+      notificationTargetUrl({ kind: "needs-reauth", connectedAccountId: "conn-1", facet: "mail" }),
+    ).toBe("/settings/mail-accounts?account=conn-1&facet=mail");
   });
 
   it("falls back to the default route for a failed send or a focus-only target", () => {

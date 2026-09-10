@@ -10,15 +10,19 @@ import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { isPhoneWidth } from "../hooks/use-phone-width.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
+import { NotesRecentlyDeleted } from "../notes/NotesRecentlyDeleted.js";
+import { ConnectedAccountsPage } from "../settings/ConnectedAccountsPage.js";
 import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";
-import { MailAccountsPage } from "../settings/MailAccountsPage.js";
 import { NotificationsPage } from "../settings/NotificationsPage.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
+import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
 import { MailRoute } from "./MailRoute.js";
+import { NoteDialogRoute } from "./NoteDialogRoute.js";
+import { NotesRoute } from "./NotesRoute.js";
 import { RootLayout } from "./RootLayout.js";
 import { StreamRoute } from "./StreamRoute.js";
 
@@ -158,18 +162,50 @@ export const settingsThisDeviceRoute = createRoute({
   component: ThisDeviceSection,
 });
 
-export interface SettingsMailAccountsSearch {
-  /** A `needs_reauth` notification's cold-start deep-link (#151) — `MailAccountsPage`'s own seam for `scrollToMailAccountSettings`, mirroring what `RootLayout.tsx`'s notification-target effect does for an already-open window. */
+export interface ConnectedAccountsSearch {
+  /**
+   * The needs-reauth notification/cold-start deep link's target Connected
+   * Account (#201, widened by #204 from a Mail Account id —
+   * `connected-accounts/account-focus.ts`), paired with `facet` below. Read
+   * directly off `window.location.search` by `ConnectedAccountsPage` itself,
+   * the same reasoning `mailRoute`'s own `?oauth=` sibling gives — this
+   * `validateSearch` exists only so `RootLayout.tsx`'s own `navigate` call
+   * type-checks, not because the page reads it through the router.
+   */
   account?: string;
+  /** Which Facet cell on `account` to focus (#204) — always paired with `account` above. */
+  facet?: string;
+  /** #116's OAuth callback outcome — same reasoning as `account` above. */
+  oauth?: string;
 }
 
+export const settingsConnectedAccountsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/connected-accounts",
+  validateSearch: (search: Record<string, unknown>): ConnectedAccountsSearch => ({
+    account: typeof search.account === "string" ? search.account : undefined,
+    facet: typeof search.facet === "string" ? search.facet : undefined,
+    oauth: typeof search.oauth === "string" ? search.oauth : undefined,
+  }),
+  component: ConnectedAccountsPage,
+});
+
+/**
+ * `/settings/mail-accounts` (#201): the Connected Accounts settings page's
+ * old address, kept as a silent redirect rather than removed outright — the
+ * needs-reauth notification deep link, the cold-start focus link and every
+ * OAuth callback outcome all still name it from wherever they were minted
+ * before this ticket landed. `search: true` carries every query param
+ * across unchanged (`?account=`, `?oauth=`, and anything else) rather than
+ * naming the ones known today, so a future param this redirect was never
+ * updated for still survives it.
+ */
 export const settingsMailAccountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/mail-accounts",
-  validateSearch: (search: Record<string, unknown>): SettingsMailAccountsSearch => ({
-    account: typeof search.account === "string" ? search.account : undefined,
-  }),
-  component: MailAccountsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/connected-accounts", search: true });
+  },
 });
 
 export const settingsGatekeeperRoute = createRoute({
@@ -227,6 +263,71 @@ export const tasksRoute = createRoute({
   component: () => <PlaceholderRoute app={APPS_BY_KEY.tasks} />,
 });
 
+/**
+ * Notes (#193, the App's real screen — no longer a `PlaceholderRoute`): a
+ * layout route the same shape `settingsRoute` gives Settings, except the
+ * parent itself renders the grid rather than only nav chrome — Foundations'
+ * path-param routing rule's first real caller (`docs`/mail#190's own
+ * framing). `/notes/:noteId` is `notesNoteRoute` below, not a route of its
+ * own declared inline here, so its dialog renders into `NotesRoute`'s own
+ * `<Outlet/>` over the always-mounted grid.
+ */
+export const notesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/notes",
+  component: NotesRoute,
+});
+
+/**
+ * A `:noteId` that resolves to nothing — soft-deleted (#194), a wrong id,
+ * an old bookmark — redirects silently to `/notes`, the same fallback an
+ * unrecognized `folder` search param on `/mail` already takes (this file's
+ * own `mailRoute` above). `beforeLoad` rather than a `loader`: every other
+ * redirect in this file already throws from `beforeLoad`, and this is the
+ * same "gate the match, don't render a screen that has to unwind itself"
+ * shape, just checked against the Local Cache instead of route context.
+ * `ensureLocalCacheOpen()` is awaited first because nothing guarantees the
+ * cache has been opened yet — a User landing straight on this route without
+ * ever visiting `/mail` first is exactly Notes' own "first real caller"
+ * territory — though a genuinely valid, not-yet-synced deep link (a cold
+ * boot racing the first sync round) is a real gap this ticket accepts
+ * rather than solves: there is no way to tell "not synced yet" apart from
+ * "doesn't exist" from here. Checked with `noteExists` rather than
+ * `readNote` directly, so a soft-deleted row (#194) takes this same
+ * redirect instead of mounting `NoteDialogRoute` first and leaning on its
+ * own `deletedAt` effect — that effect stays, but only as a defense for a
+ * delete arriving from sync while the dialog is already open.
+ */
+export const notesNoteRoute = createRoute({
+  getParentRoute: () => notesRoute,
+  path: "/$noteId",
+  beforeLoad: async ({ params }) => {
+    await ensureLocalCacheOpen();
+    if (!(await noteExists(params.noteId))) {
+      throw redirect({ to: "/notes" });
+    }
+  },
+  component: NoteDialogRoute,
+});
+
+/**
+ * Recently Deleted (#194): registered with its own full path directly off
+ * `rootRoute`, `streamRoute`'s own precedent for "a screen nested under
+ * another App's path, but not actually a child of that App's own route" —
+ * a child of `notesRoute` instead would render into its `<Outlet/>` over
+ * the always-mounted grid the same way the dialog does, which is wrong
+ * here: Recently Deleted is its own screen, not an overlay (`NotesRecentlyDeleted.tsx`'s
+ * own doc comment). Registered as a sibling of `notesRoute` in the tree
+ * below rather than nested under it for exactly that reason — TanStack
+ * Router still resolves the more specific static path here over
+ * `notesNoteRoute`'s own dynamic `$noteId` segment.
+ */
+export const notesRecentlyDeletedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/notes/recently-deleted",
+  component: NotesRecentlyDeleted,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
@@ -235,6 +336,7 @@ export const routeTree = rootRoute.addChildren([
     settingsIndexRoute,
     settingsGeneralRoute,
     settingsThisDeviceRoute,
+    settingsConnectedAccountsRoute,
     settingsMailAccountsRoute,
     settingsGatekeeperRoute,
     settingsNotificationsRoute,
@@ -244,6 +346,8 @@ export const routeTree = rootRoute.addChildren([
   contactsRoute,
   calendarRoute,
   tasksRoute,
+  notesRoute.addChildren([notesNoteRoute]),
+  notesRecentlyDeletedRoute,
 ]);
 
 /**

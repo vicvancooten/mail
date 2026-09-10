@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { ensureClaimToken } from "./auth/claim.js";
 import { startSendLoop } from "./compose/send-loop.js";
+import { upgradeMailAccountsToConnectedAccounts } from "./connected-accounts/boot-upgrade.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
@@ -14,6 +15,8 @@ import { defaultProviderAdapters } from "./routes/oauth-signin.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { startGrantRefreshLoop } from "./sync/grant-refresh-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
+import { startNotePurgeLoop } from "./sync/note-purge-loop.js";
+import type { PollLoopHandle } from "./sync/poll-loop.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
 import { startSnoozeWakeLoop } from "./sync/snooze-wake-loop.js";
@@ -25,6 +28,13 @@ const env = loadEnv();
 await runMigrations(env.DATABASE_URL, new URL("./db/migrations", import.meta.url).pathname);
 
 const { db, sql } = createDb(env);
+
+// Connected Accounts own the credential (#199, ADR-0022): the rest of this
+// boot's own upgrade, right after the schema migration above and before
+// anything else touches `mail_accounts` — see the function's own doc
+// comment for why this can't be a `.sql` migration file. Fails closed
+// (ADR-0009), same as `runMigrations` itself.
+await upgradeMailAccountsToConnectedAccounts(db, env.MAIL_CREDENTIAL_KEY);
 
 // ADR-0015's fanout: a dedicated `LISTEN` connection (never the pooled one
 // queries run on) turning `migration 0016`'s `pg_notify` into `GET
@@ -121,60 +131,79 @@ await ensureClaimToken(db, app.log, env.PUBLIC_URL);
 
 await startAllMailAccountSyncs(db, syncManager);
 
+// Every poll loop's handle (#188), registered once as it starts so `SIGTERM`
+// below can stop all of them through this one registry instead of naming
+// each handle again.
+const pollLoops: PollLoopHandle[] = [];
+
 // The `\Seen`/`\Flagged`/archive/trash write-through outbox (#42,
 // ADR-0006): a short-lived connection per account with anything queued,
 // independent of the resident IDLE sessions above.
-const protocolWriteLoop = startProtocolWriteLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  logger: app.log,
-});
+pollLoops.push(
+  startProtocolWriteLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
 
 // The debounced Composition → IMAP Drafts push (ADR-0012 tier 2, #45): same
 // independent-short-lived-connection shape as the outbox above, on its own
 // interval so a slow Drafts folder can never stall it either.
-const draftPushLoop = startDraftPushLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  logger: app.log,
-});
+pollLoops.push(
+  startDraftPushLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
 
 // The Pending Send sweeper (#46, ADR-0007). Its first tick runs immediately
 // rather than after the interval: `submit_after` is absolute, so this boot is
 // also the boot-time sweep that submits everything that came due while the
 // process was down.
-const sendLoop = startSendLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  logger: app.log,
-});
+pollLoops.push(
+  startSendLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
 
 // The Search Index rebuild sweep (#50, ADR-0016): "a bumped index_version
 // triggers a background, batched, oldest-version-first rebuild while search
 // keeps serving old rows" — never a boot-time migration. Plain Postgres, no
 // IMAP connection, so unlike every loop above it isn't scoped to a Mail
 // Account or gated on its sync state.
-const searchIndexRebuildLoop = startSearchIndexRebuildLoop(db, { logger: app.log });
+pollLoops.push(startSearchIndexRebuildLoop(db, { logger: app.log }));
 
 // The Snooze wake sweep (#76): "a thread returns to the Inbox as new when
 // the time passes", independent of any Client being connected (ADR-0003) —
 // same independent-of-`sync/manager.ts` shape as the rebuild loop above,
 // its first tick catching up on whatever came due while the process was
 // down.
-const snoozeWakeLoop = startSnoozeWakeLoop(db, { logger: app.log });
+pollLoops.push(startSnoozeWakeLoop(db, { logger: app.log }));
+
+// The Recently Deleted purge sweep (#194): "purged for good 30 days after
+// deletion" — same independent-of-`sync/manager.ts` shape as the snooze wake
+// loop above, since purging a soft-deleted Note only ever touches columns
+// already stored on `notes`.
+pollLoops.push(startNotePurgeLoop(db, { logger: app.log }));
 
 // The Notifier's outbox delivery sweep (#53, ADR-0015). Its first tick runs
 // immediately, same reasoning as the send sweeper above: whatever the outbox
 // held when the process died is exactly what this boot-time tick resumes.
-const notifierDeliverLoop = startNotifierDeliverLoop(db, { sendPush, logger: app.log });
+pollLoops.push(startNotifierDeliverLoop(db, { sendPush, logger: app.log }));
 
 // The Grant refresh sweep (#118, ADR-0021): "keeps Grants warm even while
 // the resident connection is down" — same independent-of-`sync/manager.ts`
 // shape as the rebuild and snooze loops above, refreshing any oauth Mail
 // Account nearing its access token's expiry regardless of whether that
 // account's own resident session is currently connected.
-const grantRefreshLoop = startGrantRefreshLoop(db, {
-  mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
-  providerAdapters,
-  logger: app.log,
-});
+pollLoops.push(
+  startGrantRefreshLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    providerAdapters,
+    logger: app.log,
+  }),
+);
 
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise
@@ -183,13 +212,7 @@ const grantRefreshLoop = startGrantRefreshLoop(db, {
 process.on("SIGTERM", () => {
   void Promise.all([
     syncManager.stopAll(),
-    protocolWriteLoop.stop(),
-    draftPushLoop.stop(),
-    sendLoop.stop(),
-    searchIndexRebuildLoop.stop(),
-    snoozeWakeLoop.stop(),
-    notifierDeliverLoop.stop(),
-    grantRefreshLoop.stop(),
+    ...pollLoops.map((loop) => loop.stop()),
     syncHints.stop(),
   ])
     .catch((err) => app.log.error({ err }, "error while stopping sync sessions"))

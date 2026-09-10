@@ -42,17 +42,23 @@ _Avoid_: proxy, bridge, API server
 Any UI (web/PWA now, native later) that talks exclusively to the Sync Backend, never to a mail server directly.
 
 **App**:
-One of the personal-hub products a Client holds: Mail today, with Contacts, Calendar and Tasks
-named and reserved. An App is a whole product surface with its own navigation, not a screen inside
-Mail — which is why the Client's chrome makes room for four rather than treating Mail as the whole
-world.
+One of the personal-hub products a Client holds: Mail today, with Contacts, Calendar, Tasks and
+Notes named and reserved. An App is a whole product surface with its own navigation, not a screen
+inside Mail — which is why the Client's chrome makes room for five rather than treating Mail as
+the whole world. Whether an App's data belongs to a Mail Account or to the User alone decides
+whether it observes Account Scope (see there).
 _Avoid_: module, section, tab
 
 **Account Scope**:
-Which of the User's Mail Accounts the Client is currently showing: any non-empty subset, defaulting
-to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing to one
-account is a question every App answers. Actions that can only mean one account — sending, or
-changing a Gatekeeper setting — ask for that account rather than inheriting the Scope.
+Which of the User's Connected Accounts the Client is currently showing: any non-empty subset,
+defaulting to all of them. Chrome that belongs to the Client rather than to Mail, because narrowing
+to one account is a question every App whose data rides a Connected Account answers — Mail,
+Calendar and Contacts do; Tasks and Notes, whose data belongs to the User alone, don't, and the Hub
+hides the control while one of those is current rather than showing it disabled. A Connected
+Account with no Facet feeding the current App is still listed and checkable, just visibly muted —
+narrowing to it changes nothing for that App, and the muted state is why. Actions that can only mean
+one account — sending, or changing a Gatekeeper setting — ask for that account rather than
+inheriting the Scope.
 _Avoid_: account switcher, unified inbox, active account
 
 **App Switcher**:
@@ -228,8 +234,8 @@ _Avoid_: flag, favourite, bookmark
 Keeping a thread prominently visible regardless of its age. An App Feature, and deliberately not the same thing as a Star: a Star says "this matters", a Pin says "keep this in front of me".
 
 **Label**:
-A user-defined tag a User applies to a Thread for organization. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels).
-_Avoid_: tag, IMAP keyword
+A user-defined tag a User applies to a Thread for organization. An App Feature: stored only in the Sync Backend, independent of any Mail Account's provider-native folder or keyword representation (e.g. Gmail's IMAP folder-labels). Owned by the **User**, not a Mail Account: one set of Labels spans every Mail Account they own, so "Follow up" means the same Label whichever account's mail is on screen — and a future Note can carry the same Labels mail does.
+_Avoid_: tag, IMAP keyword, per-account label
 
 ### Gatekeeper
 

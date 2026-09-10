@@ -1,15 +1,15 @@
-import type { Provider } from "@mail/shared";
-import { and, count, eq, sql } from "drizzle-orm";
+import type { RegisteredProvider } from "@mail/shared";
+import { count, eq } from "drizzle-orm";
+import type { SealedSecret } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
-import { mailAccounts, providerRegistrations } from "../db/schema.js";
-import type { SealedSecret } from "../mail-accounts/credential-crypto.js";
-import type { MailAccountRow } from "../mail-accounts/store.js";
+import { connectedAccounts, providerRegistrations } from "../db/schema.js";
+import { recordFacetRefreshOutcome } from "./facet-health-store.js";
 
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
 
 export async function getProviderRegistration(
   db: Db,
-  provider: Provider,
+  provider: RegisteredProvider,
 ): Promise<ProviderRegistrationRow | null> {
   const [row] = await db
     .select()
@@ -24,19 +24,38 @@ export async function getProviderRegistration(
  * ... pastes the client ID and secret into the Instance page", no restart,
  * no history of past registrations). `createdAt` is left untouched by the
  * conflict branch — a replace is still the same Registration, not a new one.
+ *
+ * `calendarApiEnabled`/`contactsApiEnabled` (#202, ADR-0022) are the same
+ * save form's own fields, not a separate flow — the Owner restates them on
+ * every replace exactly the way they restate the client ID and secret,
+ * rather than this silently carrying old values forward across a fresh
+ * client ID's worth of setup. Defaults both `false` so every test and
+ * seeding path that predates #202 — setting up a Registration only to
+ * exercise Mail — keeps working unchanged.
  */
 export async function upsertProviderRegistration(
   db: Db,
-  provider: Provider,
+  provider: RegisteredProvider,
   clientId: string,
   clientSecret: SealedSecret,
+  facetApiFlags: { calendarApiEnabled: boolean; contactsApiEnabled: boolean } = {
+    calendarApiEnabled: false,
+    contactsApiEnabled: false,
+  },
 ): Promise<ProviderRegistrationRow> {
+  const { calendarApiEnabled, contactsApiEnabled } = facetApiFlags;
   const [row] = await db
     .insert(providerRegistrations)
-    .values({ provider, clientId, clientSecret })
+    .values({ provider, clientId, clientSecret, calendarApiEnabled, contactsApiEnabled })
     .onConflictDoUpdate({
       target: providerRegistrations.provider,
-      set: { clientId, clientSecret, updatedAt: new Date() },
+      set: {
+        clientId,
+        clientSecret,
+        calendarApiEnabled,
+        contactsApiEnabled,
+        updatedAt: new Date(),
+      },
     })
     .returning();
   if (!row) {
@@ -45,7 +64,10 @@ export async function upsertProviderRegistration(
   return row;
 }
 
-export async function deleteProviderRegistration(db: Db, provider: Provider): Promise<void> {
+export async function deleteProviderRegistration(
+  db: Db,
+  provider: RegisteredProvider,
+): Promise<void> {
   await db.delete(providerRegistrations).where(eq(providerRegistrations.provider, provider));
 }
 
@@ -57,53 +79,44 @@ export async function deleteProviderRegistration(db: Db, provider: Provider): Pr
  * any prior failure, same convention as `mail-accounts/store.ts#setSyncStatus`'s
  * `lastSyncError`) and the Provider's own failure detail otherwise.
  *
- * Never called for a `withdrawn` result: that's one Mail Account's Needs
- * Reauth, not a fact about the Provider as a whole, and a single revoked
- * Grant shouldn't flip a whole Provider to Failing while every other account
- * on it keeps refreshing fine.
+ * Never called for a `withdrawn` result: that's one Connected Account's
+ * Needs Reauth, not a fact about the Provider as a whole, and a single
+ * revoked Grant shouldn't flip a whole Provider to Failing while every other
+ * account on it keeps refreshing fine.
+ *
+ * Also stamps the Mail Facet's own `provider_facet_health` row (#205) —
+ * today's only refresh loop is Mail's, so this is the one call site that
+ * keeps the per-Facet breakdown `routes/instance.ts#buildProviderHealth`
+ * reports agreeing with the whole-Provider pair above for the Mail Facet.
  */
 export async function recordProviderRefreshOutcome(
   db: Db,
-  provider: Provider,
+  provider: RegisteredProvider,
   error: string | null,
 ): Promise<void> {
   await db
     .update(providerRegistrations)
     .set({ lastRefreshAt: new Date(), lastRefreshError: error, updatedAt: new Date() })
     .where(eq(providerRegistrations.provider, provider));
+  await recordFacetRefreshOutcome(db, provider, "mail", { error });
 }
 
 /**
- * Every Mail Account whose `oauth` credential names this Provider
- * (`mail-accounts/credential-crypto.ts`'s tagged union) — there is no
- * `mail_accounts.provider` column, so this reads the value straight out of
- * the sealed-alongside `credential` jsonb rather than duplicating it onto a
- * new column. Used both by the delete-preview count and by the delete
- * transition's own target set (ADR-0021).
+ * Every Connected Account at this Provider (#199, ADR-0022: the credential
+ * and its Provider moved off `mail_accounts` onto `connected_accounts`) —
+ * used both by the delete-preview count and by the delete transition's own
+ * target set (ADR-0021). Counts Connected Accounts rather than Mail
+ * Accounts directly; today the two are the same number (Mail is the only
+ * Facet), which is exactly what makes `listMailAccountsForProvider` below
+ * still answer "how many Mail Accounts will stop syncing" correctly.
  */
-function forProvider(provider: Provider) {
-  return sql`${mailAccounts.credential}->>'provider' = ${provider}`;
-}
-
-export async function countMailAccountsForProvider(db: Db, provider: Provider): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(mailAccounts).where(forProvider(provider));
-  return row?.value ?? 0;
-}
-
-export async function countNeedsReauthMailAccountsForProvider(
+export async function countMailAccountsForProvider(
   db: Db,
-  provider: Provider,
+  provider: RegisteredProvider,
 ): Promise<number> {
   const [row] = await db
     .select({ value: count() })
-    .from(mailAccounts)
-    .where(and(forProvider(provider), eq(mailAccounts.status, "needs_reauth")));
+    .from(connectedAccounts)
+    .where(eq(connectedAccounts.provider, provider));
   return row?.value ?? 0;
-}
-
-export async function listMailAccountsForProvider(
-  db: Db,
-  provider: Provider,
-): Promise<MailAccountRow[]> {
-  return db.select().from(mailAccounts).where(forProvider(provider));
 }

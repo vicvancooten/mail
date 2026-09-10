@@ -2,6 +2,7 @@ import type { User } from "@mail/shared";
 import { type RouterHistory, RouterProvider } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { createAppRouter } from "../router/routes.js";
+import { useSeedHomeTimeZone } from "../settings/use-seed-home-time-zone.js";
 import { useAuth } from "./AuthContext.js";
 
 /**
@@ -33,6 +34,9 @@ export function AppShell({ user, history }: { user: User; history?: RouterHistor
   useEffect(() => {
     router.update({ context: { user, onLogout: logout } });
   }, [router, user, logout]);
+  // Home Time Zone's seeding effect (#189): one shot per authenticated
+  // session, independent of which route is mounted underneath.
+  useSeedHomeTimeZone();
 
   return <RouterProvider router={router} />;
 }

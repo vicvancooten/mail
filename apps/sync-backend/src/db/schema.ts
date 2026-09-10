@@ -1,4 +1,4 @@
-import type { AttachmentMeta, ComposeDocument, Recipient } from "@mail/shared";
+import type { AttachmentMeta, ComposeDocument, NoteDocument, Recipient } from "@mail/shared";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -14,7 +14,10 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { MailAccountCredential, SealedSecret } from "../mail-accounts/credential-crypto.js";
+import type {
+  ConnectedAccountCredential,
+  SealedSecret,
+} from "../connected-accounts/credential-crypto.js";
 
 /**
  * Postgres `bytea` (ADR-0012's Blob Store): drizzle-orm has no first-class
@@ -84,6 +87,15 @@ export const users = pgTable("users", {
   autoAdvanceDirection: text("auto_advance_direction", { enum: ["older", "newer"] })
     .notNull()
     .default("older"),
+  /**
+   * Home Time Zone (#189, poc-spec.md §Preferences): the rest of `Preference`
+   * again, same posture as `autoAdvanceEnabled` above — one row per User, no
+   * separate table. `""` is "not seeded yet" (`@mail/shared`'s
+   * `HOME_TIME_ZONE_UNSET`), not a default zone: the signing-in device seeds
+   * its own IANA zone through the ordinary Optimistic Action queue rather
+   * than this column ever guessing one from the server's clock.
+   */
+  homeTimeZone: text("home_time_zone").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   // The delta sync API's (#37, #54) cursor pair for the `Preference`
@@ -217,15 +229,125 @@ export const webauthnChallenges = pgTable("webauthn_challenges", {
 });
 
 /**
+ * A **Connected Account** (#199, ADR-0022, CONTEXT.md): one identity at one
+ * Provider, owned by one User, holding exactly one credential — the row the
+ * credential moved up to, out of `mail_accounts`. `provider` is the
+ * glossary's four values (`@mail/shared`'s `Provider`); `identity` is the
+ * signed-in address (Google/Microsoft) or the entered username (Other IMAP,
+ * CalDAV/CardDAV) that makes this row unique per User and Provider.
+ * `credential` is the AEAD-sealed tagged union
+ * (`connected-accounts/credential-crypto.ts`), `jsonb` for the same reason it
+ * always was on `mail_accounts` — a new `oauth` shape needs no migration of
+ * existing `password` rows. `status` is the account-level half of Needs
+ * Reauth (ADR-0022: "on the Connected Account when the credential is
+ * rejected or the Grant withdrawn (every Facet stops)") — the Facet-level
+ * half lives on `connected_account_facets` below.
+ *
+ * `serverAddress`/`davUsername` exist for CalDAV/CardDAV only (discovery
+ * input, #203) — null for every other Provider, which enters nothing here
+ * because Google/Microsoft's identity comes back from the Provider itself
+ * and Other IMAP's own host/port live on its one Mail Facet
+ * (`mail_accounts`), not here.
+ */
+export const connectedAccounts = pgTable(
+  "connected_accounts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", {
+      enum: ["google", "microsoft", "other_imap", "caldav_carddav"],
+    }).notNull(),
+    identity: text("identity").notNull(),
+    credential: jsonb("credential").$type<ConnectedAccountCredential>().notNull(),
+    status: text("status", { enum: ["active", "needs_reauth"] })
+      .notNull()
+      .default("active"),
+    /** CalDAV/CardDAV only (#203): the server or email address discovery started from. Null otherwise. */
+    serverAddress: text("server_address"),
+    /** CalDAV/CardDAV only (#203): the login entered alongside the app password. Null otherwise. */
+    davUsername: text("dav_username"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // #200 (ADR-0023): `ConnectedAccount` joins the User-scoped collection
+    // registry, whole-replicated. Same stamping as `mailAccounts.syncRev`
+    // above — one `bump_sync_rev` trigger, the shared `sync_rev_seq`. A
+    // Facet's own status flip has no `syncRev` of its own to bump (Facets
+    // ride this collection's payload, not a collection of their own); its
+    // own migration-level trigger bumps its parent row's `syncRev` instead
+    // (`db/migrations/0042_*.sql`).
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("connected_accounts_user_provider_identity_key").on(
+      table.userId,
+      table.provider,
+      table.identity,
+    ),
+    index("connected_accounts_user_id_idx").on(table.userId),
+    index("connected_accounts_sync_rev_idx").on(table.userId, table.syncRev),
+  ],
+);
+export type ConnectedAccountRow = typeof connectedAccounts.$inferSelect;
+
+/**
+ * A **Facet** (#199, ADR-0022, CONTEXT.md): one thing (Mail, Calendar,
+ * Contacts) a Connected Account is turned on for, and the single register of
+ * which Facets an account has — Mail included, so the Mail Account it
+ * belongs to (`mail_accounts.connected_account_id`) always names exactly one
+ * row here of `kind: "mail"`. `status` is Needs Reauth's Facet-level half
+ * (ADR-0022: "on a single Facet when only its consent is refused ... that
+ * Facet stops, the others continue"). `scopesLastGrantedAt` is when this
+ * Facet's own consent was last (re-)granted — null until a Facet actually
+ * completes a consent round, which for the Mail Facet created by this
+ * ticket's boot-time upgrade is never (the existing Grant predates Facets).
+ *
+ * The `dav*` columns are CalDAV/CardDAV's own per-Facet discovery (#203) —
+ * discovery runs separately per Facet because iCloud serves each from a
+ * different host (ADR-0022) — and stay null for every other Provider and
+ * for Mail everywhere.
+ */
+export const connectedAccountFacets = pgTable(
+  "connected_account_facets",
+  {
+    id: text("id").primaryKey(),
+    connectedAccountId: text("connected_account_id")
+      .notNull()
+      .references(() => connectedAccounts.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["mail", "calendar", "contacts"] }).notNull(),
+    status: text("status", { enum: ["active", "needs_reauth"] })
+      .notNull()
+      .default("active"),
+    scopesLastGrantedAt: timestamp("scopes_last_granted_at", { withTimezone: true }),
+    /** CalDAV/CardDAV only (#203): the discovered principal URL. Null otherwise. */
+    davPrincipalUrl: text("dav_principal_url"),
+    /** CalDAV/CardDAV only (#203): the discovered calendar/address-book home-set URL. Null otherwise. */
+    davHomeSetUrl: text("dav_home_set_url"),
+    /** CalDAV/CardDAV only (#203): whether the server speaks RFC 6638 scheduling. Null otherwise. */
+    davSupportsScheduling: boolean("dav_supports_scheduling"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("connected_account_facets_account_kind_key").on(
+      table.connectedAccountId,
+      table.kind,
+    ),
+  ],
+);
+export type ConnectedAccountFacetRow = typeof connectedAccountFacets.$inferSelect;
+
+/**
  * A connection to an external mail server, owned by exactly one User
  * (CONTEXT.md, ADR-0004) — no join table, no sharing. `imap*`/`smtp*`
  * columns are the provider-agnostic host/port/TLS shape both autodiscover
- * and manual entry produce (docs/research/0004 §6); `credential` is the
- * AEAD-sealed tagged union from ADR-0003, `jsonb` so a future `oauth`
- * variant needs no migration of the existing `password` rows, only a new
- * shape for new ones. `status` is the Needs Reauth state machine
- * (CONTEXT.md): a rejected credential parks a row in `needs_reauth` until
- * `src/mail-accounts/store.ts`'s reauth path clears it back to `active`.
+ * and manual entry produce (docs/research/0004 §6). The credential and the
+ * Needs Reauth status moved up to `connected_accounts`/
+ * `connected_account_facets` in #199 (ADR-0022) — this row is now the Mail
+ * Facet, named by `connectedAccountId`, and carries everything about mail
+ * syncing that isn't the credential itself.
  */
 export const mailAccounts = pgTable(
   "mail_accounts",
@@ -234,6 +356,11 @@ export const mailAccounts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** The parent Connected Account (#199, ADR-0022) — always exactly one Mail Facet per Connected Account. */
+    connectedAccountId: text("connected_account_id")
+      .notNull()
+      .unique()
+      .references(() => connectedAccounts.id, { onDelete: "cascade" }),
     emailAddress: text("email_address").notNull(),
     imapHost: text("imap_host").notNull(),
     imapPort: integer("imap_port").notNull(),
@@ -244,10 +371,6 @@ export const mailAccounts = pgTable(
     // The IMAP/SMTP login, kept separate from `emailAddress`: not every
     // provider's login is the mailbox address itself.
     username: text("username").notNull(),
-    credential: jsonb("credential").$type<MailAccountCredential>().notNull(),
-    status: text("status", { enum: ["active", "needs_reauth"] })
-      .notNull()
-      .default("active"),
     // Whether this Mail Account's server speaks Gmail's IMAP extension
     // (`X-GM-EXT-1`), detected by `mail-accounts/server-kind.ts` — ADR-0020:
     // "selection by server capability, not credential kind", so an
@@ -468,7 +591,9 @@ export const threads = pgTable(
     // a Star is a Protocol Feature mirroring IMAP's own `\Flagged`, a Pin
     // has zero IMAP-side trace (ADR-0006).
     pinned: boolean("pinned").notNull().default(false),
-    // Labels currently applied to this Thread (#43), as `labels.id`s —
+    // Labels currently applied to this Thread (#43), as `labels.id`s
+    // (User-scoped since #186 — the owning User's one Label set, not this
+    // account's) —
     // denormalized here the same way `inInbox`/`pinned` are, so the Client's
     // one Thread projection carries membership without a join. `sync/
     // mutations.ts` is the only writer; `labels` below is the id→name
@@ -596,20 +721,30 @@ export const threadMessageIds = pgTable(
 /**
  * A Label (#43, CONTEXT.md, ADR-0006): a User-defined tag, App Feature, no
  * management UI/colors/nesting at PoC scope. `id` is **deterministic**
- * (`labelId` in `packages/shared/src/labels.ts`, `(mailAccountId, name)`)
- * rather than minted here and handed back — `sync/mutations.ts`'s
- * `applyLabel` computes the same id a Client already predicted offline, so
- * creating a brand-new Label by applying it is one Optimistic Action, not
- * two. `threads.labelIds` is the membership side; this table is only the
- * id→name definition, synced as its own ADR-0011 collection.
+ * (`labelId` in `packages/shared/src/labels.ts`, `(userId, name)`) rather
+ * than minted here and handed back — `sync/mutations.ts`'s `applyLabel`
+ * computes the same id a Client already predicted offline, so creating a
+ * brand-new Label by applying it is one Optimistic Action, not two.
+ * `threads.labelIds` is the membership side; this table is only the id→name
+ * definition, synced as its own ADR-0011 collection.
+ *
+ * **Owned by the User, not a Mail Account** (#186, ADR-0023): one set of
+ * Labels spans every Mail Account a User owns, so a `threads.labelIds` entry
+ * on any of those accounts names a row here. That is the precondition for a
+ * Note carrying the same Labels mail does — a Note has no Mail Account to be
+ * scoped to. `gmailLabels` below deliberately did *not* move with it: a
+ * Gmail Label really is one Gmail account's own read-only tag, never a
+ * Wicket Label. Migration 0037 merged each User's pre-existing same-named
+ * per-account Labels (case-insensitively) into one row and remapped every
+ * `threads.labelIds` entry onto the survivor.
  */
 export const labels = pgTable(
   "labels",
   {
     id: text("id").primaryKey(),
-    mailAccountId: text("mail_account_id")
+    userId: text("user_id")
       .notNull()
-      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+      .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -619,11 +754,75 @@ export const labels = pgTable(
     syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
   },
   (table) => [
-    uniqueIndex("labels_account_name_key").on(table.mailAccountId, table.name),
-    index("labels_sync_rev_idx").on(table.mailAccountId, table.syncRev),
+    uniqueIndex("labels_user_name_key").on(table.userId, table.name),
+    index("labels_sync_rev_idx").on(table.userId, table.syncRev),
   ],
 );
 export type LabelRow = typeof labels.$inferSelect;
+
+/**
+ * A Note (#192, ADR-0023): the first **new** caller of the collection
+ * registry, and the first collection to carry a document body rather than
+ * only intents. **User-scoped**, the same as `labels` above — one Note has
+ * no Mail Account to belong to, which is also the precondition ADR-0023
+ * names for a Note carrying the same `labelIds` mail does. Replicates
+ * *whole*, no window (unlike `threads`' paging or a future Calendar's time
+ * range) — a User has at most a handful of Notes at PoC scope.
+ *
+ * `id` is **not** deterministic like a `labels` row's: it is a
+ * Client-minted ULID (`store/notes.ts#newNoteId`), the same "offline-derivable
+ * address" reasoning `compositions.id` already uses, so a brand-new Note has
+ * its `/notes/:noteId` address the instant it is created, before any server
+ * round trip. `sync/mutations.ts`'s `createNote`/`deleteNote` intents are
+ * what actually create and destroy this row; `sync/note-store.ts`'s
+ * `noteSaves` channel only ever updates `document` on an existing one — see
+ * that module's own doc comment for why it upserts anyway rather than
+ * rejecting a save that raced a not-yet-applied `createNote`.
+ *
+ * `document` is BlockNote's own block document (#191, ADR-0024,
+ * `packages/shared/src/notes.ts#noteDocumentSchema`) — deliberately loose,
+ * the same reasoning `compositions.document` already has. There is no
+ * `version`: a Note's body write is never rejected (ADR-0023's "takes the
+ * latest by receipt"), so there is nothing here for a Client to have read
+ * stale against.
+ */
+export const notes = pgTable(
+  "notes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    document: jsonb("document").$type<NoteDocument>().notNull(),
+    /** Membership side of a Note's Labels (#192) — `threads.labelIds`'s own shape, naming rows in this same User's one `labels` set. */
+    labelIds: text("label_ids").array().notNull().default([]),
+    /** The grid's Pinned/Others split (#193) — a structural intent (`pinNote`/`unpinNote`), same shape as `threads.pinned` above but reached through the User-scoped Optimistic Action queue rather than a per-Mail-Account one. */
+    pinned: boolean("pinned").notNull().default(false),
+    /**
+     * Soft delete and Recently Deleted (#194) — set by `trashNote`, cleared
+     * by its real inverse `restoreNote` (`sync/mutations.ts`, ADR-0019). Null
+     * for an ordinary Note. The row keeps syncing as an ordinary `updated`
+     * row while this is set — never a `sync/tombstones.ts` entry until
+     * `sync/note-purge.ts` physically deletes it `NOTE_TRASH_RETENTION_DAYS`
+     * after this is stamped.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `labels`/`threads` — see their
+    // comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("notes_sync_rev_idx").on(table.userId, table.syncRev),
+    // `sync/note-purge.ts`'s own sweep query: every row past its retention
+    // window, account-wide — a partial index (`deletedAt IS NOT NULL`) since
+    // most Notes never carry one.
+    index("notes_deleted_at_idx").on(table.deletedAt).where(sql`${table.deletedAt} is not null`),
+  ],
+);
+export type NoteRow = typeof notes.$inferSelect;
 
 /**
  * A Gmail Label (#126, ADR-0020, CONTEXT.md): Gmail's own tag on a message,
@@ -1388,8 +1587,8 @@ export type AttachmentBlobRow = typeof attachmentBlobs.$inferSelect;
  * stored one can no longer be unsealed, which is the one case where it is
  * already unusable and re-minting is the repair).
  *
- * `privateKey` is sealed exactly like a Mail Account's password (ADR-0003,
- * `mail-accounts/credential-crypto.ts`), with this row's own id as the
+ * `privateKey` is sealed exactly like a Connected Account's password
+ * (ADR-0003, `connected-accounts/credential-crypto.ts`), with this row's own id as the
  * associated data: a stolen database alone cannot push to anyone's devices,
  * which is the same bar the rest of this schema holds.
  */
@@ -1452,9 +1651,18 @@ export const notifierOutbox = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    mailAccountId: text("mail_account_id")
-      .notNull()
-      .references(() => mailAccounts.id, { onDelete: "cascade" }),
+    // Nullable since #204: a `needs_reauth` notification for a Calendar or
+    // Contacts Facet has no `mail_accounts` row to name — every other kind
+    // is still Mail-only and always sets this.
+    mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
+      onDelete: "cascade",
+    }),
+    /** `needs_reauth` only (#204): which Connected Account parked, Mail Facet included — the deep link's own target. Null for every other kind. */
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
+    /** `needs_reauth` only (#204): which Facet parked. Null for every other kind. */
+    facet: text("facet", { enum: ["mail", "calendar", "contacts"] }),
     kind: text("kind", {
       enum: ["new_mail", "failed_send", "needs_reauth", "gatekeeper_digest"],
     }).notNull(),
@@ -1520,8 +1728,64 @@ export const providerRegistrations = pgTable("provider_registrations", {
   // that's a single Mail Account's Needs Reauth, not a Provider-wide fact.
   lastRefreshAt: timestamp("last_refresh_at", { withTimezone: true }),
   lastRefreshError: text("last_refresh_error"),
+  // #202, ADR-0022's "Owner-only failures never show as Needs Reauth": the
+  // Owner's own unvalidated declaration that Google's Calendar API/People
+  // API, or Microsoft Graph's calendar/contacts permissions, are enabled on
+  // their Cloud project/app registration — this instance has no way to
+  // check that itself. Gates whether a Facet's "+" ever offers a consent
+  // flow at all (`routes/oauth-signin.ts`'s `/start`), never how it behaves
+  // once started.
+  calendarApiEnabled: boolean("calendar_api_enabled").notNull().default(false),
+  contactsApiEnabled: boolean("contacts_api_enabled").notNull().default(false),
 });
 export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
+
+/**
+ * Provider Health's per-Facet reading (#205, ADR-0022's "Provider Health
+ * gains a per-Facet reading (ever granted, currently honoured, API
+ * enabled)") — one row per (Provider, Facet) that ever mattered, keyed
+ * `${provider}-${facet}` the same way `connected_account_facets` keys a
+ * Facet row to its account. Distinct from `providerRegistrations`'
+ * whole-Provider `lastRefreshAt`/`lastRefreshError` above: those stay the
+ * Mail Facet's own refresh loop's fact (#118, unchanged by this ticket),
+ * this is the per-Facet breakdown `routes/instance.ts#buildProviderHealth`
+ * now reports instead of a flat Mail-only pair.
+ *
+ * `firstGrantedAt` is stamped once, the first time this Facet is ever
+ * granted at this Provider — `routes/oauth-signin.ts`'s `signed_in` and
+ * `facet_added` outcomes — and never overwritten again, so it answers "has
+ * a Grant ever been obtained through this Facet" for good.
+ * `lastRefreshAt`/`lastRefreshError` mirror a refresh attempt the same way
+ * the whole-Provider pair does; today only the Mail Facet's refresh loop
+ * writes them (`mail-accounts/grant-refresh.ts`), so Calendar/Contacts stay
+ * null until a sync engine for either exists to attempt one.
+ * `apiNotEnabled` is the *runtime-detected* twin of
+ * `providerRegistrations.calendarApiEnabled`/`contactsApiEnabled` above —
+ * those are the Owner's own unvalidated declaration gating whether a
+ * consent flow is even offered; this is "a refresh actually came back
+ * 403-not-enabled", cleared the moment the next refresh succeeds, same
+ * convention as `lastRefreshError`. Nothing sets it yet — no Facet's sync
+ * loop calls the Provider's Calendar/People API today — so it stays `false`
+ * until one exists to report a 403 through it.
+ */
+export const providerFacetHealth = pgTable(
+  "provider_facet_health",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider", { enum: ["google", "microsoft"] }).notNull(),
+    facet: text("facet", { enum: ["mail", "calendar", "contacts"] }).notNull(),
+    firstGrantedAt: timestamp("first_granted_at", { withTimezone: true }),
+    lastRefreshAt: timestamp("last_refresh_at", { withTimezone: true }),
+    lastRefreshError: text("last_refresh_error"),
+    apiNotEnabled: boolean("api_not_enabled").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("provider_facet_health_provider_facet_key").on(table.provider, table.facet),
+  ],
+);
+export type ProviderFacetHealthRow = typeof providerFacetHealth.$inferSelect;
 
 /**
  * One in-flight "Sign in with Google" (#116, ADR-0021): the state that has
@@ -1538,12 +1802,16 @@ export type ProviderRegistrationRow = typeof providerRegistrations.$inferSelect;
  * useless without the matching authorization code, lives for minutes, and is
  * the same tradeoff `totp_credentials.secret` already states plainly.
  *
- * `purpose` is `add_mail_account` or `reauth` (#119: "sign in again", never
- * a password form — and the same door a password account uses to switch to
- * a Grant). `mailAccountId` is set only for `reauth`: the account whose
- * credential is replaced when the identity that comes back matches its own
- * address, `ON DELETE CASCADE` so a deleted Mail Account can't leave a
- * dangling attempt behind.
+ * `purpose` is `add_mail_account`, `reauth` (#119: "sign in again", never a
+ * password form — and the same door a password account uses to switch to a
+ * Grant), or `add_facet` (#202: turning on Calendar or Contacts for an
+ * already-connected identity by incremental consent). `mailAccountId` is
+ * set only for `reauth`: the account whose credential is replaced when the
+ * identity that comes back matches its own address, `ON DELETE CASCADE` so
+ * a deleted Mail Account can't leave a dangling attempt behind.
+ * `connectedAccountId`/`facet` are set only for `add_facet`, same cascade
+ * reasoning — a Connected Account deleted mid-flight leaves nothing to
+ * attach the Grant to either way.
  */
 export const oauthSignInAttempts = pgTable(
   "oauth_sign_in_attempts",
@@ -1554,10 +1822,14 @@ export const oauthSignInAttempts = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider", { enum: ["google", "microsoft"] }).notNull(),
     codeVerifier: text("code_verifier").notNull(),
-    purpose: text("purpose", { enum: ["add_mail_account", "reauth"] }).notNull(),
+    purpose: text("purpose", { enum: ["add_mail_account", "reauth", "add_facet"] }).notNull(),
     mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
       onDelete: "cascade",
     }),
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
+    facet: text("facet", { enum: ["calendar", "contacts"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },

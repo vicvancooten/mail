@@ -1,4 +1,5 @@
-import { type PushPayload, pushPayloadSchema } from "@mail/shared";
+import { type ConnectedAccountFacetKind, type PushPayload, pushPayloadSchema } from "@mail/shared";
+import { FACET_LABEL } from "../connected-accounts/provider-table.js";
 
 /**
  * The pure decisions the service worker's `push`/`notificationclick`
@@ -52,10 +53,17 @@ export function buildNotificationContent(payload: PushPayload): NotificationCont
         tag: `mail-failed-send-${payload.compositionId}`,
       };
     case "needs_reauth":
+      // #204: names the Facet that parked, Mail included — a Calendar or
+      // Contacts Facet needing reconnection reads differently from "needs
+      // your password again", which is only ever literally true for Mail's
+      // own IMAP/SMTP credential or a CalDAV/CardDAV account's shared one.
       return {
         title: "Reconnect your account",
-        body: `${payload.emailAddress} needs your password again.`,
-        tag: `mail-needs-reauth-${payload.mailAccountId}`,
+        body:
+          payload.facet === "mail"
+            ? `${payload.emailAddress} needs your password again.`
+            : `${FACET_LABEL[payload.facet]} for ${payload.emailAddress} needs reconnecting.`,
+        tag: `mail-needs-reauth-${payload.connectedAccountId}-${payload.facet}`,
       };
     case "gatekeeper_digest":
       // "3 held: A, B, C" (poc-scope.md), with the tail elided once the
@@ -103,8 +111,9 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
  * - `new_mail` names the Thread to select.
  * - `failed_send` names the Composition to reopen — the restored Draft in
  *   the composer, per ADR-0015.
- * - `needs_reauth` names the Mail Account whose settings/reauth form to
- *   jump to.
+ * - `needs_reauth` names the Facet cell whose settings/reauth form to jump
+ *   to (#204: `connectedAccountId`+`facet`, not `mailAccountId` — a
+ *   Calendar or Contacts Facet has no Mail Account to name).
  * - `gatekeeper_digest` deep-links to the Screener (ADR-0015: "a coalesced
  *   digest carries no actions — it deep-links to the Screener, since the
  *   sender is ambiguous"), scoped to the Mail Account it held mail for.
@@ -116,7 +125,7 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
 export type NotificationClickTarget =
   | { kind: "thread"; mailAccountId: string; threadId: string }
   | { kind: "failed-send"; mailAccountId: string; compositionId: string }
-  | { kind: "needs-reauth"; mailAccountId: string }
+  | { kind: "needs-reauth"; connectedAccountId: string; facet: ConnectedAccountFacetKind }
   | { kind: "screener"; mailAccountId: string }
   | { kind: "focus-only" };
 
@@ -131,7 +140,11 @@ export function notificationClickTarget(payload: PushPayload): NotificationClick
         compositionId: payload.compositionId,
       };
     case "needs_reauth":
-      return { kind: "needs-reauth", mailAccountId: payload.mailAccountId };
+      return {
+        kind: "needs-reauth",
+        connectedAccountId: payload.connectedAccountId,
+        facet: payload.facet,
+      };
     case "gatekeeper_digest":
       return { kind: "screener", mailAccountId: payload.mailAccountId };
     default:
@@ -161,7 +174,10 @@ export function notificationTargetUrl(target: NotificationClickTarget): string {
     case "screener":
       return `/mail?folder=screener&account=${encodeURIComponent(target.mailAccountId)}`;
     case "needs-reauth":
-      return `/settings/mail-accounts?account=${encodeURIComponent(target.mailAccountId)}`;
+      // #204: `account`/`facet` — `connected-accounts/account-focus.ts`'s own
+      // query param names, read back by `ConnectedAccountsPage` once
+      // `/settings/mail-accounts`'s own redirect (`routes.tsx`) lands there.
+      return `/settings/mail-accounts?account=${encodeURIComponent(target.connectedAccountId)}&facet=${encodeURIComponent(target.facet)}`;
     case "failed-send":
     case "focus-only":
       return "/";

@@ -1,18 +1,22 @@
 import type {
   CollectionDelta,
   Composition,
+  ConnectedAccount,
+  Correspondent,
   GmailLabel,
   Label,
   MailAccount,
+  Note,
   Thread,
 } from "@mail/shared";
-import { EMPTY_COMPOSE_DOCUMENT } from "@mail/shared";
+import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
 
 /** Builders for the `POST /sync` wire shapes, so a test states only the field it is about. */
 
 export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}): MailAccount {
   return {
     id,
+    connectedAccountId: `${id}-connected`,
     emailAddress: `${id}@example.test`,
     imap: { host: "imap.example.test", port: 993, security: "tls" },
     smtp: { host: "smtp.example.test", port: 465, security: "tls" },
@@ -29,6 +33,29 @@ export function makeMailAccount(id: string, overrides: Partial<MailAccount> = {}
     // response could ever produce.
     remoteImages: "always",
     gatekeeper: { enabled: false, cutoff: null },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * A wire `ConnectedAccount` (#199, #200) — `makeMailAccount`'s own sibling.
+ * `id` defaults to `${id}-connected` to match `makeMailAccount`'s own
+ * default `connectedAccountId`, so `makeConnectedAccount(makeMailAccount("acct-1").connectedAccountId)`
+ * (or just `makeConnectedAccount("acct-1-connected")`) is the matching row a
+ * Connected Accounts table test seeds alongside it.
+ */
+export function makeConnectedAccount(
+  id: string,
+  overrides: Partial<ConnectedAccount> = {},
+): ConnectedAccount {
+  return {
+    id,
+    userId: "user-1",
+    provider: "google",
+    identity: `${id.replace(/-connected$/, "")}@example.test`,
+    status: "active",
+    facets: [{ kind: "mail", status: "active" }],
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -67,15 +94,27 @@ export function makeThread(
   };
 }
 
-export function makeLabel(
-  id: string,
-  mailAccountId: string,
-  overrides: Partial<Label> = {},
-): Label {
+/** A wire `Label` (#43) — User-scoped since #186, so the second argument is the owning User's id, not a Mail Account's. */
+export function makeLabel(id: string, userId: string, overrides: Partial<Label> = {}): Label {
   return {
     id,
-    mailAccountId,
+    userId,
     name: id,
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Note` (#192, ADR-0023) — User-scoped like `makeLabel`, whole-replicated with a body rather than only a name. */
+export function makeNote(id: string, userId: string, overrides: Partial<Note> = {}): Note {
+  return {
+    id,
+    userId,
+    document: EMPTY_NOTE_DOCUMENT,
+    labelIds: [],
+    pinned: false,
+    deletedAt: null,
+    createdAt: "2026-06-01T12:00:00.000Z",
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };
@@ -92,6 +131,26 @@ export function makeGmailLabel(
     mailAccountId,
     name: id,
     path: id,
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Correspondent` (#49, compose-spec §Recipient autocomplete). */
+export function makeCorrespondent(
+  id: string,
+  mailAccountId: string,
+  overrides: Partial<Correspondent> = {},
+): Correspondent {
+  return {
+    id,
+    mailAccountId,
+    address: `${id}@example.test`,
+    name: null,
+    sentCount: 0,
+    receivedCount: 0,
+    lastSeenAt: "2026-06-01T12:00:00.000Z",
+    score: 0,
     updatedAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };

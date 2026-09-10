@@ -1,20 +1,21 @@
-import type { ComposeSaveOutcome, MutationOutcome, SyncResponse } from "@mail/shared";
+import type {
+  CollectionDelta,
+  ComposeSaveOutcome,
+  MutationOutcome,
+  SyncResponse,
+} from "@mail/shared";
 import { syncRequestSchema, syncResponseSchema } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import { computeUnreadInboxCount } from "../notifier/badge.js";
 import {
-  syncCompositionCollection,
-  syncCorrespondentCollection,
-  syncGmailLabelCollection,
-  syncLabelCollection,
-  syncMailAccountCollection,
-  syncPreferenceCollection,
-  syncThreadCollection,
-} from "../sync/collection-sync.js";
+  mailAccountCollectionRegistry,
+  userCollectionRegistry,
+} from "../sync/collection-registry.js";
 import { flushComposeSaves } from "../sync/compose-store.js";
 import { flushMutations, flushUserMutations } from "../sync/mutations.js";
+import { flushNoteSaves } from "../sync/note-store.js";
 
 export interface SyncRoutesOptions {
   db: Db;
@@ -33,6 +34,12 @@ export interface SyncRoutesOptions {
  * trip's Thread delta already reflects what those mutations just changed,
  * with no second poll needed to see it confirmed.
  *
+ * The User-scoped collections are answered **after every Mail Account's
+ * queue has drained**, for the same reason one step out: a
+ * Mail-Account-scoped intent can change a User-scoped row (`applyLabel`
+ * creates a `Label`, #186; `setSignature` moves a `MailAccount`), so reading
+ * them first would answer with state this very request has since changed.
+ *
  * `composeSaves` are flushed **before** `mutations`, and that order is
  * load-bearing rather than incidental: a `sendComposition` intent (#46) sends
  * whatever content the Composition row holds at the moment it is applied, and
@@ -41,6 +48,13 @@ export interface SyncRoutesOptions {
  * was looking at" instead of "send the last thing that happened to have
  * reached the server". The two arrays otherwise touch disjoint tables, so
  * nothing else depends on which goes first.
+ *
+ * Which collections to answer, per scope, comes from `collection-registry.ts`
+ * (#184) rather than a hand-written branch per collection: `userSyncRequest`/
+ * `mailAccountSyncRequest` name a collection's requested token only when the
+ * Client actually asked for it, so this route reads that token generically
+ * off each registered descriptor's `name` and only ever calls `descriptor
+ * .sync` for the ones present.
  */
 export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions) {
   app.post("/sync", { preHandler: app.requireAuth }, async (request, reply) => {
@@ -52,6 +66,16 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     const { user, mailAccounts: requestedMailAccounts } = body.data;
 
     const userResult: SyncResponse["user"] = {};
+    // `noteSaves` (#192, ADR-0023) flush before `mutations`, the same
+    // relative order `composeSaves` keeps ahead of a Mail Account's own
+    // `mutations` below — see that comment further down for why the order is
+    // load-bearing there. It is not load-bearing here (no Note intent reads
+    // `document`), but keeping the two channels in the same relative
+    // position is one less thing to remember.
+    const noteSaves = user?.noteSaves ?? [];
+    const noteSaveResults = noteSaves.length > 0 ? await flushNoteSaves(db, userId, noteSaves) : [];
+    if (noteSaveResults.length > 0) userResult.noteSaves = noteSaveResults;
+
     // #54's User-scoped `Preference` mutations flush before its collection
     // delta is computed, same ordering reason as a Mail Account's own
     // `mutations`-before-`Thread` below: the very same round trip's delta
@@ -61,38 +85,14 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       userMutations.length > 0 ? await flushUserMutations(db, userId, userMutations) : [];
     if (userMutationResults.length > 0) userResult.mutations = userMutationResults;
 
-    if (user?.MailAccount !== undefined) {
-      const delta = await syncMailAccountCollection(db, userId, user.MailAccount);
-      if (delta) userResult.MailAccount = delta;
-    }
-    if (user?.Preference !== undefined) {
-      const delta = await syncPreferenceCollection(db, userId, user.Preference);
-      if (delta) userResult.Preference = delta;
-    }
-    // The app-icon badge (#53, ADR-0015): unconditional, never gated on
-    // "something changed" — see `userSyncResponseSchema`'s own doc comment
-    // for why the visibility-change "snap the badge true" round depends on
-    // that.
-    userResult.unreadInboxCount = await computeUnreadInboxCount(db, userId);
-
     const mailAccountsResult: SyncResponse["mailAccounts"] = {};
     for (const [mailAccountId, requested] of Object.entries(requestedMailAccounts ?? {})) {
-      const wantsThread = requested.Thread !== undefined;
-      const wantsLabel = requested.Label !== undefined;
-      const wantsGmailLabel = requested.GmailLabel !== undefined;
-      const wantsComposition = requested.Composition !== undefined;
-      const wantsCorrespondent = requested.Correspondent !== undefined;
+      const wantsAnyCollection = mailAccountCollectionRegistry.some(
+        (descriptor) => readRequestedToken(requested, descriptor.name) !== undefined,
+      );
       const queued = requested.mutations ?? [];
       const queuedComposeSaves = requested.composeSaves ?? [];
-      if (
-        !wantsThread &&
-        !wantsLabel &&
-        !wantsGmailLabel &&
-        !wantsComposition &&
-        !wantsCorrespondent &&
-        queued.length === 0 &&
-        queuedComposeSaves.length === 0
-      ) {
+      if (!wantsAnyCollection && queued.length === 0 && queuedComposeSaves.length === 0) {
         continue;
       }
 
@@ -143,51 +143,46 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       const mutationResults =
         queued.length > 0 ? await flushMutations(db, mailAccountId, queued) : [];
 
-      const threadDelta = wantsThread
-        ? await syncThreadCollection(
-            db,
-            mailAccountId,
-            account.threadsEpoch,
-            requested.Thread ?? null,
-          )
-        : null;
-
-      const labelDelta = wantsLabel
-        ? await syncLabelCollection(db, mailAccountId, requested.Label ?? null)
-        : null;
-
-      const gmailLabelDelta = wantsGmailLabel
-        ? await syncGmailLabelCollection(db, mailAccountId, requested.GmailLabel ?? null)
-        : null;
-
-      const compositionDelta = wantsComposition
-        ? await syncCompositionCollection(db, mailAccountId, requested.Composition ?? null)
-        : null;
-
-      const correspondentDelta = wantsCorrespondent
-        ? await syncCorrespondentCollection(db, mailAccountId, requested.Correspondent ?? null)
-        : null;
+      const accountResult: Record<string, unknown> = {};
+      for (const descriptor of mailAccountCollectionRegistry) {
+        const token = readRequestedToken(requested, descriptor.name);
+        if (token === undefined) continue;
+        const delta = await descriptor.sync(db, { mailAccountId, account }, token);
+        if (delta) setCollectionDelta(accountResult, descriptor.name, delta);
+      }
 
       if (
-        threadDelta ||
-        labelDelta ||
-        gmailLabelDelta ||
-        compositionDelta ||
-        correspondentDelta ||
+        Object.keys(accountResult).length > 0 ||
         mutationResults.length > 0 ||
         composeSaveResults.length > 0
       ) {
         mailAccountsResult[mailAccountId] = {
-          ...(threadDelta ? { Thread: threadDelta } : {}),
-          ...(labelDelta ? { Label: labelDelta } : {}),
-          ...(gmailLabelDelta ? { GmailLabel: gmailLabelDelta } : {}),
-          ...(compositionDelta ? { Composition: compositionDelta } : {}),
-          ...(correspondentDelta ? { Correspondent: correspondentDelta } : {}),
+          ...accountResult,
           ...(mutationResults.length > 0 ? { mutations: mutationResults } : {}),
           ...(composeSaveResults.length > 0 ? { composeSaves: composeSaveResults } : {}),
         };
       }
     }
+
+    // The User-scoped collection deltas come **last**, after every Mail
+    // Account's queue has drained — the same "a mutation-flush response
+    // carries deltas too" ordering each account gets for its own `Thread`,
+    // extended across scopes because a Mail-Account-scoped mutation can
+    // change a User-scoped row: `applyLabel` (#186) creates a `Label`, and
+    // `setSignature`/`setNotificationsEnabled` move a `MailAccount`. Reading
+    // these before the flush would answer with the row as it was a moment
+    // before the intent this very request applied.
+    for (const descriptor of userCollectionRegistry) {
+      const token = readRequestedToken(user ?? {}, descriptor.name);
+      if (token === undefined) continue;
+      const delta = await descriptor.sync(db, { userId }, token);
+      if (delta) setCollectionDelta(userResult, descriptor.name, delta);
+    }
+    // The app-icon badge (#53, ADR-0015): unconditional, never gated on
+    // "something changed" — see `userSyncResponseSchema`'s own doc comment
+    // for why the visibility-change "snap the badge true" round depends on
+    // that.
+    userResult.unreadInboxCount = await computeUnreadInboxCount(db, userId);
 
     return syncResponseSchema.parse({ user: userResult, mailAccounts: mailAccountsResult });
   });
@@ -198,4 +193,29 @@ function requireUser(request: { user: { id: string } | null }): { id: string } {
     throw new Error("requireAuth did not populate request.user");
   }
   return request.user;
+}
+
+/**
+ * Reads one registered collection's requested token generically off a
+ * parsed `user`/`mailAccounts[id]` request object, keyed by the descriptor's
+ * own `name` (#184) — the schema in `@mail/shared` already guarantees this
+ * is `string | null | undefined` for every field a descriptor names, so this
+ * is a plain lookup, not a cast: `undefined` (absent from `requested`, or of
+ * some other shape entirely) means "not requested".
+ */
+function readRequestedToken(
+  requested: Record<string, unknown>,
+  name: string,
+): string | null | undefined {
+  const value = requested[name];
+  return value === null || typeof value === "string" ? value : undefined;
+}
+
+/** Assigns a collection's computed delta into a response bucket by its registered `name` — the loop this replaces used to write `result.Thread = ...`/`result.Label = ...` by hand, one line per collection. */
+function setCollectionDelta(
+  result: Record<string, unknown>,
+  name: string,
+  delta: CollectionDelta<unknown>,
+): void {
+  result[name] = delta;
 }

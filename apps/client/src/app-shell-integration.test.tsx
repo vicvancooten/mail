@@ -1,4 +1,4 @@
-import type { MailAccount } from "@mail/shared";
+import { labelId, type MailAccount } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
@@ -8,13 +8,23 @@ import { resetActiveMailHost } from "./mail/actions/active-mail-host.js";
 import { resetSurfaceHandles } from "./mail/actions/surface-handles.js";
 import { writeAccountScope, writeViewMode } from "./mail/device-preferences.js";
 import { resetScrollOffsetsForTest } from "./mail/scroll-restore.js";
+import { resetUndoToastsForTest } from "./mail/undo-toast.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
-import { applyMailAccountDelta, applyThreadDelta } from "./store/server-writes.js";
+import {
+  applyConnectedAccountDelta,
+  applyLabelDelta,
+  applyMailAccountDelta,
+  applyNoteDelta,
+  applyThreadDelta,
+} from "./store/server-writes.js";
 import { resetSyncStatus } from "./sync/sync-loop.js";
 import {
   delta,
+  makeConnectedAccount,
+  makeLabel,
   makeMailAccount,
+  makeNote,
   makeThread,
   minutesAfterEpoch,
 } from "./test-support/mail-fixtures.js";
@@ -123,6 +133,7 @@ afterEach(async () => {
   cleanup();
   vi.unstubAllGlobals();
   localCache().close();
+  resetUndoToastsForTest();
   for (const nm of names.splice(0)) await Dexie.delete(nm);
 });
 
@@ -131,6 +142,29 @@ async function seedOneThread(): Promise<void> {
   await applyThreadDelta(
     "acct-1",
     delta({ created: [makeThread("t1", "acct-1", { subject: "Routed thread" })] }),
+    { replace: false },
+  );
+}
+
+/** #193's own User (`authResponses`' stubbed `/auth/session` above) — Notes and Label are User-scoped, so every fixture below is owned by it. */
+const NOTES_USER = "u1";
+
+async function seedNotesAndLabels(
+  notes: Parameters<typeof makeNote>[2][],
+  labelNames: string[] = [],
+): Promise<void> {
+  await applyLabelDelta(
+    delta({
+      created: labelNames.map((name) => makeLabel(labelId(NOTES_USER, name), NOTES_USER, { name })),
+    }),
+    { replace: false },
+  );
+  await applyNoteDelta(
+    delta({
+      created: notes.map((overrides, index) =>
+        makeNote(`note-${index + 1}`, NOTES_USER, overrides),
+      ),
+    }),
     { replace: false },
   );
 }
@@ -315,7 +349,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
-  it("the App Switcher names all four Apps as reachable links, the reserved three marked SOON (#72, #86)", async () => {
+  it("the App Switcher names all five Apps as reachable links, Contacts/Calendar/Tasks marked SOON (#72, #86, #187, #193)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -333,6 +367,8 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(tab).toBeDefined();
       expect(tab.textContent).toContain("SOON");
     }
+    // Notes is real behind this since #193 — no SOON badge.
+    expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
 
     await user.click(screen.getByRole("link", { name: /Contacts/ }));
 
@@ -529,16 +565,33 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.search).toContain("folder=screener");
   });
 
-  it("a cold-start Needs Reauth deep-link (#151) lands on Mail Accounts settings and scrolls to that row", async () => {
+  it("a cold-start Needs Reauth deep-link (#151, widened to Connected Accounts by #201/#204) lands on Connected Accounts and opens that Facet's Popover", async () => {
     const account = makeMailAccount("acct-1", { status: "needs_reauth" });
     await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected", {
+            facets: [{ kind: "mail", status: "needs_reauth" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch([account]);
 
-    history.replaceState(null, "", "/settings/mail-accounts?account=acct-1");
+    // The pre-#201 address still arrives from old links — its own redirect
+    // route (`router/routes.ts#settingsMailAccountsRoute`) carries `?account=`
+    // across unchanged, so a cold start there lands the same place a fresh
+    // link to `/settings/connected-accounts` would.
+    history.replaceState(null, "", "/settings/mail-accounts?account=acct-1-connected&facet=mail");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Mail Accounts", level: 2 })).toBeDefined();
-    await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
+    expect(
+      await screen.findByRole("heading", { name: "Connected Accounts", level: 2 }),
+    ).toBeDefined();
+    expect(location.pathname).toBe("/settings/connected-accounts");
+    await waitFor(() => expect(screen.getByLabelText("Username")).toBeDefined());
   });
 
   it("a Gatekeeper digest notification click, with a window open, opens the Screener narrowed to that Mail Account (#151)", async () => {
@@ -748,25 +801,44 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(history.length).toBe(historyLengthAtStream);
   });
 
-  it("a needs-reauth notification click navigates to Settings and scrolls to that Mail Account's row (#53)", async () => {
+  it("a needs-reauth notification click navigates to Connected Accounts and opens that Facet's Popover (#53, #201, #204)", async () => {
     const account = makeMailAccount("acct-1", { status: "needs_reauth" });
     await applyMailAccountDelta(delta({ created: [account] }), { replace: false });
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected", {
+            facets: [{ kind: "mail", status: "needs_reauth" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch([account]);
 
     render(<App />);
     await screen.findByLabelText("Switch app");
-    expect(screen.queryByRole("heading", { name: "Mail Accounts", level: 2 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Connected Accounts", level: 2 })).toBeNull();
 
     act(() => {
-      publishNotificationTarget({ kind: "needs-reauth", mailAccountId: "acct-1" });
+      publishNotificationTarget({
+        kind: "needs-reauth",
+        connectedAccountId: "acct-1-connected",
+        facet: "mail",
+      });
     });
 
-    // Lands on `/settings/mail-accounts` directly (#99) — the one sub-route
-    // `MailAccountsSection`'s row, and so `scrollToMailAccountSettings`'s
-    // target, actually renders on.
-    expect(await screen.findByRole("heading", { name: "Mail Accounts", level: 2 })).toBeDefined();
-    expect(location.pathname).toBe("/settings/mail-accounts");
-    await waitFor(() => expect(document.getElementById("mail-account-acct-1")).not.toBeNull());
+    // Lands on `/settings/connected-accounts` (#201, `/settings/mail-accounts`'s
+    // new address, via its own redirect route) with that Facet's own Badge
+    // already open — there's no longer one row per account to scroll to, so
+    // the deep link opens the Popover instead
+    // (`connected-accounts/account-focus.ts`, widened by #204 to a Connected
+    // Account id + Facet pair).
+    expect(
+      await screen.findByRole("heading", { name: "Connected Accounts", level: 2 }),
+    ).toBeDefined();
+    expect(location.pathname).toBe("/settings/connected-accounts");
+    await waitFor(() => expect(screen.getByLabelText("Username")).toBeDefined());
   });
 
   it("the placeholder Apps are real, reachable routes", async () => {
@@ -780,6 +852,93 @@ describe("the app shell over a routed tree (#71)", () => {
     // Still under the one shell — the header's App Switcher is
     // unconditional chrome, not something each route re-renders.
     expect(screen.getByLabelText("Switch app")).toBeDefined();
+  });
+
+  it("Account Scope hides on an App that doesn't observe it, and returns with the User's last Scope intact (#187)", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { createdAt: "2026-01-01T00:00:00.000Z" }),
+          makeMailAccount("acct-2", { createdAt: "2026-01-02T00:00:00.000Z" }),
+        ],
+      }),
+      { replace: false },
+    );
+    // The picker's own rows come from the Connected Accounts collection now
+    // (#207), not `MailAccount` — a matching row per Mail Account, same
+    // `${id}-connected` join `mail-fixtures.ts#makeConnectedAccount`'s own
+    // doc comment describes.
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-1-connected"),
+          makeConnectedAccount("acct-2-connected"),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    const scopeButton = await screen.findByRole("button", {
+      name: /Account Scope: All accounts/,
+    });
+    // Narrow to one account — the Scope this test expects to survive the
+    // round trip through Tasks below.
+    await user.click(scopeButton);
+    await user.click(screen.getByRole("checkbox", { name: "acct-2@example.test" }));
+    expect(
+      await screen.findByRole("button", { name: "Account Scope: acct-1@example.test" }),
+    ).toBeDefined();
+
+    // Tasks doesn't observe Account Scope (`apps/apps.ts`) — the Hub hides
+    // the control entirely rather than rendering it disabled.
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: /Tasks/ }));
+    await screen.findByLabelText("Tasks");
+    expect(screen.queryByRole("button", { name: /Account Scope/ })).toBeNull();
+
+    // Back to Mail: the control returns, still narrowed to acct-1 — hiding
+    // it never touched the underlying Scope state.
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Mail" }));
+    expect(
+      await screen.findByRole("button", { name: "Account Scope: acct-1@example.test" }),
+    ).toBeDefined();
+  });
+
+  it("the App Switcher opens a phone sheet naming all five Apps at phone width (#187, #193)", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    window.dispatchEvent(new Event("resize"));
+
+    try {
+      await seedOneThread();
+      stubFetch();
+      const user = userEvent.setup();
+
+      render(<App />);
+      await screen.findByText("Routed thread");
+
+      // The desktop's inline-expanding tab row isn't in the tree at all at
+      // this width — `useIsMobile` mounts the sheet trigger instead, not a
+      // CSS rule hiding the desktop row (`AppSwitcher.tsx`'s own doc comment
+      // on why the two share one accessible name and can't both be mounted
+      // at once).
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+
+      expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
+      for (const name of ["Contacts", "Calendar", "Tasks"]) {
+        const tab = screen.getByRole("link", { name: new RegExp(name) });
+        expect(tab).toBeDefined();
+        expect(tab.textContent).toContain("SOON");
+      }
+      expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      window.dispatchEvent(new Event("resize"));
+    }
   });
 
   it("the virtualized Thread list keeps its bounded-height ancestor chain at a phone width, not desktop only", async () => {
@@ -929,5 +1088,377 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
       expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
     });
+  });
+});
+
+/** A Note document whose only block is a paragraph carrying `text` — the grid's own derived title and preview both read straight off this. */
+function noteParagraph(text: string) {
+  return [
+    {
+      id: "b1",
+      type: "paragraph",
+      props: {},
+      content: [{ type: "text", text, styles: {} }],
+      children: [],
+    },
+  ];
+}
+
+/** A card's own `.note-card-title`, found by its text — a card's preview carries the same text too, so a plain `getByText` is ambiguous between the two. */
+function cardTitleText(text: string): Element | null {
+  return (
+    [...document.querySelectorAll(".note-card-title")].find((el) => el.textContent === text) ?? null
+  );
+}
+
+describe("Notes: the grid and dialog editing (#193)", () => {
+  it("renders Pinned then Others, each sorted last-edited descending, with titles and Label badges", async () => {
+    const workId = labelId(NOTES_USER, "Work");
+    await seedNotesAndLabels(
+      [
+        { pinned: true, updatedAt: minutesAfterEpoch(10), document: noteParagraph("Pinned note") },
+        {
+          pinned: false,
+          updatedAt: minutesAfterEpoch(30),
+          document: noteParagraph("Newer other"),
+          labelIds: [workId],
+        },
+        { pinned: false, updatedAt: minutesAfterEpoch(5), document: noteParagraph("Older other") },
+      ],
+      ["Work"],
+    );
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Pinned note" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Pinned" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Others" })).toBeDefined();
+    // "Work" appears twice: the filter chip and the card's own Label badge.
+    expect(screen.getAllByText("Work")).toHaveLength(2);
+
+    // Others sorted last-edited descending: "Newer other" before "Older other".
+    const titles = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+    expect(titles).toEqual(["Pinned note", "Newer other", "Older other"]);
+  });
+
+  it("a Note with no text in its first block shows the transient Untitled Note placeholder", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Untitled Note" })).toBeDefined();
+    // Never written into the document (#193's own acceptance line).
+    expect((await localCache().notes.get("note-1"))?.document).toEqual(noteParagraph(""));
+  });
+
+  it("the Label chip row filters both sections at once, multi-select with OR semantics", async () => {
+    const workId = labelId(NOTES_USER, "Work");
+    const homeId = labelId(NOTES_USER, "Home");
+    await seedNotesAndLabels(
+      [
+        { document: noteParagraph("Work note"), labelIds: [workId] },
+        { document: noteParagraph("Home note"), labelIds: [homeId] },
+        { document: noteParagraph("Unlabeled note") },
+      ],
+      ["Work", "Home"],
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Work note" });
+
+    await user.click(screen.getByRole("button", { name: "Work" }));
+
+    expect(screen.getByRole("heading", { name: "Work note" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "Home note" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Unlabeled note" })).toBeNull();
+
+    // OR semantics: selecting Home too brings its Note back in alongside Work's.
+    await user.click(screen.getByRole("button", { name: "Home" }));
+
+    expect(screen.getByRole("heading", { name: "Work note" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Home note" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "Unlabeled note" })).toBeNull();
+  });
+
+  it("clicking a card pushes /notes/:noteId and opens the editor in a Dialog over the still-mounted grid", async () => {
+    await seedNotesAndLabels([
+      { document: noteParagraph("First note") },
+      { document: noteParagraph("Second note") },
+    ]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "First note" });
+
+    fireEvent.click(screen.getByRole("link", { name: "First note" }));
+
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    expect(location.pathname).toBe("/notes/note-1");
+    // The dimmed grid underneath, second Note included, is still in the tree
+    // — `aria-hidden`, like the rest of the page, while the dialog traps
+    // focus (Radix's own behaviour), so this reads the DOM directly rather
+    // than through an accessible-role query (a card's title and its own
+    // preview both carry the same text, so `.note-card-title` is what picks
+    // the title specifically).
+    expect(cardTitleText("Second note")).toBeDefined();
+    await waitFor(() => {
+      expect(document.querySelector('[contenteditable="true"]')).not.toBeNull();
+    });
+  });
+
+  it("a deep link to /notes/:noteId opens straight into the dialog over the grid, no blank intermediate page", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Deep linked note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    // The grid rendered underneath, not a blank page — same Note's own card
+    // (`aria-hidden` while the dialog is open, hence the direct DOM read).
+    expect(cardTitleText("Deep linked note")).toBeDefined();
+  });
+
+  it("Esc navigates back to /notes, closing the dialog", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("A note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a backdrop click navigates back to /notes", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("A note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    await screen.findByRole("dialog");
+
+    // biome-ignore lint/style/noNonNullAssertion: the Overlay always renders alongside the Dialog itself.
+    fireEvent.pointerDown(document.querySelector('[data-slot="dialog-overlay"]')!);
+    // biome-ignore lint/style/noNonNullAssertion: same overlay, mouseUp closes a Radix Dialog.
+    fireEvent.click(document.querySelector('[data-slot="dialog-overlay"]')!);
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+  });
+
+  it("a :noteId that resolves to nothing redirects silently to /notes", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("A real note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/does-not-exist");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "A real note" })).toBeDefined();
+  });
+
+  it("Pin toggles from the card, moving the Note into Pinned", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Will be pinned") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Will be pinned" });
+    expect(screen.queryByRole("heading", { name: "Pinned" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: 'Pin "Will be pinned"' }));
+
+    expect(await screen.findByRole("heading", { name: "Pinned" })).toBeDefined();
+    expect(screen.getByRole("button", { name: 'Unpin "Will be pinned"' })).toBeDefined();
+  });
+
+  it("Pin toggles from the open dialog too, with a real inverse", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Pin me from the dialog") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    const pinButton = await screen.findByRole("button", { name: "Pin note" });
+
+    fireEvent.click(pinButton);
+
+    expect(await screen.findByRole("button", { name: "Unpin note" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin note" }));
+    expect(await screen.findByRole("button", { name: "Pin note" })).toBeDefined();
+  });
+
+  it("Notes is reachable from the Hub without the SOON badge (#187, #193)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Notes" }));
+
+    expect(await screen.findByRole("region", { name: "Notes" })).toBeDefined();
+    expect(location.pathname).toBe("/notes");
+  });
+});
+
+/** `/search` never resolves in `stubFetch` above — irrelevant to a Palette test whose own hits are the Notes group, not Mail's. */
+function stubFetchWithSearch(mailAccounts: MailAccount[] = []): void {
+  const authResponsesForRole = authResponses("owner");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const auth = authResponsesForRole[url];
+      if (auth) return Promise.resolve(auth());
+      if (url === "/sync") return new Promise<Response>(() => {});
+      if (url === "/mail-accounts") return Promise.resolve(jsonResponse({ mailAccounts }));
+      if (url === "/search") {
+        return Promise.resolve(
+          jsonResponse({
+            results: [],
+            cursor: null,
+            indexWatermark: { coveredSince: null, complete: true },
+          }),
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+}
+
+describe("Notes in the Command Palette (#196)", () => {
+  it("selecting a Note hit navigates to /notes/:noteId and opens the dialog over the grid", async () => {
+    await seedOneThread();
+    await seedNotesAndLabels([{ document: noteParagraph("Grocery list") }]);
+    stubFetchWithSearch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+    fireEvent.change(field, { target: { value: "grocery" } });
+
+    fireEvent.click(
+      await screen.findByText("Grocery list", { selector: ".command-palette-hit-subject" }),
+    );
+
+    await waitFor(() => expect(location.pathname).toBe("/notes/note-1"));
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    // The grid underneath, same Note's own card — the ticket's own "opening
+    // the Note's dialog over the grid", not a screen that replaces it.
+    expect(cardTitleText("Grocery list")).toBeDefined();
+  });
+});
+
+describe("Notes: soft delete and Recently Deleted (#194)", () => {
+  it("Delete from the card removes the Note from the grid and raises an Undo toast", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Will be deleted") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Will be deleted" });
+
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Will be deleted"' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Will be deleted" })).toBeNull();
+    });
+    expect(await screen.findByText("Note deleted")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("Undo returns the Note to the grid, Pinned state and Labels intact", async () => {
+    const workId = labelId(NOTES_USER, "Work");
+    await seedNotesAndLabels(
+      [{ document: noteParagraph("Undo me"), pinned: true, labelIds: [workId] }],
+      ["Work"],
+    );
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Undo me" });
+
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Undo me"' }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Undo me" })).toBeNull();
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByRole("heading", { name: "Undo me" })).toBeDefined();
+    // Back in its previous section (Pinned) with its Label intact.
+    expect(screen.getByRole("heading", { name: "Pinned" })).toBeDefined();
+    expect(
+      screen.getByRole("heading", { name: "Undo me" }).closest(".note-card")?.textContent,
+    ).toContain("Work");
+  });
+
+  it("deleting the Note open in the dialog closes it and navigates back to /notes", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Open then deleted") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes/note-1");
+
+    render(<App />);
+    const deleteButton = await screen.findByRole("button", { name: "Delete note" });
+
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("Recently Deleted lists a greyed card with Restore, and Restore brings the Note back to the grid", async () => {
+    await seedNotesAndLabels([{ document: noteParagraph("Trashed note") }]);
+    stubFetch();
+    history.replaceState(null, "", "/notes");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Trashed note" });
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Trashed note"' }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Trashed note" })).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: "Recently Deleted" }));
+
+    await waitFor(() => {
+      expect(location.pathname).toBe("/notes/recently-deleted");
+    });
+    expect(await screen.findByRole("button", { name: 'Restore "Trashed note"' })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: 'Restore "Trashed note"' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: 'Restore "Trashed note"' })).toBeNull();
+    });
+    fireEvent.click(screen.getByRole("link", { name: "← Notes" }));
+    expect(await screen.findByRole("heading", { name: "Trashed note" })).toBeDefined();
   });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { gatekeeperSettingsSchema } from "./gatekeeper.js";
-import { providerSchema } from "./providers.js";
+import { registeredProviderSchema } from "./providers.js";
 
 /**
  * How a connection's transport is secured. `tls` is implicit TLS on connect
@@ -93,7 +93,7 @@ export type IndexWatermark = z.infer<typeof indexWatermarkSchema>;
  */
 export const mailAccountAuthKindSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("password") }),
-  z.object({ kind: z.literal("oauth"), provider: providerSchema }),
+  z.object({ kind: z.literal("oauth"), provider: registeredProviderSchema }),
 ]);
 export type MailAccountAuthKind = z.infer<typeof mailAccountAuthKindSchema>;
 
@@ -139,6 +139,8 @@ export function resolveRemoteImagesSetting(
  */
 export const mailAccountSchema = z.object({
   id: z.string(),
+  /** The parent Connected Account's id (#199, #200, ADR-0022) — what a Client joins `ConnectedAccount.facets`/`identity`/`provider` off of; every other field here is unchanged by #200. */
+  connectedAccountId: z.string(),
   emailAddress: z.string(),
   imap: mailAccountConnectionSchema,
   smtp: mailAccountConnectionSchema,

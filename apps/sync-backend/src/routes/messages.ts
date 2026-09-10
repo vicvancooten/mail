@@ -7,10 +7,10 @@ import {
 import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ImapFlow } from "imapflow";
+import { deriveCredentialKey } from "../connected-accounts/credential-crypto.js";
 import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, type MessageAttachment, messages } from "../db/schema.js";
 import { resolveVerdicts, verdictFor } from "../gatekeeper/verdicts.js";
-import { deriveCredentialKey } from "../mail-accounts/credential-crypto.js";
 import { getMailAccountById, getMailAccountForUser } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "../sync/bodies.js";
 import { readBodyParts } from "../sync/body-structure.js";

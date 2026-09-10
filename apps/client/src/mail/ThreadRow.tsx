@@ -1,9 +1,8 @@
 import type { ThreadParticipant } from "@mail/shared";
-import { labelNameFromId } from "@mail/shared";
 import { Check, Clock, type LucideIcon, Pin, Star, Trash2 } from "lucide-react";
 import { type CSSProperties, type ReactElement, type ReactNode, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
-import type { CachedThread } from "../store/index.js";
+import { type CachedThread, labelNameForId } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
 import { parseHeadline } from "./search/headline.js";
@@ -60,7 +59,7 @@ export interface RowHoverAction {
  *
  * `pinned`/`labelIds` (#43) render as the comp's small `--color-warn` pin
  * glyph inline after the sender and a couple of quiet chips after the
- * subject — label names come straight off `labelNameFromId`, no `Label`
+ * subject — label names come straight off `labelNameForId`, no `Label`
  * collection lookup needed for a row to render correctly the instant an
  * offline apply lands.
  *
@@ -303,7 +302,7 @@ export function ThreadRow({
           <span className="row-labels">
             {visibleLabelIds.map((id) => (
               <span key={id} className="label-chip">
-                {labelNameFromId(thread.mailAccountId, id)}
+                {labelNameForId(id)}
               </span>
             ))}
             {overflowLabelCount > 0 ? (
