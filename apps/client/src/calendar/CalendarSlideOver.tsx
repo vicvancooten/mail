@@ -21,7 +21,7 @@ import { CalendarSettingsSheet } from "./CalendarSettingsSheet.js";
  * only the phone.
  *
  * Beneath the Calendars sits one more row, "Tasks" (#260) — its own
- * show/hide toggle over `calendar-task-visibility.ts`'s Device Preference,
+ * show/hide toggle over `mail/device-preferences.ts`'s Device Preference,
  * never a Calendar so it never gets a colour picker or a settings gear.
  */
 export function CalendarSlideOver({

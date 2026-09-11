@@ -27,6 +27,7 @@ import {
   DEFAULT_LIST_DENSITY,
   type ListDensity,
   readGroupCollapsed,
+  useGroupCollapsedVersion,
   writeGroupCollapsed,
 } from "./device-preferences.js";
 import { readListScrollOffset, saveListScrollOffset } from "./scroll-restore.js";
@@ -180,12 +181,15 @@ export function VirtualizedThreadList({
   // is on screen.
   const hoverCapable = useHoverCapable();
 
-  // Collapsed state (#78) lives in `localStorage`, not React state — it's
-  // read fresh into `items` below on every pass, and `toggleCollapsed`
-  // forces that pass by bumping this counter. That keeps one source of
-  // truth (the device preference itself) rather than a React copy that
-  // could drift from it.
-  const [collapsedVersion, setCollapsedVersion] = useState(0);
+  // Collapsed state (#78) lives in the Device Preference module
+  // (`device-preferences.ts`), not React state — it's read fresh into
+  // `items` below on every pass. `useGroupCollapsedVersion` (#272) is what
+  // forces that pass: it re-renders this component the instant *any* label
+  // is written, from this list's own toggle or another mounted subscriber,
+  // the same "one write reaches every subscriber" shape the module's other
+  // reactive pairs give a single value — a label list isn't known ahead of
+  // a render, so a hook per label doesn't fit here the way it does there.
+  const collapsedVersion = useGroupCollapsedVersion();
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `collapsedVersion` is a deliberate re-read trigger, not a value this reads directly.
   const items = useMemo<ListItem[]>(() => {
@@ -229,9 +233,7 @@ export function VirtualizedThreadList({
   }, [threads, group, collapsedVersion]);
 
   const toggleCollapsed = useCallback((label: string) => {
-    const next = !readGroupCollapsed(label);
-    writeGroupCollapsed(label, next);
-    setCollapsedVersion((version) => version + 1);
+    writeGroupCollapsed(label, !readGroupCollapsed(label));
   }, []);
 
   // The header checkmark's spine preview (#66, #77): hovering/focusing it
