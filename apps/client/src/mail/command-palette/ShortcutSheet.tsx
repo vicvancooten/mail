@@ -1,5 +1,10 @@
-import { X } from "lucide-react";
-import { useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog.js";
 import { globalActions } from "../actions/registry.js";
 import { ACTION_SECTIONS, actionLabel, noopActionContext } from "../actions/types.js";
 
@@ -11,47 +16,23 @@ import { ACTION_SECTIONS, actionLabel, noopActionContext } from "../actions/type
  * ever run from here, which is why it reads the registry against a
  * Thread-less, all-no-op context — every row's `label` and `binding` is the
  * same regardless of what happens to be open.
+ *
+ * A shadcn `Dialog` (#281 — was its own hand-rolled backdrop + `keydown`
+ * listener): outside click and Escape are Radix's, not this component's own.
  */
 export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const ctx = noopActionContext();
   const actions = globalActions();
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: click-to-dismiss is a mouse convenience layered on an already-accessible dialog — Escape and the Close button (both real, focusable controls below) are the keyboard/screen-reader paths.
-    <div
-      className="command-palette-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="shortcut-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Keyboard shortcuts"
-      >
-        <div className="shortcut-sheet-header">
-          <h2>Keyboard shortcuts</h2>
-          <button
-            type="button"
-            className="command-palette-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X size={13} />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="shortcut-sheet p-0" aria-label="Keyboard shortcuts">
+        <DialogHeader>
+          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          <DialogDescription className="sr-only">
+            Every keyboard shortcut available in the app, grouped by section.
+          </DialogDescription>
+        </DialogHeader>
         <div className="shortcut-sheet-body">
           {ACTION_SECTIONS.map((section) => {
             const inSection = actions.filter((action) => action.section === section);
@@ -77,7 +58,7 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
             );
           })}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
