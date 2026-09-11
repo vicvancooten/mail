@@ -19,6 +19,7 @@ import { PaletteHostProvider, usePaletteHost } from "../mail/command-palette/Pal
 import { deriveMailAccountScope, useAccountScope } from "../mail/useAccountScope.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
+import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
 import { BottomBar } from "./BottomBar.js";
@@ -98,8 +99,19 @@ import "./shell.css";
  * session and the open/closed flag; `RootLayoutChrome` (below) is what
  * actually reads them, since a provider's own value can't be read by the
  * component that renders it.
+ *
+ * `useLocalCacheSync()` (#285) is the Local Cache and sync loop's own home
+ * now — the Client shell's concern, run once regardless of which route is
+ * current, rather than something each of the nine App surfaces
+ * (`MailSection`, `stream/StreamStack`, `NotesGrid`, `TasksApp`, `CalendarRoute`,
+ * `ContactsGrid`, and each App's own Recently Deleted screen) started
+ * itself. This component never unmounts on navigation between routes — only
+ * `AuthGate` unmounts it, on sign-out — so navigating straight to
+ * `/settings` starts the sync loop exactly as reliably as navigating to
+ * `/mail` used to, and navigating between Apps never restarts it.
  */
 export function RootLayout() {
+  useLocalCacheSync();
   const mailAccounts = useMailAccounts() ?? [];
   // The Palette's own search scope (`PaletteHostContext.tsx`'s own doc
   // comment) is Mail-Account-scoped, not Connected-Account-scoped (#207) —

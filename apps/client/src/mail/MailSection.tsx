@@ -45,7 +45,6 @@ import {
 } from "../store/index.js";
 import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { type AddToTasksResult, AddToTasksSheet } from "./AddToTasksSheet.js";
 import { ActionsProvider, useActionKeyboard } from "./actions/ActionsProvider.js";
 import { publishActiveMailHost } from "./actions/active-mail-host.js";
@@ -219,7 +218,6 @@ export function MailSection({
   /** The Reader's Task chips (#259, `ReaderTaskChips.tsx`'s own doc comment) — `router/MailRoute.tsx`'s navigation to `/tasks/:taskId`; same no-op-default, router-agnostic posture as `onOpenStream`. */
   onOpenTask?: (taskId: string) => void;
 } = {}) {
-  useLocalCacheSync();
   const mailAccounts = useMailAccounts();
   const connectedAccounts = useConnectedAccounts();
 

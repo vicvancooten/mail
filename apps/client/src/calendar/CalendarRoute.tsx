@@ -6,7 +6,6 @@ import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
 import { useAllTasks } from "../store/tasks.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./calendar.css";
 import { CalendarSlideOver } from "./CalendarSlideOver.js";
 import { CalendarViewSwitcher } from "./CalendarViewSwitcher.js";
@@ -83,7 +82,6 @@ function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDat
  * acceptance line).
  */
 export function CalendarRoute() {
-  useLocalCacheSync();
   const search = calendarRoute.useSearch();
   const navigate = calendarRoute.useNavigate();
   const view = resolveCalendarView(search);

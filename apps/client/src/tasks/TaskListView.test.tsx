@@ -13,8 +13,8 @@ import { TaskListView } from "./TaskListView.js";
 
 /**
  * `TaskListView` takes a `TaskList` and renders its own live query over
- * `useTasks` — no router dependency, and (unlike `TasksApp`) no
- * `useLocalCacheSync()` of its own either, so this renders bare over a
+ * `useTasks` — no router dependency and no sync-loop concern of its own
+ * either (that's the Client shell's now, #285), so this renders bare over a
  * seeded Local Cache, `NoteDialog.test.tsx`'s own shape. `Toaster` renders
  * alongside it (`mail/MailSection.test.tsx`'s own shape) rather than
  * mocking `sonner` to a no-op — the Undo toast this component raises is

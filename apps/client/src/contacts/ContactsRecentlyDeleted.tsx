@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { restoreContact, useDeletedContacts } from "../store/contacts.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./contacts.css";
 import { RecentlyDeletedContactCard } from "./RecentlyDeletedContactCard.js";
 
@@ -15,7 +14,6 @@ import { RecentlyDeletedContactCard } from "./RecentlyDeletedContactCard.js";
  * lays the cards out.
  */
 export function ContactsRecentlyDeleted() {
-  useLocalCacheSync();
   const contacts = useDeletedContacts();
 
   return (

@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { announceUndoableAction } from "../mail/undo-toast.js";
 import { pinNote, restoreNote, trashNote, unpinNote, useLabels, useNotes } from "../store/index.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { NoteCard } from "./NoteCard.js";
 import "./notes.css";
 import { NotesLabelFilter } from "./NotesLabelFilter.js";
@@ -15,14 +14,12 @@ import { NotesLabelFilter } from "./NotesLabelFilter.js";
  * already-sorted array, the same "filter, don't re-sort" shape
  * `store/reads.ts#readThreadWindowUnsliced` gives Mail's own Pinned view.
  *
- * `useLocalCacheSync()` is called here, not assumed from an ancestor: Notes
- * is a top-level routed screen exactly like `MailSection`/`StreamStack`, each
- * of which opens the Local Cache and starts the sync loop themselves — a
- * User who lands straight on `/notes` without ever visiting `/mail` still
- * needs both to have happened.
+ * The Local Cache and the sync loop are the Client shell's own concern now
+ * (#285, `router/RootLayout.tsx`), not this component's — a User who lands
+ * straight on `/notes` still gets both, since the shell runs regardless of
+ * which route is current.
  */
 export function NotesGrid() {
-  useLocalCacheSync();
   const notes = useNotes();
   const labels = useLabels();
   const [selectedLabelIds, setSelectedLabelIds] = useState<ReadonlySet<string>>(

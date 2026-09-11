@@ -28,6 +28,7 @@ import {
 } from "../store/server-writes.js";
 import { setSessionUserId } from "../store/session.js";
 import { resetSyncStatus } from "../sync/sync-loop.js";
+import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import {
   delta,
   makeConnectedAccount,
@@ -264,9 +265,24 @@ function AccountScopeHarness() {
   );
 }
 
+/**
+ * The sync loop's own home is the Client shell now (#285,
+ * `router/RootLayout.tsx`), a separate component from `MailSection` —
+ * `AccountScopeHarness`'s own reasoning above applies verbatim: stands in
+ * for the shell here so this file's own sync-round assertions ("converges
+ * on a cold, empty cache", "Undo ... re-syncs") still exercise the real
+ * `useLocalCacheSync`/`startSyncLoop` rather than asserting on `MailSection`
+ * with no sync loop running at all underneath it.
+ */
+function LocalCacheSyncHarness() {
+  useLocalCacheSync();
+  return null;
+}
+
 function renderMail(props: Partial<Parameters<typeof MailSection>[0]> = {}) {
   return render(
     <AuthProvider>
+      <LocalCacheSyncHarness />
       <AccountScopeHarness />
       <PaletteHostTestProvider>
         <MailSection {...props} />
@@ -821,6 +837,7 @@ describe("MailSection", () => {
     // click above landed.
     rerender(
       <AuthProvider>
+        <LocalCacheSyncHarness />
         <AccountScopeHarness />
         <PaletteHostTestProvider>
           <MailSection initialThreadId="t-3" />
