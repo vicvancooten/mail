@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
+import { currentListHandle, resetSurfaceHandles } from "./actions/surface-handles.js";
+import { writeGroupCollapsed } from "./device-preferences.js";
 import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 function makeThread(id: string, lastMessageAt: string): CachedThread {
@@ -66,6 +68,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  resetSurfaceHandles();
 });
 
 describe("VirtualizedThreadList — row gutter on input capability (#134)", () => {
@@ -634,5 +637,86 @@ describe("VirtualizedThreadList — collapsible groups as a Device Preference (#
 
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Collapse Yesterday" })).toBeDefined();
+  });
+});
+
+describe("VirtualizedThreadList — roving tabindex and focus (#275)", () => {
+  const NOW = new Date("2026-06-25T12:00:00.000Z");
+
+  function renderRoving(selectedThreadId: string | null, onSelect = vi.fn()) {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const threads = [
+      makeThread("t-today", "2026-06-25T09:00:00.000Z"), // Today
+      makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"), // Yesterday
+      makeThread("t-older", "2010-01-01T09:00:00.000Z"), // Older
+    ];
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={selectedThreadId}
+        onSelect={onSelect}
+      />,
+    );
+    return onSelect;
+  }
+
+  function tabIndexes() {
+    return screen.getAllByRole("option").map((row) => row.tabIndex);
+  }
+
+  it("puts exactly one row in the Tab order — the selected one", () => {
+    renderRoving("t-yesterday");
+    expect(tabIndexes()).toEqual([-1, 0, -1]);
+  });
+
+  it("defaults the one tab stop to the first row when nothing is selected yet", () => {
+    renderRoving(null);
+    expect(tabIndexes()).toEqual([0, -1, -1]);
+  });
+
+  it("the published mover moves DOM focus onto the row it selects, in step with the selection", () => {
+    const onSelect = renderRoving("t-today");
+    currentListHandle()?.move(1);
+
+    expect(onSelect).toHaveBeenCalledWith("t-yesterday");
+    // `onSelect` doesn't itself re-render this uncontrolled harness, so the
+    // row's own `tabIndex` hasn't moved — but real DOM focus, which is what
+    // #275 is actually about, already has.
+    expect(document.activeElement).toBe(
+      screen.getByRole("option", { name: /Subject t-yesterday/ }),
+    );
+  });
+
+  it("neighborOf (#275's Auto-advance seam) skips a collapsed Time Group's rows, same as the mover", () => {
+    renderRoving("t-today");
+    writeGroupCollapsed("Yesterday", true);
+    cleanup();
+    renderRoving("t-today");
+
+    expect(currentListHandle()?.neighborOf("t-today", "older")).toBe("t-older");
+    expect(currentListHandle()?.neighborOf("t-today", "newer")).toBe("t-older");
+  });
+
+  it("focusThread(null) — nothing to land on — focuses the listbox itself", () => {
+    renderRoving("t-today");
+    currentListHandle()?.focusThread(null);
+    expect(document.activeElement).toBe(document.querySelector('[role="listbox"]'));
+  });
+
+  it("an empty list stays a focusable listbox rather than losing its own tab stop", () => {
+    render(
+      <VirtualizedThreadList
+        threads={[]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.tabIndex).toBe(0);
+    listbox.focus();
+    expect(document.activeElement).toBe(listbox);
   });
 });
