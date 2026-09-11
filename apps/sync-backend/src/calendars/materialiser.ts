@@ -1,6 +1,17 @@
 import ICAL from "ical.js";
 import { DateTime } from "luxon";
-import { RRule, RRuleSet } from "rrule";
+import type { RRuleSet } from "rrule";
+import rrulePackage from "rrule";
+
+// `rrule`'s CommonJS build (`dist/es5/rrule.js`, a webpack UMD bundle) defines
+// its named exports through property-getter descriptors Node's cjs-module-
+// lexer cannot statically detect, so `import { RRule, RRuleSet } from "rrule"`
+// throws "Named export 'RRule' not found" at runtime under ESM — passes
+// under Vitest (which transpiles through esbuild, blind to this) but fails
+// the moment the built `dist/` actually runs under plain Node. The default
+// import + destructure below is Node's own suggested fix for exactly this
+// class of CJS/ESM interop gap.
+const { RRule, RRuleSet: RRuleSetCtor } = rrulePackage;
 
 /**
  * The materialiser (#230, ADR-0025): derives Occurrence rows from a Series
@@ -99,7 +110,7 @@ function fromRRuleSpace(wallClock: Date, tzid: string | null): Date {
 
 function buildRRuleSet(series: MaterialiserSeriesInput): RRuleSet {
   const dtstart = toRRuleSpace(series.dtstart, series.tzid);
-  const set = new RRuleSet();
+  const set = new RRuleSetCtor();
 
   if (series.rrules.length === 0) {
     // "A non-recurring Event is a Series with no rule and one Occurrence"
