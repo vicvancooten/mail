@@ -56,8 +56,6 @@ export interface ActionBinding {
   display: string;
   /** ⌘ (or Ctrl) must be held for this binding to fire. */
   meta?: boolean;
-  /** Calls `preventDefault()` before running — for keys the browser would otherwise act on (Backspace, `/`). */
-  preventDefault?: boolean;
 }
 
 /** One option under an action that picks between several things rather than committing one — Snooze's presets, Label's toggles. Menus render these as a submenu. */

@@ -67,6 +67,14 @@ function matchesBinding(action: Action, event: KeyboardEvent): boolean {
  * row's, a Draft row's) are deliberately skipped: they are about whatever
  * the pointer is on, and the Screener owns its own modal scheme.
  *
+ * Every registered binding suppresses the browser's own default (#274) —
+ * pressing `e` three times never opens Firefox's find-as-you-type, `#`
+ * never navigates back — the moment a match is found and the User isn't
+ * typing, whether or not the action can actually run right now (an
+ * unavailable action still owns its key). There is no per-binding opt-in
+ * left to forget: a key with no registered binding falls through the loop
+ * untouched, so the browser keeps it.
+ *
  * `disabled` covers the surfaces that take the whole keyboard for
  * themselves — the composer (#45's "the composer owns every key"), the
  * Screener, and the Palette/Sheet overlays, which handle their own keys and
@@ -83,13 +91,14 @@ export function useActionKeyboard(ctx: ActionContext, disabled: boolean): void {
       const current = ctxRef.current;
       for (const action of ACTIONS) {
         if (action.contextual) continue;
+        if (!action.binding) continue;
         if (!matchesBinding(action, event)) continue;
         // A bare letter means nothing while the User is typing one; a
         // modified binding (⌘K) still does, which is why the guard is per
         // action rather than one early return over the whole listener.
-        if (typing && !action.binding?.meta) return;
+        if (typing && !action.binding.meta) return;
+        event.preventDefault();
         if (!action.availability(current).available) return;
-        if (action.binding?.preventDefault) event.preventDefault();
         action.run(current);
         return;
       }
