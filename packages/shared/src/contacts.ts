@@ -233,7 +233,11 @@ export const EMPTY_CONTACT_NAME: ContactName = {};
  * (`splitTypedContactFields` below), never a rejected value: the type
  * itself is a free string on the wire (`contactEmailSchema` etc.), and
  * this list is what the edit form and `isStandardContactFieldLabel` check
- * it against.
+ * it against. `email` is the one exception (#283, "a Contact keeps every
+ * email address"): `splitTypedContactFields` never demotes an email
+ * regardless of what its label is, so `CONTACT_FIELD_TYPES.email` below
+ * only ever suggests the edit form's own default choices, it is never
+ * consulted to decide standard-vs-Custom-Field for that family.
  */
 export const CONTACT_FIELD_TYPES = {
   email: ["home", "work", "other"],
@@ -328,8 +332,10 @@ export type CustomField = z.infer<typeof customFieldSchema>;
  * Which `CustomFieldType` a demoted typed-family entry becomes
  * (`splitTypedContactFields`) — `phone`/`website` map onto their own
  * matching Custom Field type, `address` maps onto `location` (ADR-0026 names
- * `location` as the family's custom counterpart), and `email` has no
- * matching Custom Field type of its own, so it falls back to `text`.
+ * `location` as the family's custom counterpart). `email`'s own `"text"`
+ * entry is never reached by `splitTypedContactFields` any more (#283 — an
+ * email is never demoted), kept only so this stays a total `Record` over
+ * every `TypedContactFieldFamily`.
  */
 const CUSTOM_FIELD_TYPE_BY_FAMILY: Record<TypedContactFieldFamily, CustomFieldType> = {
   email: "text",
@@ -360,6 +366,14 @@ export interface ContactTypedFieldInput {
  * split. `address` is excluded: its entries are a structured shape,
  * not a single `value` string, so its own demotion path is
  * `demoteContactAddress` below.
+ *
+ * `email` is carved out of that rule entirely (#283, "a Contact keeps every
+ * email address"): an address kept as a Custom Field instead of an email
+ * would drop out of the Contact's mail history, so every email entry stays
+ * standard regardless of its label — an unrecognised or blank label is kept
+ * verbatim (blank defaults to `"home"`) rather than demoted, and every
+ * caller of this function (the shared vCard split, `carddav/vcard.ts`, the
+ * Client's Contact form) gets that behaviour for free.
  */
 export function splitTypedContactFields(
   family: Exclude<TypedContactFieldFamily, "address">,
@@ -368,7 +382,14 @@ export function splitTypedContactFields(
   const standard: { id: string; type: string; value: string; primary: boolean }[] = [];
   const custom: CustomField[] = [];
   for (const entry of entries) {
-    if (isStandardContactFieldLabel(family, entry.label)) {
+    if (family === "email") {
+      standard.push({
+        id: entry.id,
+        type: entry.label.trim().length > 0 ? entry.label : "home",
+        value: entry.value,
+        primary: entry.primary,
+      });
+    } else if (isStandardContactFieldLabel(family, entry.label)) {
       standard.push({
         id: entry.id,
         type: entry.label,
