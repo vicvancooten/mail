@@ -1,5 +1,5 @@
 import type { Calendar } from "@mail/shared";
-import { SettingsIcon } from "lucide-react";
+import { LockIcon, SettingsIcon } from "lucide-react";
 import { useState } from "react";
 import {
   Sheet,
@@ -75,6 +75,16 @@ export function CalendarSlideOver({
                     style={{ backgroundColor: calendar.color }}
                   />
                   <span className="calendar-slide-over-name">{calendar.name}</span>
+                  {!calendar.capabilities.writable ? (
+                    // #282: a reader-access mirror (a holiday or shared team
+                    // Calendar) — shown, never hidden, but flagged so a User
+                    // never wonders why a click into it never offered a create.
+                    <LockIcon
+                      aria-label="Read-only"
+                      className="calendar-slide-over-readonly-icon"
+                      size={12}
+                    />
+                  ) : null}
                 </label>
                 <button
                   type="button"
