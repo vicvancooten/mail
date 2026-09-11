@@ -1,15 +1,15 @@
 import type { CollectionDelta, EventDelta } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { AnyPgTable } from "drizzle-orm/pg-core";
-import { computeEventWindow, toWireEvent } from "../calendars/event-store.js";
-import { toWireRollback } from "../calendars/rollback-store.js";
-import { ensurePersonalCalendar, toWireCalendar } from "../calendars/store.js";
 import {
   ensureLocalAddressBook,
   selectAddressBooksForConnectedAccount,
   selectAddressBooksForUser,
   toWireAddressBook,
 } from "../address-books/store.js";
+import { computeEventWindow, toWireEvent } from "../calendars/event-store.js";
+import { toWireRollback } from "../calendars/rollback-store.js";
+import { ensurePersonalCalendar, toWireCalendar } from "../calendars/store.js";
 import {
   selectConnectedAccountsForUser,
   toWireConnectedAccount,
