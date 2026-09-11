@@ -68,9 +68,19 @@ export interface RowHoverAction {
  * independently focusable `<button>`s, and a button cannot legally nest
  * inside another interactive element. Selecting the row is still one click
  * anywhere on it — the click bubbles to `onSelect` the same way it always
- * has — and keyboard selection has never gone through per-row focus here
- * anyway (`j`/`k`, the Action registry's single listener), so nothing about
- * that path changes.
+ * has.
+ *
+ * `tabbable` (#275) makes the list a real roving-tabindex listbox: exactly
+ * one row is ever in the Tab order (`tabIndex={0}`), the rest sit at `-1` —
+ * `VirtualizedThreadList` decides which by matching `thread.id` against its
+ * own roving id (the selection, or the first row when nothing is selected
+ * yet), never this component's own `selected` alone, since Auto-advance
+ * moves DOM focus a beat after it moves `selected` and the two would
+ * otherwise disagree mid-transition. `j`/`k`/Arrow movement (the Action
+ * registry's single listener) and Auto-advance both drive real
+ * `HTMLElement.focus()` calls at the mover (`VirtualizedThreadList`'s
+ * `moveSelection`/`focusThread`), keyed off `data-thread-id` below — this
+ * component only renders whichever tab stop it's told to be.
  *
  * `onArchive`/`onTrash`/`onSnooze` (#44, #76, #149, `poc-scope.md` §Clients &
  * notifications) wire the row into `useSwipeToTriage` *and* their own row
@@ -116,6 +126,7 @@ export function ThreadRow({
   previewArmed = false,
   pointerArmed = false,
   hoverCapable = true,
+  tabbable = true,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -160,6 +171,8 @@ export function ThreadRow({
   pointerArmed?: boolean;
   /** `useHoverCapable()` (#134): `(hover: hover) and (pointer: fine)`, not a viewport breakpoint. `false` drops the row's own Done glyph and its reserved gutter entirely — swipe right is the row's Done gesture on touch — and switches the hover cluster (Snooze/Pin) from hover-revealed to permanently visible, the phone alternative. Defaults `true` so a caller with no capability read above it (most unit tests) keeps today's hover-revealed row. */
   hoverCapable?: boolean;
+  /** This row's own roving-tabindex slot (#275): `true` puts it in the Tab order (`tabIndex={0}`), `false` takes it out (`-1`) — `VirtualizedThreadList` sets this for exactly one row at a time. Defaults `true` so a caller rendering a single row with no list around it (`ThreadRow.test.tsx`) keeps today's always-tabbable behavior. */
+  tabbable?: boolean;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -232,7 +245,7 @@ export function ThreadRow({
           transition: swipe.settling ? undefined : "none",
         } as CSSProperties
       }
-      tabIndex={0}
+      tabIndex={tabbable ? 0 : -1}
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -246,6 +259,7 @@ export function ThreadRow({
       onBlur={() => setFocused(false)}
       role="option"
       aria-selected={selected}
+      data-thread-id={thread.id}
       {...swipe.handlers}
     >
       {/* The comp's `.row-check`: reserved whitespace to the left of the

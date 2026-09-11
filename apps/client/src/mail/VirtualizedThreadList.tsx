@@ -1,3 +1,4 @@
+import type { AutoAdvanceDirection } from "@mail/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronDown, ChevronUp, MailOpen, MoreHorizontal } from "lucide-react";
 import {
@@ -433,6 +434,75 @@ export function VirtualizedThreadList({
     [items],
   );
 
+  // #275: the roving tab stop — exactly one row's own `tabIndex` is `0` at
+  // any time, the rest `-1` (a real listbox, Tab leaves it rather than
+  // walking every row). The selected row is that stop; with nothing selected
+  // yet (a fresh mount, no URL Thread), it defaults to the first row, so
+  // Tab always has exactly one place to land even before any `j`/`k`/click.
+  const rovingThreadId =
+    selectedThreadId && threadIds.includes(selectedThreadId)
+      ? selectedThreadId
+      : (threadIds[0] ?? null);
+
+  // The `threads.length === 0` branch below renders its own listbox wrapper
+  // — a *plain* ref, deliberately never `setParentRef`: that one also feeds
+  // `scrollContainer` state, which the scroll-restore effects above treat as
+  // "a real mount to restore into" (`restoredRef`'s own once-only guard).
+  // Threads reads `[]` for a beat on every remount, before the Local Cache's
+  // reactive read resolves — routing that transient div through
+  // `setParentRef` fed the restore effect a container with nothing in it
+  // (`virtualizer.getTotalSize()` reads `0`), which found no saved offset
+  // small enough to fit, consumed the guard anyway, and then never got to
+  // run again once the real list actually mounted a beat later. This ref
+  // exists purely so Auto-advance's own "the listbox holds focus once the
+  // list is *genuinely* empty" (#275) still has a node to focus, without
+  // that transient render ever touching scroll-restore's own state.
+  const emptyContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Moves real DOM focus onto `threadId`'s row — or the listbox container
+  // itself, `null`/not-yet-rendered's fallback (#275's "when the list
+  // becomes empty [focus lands on] the listbox"). Queried by
+  // `data-thread-id` rather than kept in a ref map: `ThreadRow` renders
+  // several DOM layers deep (the swipe wrapper), so this is the one stable
+  // handle to its actual `role="option"` element from up here.
+  // `undefined` (as opposed to `null`, "focus the listbox itself") means "no
+  // pending request" — what lets `attemptPendingFocus` below no-op cheaply
+  // on every render once a request is fulfilled.
+  const pendingFocusRef = useRef<string | null | undefined>(undefined);
+  const attemptPendingFocus = useCallback(() => {
+    if (pendingFocusRef.current === undefined) return;
+    // Exactly one of these is ever mounted at a time (the two return
+    // branches below), so exactly one is non-null for the current render.
+    const container = parentRef.current ?? emptyContainerRef.current;
+    if (!container) return;
+    const id = pendingFocusRef.current;
+    if (id) {
+      const node = container.querySelector<HTMLElement>(
+        `[data-thread-id="${id.replace(/"/g, '\\"')}"]`,
+      );
+      if (!node) return; // not mounted yet (still scrolling into view) — retried on the next render
+      node.focus();
+    } else {
+      container.focus();
+    }
+    pendingFocusRef.current = undefined;
+  }, []);
+  const focusThread = useCallback(
+    (threadId: string | null) => {
+      pendingFocusRef.current = threadId;
+      attemptPendingFocus();
+    },
+    [attemptPendingFocus],
+  );
+  // Retries a focus request that landed before its row was actually
+  // mounted (out of the virtualized window, still scrolling into place) —
+  // runs after every render, which is cheap once `pendingFocusRef` is back
+  // to `undefined` (the overwhelmingly common case: the target row is
+  // already mounted, per this list's own overscan).
+  useEffect(() => {
+    attemptPendingFocus();
+  });
+
   const moveSelection = useCallback(
     (delta: number) => {
       if (threadIds.length === 0) return;
@@ -446,9 +516,27 @@ export function VirtualizedThreadList({
           (item) => item.kind === "thread" && item.thread.id === nextId,
         );
         if (itemIndex !== -1) virtualizer.scrollToIndex(itemIndex, { align: "auto" });
+        focusThread(nextId);
       }
     },
-    [threadIds, selectedThreadId, onSelect, items, virtualizer],
+    [threadIds, selectedThreadId, onSelect, items, virtualizer, focusThread],
+  );
+
+  // Auto-advance's own collapse-aware neighbor lookup (#275,
+  // `useTriage#advanceSelection`): the exact `older`-preferred/`newer`-
+  // preferred-with-edge-fallback math that hook used to run over a flat id
+  // array, now over this list's own `threadIds` — so a collapsed Time
+  // Group (#78) is skipped by Auto-advance exactly as it already is by
+  // `moveSelection` above, both reading the one ordered list.
+  const neighborOf = useCallback(
+    (threadId: string, direction: AutoAdvanceDirection): string | null => {
+      const idx = threadIds.indexOf(threadId);
+      if (idx === -1) return null;
+      const older = threadIds[idx + 1] ?? null;
+      const newer = idx > 0 ? (threadIds[idx - 1] ?? null) : null;
+      return direction === "newer" ? (newer ?? older) : (older ?? newer);
+    },
+    [threadIds],
   );
 
   // This list's own mover, published for the Action registry's single
@@ -457,11 +545,13 @@ export function VirtualizedThreadList({
   // — both fired, and only this one knew to skip a collapsed group's rows
   // (#78) and to scroll the arrived-at row into view. Now the registry's
   // `next-thread`/`prev-thread` entries call it, and nothing else binds
-  // those keys.
+  // those keys. `neighborOf`/`focusThread` (#275) are the same handle's
+  // other two faces: `useTriage`'s Auto-advance calls the former to pick
+  // where to land and the latter to actually put DOM focus there.
   useEffect(() => {
     if (keyboardDisabled) return;
-    return publishListHandle({ move: moveSelection });
-  }, [moveSelection, keyboardDisabled]);
+    return publishListHandle({ move: moveSelection, neighborOf, focusThread });
+  }, [moveSelection, neighborOf, focusThread, keyboardDisabled]);
 
   // Each clearing Thread's position within its own group's clearing set,
   // capped at `GROUP_STAGGER_ROW_CAP` — the stagger's `--group-clear-index`
@@ -488,8 +578,30 @@ export function VirtualizedThreadList({
 
   const doneAction = actionById("done");
 
+  // The listbox stays the fallback focus target even with nothing in it
+  // (#275: "when the list becomes empty [focus lands on] the listbox") —
+  // Triage emptying the last Thread must not leave `document.activeElement`
+  // stranded on a node this render just unmounted. `tabIndex={0}` only while
+  // there's no row to hold that one roving stop itself (`threadIds.length
+  // === 0` below covers both "nothing cached at all" and "every group is
+  // collapsed").
+  // The listbox stays the fallback focus target even with nothing in it
+  // (#275: "when the list becomes empty [focus lands on] the listbox") —
+  // Triage emptying the last Thread must not leave `document.activeElement`
+  // stranded on a node this render just unmounted. `ref={emptyContainerRef}`
+  // here, never `setParentRef` — see that ref's own doc comment above.
   if (threads.length === 0) {
-    return <p className="mail-empty">No mail cached for this account yet.</p>;
+    return (
+      <div
+        className={`thread-list${density === "compact" ? " thread-list--compact" : ""}`}
+        ref={emptyContainerRef}
+        role="listbox"
+        aria-label="Threads"
+        tabIndex={0}
+      >
+        <p className="mail-empty">No mail cached for this account yet.</p>
+      </div>
+    );
   }
 
   return (
@@ -498,6 +610,7 @@ export function VirtualizedThreadList({
       ref={setParentRef}
       role="listbox"
       aria-label="Threads"
+      tabIndex={threadIds.length === 0 ? 0 : -1}
       onMouseMove={trackPointer}
       onMouseLeave={clearPointer}
     >
@@ -628,6 +741,7 @@ export function VirtualizedThreadList({
                   height={itemHeight(item)}
                   previewArmed={previewGroupLabel !== null && item.groupLabel === previewGroupLabel}
                   pointerArmed={item.thread.id === pointerArmedThreadId}
+                  tabbable={item.thread.id === rovingThreadId}
                 />
               )}
             </div>
