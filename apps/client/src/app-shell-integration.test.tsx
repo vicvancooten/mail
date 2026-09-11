@@ -918,7 +918,7 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
-  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187, #193, #211, #231, #252)", async () => {
+  it("the App Switcher opens a phone sheet naming all five Apps below the phone breakpoint (#187, #193, #211, #231, #252)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -932,7 +932,7 @@ describe("the app shell over a routed tree (#71)", () => {
       await screen.findByText("Routed thread");
 
       // The desktop's inline-expanding tab row isn't in the tree at all at
-      // this width — `useIsMobile` mounts the sheet trigger instead, not a
+      // this width — `useIsPhoneWidth` mounts the sheet trigger instead, not a
       // CSS rule hiding the desktop row (`AppSwitcher.tsx`'s own doc comment
       // on why the two share one accessible name and can't both be mounted
       // at once).

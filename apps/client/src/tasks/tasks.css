@@ -914,7 +914,7 @@
    NARROW VIEWPORT — Sidebar-first, a List push (#252's own "Phone" line)
    ========================================================================= */
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .tasks-split-view {
     position: relative;
   }

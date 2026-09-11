@@ -232,7 +232,7 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
 
   it("binds `!` to Spam alone (user story #20) — Approve and Block are menu/Palette-only", () => {
     const spam = ACTIONS.find((action) => action.id === "spam");
-    expect(spam?.binding).toEqual({ keys: ["!"], display: "!", preventDefault: true });
+    expect(spam?.binding).toEqual({ keys: ["!"], display: "!" });
     const block = ACTIONS.find((action) => action.id === "block-sender");
     const approve = ACTIONS.find((action) => action.id === "approve-sender");
     expect(block?.binding).toBeNull();

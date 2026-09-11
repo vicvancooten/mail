@@ -269,9 +269,9 @@ function MobileSheet(props: SidebarProps) {
 /**
  * Both render unconditionally — visibility between the desktop rail and the
  * phone bottom sheet is `mail.css`'s own narrow-viewport breakpoint
- * (`max-width: 700px`, matching every other Split/List layout switch in the
- * app), not `useIsMobile`'s generic 768px: a JS/CSS breakpoint mismatch
- * would leave a dead zone with no way to open either.
+ * (`max-width: 767px`, matching every other Split/List layout switch in the
+ * app, and the app's one 768px phone breakpoint, #273): a JS/CSS breakpoint
+ * mismatch would leave a dead zone with no way to open either.
  */
 function SidebarBody(props: SidebarProps) {
   return (

@@ -360,10 +360,10 @@
    `overflow-y: auto` above never actually triggers once this applies —
    both children always compute to the pane's full `height: 100%`, so the
    real scrolling stays inside `ThreadDetailPane`'s own `.reading-body`,
-   untouched by this. Scoped to the same ≥701px breakpoint as every other
-   Split/List switch, so the ≤700px "one pane, no rail" phone shape below is
-   unaffected. */
-@media (min-width: 701px) {
+   untouched by this. Scoped to the same ≥768px breakpoint as every other
+   Split/List switch (the app's one phone breakpoint, #273), so the ≤767px
+   "one pane, no rail" phone shape below is unaffected. */
+@media (min-width: 768px) {
   .split-pane {
     display: flex;
     align-items: stretch;
@@ -1582,7 +1582,7 @@
 
 /* The Reader's prev/next, desktop only (#155): a small floating rail beside
    the pane, `.split-pane`'s own flex sibling of `ThreadDetailPane` (see
-   `.split-pane`'s ≥701px rule above) — vertically centered rather than
+   `.split-pane`'s ≥768px rule above) — vertically centered rather than
    stretched full height, so it reads as a floating control and not a
    second sidebar. Hidden by default; a touch-capable phone has swipe
    instead (#150), and List's single pane has no "beside" to float this in
@@ -1593,7 +1593,7 @@
   display: none;
 }
 
-@media (min-width: 701px) {
+@media (min-width: 768px) {
   .reader-neighbor-rail {
     display: flex;
     flex-direction: column;
@@ -2979,17 +2979,15 @@ button.search-chip-toggle.on {
    (`router/shell.css`'s own `.app-viewport` reservation, `RootLayout.tsx`'s
    `isPhoneChrome`), so the list's box never actually reaches the safe area
    any more there. A flat gap instead of double-counting it — breathing
-   room before the bar, not a second helping of the same inset. Its own
-   query, matching `isPhoneChrome`'s 768px exactly rather than this file's
-   other 700px breakpoint below, since it's the bottom bar's presence this
-   is compensating for, not the Split/List switch. */
+   room before the bar, not a second helping of the same inset. One query
+   now covers this and the Split/List switch below it too — both used to
+   sit at different numbers (`isPhoneChrome`'s 768px vs. this file's own
+   700px) before #273 unified the app on one 768px phone breakpoint. */
 @media (max-width: 767px) {
   .thread-list {
     padding-bottom: 12px;
   }
-}
 
-@media (max-width: 700px) {
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
      becomes a `Sheet` bottom sheet instead (#93) — opened from the phone
      bottom bar's own Folders button now (#155, `router/BottomBar.tsx`),
@@ -3586,7 +3584,7 @@ button.search-chip-toggle.on {
    the same overlay as desktop, just edge to edge: at this width there is
    nowhere else for a modal dialog to sit that wouldn't clip against the
    keyboard. */
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .command-palette-backdrop {
     padding: 0;
   }
