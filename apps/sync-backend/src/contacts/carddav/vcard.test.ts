@@ -60,6 +60,32 @@ describe("parseVcard", () => {
     ]);
   });
 
+  it("keeps an EMAIL with a non-standard TYPE as an email, never a Custom Field (#283)", () => {
+    const raw = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "EMAIL;TYPE=school:kid@school.example",
+      "END:VCARD",
+    ].join("\r\n");
+    const result = parseVcard(raw);
+    expect(result.fields.emails).toEqual([
+      { id: expect.any(String), type: "school", value: "kid@school.example", primary: false },
+    ]);
+    expect(result.fields.customFields).toEqual([]);
+  });
+
+  it('defaults an EMAIL with no TYPE at all to "home", never a Custom Field (#283)', () => {
+    // No `PREF`/`TYPE=pref` marker on this module's own read side — unlike
+    // the shared vCard split (`vcard.ts#resolvePrimary`), a lone unmarked
+    // entry here stays `primary: false` rather than winning it by default.
+    const raw = ["BEGIN:VCARD", "VERSION:3.0", "EMAIL:solo@example.com", "END:VCARD"].join("\r\n");
+    const result = parseVcard(raw);
+    expect(result.fields.emails).toEqual([
+      { id: expect.any(String), type: "home", value: "solo@example.com", primary: false },
+    ]);
+    expect(result.fields.customFields).toEqual([]);
+  });
+
   it("reads the bundled Wicket custom-fields property", () => {
     const raw = [
       "BEGIN:VCARD",
@@ -145,6 +171,32 @@ describe("serializeVcard", () => {
     expect(result).toContain("VERSION:3.0");
     expect(result).toContain("UID:fresh-uid");
     expect(result).toContain("FN:New Person");
+  });
+
+  it("round-trips an email with an arbitrary label unchanged, never a Custom Field (#283)", () => {
+    const result = serializeVcard({
+      previousRawVcard: null,
+      fields: {
+        name: {},
+        emails: [{ id: "e1", type: "school", value: "kid@school.example", primary: true }],
+        phones: [],
+        addresses: [],
+        websites: [],
+        organizations: [],
+        birthday: null,
+        notes: "",
+        customFields: [],
+      },
+      categories: [],
+      uid: "uid-1",
+    });
+    expect(result).toContain("EMAIL;TYPE=school,pref:kid@school.example");
+
+    const reparsed = parseVcard(result);
+    expect(reparsed.fields.emails).toEqual([
+      { id: expect.any(String), type: "school", value: "kid@school.example", primary: true },
+    ]);
+    expect(reparsed.fields.customFields).toEqual([]);
   });
 
   it("round-trips a phone Custom Field through TYPE=x-<label>", () => {

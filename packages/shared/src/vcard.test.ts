@@ -125,6 +125,29 @@ describe("parseVCards", () => {
     ]);
   });
 
+  it("keeps an EMAIL with a non-standard TYPE as an email, never a Custom Field (#283)", () => {
+    const text = [
+      "BEGIN:VCARD",
+      "VERSION:4.0",
+      "EMAIL;TYPE=school:kid@school.example",
+      "END:VCARD",
+    ].join("\r\n");
+    const card = parseOneVCard(text);
+    expect(card.fields.emails).toEqual([
+      { id: expect.any(String), type: "school", value: "kid@school.example", primary: true },
+    ]);
+    expect(card.fields.customFields).toEqual([]);
+  });
+
+  it('defaults an EMAIL with no TYPE at all to "home", never a Custom Field (#283)', () => {
+    const text = ["BEGIN:VCARD", "VERSION:4.0", "EMAIL:solo@example.com", "END:VCARD"].join("\r\n");
+    const card = parseOneVCard(text);
+    expect(card.fields.emails).toEqual([
+      { id: expect.any(String), type: "home", value: "solo@example.com", primary: true },
+    ]);
+    expect(card.fields.customFields).toEqual([]);
+  });
+
   it("imports an X- extension property as a text Custom Field", () => {
     const text = ["BEGIN:VCARD", "VERSION:4.0", "X-SKYPE:jane.doe", "END:VCARD"].join("\r\n");
     expect(parseOneVCard(text).fields.customFields).toEqual([
@@ -207,6 +230,19 @@ describe("contactWritableFieldsToVCard", () => {
     ]);
     expect(reparsed.fields.birthday).toEqual({ month: 4, day: 15, year: 1990 });
     expect(reparsed.fields.notes).toBe("Met at a conference, briefly; memorable");
+  });
+
+  it("round-trips an email with an arbitrary label unchanged (#283)", () => {
+    const fields: ContactWritableFields = {
+      ...EMPTY_CONTACT_FIELDS,
+      emails: [{ id: "e1", type: "school", value: "kid@school.example", primary: true }],
+    };
+    const vcard = contactWritableFieldsToVCard(fields);
+    const reparsed = parseOneVCard(vcard);
+    expect(reparsed.fields.emails).toEqual([
+      { id: expect.any(String), type: "school", value: "kid@school.example", primary: true },
+    ]);
+    expect(reparsed.fields.customFields).toEqual([]);
   });
 
   it("inlines a photo as a data URI that parseVCards reads back", () => {
