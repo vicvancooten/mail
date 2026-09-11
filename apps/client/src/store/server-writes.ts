@@ -84,6 +84,28 @@ export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
 }
 
+/**
+ * The ids one Mail Account's in-progress reset replay has admitted so far
+ * (#279). A reset spans however many pages `hasMore` demands, and the fix for
+ * "Group Done on a large Time Group blanks the list" is to never clear
+ * `db.threads` up front the way a single-page replace can: instead this
+ * accumulates every admitted id across the replay's pages and, once the
+ * final page lands, `applyThreadDelta` diffs it against what is actually
+ * held — present rows upsert in place, and only a row this replay never
+ * re-affirmed is removed, in one delete rather than a clear-then-refill.
+ *
+ * Module-level and in-memory, not persisted: a replay a browser restart
+ * interrupts simply starts its accumulator over on the next `replace` page,
+ * the same as the token-driven replay itself already does. Keyed by Mail
+ * Account and view so two views (or two accounts) resetting at once never
+ * share an accumulator.
+ */
+const threadResetAccumulators = new Map<string, Set<string>>();
+
+function threadResetKey(mailAccountId: string, view: ViewKey): string {
+  return `${mailAccountId}:${view}`;
+}
+
 export function gmailLabelTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:GmailLabel`;
 }
@@ -194,16 +216,23 @@ export async function applyThreadDelta(
   view: ViewKey = DEFAULT_VIEW,
 ): Promise<void> {
   const db = localCache();
+  const resetKey = threadResetKey(mailAccountId, view);
   await db.transaction(
     "rw",
     [db.threads, db.listWindows, db.cachePins, db.pendingMutations, db.syncState],
     async () => {
       let window = await loadWindow(db, mailAccountId, view);
       if (replace) {
-        await db.threads.where("mailAccountId").equals(mailAccountId).delete();
+        // Reopens the window instead of clearing `db.threads` (#279): every
+        // row this replay admits, on any of its pages, must land regardless
+        // of the pre-replay cutoff, and the table itself must never sit
+        // empty for a live query between this page and the replay's last.
         window = { ...window, oldestHeldSort: null, complete: true };
         await db.listWindows.put(window);
+        threadResetAccumulators.set(resetKey, new Set());
       }
+      const resetAdmitted =
+        delta.reset === true ? threadResetAccumulators.get(resetKey) : undefined;
 
       const upserts = [...delta.created, ...delta.updated];
       if (upserts.length > 0) {
@@ -223,6 +252,7 @@ export async function applyThreadDelta(
           const inWindow = window.oldestHeldSort === null || sortKey >= window.oldestHeldSort;
           if (inWindow || known.has(thread.id) || pinned.has(thread.id)) {
             admitted.push({ ...thread, sortKey });
+            resetAdmitted?.add(thread.id);
           }
         }
         await db.threads.bulkPut(admitted);
@@ -231,6 +261,21 @@ export async function applyThreadDelta(
       if (delta.destroyed.length > 0) {
         await db.threads.bulkDelete(delta.destroyed);
         await db.cachePins.bulkDelete(delta.destroyed);
+      }
+
+      if (delta.reset === true && !delta.hasMore) {
+        // The replay's last page: every row this Client held for the
+        // account that the replay never re-affirmed is gone from the Sync
+        // Backend's rebuild, so it goes now — one diff-delete against the
+        // accumulated set, in place of the old clear-then-refill (#279).
+        const keep = resetAdmitted ?? new Set<string>();
+        threadResetAccumulators.delete(resetKey);
+        const held = await db.threads.where("mailAccountId").equals(mailAccountId).primaryKeys();
+        const stale = held.filter((id) => !keep.has(id));
+        if (stale.length > 0) {
+          await db.threads.bulkDelete(stale);
+          await db.cachePins.bulkDelete(stale);
+        }
       }
 
       await db.syncState.put({ key: threadTokenKey(mailAccountId), token: delta.newState });

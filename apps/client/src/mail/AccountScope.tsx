@@ -1,5 +1,5 @@
 import type { ConnectedAccount, ConnectedAccountFacetKind } from "@mail/shared";
-import { useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 import { FACET_COLUMNS, FACET_LABEL } from "../connected-accounts/provider-table.js";
 import { Avatar } from "./Avatar.js";
 import type { AccountScope as AccountScopeIds } from "./device-preferences.js";
@@ -51,6 +51,14 @@ function activeFacets(account: ConnectedAccount): readonly ConnectedAccountFacet
  * be emptied" is enforced right here, per toggle —
  * `useAccountScope.ts#useAccountScope`'s own guard is this component's
  * backstop, not its only line of defense.
+ *
+ * The panel is a shadcn `Popover` (#281 — moved off its own hand-managed
+ * `open` boolean, the confirmed offender behind two transient surfaces being
+ * open at once): portalled, closes on outside click and Escape, returns
+ * focus to the trigger, all via Radix rather than a bespoke listener — the
+ * same primitive `ThreadRow.tsx`'s Snooze menu and `LabelPicker` already
+ * used. See `apps/client/DESIGN.md`'s "Transient surfaces" section for the
+ * rule this enforces and its two exemptions.
  */
 export function AccountScope({
   accounts,
@@ -64,7 +72,6 @@ export function AccountScope({
   activeFacet: ConnectedAccountFacetKind;
   onChange: (ids: AccountScopeIds) => void;
 }) {
-  const [open, setOpen] = useState(false);
   if (accounts.length <= 1) return null;
 
   const inScope = new Set(scope);
@@ -81,55 +88,58 @@ export function AccountScope({
 
   return (
     <div className="account-scope">
-      <button
-        type="button"
-        className="account-scope-toggle"
-        aria-expanded={open}
-        aria-label={scopeAccessibleName(accounts, scope)}
-        title="Account Scope"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span className="account-scope-avatars">
-          {scopedAccounts.slice(0, 3).map((account) => (
-            <Avatar key={account.id} name={account.identity} />
-          ))}
-        </span>
-      </button>
-      {open ? (
-        <fieldset className="account-scope-panel">
-          <legend>Account Scope</legend>
-          {accounts.map((account) => {
-            const facets = activeFacets(account);
-            const muted = !facets.includes(activeFacet);
-            return (
-              <label key={account.id} className={muted ? "account-scope-muted" : undefined}>
-                <input
-                  type="checkbox"
-                  checked={inScope.has(account.id)}
-                  onChange={() => toggle(account.id)}
-                />
-                <span className="account-scope-identity">
-                  {account.identity}
-                  {account.status === "needs_reauth" ? " (needs reauth)" : ""}
-                </span>
-                {/* `aria-hidden` on the whole group, not just each dot — the
-                    row's accessible name comes from the checkbox's own label
-                    text alone (identity + reauth suffix), same as pre-#207;
-                    a `title` per dot is the (sighted, hover-only) detail. */}
-                <span className="account-scope-facets" aria-hidden="true">
-                  {facets.map((facet) => (
-                    <span
-                      key={facet}
-                      className={`account-scope-facet-dot account-scope-facet-dot--${facet}`}
-                      title={FACET_LABEL[facet]}
-                    />
-                  ))}
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
-      ) : null}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="account-scope-toggle"
+            aria-label={scopeAccessibleName(accounts, scope)}
+            title="Account Scope"
+          >
+            <span className="account-scope-avatars">
+              {scopedAccounts.slice(0, 3).map((account) => (
+                <Avatar key={account.id} name={account.identity} />
+              ))}
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="account-scope-content">
+          <fieldset className="account-scope-panel">
+            <legend>Account Scope</legend>
+            {accounts.map((account) => {
+              const facets = activeFacets(account);
+              const muted = !facets.includes(activeFacet);
+              return (
+                <label key={account.id} className={muted ? "account-scope-muted" : undefined}>
+                  <input
+                    type="checkbox"
+                    checked={inScope.has(account.id)}
+                    onChange={() => toggle(account.id)}
+                  />
+                  <span className="account-scope-identity">
+                    {account.identity}
+                    {account.status === "needs_reauth" ? " (needs reauth)" : ""}
+                  </span>
+                  {/* `aria-hidden` on the whole group, not just each dot —
+                      the row's accessible name comes from the checkbox's own
+                      label text alone (identity + reauth suffix), same as
+                      pre-#207; a `title` per dot is the (sighted,
+                      hover-only) detail. */}
+                  <span className="account-scope-facets" aria-hidden="true">
+                    {facets.map((facet) => (
+                      <span
+                        key={facet}
+                        className={`account-scope-facet-dot account-scope-facet-dot--${facet}`}
+                        title={FACET_LABEL[facet]}
+                      />
+                    ))}
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

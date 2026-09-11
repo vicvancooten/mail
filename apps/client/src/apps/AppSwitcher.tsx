@@ -203,6 +203,13 @@ export function PhoneSwitcher({
  * same gap `VirtualizedThreadList.tsx` already lives with — a real browser
  * corrects this on layout; a layout-less test only needs both DOM states to
  * render correctly, not the measurement itself.
+ *
+ * The two real cells carry their own `-toggle`/`-tabs` modifier classes
+ * (`shell.css`) rather than leaning on `:first-child`/`:last-child` (#280):
+ * the measuring row above is a real DOM sibling and sits before them, so the
+ * toggle cell was never actually its parent's *first* child — `:first-child`
+ * matched nothing, and the toggle silently sized as the bare `.switcher-cell`
+ * default (zero width) whether open or closed.
  */
 function DesktopSwitcher({
   current,
@@ -218,6 +225,16 @@ function DesktopSwitcher({
   const [iconOnly, setIconOnly] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
+
+  // The collapsed toggle's own discovery hint (#280): a sliver of the *next*
+  // App's mark peeking from behind the current one, so a control with no
+  // persistent icon row still says "there's more here" at rest. Wraps
+  // rather than reading past the end, since the switcher cycles Mail →
+  // Contacts → … → Mail.
+  const currentKey = current?.key ?? "mail";
+  const currentIndex = APPS.findIndex((app) => app.key === currentKey);
+  const nextApp = APPS[(currentIndex + 1) % APPS.length];
+  const NextIcon = appIconFor(nextApp?.key ?? currentKey);
 
   // A click anywhere else, or Escape, closes it — the comp's own two exits.
   // Bound only while open, so the shell carries no idle document listener.
@@ -273,7 +290,7 @@ function DesktopSwitcher({
           </span>
         ))}
       </div>
-      <div className={`switcher-cell${open ? " open" : ""}`}>
+      <div className={`switcher-cell switcher-cell-toggle${open ? " open" : ""}`}>
         <div>
           <button
             type="button"
@@ -282,14 +299,19 @@ function DesktopSwitcher({
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
           >
-            <span className="app-tile">
-              <CurrentIcon size={15} />
+            <span className="app-tile-stack">
+              <span className="app-tile app-tile-peek" aria-hidden="true">
+                <NextIcon size={12} />
+              </span>
+              <span className="app-tile">
+                <CurrentIcon size={15} />
+              </span>
             </span>
             <ChevronDown size={13} className="chev" />
           </button>
         </div>
       </div>
-      <div className={`switcher-cell${open ? " open" : ""}`}>
+      <div className={`switcher-cell switcher-cell-tabs${open ? " open" : ""}`}>
         <div>
           <div className={`tabs-row${iconOnly ? " icon-only" : ""}`}>
             <AppTabs current={current} onNavigate={() => setOpen(false)} tabbable={open} />

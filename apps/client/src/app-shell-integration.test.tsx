@@ -387,6 +387,32 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/contacts");
   });
 
+  it("at desktop width, the App Switcher toggle carries its own sizing class rather than a structural position, and shows a next-App peek (#280)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    // The hidden measuring row is a real sibling *before* the toggle cell in
+    // the DOM, so a selector keyed to structural position (`:first-child`)
+    // never actually matched the toggle — this only stays fixed as long as
+    // the toggle cell keeps its own class, regardless of where the
+    // measuring row sits. jsdom computes no layout, so this asserts the
+    // class-based seam the CSS rule now keys on, not the rendered width
+    // itself (verified separately in a real browser per the ticket).
+    const toggleCell = document.querySelector(".switcher-cell-toggle");
+    expect(toggleCell).not.toBeNull();
+    expect(toggleCell?.parentElement?.firstElementChild).not.toBe(toggleCell);
+
+    // The collapsed toggle's discovery hint: exactly one decorative peek of
+    // the next App's mark, not a persistent row of icons.
+    const switcherButton = screen.getByRole("button", { name: "Switch app" });
+    const peeks = switcherButton.querySelectorAll(".app-tile-peek");
+    expect(peeks).toHaveLength(1);
+    expect(peeks[0]?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("at phone width, the App Switcher opens as a sheet and closes by outside pointer or Escape (#136)", async () => {
     await seedOneThread();
     stubFetch();

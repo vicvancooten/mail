@@ -144,6 +144,66 @@ describe("applyThreadDelta", () => {
     expect(page.threads.map((thread) => thread.id).toSorted()).toEqual(["also-fresh", "fresh"]);
   });
 
+  it("never emits a zero-row page between a multi-page reset's start and its end (#279)", async () => {
+    // A large Time Group's "Done all" bumps the account's rebuild epoch
+    // (`BULK_TRIAGE_RESET_THRESHOLD`), and the next Thread sync answers a
+    // reset spanning several pages. The old code cleared `db.threads` on the
+    // reset's very first page and only refilled it as later pages arrived,
+    // blanking the list in between (#279) — this asserts the row count never
+    // drops to zero across the replay, with rows present both before and
+    // after it.
+    await applyThreadDelta(ACCOUNT, delta({ created: ladder(3) }), { replace: false });
+    expect((await readThreadWindow(ACCOUNT)).threads).toHaveLength(3);
+
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({ created: [makeThread("reset-page-1", ACCOUNT)], reset: true, hasMore: true }),
+      { replace: true },
+    );
+    // Mid-replay: the pre-reset rows are still held (they haven't been
+    // re-affirmed or refuted yet) alongside this page's own row — never zero.
+    expect((await readThreadWindow(ACCOUNT)).threads.length).toBeGreaterThan(0);
+
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        created: [makeThread("reset-page-2", ACCOUNT, { lastMessageAt: minutesAfterEpoch(9) })],
+        reset: true,
+      }),
+      { replace: false },
+    );
+
+    const page = await readThreadWindow(ACCOUNT);
+    // The replay's last page: only the rows it actually re-affirmed survive.
+    expect(page.threads.map((thread) => thread.id).toSorted()).toEqual([
+      "reset-page-1",
+      "reset-page-2",
+    ]);
+  });
+
+  it("updates an already-held row in place when a reset re-affirms it, rather than dropping and re-adding it", async () => {
+    await applyThreadDelta(ACCOUNT, delta({ created: [makeThread("kept", ACCOUNT)] }), {
+      replace: false,
+    });
+    await pinThreadIntoCache("kept");
+
+    await applyThreadDelta(
+      ACCOUNT,
+      delta({
+        created: [],
+        updated: [makeThread("kept", ACCOUNT, { unreadCount: 4 })],
+        reset: true,
+      }),
+      { replace: true },
+    );
+
+    const page = await readThreadWindow(ACCOUNT);
+    expect(page.threads.map((thread) => thread.id)).toEqual(["kept"]);
+    expect(page.threads[0]?.unreadCount).toBe(4);
+    // Re-affirmed, not destroyed-and-recreated: its cache pin survives.
+    expect(await localCache().cachePins.get("kept")).toBeDefined();
+  });
+
   it("keeps an already-held Thread up to date even when its date moves below the window", async () => {
     await applyThreadDelta(ACCOUNT, delta({ created: ladder(THREAD_WINDOW_HIGH_WATER + 1) }), {
       replace: false,
