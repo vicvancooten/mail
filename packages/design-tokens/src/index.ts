@@ -1,3 +1,4 @@
+export { phoneBreakpoint } from "./breakpoints.js";
 export {
   type AvatarTile,
   type AvatarTileKey,
@@ -8,7 +9,6 @@ export {
   lightAvatarTiles,
   lightColors,
 } from "./colors.js";
-export { phoneBreakpoint } from "./breakpoints.js";
 export { buildTokensCss } from "./css.js";
 export {
   darkShadow,
