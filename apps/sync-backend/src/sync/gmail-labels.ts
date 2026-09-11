@@ -1,7 +1,7 @@
 import { gmailLabelId } from "@mail/shared";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { gmailLabels } from "../db/schema.js";
+import { gmailLabels, messages } from "../db/schema.js";
 import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import type { FolderRole } from "./folders.js";
 import { GMAIL_INBOX_LABEL, GMAIL_SENT_LABEL } from "./inbox.js";
@@ -113,6 +113,33 @@ const SYSTEM_GMAIL_LABEL_NAMES: ReadonlySet<string> = new Set([
 export function isBrowsableGmailLabelName(name: string): boolean {
   if (SYSTEM_GMAIL_LABEL_NAMES.has(name)) return false;
   return !name.toLowerCase().startsWith("\\categor");
+}
+
+/**
+ * Flips a Gmail Message's own `\Inbox` label directly on `messages.gmailLabels`
+ * (#278) — the one write both `sync/mutations.ts`'s `archive`/`trash` ack and
+ * `sync/protocol-writes.ts`'s definitive-failure revert need. `thread-rollup.ts`'s
+ * Gmail projection reads this column fresh every time it runs, so writing the
+ * *intended* label state here, ahead of the real IMAP confirmation, is what makes
+ * a synchronous ack survive a rollup that runs before the protocol write below has
+ * landed — the bug this ticket exists to fix. `array_append`/`array_remove` are
+ * themselves idempotent, so re-applying the same intent (a retried mutation id, a
+ * definitive-failure revert racing a second one) is harmless.
+ */
+export async function setGmailInboxLabel(
+  db: Db,
+  messageIds: string[],
+  present: boolean,
+): Promise<void> {
+  if (messageIds.length === 0) return;
+  await db
+    .update(messages)
+    .set({
+      gmailLabels: present
+        ? sql`array_append(array_remove(coalesce(${messages.gmailLabels}, '{}'), ${GMAIL_INBOX_LABEL}), ${GMAIL_INBOX_LABEL})`
+        : sql`array_remove(coalesce(${messages.gmailLabels}, '{}'), ${GMAIL_INBOX_LABEL})`,
+    })
+    .where(inArray(messages.id, messageIds));
 }
 
 /**
