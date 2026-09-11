@@ -297,4 +297,67 @@ describe("drainProtocolWrites — definitive vs. transient protocol failure (#27
       await db.select().from(protocolWrites).where(eq(protocolWrites.mailAccountId, account.id)),
     ).toHaveLength(1); // Still queued — the next tick retries it.
   });
+
+  it("a definitive rejection of a Gmail trash MOVE (an in-band false) reverts \\Inbox and lets the next rollup put the Thread back in the Inbox (#271 wave-1 review)", async () => {
+    const account = await createTestMailAccount(db, { serverKind: "gmail" });
+    const { threadId, messageId } = await seedArchivedGmailMessage(account);
+    await db.insert(folders).values({
+      id: randomUUID(),
+      mailAccountId: account.id,
+      path: "[Gmail]/Trash",
+      name: "[Gmail]/Trash",
+      role: "trash",
+    });
+    await enqueueProtocolWrites(db, account.id, [messageId], "trash");
+
+    const client = {
+      async getMailboxLock(path: string) {
+        return { path, release() {} };
+      },
+      async messageMove() {
+        return false; // The server was reached and said no.
+      },
+    } as unknown as ImapFlow;
+
+    const applied = await drainProtocolWrites(db, client, account.id);
+
+    expect(applied).toBe(1); // Dequeued — a definitive rejection never succeeds on retry.
+    const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
+    expect(message?.gmailLabels).toEqual(["\\Inbox"]);
+    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(thread?.inInbox).toBe(true);
+    expect(thread?.folderRole).toBe("inbox");
+  });
+
+  it("a transient failure of a Gmail trash MOVE (the connection itself gone) leaves the row queued and the optimistic \\Inbox removal untouched", async () => {
+    const account = await createTestMailAccount(db, { serverKind: "gmail" });
+    const { threadId, messageId } = await seedArchivedGmailMessage(account);
+    await db.insert(folders).values({
+      id: randomUUID(),
+      mailAccountId: account.id,
+      path: "[Gmail]/Trash",
+      name: "[Gmail]/Trash",
+      role: "trash",
+    });
+    await enqueueProtocolWrites(db, account.id, [messageId], "trash");
+
+    const client = {
+      async getMailboxLock(path: string) {
+        return { path, release() {} };
+      },
+      async messageMove() {
+        throw new Error("no connection");
+      },
+    } as unknown as ImapFlow;
+
+    await expect(drainProtocolWrites(db, client, account.id)).rejects.toThrow("no connection");
+
+    const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
+    expect(message?.gmailLabels).toEqual([]);
+    const [thread] = await db.select().from(threads).where(eq(threads.id, threadId));
+    expect(thread?.inInbox).toBe(false);
+    expect(
+      await db.select().from(protocolWrites).where(eq(protocolWrites.mailAccountId, account.id)),
+    ).toHaveLength(1); // Still queued — the next tick retries it.
+  });
 });

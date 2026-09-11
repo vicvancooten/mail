@@ -270,7 +270,17 @@ async function drainFolder(
     // Inbox the same way `archive`/`trash` move it out.
     await moveBatch(db, client, mailAccountId, "inbox", inboxRows, byMessageId, done);
   }
-  await moveBatch(db, client, mailAccountId, "trash", trashRows, byMessageId, done);
+  // Gmail's `trash` move needs the same protection archive's label removal
+  // already has (#271 wave-1 review): `sync/mutations.ts`'s archive/trash
+  // case strips `\Inbox` optimistically for *both* intents, but only
+  // `archiveRows` above had anything undoing a definitive rejection — this
+  // real `MOVE` left a Gmail trash row's stripped label unreverted on a
+  // definitive `NO`/`BAD`. Every other `moveBatch` caller (this same call on
+  // non-Gmail accounts, `archive`/`inbox`/`junk` everywhere) never wrote that
+  // optimistic label, so `revertOnDefiniteFailure` is gated to this one call.
+  await moveBatch(db, client, mailAccountId, "trash", trashRows, byMessageId, done, {
+    revertOnDefiniteFailure: isGmailAccount(serverKind),
+  });
   await moveBatch(db, client, mailAccountId, "junk", junkRows, byMessageId, done);
 }
 
@@ -403,6 +413,21 @@ async function labelBatch(
   }
 }
 
+interface MoveBatchOptions {
+  /**
+   * Only the Gmail `trash` call sets this (#271 wave-1 review): its `\Inbox`
+   * removal was already written onto these Messages optimistically at
+   * mutation-apply time, the same as `labelBatch`'s `archiveRows` — so a
+   * definitive rejection of the `MOVE` has something real to undo. See
+   * `labelBatch`'s own doc comment for how "definitive" is told apart from
+   * "transient" here: a thrown/network error propagates straight out of
+   * `client.messageMove` (transient, left queued, never reaching the `!result`
+   * branch below at all); an in-band falsy result is the server having
+   * actually answered `NO`/`BAD` (definitive).
+   */
+  revertOnDefiniteFailure?: boolean;
+}
+
 async function moveBatch(
   db: Db,
   client: ImapFlow,
@@ -411,6 +436,7 @@ async function moveBatch(
   rows: OutboxRow[],
   byMessageId: Map<string, CurrentMessage>,
   done: Set<string>,
+  options?: MoveBatchOptions,
 ): Promise<void> {
   if (rows.length === 0) return;
   const target = await findFolderByRole(db, mailAccountId, role);
@@ -421,7 +447,23 @@ async function moveBatch(
     .filter((uid): uid is number => uid !== undefined);
   if (uids.length === 0) return;
   const result = await client.messageMove(uids, target.path, { uid: true });
-  if (!result) return; // Failed — leave queued for the next drain pass.
+  if (!result) {
+    if (options?.revertOnDefiniteFailure) {
+      const messageIds = rows.map((row) => row.messageId);
+      await setGmailInboxLabel(db, messageIds, true);
+      const threadIds = [
+        ...new Set(
+          messageIds.flatMap((id) => {
+            const threadId = byMessageId.get(id)?.threadId;
+            return threadId ? [threadId] : [];
+          }),
+        ),
+      ];
+      await refreshThreadRollups(db, threadIds);
+      for (const row of rows) done.add(row.id);
+    }
+    return; // Failed — leave queued for the next drain pass (unless just reverted, above).
+  }
 
   for (const row of rows) {
     const msg = byMessageId.get(row.messageId);
