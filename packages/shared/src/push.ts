@@ -79,6 +79,8 @@ export const notificationKindSchema = z.enum([
   "failed_send",
   "needs_reauth",
   "gatekeeper_digest",
+  "calendar_reminder",
+  "calendar_answer",
 ]);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 
@@ -146,6 +148,48 @@ export const pushPayloadSchema = z.discriminatedUnion("kind", [
     count: z.int(),
     badgeCount: z.int(),
   }),
+  z.object({
+    kind: z.literal("calendar_reminder"),
+    /**
+     * "One payload kind with `events[]`" (ADR-0028): a single Reminder due
+     * is an array of length one, never a special-cased shape — a Reminder
+     * group (several Occurrences due the same minute) is the same shape
+     * with more entries. Title/body are already-formatted strings, computed
+     * once by the reminder loop at recording time.
+     */
+    events: z.array(
+      z.object({
+        /** #246: the Reminder Due row this entry came from — the Snooze action's own target. */
+        reminderDueId: z.string(),
+        eventId: z.string(),
+        seriesId: z.string(),
+        title: z.string(),
+        body: z.string(),
+      }),
+    ),
+    badgeCount: z.int(),
+  }),
+  z.object({
+    kind: z.literal("calendar_answer"),
+    /**
+     * "Answers arriving for Events the User organises" (#243): one payload
+     * per Event, coalesced across however many Attendees answered inside the
+     * coalescing window (`notifier/record.ts`'s own doc comment) — a lone
+     * Answer is an array of length one, the same "no special-cased shape of
+     * its own" posture `calendar_reminder.events[]` already takes.
+     */
+    eventId: z.string(),
+    seriesId: z.string(),
+    title: z.string(),
+    answers: z.array(
+      z.object({
+        attendeeName: z.string().nullable(),
+        attendeeEmail: z.string(),
+        responseStatus: z.enum(["accepted", "declined", "tentative"]),
+      }),
+    ),
+    badgeCount: z.int(),
+  }),
 ]);
 export type PushPayload = z.infer<typeof pushPayloadSchema>;
 
@@ -161,14 +205,48 @@ export type PushPayload = z.infer<typeof pushPayloadSchema>;
  * own `id` — a Background Sync retry of the same `id` replays rather than
  * double-archiving.
  */
+/**
+ * `snoozeReminder` (#246, ADR-0028) joins `archive` here for the same
+ * reason: "the OS notification's button ... posted to the existing
+ * notification-actions endpoint with an idempotency key and Background Sync
+ * retry, exactly as Archive is." Unlike `archive` it is User-scoped, not
+ * Mail-Account-scoped — a Reminder Due row has no Mail Account at all — so
+ * `notificationActionRequestSchema` below makes `mailAccountId` optional
+ * rather than adding a second route.
+ *
+ * `reminderDueIds` is plural: a grouped `calendar_reminder` push (several
+ * Occurrences due the same minute) shares one notification and one Snooze
+ * button, so tapping it snoozes every Reminder the notification named
+ * (`push.ts`'s own `events[]` doc comment) rather than picking one
+ * arbitrarily. `snoozeUntil` mirrors the toast/Event page's own choice: a
+ * fixed offset (5/10/15 — the OS button always sends 5) or the Occurrence's
+ * own start, resolved server-side (`reminder-due-store.ts#snoozeReminderDue`)
+ * since only the Sync Backend knows the Home Time Zone an all-day/floating
+ * Occurrence needs.
+ */
+export const snoozeUntilSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("minutes"),
+    minutes: z.union([z.literal(5), z.literal(10), z.literal(15)]),
+  }),
+  z.object({ kind: z.literal("eventStart") }),
+]);
+export type SnoozeUntil = z.infer<typeof snoozeUntilSchema>;
+
 export const notificationActionIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive"), threadId: z.string() }),
+  z.object({
+    type: z.literal("snoozeReminder"),
+    reminderDueIds: z.array(z.string()).min(1),
+    snoozeUntil: snoozeUntilSchema,
+  }),
 ]);
 export type NotificationActionIntent = z.infer<typeof notificationActionIntentSchema>;
 
 export const notificationActionRequestSchema = z.object({
   id: z.string(),
-  mailAccountId: z.string(),
+  /** `null` for a User-scoped action (`snoozeReminder`) — only `archive` names a Mail Account. */
+  mailAccountId: z.string().nullable(),
   intent: notificationActionIntentSchema,
 });
 export type NotificationActionRequest = z.infer<typeof notificationActionRequestSchema>;

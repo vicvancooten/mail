@@ -27,9 +27,11 @@ import {
 } from "./actions/registry.js";
 import { publishReaderHandle } from "./actions/surface-handles.js";
 import { noopActionContext, withThread } from "./actions/types.js";
+import { InviteCard } from "./InviteCard.js";
 import { LabelPicker } from "./LabelPicker.js";
 import { MessageList } from "./reading/MessageList.js";
 import type { MailtoLink } from "./reading/mailto.js";
+import { useInvitationCards } from "./reading/useInvitationCards.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
 import { useSwipeToNavigate } from "./useSwipeToNavigate.js";
@@ -93,6 +95,7 @@ export function ThreadDetailPane({
   // `useLabels()` takes no account id.
   const labels = useLabels() ?? [];
   const { messages } = useThreadMessages(thread.id);
+  const { cards: invitationCards } = useInvitationCards(thread.id);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
@@ -419,6 +422,10 @@ export function ThreadDetailPane({
             ) : null}
           </div>
         </div>
+
+        {invitationCards?.map((card) => (
+          <InviteCard key={card.uid} card={card} threadId={thread.id} />
+        ))}
 
         <div className="reading-body">
           {messages ? (

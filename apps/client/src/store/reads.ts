@@ -9,6 +9,7 @@ import type {
   Thread,
 } from "@mail/shared";
 import {
+  DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
@@ -150,6 +151,7 @@ function defaultPreference(): Preference {
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: HOME_TIME_ZONE_UNSET,
+    answerNotificationsEnabled: DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
     updatedAt: new Date(0).toISOString(),
   };
 }
@@ -189,6 +191,9 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
         break;
       case "setHomeTimeZone":
         overlaid = { ...overlaid, homeTimeZone: intent.homeTimeZone };
+        break;
+      case "setAnswerNotificationsEnabled":
+        overlaid = { ...overlaid, answerNotificationsEnabled: intent.enabled };
         break;
     }
   }

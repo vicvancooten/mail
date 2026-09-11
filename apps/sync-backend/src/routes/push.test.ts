@@ -1,12 +1,23 @@
 import { randomUUID } from "node:crypto";
+import { LOCAL_CALENDAR_CAPABILITIES } from "@mail/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { ensureClaimToken } from "../auth/claim.js";
 import { createSession } from "../auth/sessions.js";
+import { rebuildReminderDueForCalendar } from "../calendars/reminder-due-store.js";
 import type { Db } from "../db/client.js";
-import { folders, messages, threads, users } from "../db/schema.js";
+import {
+  calendars,
+  events,
+  folders,
+  messages,
+  reminderDue,
+  series,
+  threads,
+  users,
+} from "../db/schema.js";
 import { listPushSubscriptionsForUser } from "../notifier/subscriptions.js";
 import { disabledVapidKeyStore } from "../notifier/vapid-keys.js";
 import { createTestDb, resetTestDb, TEST_MAIL_CREDENTIAL_KEY } from "../test-support/db.js";
@@ -331,5 +342,153 @@ describe("POST /notifications/actions", () => {
       },
     });
     expect(response.statusCode).toBe(404);
+  });
+
+  it("400s an archive intent with no mailAccountId", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/notifications/actions",
+      headers: { cookie },
+      payload: {
+        id: randomUUID(),
+        mailAccountId: null,
+        intent: { type: "archive", threadId: randomUUID() },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+});
+
+/**
+ * The Snooze button's own direct-POST path (#246, ADR-0028) — User-scoped,
+ * `mailAccountId: null` unlike Archive above, applied through
+ * `flushUserMutations`'s ledger instead of `flushMutations`'s.
+ */
+describe("POST /notifications/actions — snoozeReminder (#246, ADR-0028)", () => {
+  async function seedFiredReminder(userId: string): Promise<{ firedId: string; eventId: string }> {
+    const calendarId = randomUUID();
+    await db.insert(calendars).values({
+      id: calendarId,
+      userId,
+      name: "Personal",
+      description: null,
+      timeZone: "UTC",
+      originType: "local",
+      connectedAccountId: null,
+      color: "#4285F4",
+      isDefault: false,
+      mailAccountId: null,
+      mirrored: true,
+      capabilities: LOCAL_CALENDAR_CAPABILITIES,
+      reminderDefault: { timed: [10], allDay: [] },
+    });
+    const seriesId = randomUUID();
+    await db.insert(series).values({
+      id: seriesId,
+      userId,
+      calendarId,
+      uid: `${seriesId}@test`,
+      sequence: 0,
+      title: "Standup",
+      description: null,
+      location: null,
+      allDay: false,
+      floating: false,
+      tzid: "UTC",
+      dtstart: new Date(Date.now() + 60 * 60 * 1000),
+      durationMs: 30 * 60 * 1000,
+      rrules: [],
+      rdates: [],
+      exdates: [],
+      transparency: "opaque",
+      attendees: [],
+      reminders: [],
+    });
+    const originalStart = new Date(Date.now() + 60 * 60 * 1000);
+    const eventId = `${seriesId}@${originalStart.toISOString()}`;
+    await db.insert(events).values({
+      id: eventId,
+      userId,
+      calendarId,
+      seriesId,
+      originalStart,
+      startAt: originalStart,
+      endAt: new Date(originalStart.getTime() + 30 * 60 * 1000),
+      allDay: false,
+      tzid: "UTC",
+      floating: false,
+      title: "Standup",
+      location: null,
+      status: "confirmed",
+      transparency: "opaque",
+    });
+    await rebuildReminderDueForCalendar(db, calendarId);
+    const firedId = `${eventId}:10`;
+    await db
+      .update(reminderDue)
+      .set({ status: "fired", firedAt: new Date() })
+      .where(eq(reminderDue.id, firedId));
+    return { firedId, eventId };
+  }
+
+  it("snoozes a fired Reminder directly, User-scoped with no mailAccountId", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const userId = await ownerUserId();
+    const { firedId, eventId } = await seedFiredReminder(userId);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/notifications/actions",
+      headers: { cookie },
+      payload: {
+        id: randomUUID(),
+        mailAccountId: null,
+        intent: {
+          type: "snoozeReminder",
+          reminderDueIds: [firedId],
+          snoozeUntil: { kind: "minutes", minutes: 5 },
+        },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "applied" });
+
+    const rows = await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId));
+    expect(rows.some((row) => row.snoozed)).toBe(true);
+  });
+
+  it("replays the same outcome for a retried id (Background Sync's retry path)", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const userId = await ownerUserId();
+    const { firedId } = await seedFiredReminder(userId);
+    const id = randomUUID();
+    const payload = {
+      id,
+      mailAccountId: null,
+      intent: {
+        type: "snoozeReminder",
+        reminderDueIds: [firedId],
+        snoozeUntil: { kind: "minutes", minutes: 5 },
+      },
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/notifications/actions",
+      headers: { cookie },
+      payload,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/notifications/actions",
+      headers: { cookie },
+      payload,
+    });
+    expect(first.json()).toEqual({ status: "applied" });
+    expect(second.json()).toEqual({ status: "applied" });
   });
 });

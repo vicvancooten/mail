@@ -76,6 +76,9 @@ describe("runSyncRound", () => {
         Label: null,
         Note: null,
         ConnectedAccount: null,
+        Calendar: null,
+        Rollback: null,
+        Event: null,
       },
       mailAccounts: {},
     });
@@ -86,6 +89,9 @@ describe("runSyncRound", () => {
         Label: null,
         Note: null,
         ConnectedAccount: null,
+        Calendar: null,
+        Rollback: null,
+        Event: null,
       },
       mailAccounts: {
         "acct-1": {
@@ -240,6 +246,9 @@ describe("runSyncRound", () => {
         Label: null,
         Note: null,
         ConnectedAccount: null,
+        Calendar: null,
+        Rollback: null,
+        Event: null,
       },
       mailAccounts: {},
     });
@@ -594,6 +603,7 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
                   autoAdvanceDirection: "newer",
                   undoSendDelaySeconds: 10,
                   homeTimeZone: "",
+                  answerNotificationsEnabled: true,
                   updatedAt: "2026-01-01T00:00:00.000Z",
                 },
               ],

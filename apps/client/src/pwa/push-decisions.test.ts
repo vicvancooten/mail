@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildArchiveActionRequest,
   buildNotificationContent,
+  buildSnoozeActionRequest,
   hasVisibleClient,
   notificationClickTarget,
   notificationTargetUrl,
@@ -112,6 +113,54 @@ describe("buildNotificationContent", () => {
     });
     expect(content.body).toBe("Calendar for vic@example.com needs reconnecting.");
   });
+
+  it("titles a calendar_reminder by its one Event, tagged by that Event, and offers Snooze (#245, #246, ADR-0028)", () => {
+    const content = buildNotificationContent({
+      kind: "calendar_reminder",
+      events: [
+        {
+          reminderDueId: "rd-1",
+          eventId: "evt-1",
+          seriesId: "series-1",
+          title: "Standup",
+          body: "in 5 min · 9:00 AM",
+        },
+      ],
+      badgeCount: 0,
+    });
+    expect(content).toEqual({
+      title: "Standup",
+      body: "in 5 min · 9:00 AM",
+      tag: "calendar-reminder-evt-1",
+      actions: [{ action: "snooze", title: "Snooze 5 min" }],
+    });
+  });
+
+  it("joins every Event's own body when a Reminder group fires together, keeping the earliest Event's tag", () => {
+    const content = buildNotificationContent({
+      kind: "calendar_reminder",
+      events: [
+        {
+          reminderDueId: "rd-1",
+          eventId: "evt-1",
+          seriesId: "series-1",
+          title: "Standup",
+          body: "in 5 min",
+        },
+        {
+          reminderDueId: "rd-2",
+          eventId: "evt-2",
+          seriesId: "series-2",
+          title: "1:1",
+          body: "now",
+        },
+      ],
+      badgeCount: 0,
+    });
+    expect(content.title).toBe("Standup");
+    expect(content.body).toBe("in 5 min\nnow");
+    expect(content.tag).toBe("calendar-reminder-evt-1");
+  });
 });
 
 describe("hasVisibleClient", () => {
@@ -191,6 +240,31 @@ describe("notificationClickTarget", () => {
       }),
     ).toEqual({ kind: "screener", mailAccountId: "acct-1" });
   });
+
+  it("names the Event (and its Reminder Due rows) for calendar_reminder, landing on the Day view at the earliest start (#246, ADR-0028)", () => {
+    expect(
+      notificationClickTarget({
+        kind: "calendar_reminder",
+        events: [
+          {
+            reminderDueId: "rd-1",
+            eventId: "evt-1",
+            seriesId: "series-1",
+            title: "Standup",
+            body: "in 5 min",
+          },
+          {
+            reminderDueId: "rd-2",
+            eventId: "evt-2",
+            seriesId: "series-2",
+            title: "1:1",
+            body: "now",
+          },
+        ],
+        badgeCount: 0,
+      }),
+    ).toEqual({ kind: "calendar-event", eventId: "evt-1", reminderDueIds: ["rd-1", "rd-2"] });
+  });
 });
 
 describe("notificationTargetUrl", () => {
@@ -218,6 +292,12 @@ describe("notificationTargetUrl", () => {
     ).toBe("/");
     expect(notificationTargetUrl({ kind: "focus-only" })).toBe("/");
   });
+
+  it("deep-links a calendar-event target to the Event's own route (#246)", () => {
+    expect(
+      notificationTargetUrl({ kind: "calendar-event", eventId: "evt-1", reminderDueIds: ["rd-1"] }),
+    ).toBe("/calendar/evt-1");
+  });
 });
 
 describe("buildArchiveActionRequest", () => {
@@ -226,6 +306,20 @@ describe("buildArchiveActionRequest", () => {
       id: "01ULID",
       mailAccountId: "acct-1",
       intent: { type: "archive", threadId: "thread-1" },
+    });
+  });
+});
+
+describe("buildSnoozeActionRequest", () => {
+  it("shapes the direct-POST body as a fixed 5-minute, User-scoped snooze (#246, ADR-0028)", () => {
+    expect(buildSnoozeActionRequest(["rd-1", "rd-2"], "01ULID")).toEqual({
+      id: "01ULID",
+      mailAccountId: null,
+      intent: {
+        type: "snoozeReminder",
+        reminderDueIds: ["rd-1", "rd-2"],
+        snoozeUntil: { kind: "minutes", minutes: 5 },
+      },
     });
   });
 });

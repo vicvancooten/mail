@@ -188,6 +188,88 @@ describe("deliverPending", () => {
     expect(await listUndelivered(db)).toEqual([]);
   });
 
+  it("delivers a calendar_reminder row to the owning User's own devices (#245)", async () => {
+    await seedSubscription();
+    await insertOutboxEntry(db, {
+      userId: account.userId,
+      mailAccountId: null,
+      kind: "calendar_reminder",
+      dedupKey: randomUUID(),
+      payload: {
+        kind: "calendar_reminder",
+        events: [
+          {
+            reminderDueId: "rd-1",
+            eventId: "evt-1",
+            seriesId: "series-1",
+            title: "Standup",
+            body: "in 5 min",
+          },
+        ],
+      },
+    });
+
+    const { sendPush, sent } = recordingSender();
+    await deliverPending(db, { sendPush });
+
+    expect(sent).toEqual([
+      {
+        kind: "calendar_reminder",
+        events: [
+          {
+            reminderDueId: "rd-1",
+            eventId: "evt-1",
+            seriesId: "series-1",
+            title: "Standup",
+            body: "in 5 min",
+          },
+        ],
+        badgeCount: 0,
+      },
+    ]);
+    expect(await listUndelivered(db)).toEqual([]);
+  });
+
+  it("delivers a calendar_answer row once its readyAt has passed (#243)", async () => {
+    await seedSubscription();
+    const now = new Date("2026-01-05T09:00:00Z");
+    await insertOutboxEntry(db, {
+      userId: account.userId,
+      mailAccountId: null,
+      kind: "calendar_answer",
+      dedupKey: randomUUID(),
+      payload: {
+        kind: "calendar_answer",
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        answers: [
+          { attendeeEmail: "bob@example.com", attendeeName: "Bob", responseStatus: "accepted" },
+        ],
+      },
+      readyAt: new Date(now.getTime() + 60_000),
+    });
+
+    const { sendPush, sent } = recordingSender();
+    await deliverPending(db, { sendPush, now });
+    expect(sent).toEqual([]);
+    expect(await listUndelivered(db, now)).toEqual([]);
+
+    await deliverPending(db, { sendPush, now: new Date(now.getTime() + 60_000) });
+    expect(sent).toEqual([
+      {
+        kind: "calendar_answer",
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        answers: [
+          { attendeeEmail: "bob@example.com", attendeeName: "Bob", responseStatus: "accepted" },
+        ],
+        badgeCount: 0,
+      },
+    ]);
+  });
+
   it("carries the current unread-Inbox count on every payload, computed at delivery time", async () => {
     await seedSubscription();
     await seedNewMail("Hi");
@@ -216,5 +298,35 @@ describe("subscription-independent rows across users are grouped correctly", () 
 
     expect(sent).toEqual([]);
     expect(await listUndelivered(db)).toEqual([]);
+  });
+
+  it("never delivers one User's calendar_reminder row to another's subscription, even though both set neither mailAccountId nor connectedAccountId (#245)", async () => {
+    const otherAccount = await createTestMailAccount(db);
+    await seedSubscription(); // subscribed for `account` only.
+
+    await insertOutboxEntry(db, {
+      userId: otherAccount.userId,
+      mailAccountId: null,
+      kind: "calendar_reminder",
+      dedupKey: randomUUID(),
+      payload: {
+        kind: "calendar_reminder",
+        events: [
+          {
+            reminderDueId: "rd-1",
+            eventId: "evt-1",
+            seriesId: "series-1",
+            title: "Standup",
+            body: "in 5 min",
+          },
+        ],
+      },
+    });
+
+    const { sendPush, sent } = recordingSender();
+    await deliverPending(db, { sendPush });
+
+    // `account`'s own subscription must never receive `otherAccount`'s Reminder.
+    expect(sent).toEqual([]);
   });
 });

@@ -1,11 +1,28 @@
 import { buildApp } from "./app.js";
 import { ensureClaimToken } from "./auth/claim.js";
+import { createCaldavCalendarClient } from "./calendars/caldav/client.js";
+import { createCaldavCredentialProvider } from "./calendars/caldav/credentials.js";
+import { startCaldavCalendarMirrorLoop } from "./calendars/caldav/poll-loop.js";
+import { createGoogleCalendarClient } from "./calendars/google/client.js";
+import { createGoogleCalendarCredentialProvider } from "./calendars/google/credentials.js";
+import { startCalendarMirrorLoop } from "./calendars/google/poll-loop.js";
+import { createGraphCalendarClient } from "./calendars/graph/client.js";
+import { createGraphCalendarCredentialProvider } from "./calendars/graph/credentials.js";
+import { startGraphCalendarMirrorLoop } from "./calendars/graph/poll-loop.js";
+import { startMaterialiseLoop } from "./calendars/materialise-loop.js";
+import { startCalendarOutboxLoop } from "./calendars/outbox-loop.js";
+import { startReminderLoop } from "./calendars/reminder-loop.js";
+import { startRollbackPurgeLoop } from "./calendars/rollback-purge-loop.js";
+import { startSeriesPurgeLoop } from "./calendars/series-purge-loop.js";
 import { startSendLoop } from "./compose/send-loop.js";
 import { upgradeMailAccountsToConnectedAccounts } from "./connected-accounts/boot-upgrade.js";
+import { deriveCredentialKey } from "./connected-accounts/credential-crypto.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
 import { GENERATE_VAPID_KEYS_COMMAND, isSecureContext } from "./instance-info.js";
+import { startReplySendLoop } from "./invitations/reply-send-loop.js";
+import { startRequestSendLoop } from "./invitations/request-send-loop.js";
 import type { SendPushFn } from "./notifier/deliver.js";
 import { startNotifierDeliverLoop } from "./notifier/deliver-loop.js";
 import { createVapidKeyStore } from "./notifier/vapid-keys.js";
@@ -167,6 +184,26 @@ pollLoops.push(
   }),
 );
 
+// The iMIP `REPLY` sweeper (#241, ADR-0027, ADR-0007) — the Local-fallback
+// Answer's own Pending Send, held for the same Undo Send delay a
+// Composition's send is, but never one itself.
+pollLoops.push(
+  startReplySendLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
+
+// The organiser-side iMIP `REQUEST`/`CANCEL` sweeper (#242, ADR-0027) — the
+// mirror image of the Reply sweeper above: a self-scheduled Calendar's own
+// scheduling mail, sent at once rather than held for an Undo Send delay.
+pollLoops.push(
+  startRequestSendLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
+
 // The Search Index rebuild sweep (#50, ADR-0016): "a bumped index_version
 // triggers a background, batched, oldest-version-first rebuild while search
 // keeps serving old rows" — never a boot-time migration. Plain Postgres, no
@@ -187,10 +224,26 @@ pollLoops.push(startSnoozeWakeLoop(db, { logger: app.log }));
 // already stored on `notes`.
 pollLoops.push(startNotePurgeLoop(db, { logger: app.log }));
 
+// The Materialisation Window's daily roll (#230, ADR-0025): re-materialises
+// every Series' Occurrence rows against the current window on every tick,
+// same "first tick runs immediately, boot-time catch-up" shape as the note
+// purge sweep above.
+pollLoops.push(startMaterialiseLoop(db, { logger: app.log }));
+
+// Delete-a-Series' own 24-hour snapshot purge (#233): `series-purge-loop.ts`'s
+// own doc comment for why this ticks far more often than the Note sweep above.
+pollLoops.push(startSeriesPurgeLoop(db, { logger: app.log }));
+
 // The Notifier's outbox delivery sweep (#53, ADR-0015). Its first tick runs
 // immediately, same reasoning as the send sweeper above: whatever the outbox
 // held when the process died is exactly what this boot-time tick resumes.
 pollLoops.push(startNotifierDeliverLoop(db, { sendPush, logger: app.log }));
+
+// The reminder loop (#245, ADR-0028): the shared loop helper's first new
+// caller — 15 seconds, first tick at boot, so whatever came due while this
+// process was down rings the moment it's back (`reminder-loop.ts`'s own
+// doc comment).
+pollLoops.push(startReminderLoop(db, { logger: app.log }));
 
 // The Grant refresh sweep (#118, ADR-0021): "keeps Grants warm even while
 // the resident connection is down" — same independent-of-`sync/manager.ts`
@@ -204,6 +257,89 @@ pollLoops.push(
     logger: app.log,
   }),
 );
+
+// The real Google Calendar credential provider (#237): reads whatever
+// access token the Mail Facet's own Grant refresh already keeps warm under
+// Google's shared `"default"` audience (`calendars/google/credentials.ts`'s
+// own doc comment) — replacing the always-`null` placeholder #234 shipped
+// before the Connected Account / Grant model (#199/#200/#202) landed on
+// this branch.
+const googleCalendarCredentials = createGoogleCalendarCredentialProvider(
+  db,
+  deriveCredentialKey(env.MAIL_CREDENTIAL_KEY),
+);
+const googleCalendarClient = createGoogleCalendarClient();
+
+// The real Graph Calendar credential provider (#248) — reads whatever
+// access token the Calendar Facet's own consent round sealed under
+// Microsoft's `"graph"` audience (`calendars/graph/credentials.ts`'s own
+// doc comment — including the real gap that doc comment names: nothing on
+// this branch's ancestry refreshes that audience once it expires).
+const graphCalendarCredentials = createGraphCalendarCredentialProvider(
+  db,
+  deriveCredentialKey(env.MAIL_CREDENTIAL_KEY),
+);
+const graphCalendarClient = createGraphCalendarClient();
+
+// The real CalDAV credential provider (#247) — Basic auth from the
+// `password`-kind credential #203's discovery already sealed, gated on the
+// Calendar Facet's own `active` status (`calendars/caldav/credentials.ts`'s
+// own doc comment).
+const caldavCalendarCredentials = createCaldavCredentialProvider(
+  db,
+  deriveCredentialKey(env.MAIL_CREDENTIAL_KEY),
+);
+const caldavCalendarClient = createCaldavCalendarClient();
+
+// Google Calendar mirroring (#234): calendar-list-then-Events on the shared
+// loop helper, exactly as ADR-0025's own `poll-loop.ts` doc comment
+// anticipates.
+pollLoops.push(
+  startCalendarMirrorLoop(db, {
+    client: googleCalendarClient,
+    credentials: googleCalendarCredentials,
+    logger: app.log,
+  }),
+);
+
+// Microsoft Graph Calendar mirroring (#248): `calendarView/delta` per
+// Calendar plus the 15-minute `changeKey`-diffed list, on the same shared
+// loop helper as Google's own.
+pollLoops.push(
+  startGraphCalendarMirrorLoop(db, {
+    client: graphCalendarClient,
+    credentials: graphCalendarCredentials,
+    logger: app.log,
+  }),
+);
+
+// CalDAV Calendar mirroring (#247): home-set enumeration plus per-Calendar
+// `sync-collection`/`calendar-multiget` on the same shared loop helper as
+// Google's and Graph's own.
+pollLoops.push(
+  startCaldavCalendarMirrorLoop(db, {
+    client: caldavCalendarClient,
+    credentials: caldavCalendarCredentials,
+    logger: app.log,
+  }),
+);
+
+// The write-back outbox's own sweep (#237/#248/#247, ADR-0025): store-first
+// Series edits on a mirrored, writable Calendar ride this independent short
+// interval, never the mutation flush itself — one shared sweep, dispatching
+// per row to Google's, Graph's or CalDAV's own push by the owning Connected
+// Account's provider (`outbox-loop.ts`'s own doc comment).
+pollLoops.push(
+  startCalendarOutboxLoop(db, {
+    google: { client: googleCalendarClient, credentials: googleCalendarCredentials },
+    graph: { client: graphCalendarClient, credentials: graphCalendarCredentials },
+    caldav: { client: caldavCalendarClient, credentials: caldavCalendarCredentials },
+    logger: app.log,
+  }),
+);
+
+// The `Rollback` collection's own 7-day tombstone sweep (#237, ADR-0025).
+pollLoops.push(startRollbackPurgeLoop(db, { logger: app.log }));
 
 // `docs/dev-setup.md`'s production image runs under `tini` "for clean
 // SIGTERM for IMAP IDLE connections" — this is the handler that promise

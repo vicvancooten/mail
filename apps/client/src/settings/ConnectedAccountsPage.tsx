@@ -16,14 +16,18 @@ import {
   type SignInOutcome,
 } from "../mail-accounts/sign-in-outcome.js";
 import { rootRoute } from "../router/routes.js";
-import { enqueueMutation, useConnectedAccounts, useMailAccounts } from "../store/index.js";
+import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
 
 /**
  * Settings' Connected Accounts page (#201, replacing `MailAccountsPage` in
  * the same nav slot): one Card holding one Provider × Facet Table
  * (`ConnectedAccountsTable`, #172 Variant C, locked in), the Facet-phrased
  * add entry point below it, and — unchanged — each Mail Account's own
- * signature and notifications toggle.
+ * signature editor. The notifications toggle that used to sit beside it
+ * moved to `NotificationsPage.tsx` (#244's own acceptance line: "the
+ * per-Mail-Account `notificationsEnabled` toggle moves here") — "Mail
+ * Accounts first" on the one page that now lists every notification
+ * toggle, this Account's included.
  *
  * Deliberately **not** nested under `.settings-page` (#201's own acceptance
  * criterion): that legacy unlayered stylesheet's bare-element selectors
@@ -153,19 +157,6 @@ export function ConnectedAccountsPage() {
               <div key={account.id} className="account-preferences">
                 <strong>{account.emailAddress}</strong>
                 <SignatureEditor account={account} />
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={account.notificationsEnabled}
-                    onChange={(event) =>
-                      void enqueueMutation(
-                        { type: "setNotificationsEnabled", enabled: event.target.checked },
-                        account.id,
-                      )
-                    }
-                  />
-                  Notifications
-                </label>
               </div>
             ))}
           </section>

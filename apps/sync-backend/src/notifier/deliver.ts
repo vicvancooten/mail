@@ -25,6 +25,7 @@ export type SendPushFn = (
 
 export interface DeliverPendingOptions {
   sendPush: SendPushFn;
+  now?: Date;
 }
 
 export interface DeliverPendingResult {
@@ -48,13 +49,23 @@ export async function deliverPending(
   db: Db,
   options: DeliverPendingOptions,
 ): Promise<DeliverPendingResult> {
-  const pending = await listUndelivered(db);
+  const pending = await listUndelivered(db, options.now ?? new Date());
   const result: DeliverPendingResult = { sent: 0, collapsed: 0, pruned: 0 };
   if (pending.length === 0) return result;
 
   const byAccount = new Map<string, NotifierOutboxRow[]>();
   for (const row of pending) {
-    const bucketKey = row.mailAccountId ?? `connected-account:${row.connectedAccountId}`;
+    // `calendar_reminder` (#245) is the first kind to set neither: it names
+    // no Mail Account (a Calendar Reminder is not Mail) and no Connected
+    // Account (it is not a `needs_reauth` row) — bucketing it on `userId`
+    // instead is what keeps two different Users' Reminders from colliding
+    // into the one bucket a bare `"connected-account:undefined"` key would
+    // otherwise produce.
+    const bucketKey =
+      row.mailAccountId ??
+      (row.connectedAccountId
+        ? `connected-account:${row.connectedAccountId}`
+        : `user:${row.userId}`);
     const bucket = byAccount.get(bucketKey);
     if (bucket) bucket.push(row);
     else byAccount.set(bucketKey, [row]);
@@ -207,6 +218,17 @@ function toPayload(row: NotifierOutboxRow, badgeCount: number): PushPayload {
         mailAccountId: requireMailAccountId(row),
         senders: payload.senders,
         count: payload.count,
+        badgeCount,
+      };
+    case "calendar_reminder":
+      return { kind: "calendar_reminder", events: payload.events, badgeCount };
+    case "calendar_answer":
+      return {
+        kind: "calendar_answer",
+        eventId: payload.eventId,
+        seriesId: payload.seriesId,
+        title: payload.title,
+        answers: payload.answers,
         badgeCount,
       };
   }

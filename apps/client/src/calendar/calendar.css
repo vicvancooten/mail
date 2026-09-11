@@ -1,0 +1,741 @@
+/* The Calendar App grid and its five views (#231) — Variant B, "Minimal
+   chrome / command-first" (#173). Motion runs on the app's own
+   `--dur-*`/`--ease*` tokens (`index.css`) throughout; nothing here invents
+   a new duration or curve. The phone layout is a single CSS breakpoint
+   collapse of the same markup, matching every other Split/List switch in
+   the app (`shell.css`'s own 701px line) — never a second route or a
+   second component tree. */
+
+.calendar-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+.calendar-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The Event Window's edges, drawn honestly rather than inferred (#232) — a
+   plain status line, not a dismissible toast: it reflects the current
+   range, not a one-off event, and should reappear every time navigation
+   crosses back outside the window. */
+.calendar-window-banner {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  background: var(--color-muted);
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+.calendar-heading {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 0 0 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+.calendar-icon-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.calendar-today-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: var(--hairline) solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+.calendar-today-btn:hover {
+  background: var(--color-hover);
+}
+
+.calendar-nav-arrows {
+  display: flex;
+  gap: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Segmented view switcher                                             */
+/* ------------------------------------------------------------------ */
+
+.calendar-view-switcher {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+}
+
+.calendar-view-switcher-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  font-weight: 550;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+.calendar-view-switcher-btn:hover {
+  color: var(--color-ink);
+}
+.calendar-view-switcher-btn.current {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-card);
+}
+
+/* ------------------------------------------------------------------ */
+/* Body — cross-fades on every view/date switch                        */
+/* ------------------------------------------------------------------ */
+
+.calendar-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  animation: calendar-cross-fade var(--dur-fast) var(--ease-out);
+}
+
+@keyframes calendar-cross-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Day / Work Week / Week — the shared hour grid                       */
+/* ------------------------------------------------------------------ */
+
+.calendar-time-grid {
+  display: flex;
+  flex-direction: row;
+  min-height: 100%;
+}
+
+.calendar-time-grid-day {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: var(--hairline) solid var(--color-border);
+}
+.calendar-time-grid-day:last-child {
+  border-right: none;
+}
+
+.calendar-time-grid-day-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+.calendar-weekday-label {
+  font-size: 11px;
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.calendar-day-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.calendar-time-grid-day-heading.today .calendar-day-number {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+.calendar-all-day-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-bottom: var(--hairline) solid var(--color-border);
+  cursor: default;
+}
+
+.calendar-time-grid-day-body {
+  flex: 1;
+  display: flex;
+  position: relative;
+}
+
+.calendar-time-gutter {
+  width: 56px;
+  flex-shrink: 0;
+  border-right: var(--hairline) solid var(--color-border);
+}
+
+.calendar-hour-label {
+  height: 48px;
+  padding-right: 6px;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--color-ink-faint);
+  transform: translateY(-6px);
+}
+/* One hour rail is enough on a wide desktop row of day columns; every
+   column repeats it once stacked on the phone (`@media` block below). */
+.calendar-time-grid-day:not(:first-child) .calendar-hour-label {
+  visibility: hidden;
+}
+
+.calendar-time-grid-column {
+  flex: 1;
+  position: relative;
+  cursor: default;
+}
+.calendar-time-grid-column.today {
+  background: color-mix(in oklab, var(--color-accent-soft) 45%, transparent);
+}
+
+.calendar-hour-row {
+  display: block;
+  width: 100%;
+  height: 48px;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  border-bottom: var(--hairline) solid var(--color-border);
+  cursor: pointer;
+  font: inherit;
+}
+
+.calendar-hour-row:hover {
+  background: color-mix(in oklab, var(--color-ink-faint) 6%, transparent);
+}
+
+.calendar-timed-event {
+  position: absolute;
+  padding: 1px 3px;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* Inert — opening an Occurrence is a later ticket's own screen; this
+     grid only ever reads (#231's own acceptance line). */
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ */
+/* Event chips                                                         */
+/* ------------------------------------------------------------------ */
+
+.calendar-event-chip {
+  --chip-color: var(--color-ink-faint);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.3;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+.calendar-event-chip:hover,
+.calendar-event-chip:focus-visible {
+  filter: brightness(0.96);
+  outline: none;
+}
+
+.calendar-event-chip-timed {
+  height: 100%;
+  width: 100%;
+  padding: 2px 5px;
+  background: color-mix(in oklab, var(--chip-color) 16%, var(--color-surface));
+  border-left: 3px solid var(--chip-color);
+  border-radius: var(--radius-sm);
+}
+
+.calendar-event-chip-all-day,
+.calendar-event-chip-block {
+  padding: 1px 5px;
+  background: color-mix(in oklab, var(--chip-color) 22%, var(--color-surface));
+  border-left: 3px solid var(--chip-color);
+}
+
+.calendar-event-time {
+  color: var(--color-ink-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.calendar-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------ */
+/* Month view                                                          */
+/* ------------------------------------------------------------------ */
+
+.calendar-month-grid {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.calendar-month-grid-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+.calendar-month-weekday {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.calendar-month-grid-cells {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: minmax(96px, 1fr);
+}
+
+.calendar-month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-right: var(--hairline) solid var(--color-border);
+  border-bottom: var(--hairline) solid var(--color-border);
+  cursor: default;
+  min-width: 0;
+  min-height: 0;
+}
+.calendar-month-cell.other-month {
+  color: var(--color-ink-faint);
+  background: var(--color-surface-strong);
+}
+
+.calendar-month-day-number {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+.calendar-month-day-number:hover {
+  background: var(--color-hover);
+}
+.calendar-month-cell.today .calendar-month-day-number {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+.calendar-month-cell-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendar-month-cell-overflow {
+  font-size: 10.5px;
+  color: var(--color-ink-muted);
+  padding-left: 5px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Year view                                                            */
+/* ------------------------------------------------------------------ */
+
+.calendar-year-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.calendar-mini-month {
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px;
+}
+
+.calendar-mini-month-heading {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 650;
+  padding: 2px 4px 6px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-press) var(--ease);
+}
+.calendar-mini-month-heading:hover {
+  background: var(--color-hover);
+}
+
+.calendar-mini-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.calendar-mini-month-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-size: 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  position: relative;
+}
+.calendar-mini-month-day:hover {
+  background: var(--color-hover);
+}
+.calendar-mini-month-day.today {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+.calendar-mini-month-day.has-events::after {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.calendar-mini-month-day.blank {
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ */
+/* Slide-over (Calendar list)                                          */
+/* ------------------------------------------------------------------ */
+
+.calendar-slide-over-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 16px 16px;
+}
+
+.calendar-slide-over-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+}
+.calendar-slide-over-row:hover {
+  background: var(--color-hover);
+}
+.calendar-slide-over-row input[type="checkbox"] {
+  cursor: pointer;
+}
+
+/* The row's own label half — everything but the trailing settings button
+   (#236), which needs its own click target rather than also toggling the
+   visibility checkbox. */
+.calendar-slide-over-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.calendar-slide-over-settings-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--color-ink-muted);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.calendar-slide-over-settings-button:hover {
+  background: var(--color-hover);
+  color: inherit;
+}
+
+.calendar-slide-over-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.calendar-slide-over-empty {
+  padding: 0 16px;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Phone: same views, one column (#231's own acceptance line)          */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 700px) {
+  .calendar-toolbar {
+    flex-wrap: wrap;
+  }
+
+  /* Week/Work Week/Month's multi-column desktop layout stacks into one
+     column (#231's own acceptance line) — every day still renders, in full,
+     just top-to-bottom instead of side-by-side. */
+  .calendar-time-grid {
+    flex-direction: column;
+  }
+  .calendar-time-grid-day {
+    border-right: none;
+    border-bottom: var(--hairline) solid var(--color-border);
+  }
+  .calendar-time-grid-day:last-child {
+    border-bottom: none;
+  }
+  .calendar-time-grid-day:not(:first-child) .calendar-hour-label {
+    visibility: visible;
+  }
+
+  .calendar-month-grid-cells {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(auto, 1fr);
+  }
+  .calendar-month-grid-weekdays {
+    display: none;
+  }
+
+  .calendar-year-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* The Event editor popover (#233)                                     */
+/* ------------------------------------------------------------------ */
+
+.calendar-event-editor {
+  width: 320px;
+  gap: 8px;
+}
+
+.calendar-event-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.calendar-event-editor-row input[type="datetime-local"],
+.calendar-event-editor-row input[type="date"] {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font-size: 13px;
+  background: var(--color-surface);
+  color: inherit;
+}
+
+/* The Event page's own Snooze row (#246, ADR-0028) — shown only when this Event was opened from a fired Reminder's own notification click. */
+.calendar-reminder-snooze-row {
+  flex-wrap: wrap;
+  background: var(--color-hover);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* The calendar_reminder inline toast (#246, ADR-0028)                 */
+/* ------------------------------------------------------------------ */
+
+.calendar-reminder-toast {
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 15px;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  box-shadow: var(--shadow-overlay);
+}
+
+.calendar-reminder-toast-open {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.calendar-reminder-toast-open strong {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.calendar-reminder-toast-open span {
+  color: var(--color-ink-muted);
+  white-space: pre-line;
+}
+
+.calendar-reminder-toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.calendar-reminder-toast-actions button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.calendar-reminder-toast-actions button:hover {
+  background: var(--color-hover);
+}
+
+.calendar-event-editor-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  padding: 6px 0;
+  border-top: var(--hairline) solid var(--color-border);
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+.calendar-event-editor-more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-event-editor-more textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: inherit;
+  box-sizing: border-box;
+}
+
+.calendar-event-editor-custom-recurrence {
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+  margin: 0;
+}
+
+.calendar-event-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: var(--hairline) solid var(--color-border);
+}
+
+.calendar-event-editor-actions > :first-child {
+  margin-right: auto;
+}

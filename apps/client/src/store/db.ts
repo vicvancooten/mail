@@ -1,9 +1,12 @@
 import type {
   AttachmentMeta,
+  Calendar,
   ComposeDocument,
   CompositionStatus,
   ConnectedAccount,
   Correspondent,
+  Event,
+  EventReminder,
   GmailLabel,
   Label,
   MailAccount,
@@ -12,6 +15,10 @@ import type {
   NoteDocument,
   Preference,
   Recipient,
+  Rollback,
+  Series,
+  SeriesAttendee,
+  SeriesOverride,
   Thread,
   UserMutationIntent,
 } from "@mail/shared";
@@ -36,7 +43,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 11; // #200: `connectedAccounts` table added
+export const CACHE_SCHEMA_VERSION = 13; // #242: `pendingSeriesSaves` grows `sendUpdate`
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -108,6 +115,22 @@ export interface ListWindow {
    * silently.
    */
   complete: boolean;
+}
+
+/**
+ * The Event Window's edges (#229, CONTEXT.md, ADR-0025), as the Sync
+ * Backend last reported them on the `Event` collection's delta — `ListWindow`'s
+ * sibling for a window the *server* bounds and rolls, rather than one the
+ * Client trims itself. One row (`key: "current"`): the window is global to
+ * the User, not per Calendar or per view. `null` until the first `Event`
+ * sync round ever lands one, which is also why `store/reads.ts`'s
+ * eventual grid must treat "not fetched yet" and "window not known yet" as
+ * the same "don't claim completeness" state.
+ */
+export interface EventWindow {
+  key: "current";
+  start: string;
+  end: string;
 }
 
 /** A Thread the User opened: kept in the entity cache regardless of age (ADR-0009). */
@@ -280,6 +303,53 @@ export interface PendingUserMutation {
   intent: UserMutationIntent;
 }
 
+/**
+ * A Series' on-demand fetch, cached the way `store/notes.ts` caches a Note
+ * (#233) — the Event editor's own read model. Unlike every other table in
+ * this file, `Series` never rides `POST /sync` (`@mail/shared`'s
+ * `seriesSchema` own doc comment: "the Series body is an on-demand fetch,
+ * not part of the `Event` delta"), so this row is populated by `api
+ * /calendars.ts#fetchSeries` and by the editor's own optimistic writes
+ * (`store/series.ts`), never by `sync/`. `overrides` rides bundled here
+ * rather than as its own table — `GET /calendars/:id/series/:id`'s own
+ * `{series, overrides}` wire shape, and nothing reads an Override except
+ * alongside its owning Series.
+ */
+export type CachedSeries = Series & { overrides: SeriesOverride[] };
+
+/**
+ * The `seriesSaves` channel's coalescing queue (#233) — `PendingNoteSave`'s
+ * own shape: keyed by `seriesId` rather than a fresh id per save, so a
+ * later edit's `put()` simply overwrites a still-unflushed earlier one in
+ * place. Carries the Series' whole body plus its whole Override set,
+ * mirroring `@mail/shared`'s `seriesSaveSchema` field for field.
+ */
+export interface PendingSeriesSave {
+  seriesId: string;
+  saveId: string;
+  calendarId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  allDay: boolean;
+  floating: boolean;
+  tzid: string | null;
+  dtstart: string;
+  durationMs: number;
+  rrules: string[];
+  rdates: string[];
+  exdates: string[];
+  transparency: "opaque" | "transparent";
+  attendees: SeriesAttendee[];
+  /** `seriesSaveSchema.reminders`' own field (#244, ADR-0028). */
+  reminders: EventReminder[];
+  /** No `seriesId` — `store/series.ts#SeriesBodyFields`'s own doc comment. */
+  overrides: Omit<SeriesOverride, "seriesId">[];
+  queuedAt: string;
+  /** `@mail/shared#seriesSaveSchema.sendUpdate`'s own field (#242, ADR-0027) — the Send / Don't send prompt's answer, `saveSeriesBody`'s own new parameter. */
+  sendUpdate: boolean;
+}
+
 /** Cache-level bookkeeping that survives a wipe (it is what records that one happened). */
 export interface CacheMetaRow {
   key: string;
@@ -301,6 +371,13 @@ export class LocalCache extends Dexie {
   /** `ConnectedAccount` (#199, #200, ADR-0022), User-scoped, whole-replicated — `notes`' sibling, no `deletedAt` (no soft delete on a Connected Account). */
   connectedAccounts!: EntityTable<ConnectedAccount, "id">;
   pendingNoteSaves!: EntityTable<PendingNoteSave, "noteId">;
+  /** `Calendar` (#229), User-scoped, whole-replicated — `notes`' sibling: a User has at most a handful. */
+  calendars!: EntityTable<Calendar, "id">;
+  /** `Event` (#229): always empty on this line (no materialiser yet, #230) — kept keyed by `calendarId` for the grid this collection's future rows will feed. */
+  events!: EntityTable<Event, "id">;
+  eventWindows!: EntityTable<EventWindow, "key">;
+  /** `Rollback` (#229, ADR-0025), User-scoped, whole-replicated — always empty until #237's write-back. */
+  rollbacks!: EntityTable<Rollback, "id">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
   syncState!: EntityTable<SyncStateRow, "key">;
@@ -310,6 +387,10 @@ export class LocalCache extends Dexie {
   /** `Preference`, User-scoped (#54): exactly one row, `id` is the signed-in User's own id. */
   preferences!: EntityTable<Preference, "id">;
   pendingUserMutations!: EntityTable<PendingUserMutation, "id">;
+  /** A Series' on-demand fetch, cached (#233) — disposable like every `DATA_TABLES` row: a wipe simply means the next open of the editor re-fetches it, there being no sync round to repopulate it from. */
+  seriesCache!: EntityTable<CachedSeries, "id">;
+  /** Unsent Series body edits (#233) — deliberately absent from `DATA_TABLES`, the same "unsent user intent survives a wipe" rule `pendingNoteSaves` already has. */
+  pendingSeriesSaves!: EntityTable<PendingSeriesSave, "seriesId">;
   cacheMeta!: EntityTable<CacheMetaRow, "key">;
 
   /** The value `ensureCacheSchema` compares the stored one against; overridable so tests can open the same database twice at different versions. */
@@ -342,6 +423,12 @@ export class LocalCache extends Dexie {
       notes: "id, userId, deletedAt",
       pendingNoteSaves: "noteId",
       connectedAccounts: "id, userId",
+      // User-scoped, whole-replicated (#229) — no per-Mail-Account index,
+      // the same reasoning `labels`' comment above gives.
+      calendars: "id, userId",
+      events: "id, calendarId, seriesId",
+      eventWindows: "key",
+      rollbacks: "id, userId",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -350,6 +437,8 @@ export class LocalCache extends Dexie {
       pendingComposeSaves: "compositionId, mailAccountId",
       preferences: "id",
       pendingUserMutations: "id, createdAt",
+      seriesCache: "id, calendarId",
+      pendingSeriesSaves: "seriesId",
       cacheMeta: "key",
     });
   }
@@ -374,11 +463,16 @@ const DATA_TABLES = [
   "correspondents",
   "notes",
   "connectedAccounts",
+  "calendars",
+  "events",
+  "eventWindows",
+  "rollbacks",
   "listWindows",
   "cachePins",
   "syncState",
   "compositions",
   "preferences",
+  "seriesCache",
 ] as const;
 
 export type CacheSchemaOutcome =
@@ -401,6 +495,7 @@ export type CacheSchemaOutcome =
       pendingComposeSaves: number;
       pendingUserMutations: number;
       pendingNoteSaves: number;
+      pendingSeriesSaves: number;
     };
 
 /**
@@ -422,11 +517,13 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
   const pendingComposeSaves = await db.pendingComposeSaves.count();
   const pendingUserMutations = await db.pendingUserMutations.count();
   const pendingNoteSaves = await db.pendingNoteSaves.count();
+  const pendingSeriesSaves = await db.pendingSeriesSaves.count();
   if (
     pendingMutations > 0 ||
     pendingComposeSaves > 0 ||
     pendingUserMutations > 0 ||
-    pendingNoteSaves > 0
+    pendingNoteSaves > 0 ||
+    pendingSeriesSaves > 0
   ) {
     return {
       status: "deferred",
@@ -435,6 +532,7 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
       pendingComposeSaves,
       pendingUserMutations,
       pendingNoteSaves,
+      pendingSeriesSaves,
     };
   }
 
