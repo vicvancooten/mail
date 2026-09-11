@@ -4,7 +4,8 @@ import { useIsPhoneWidth } from "./use-phone-width.js";
 /**
  * "Touch-capable phone" (#143, #133's Reader-actions decision): narrow
  * enough that the Client has already dropped desktop layout
- * (`useIsPhoneWidth`, #134/#138's own 700px mount/unmount breakpoint) *and*
+ * (`useIsPhoneWidth`, the app's one 768px mount/unmount breakpoint, #273)
+ * *and*
  * the primary pointer can't hover precisely (`useHoverCapable`, #134's own
  * input-capability gate) — a mouse-driven window narrowed to the same width
  * keeps the Reader's prev/next buttons; a phone loses them so the header has

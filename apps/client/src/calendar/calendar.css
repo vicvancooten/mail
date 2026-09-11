@@ -3,8 +3,8 @@
    `--dur-*`/`--ease*` tokens (`index.css`) throughout; nothing here invents
    a new duration or curve. The phone layout is a single CSS breakpoint
    collapse of the same markup, matching every other Split/List switch in
-   the app (`shell.css`'s own 701px line) — never a second route or a
-   second component tree. */
+   the app (the app's one 768px phone breakpoint, #273) — never a second
+   route or a second component tree. */
 
 .calendar-app {
   display: flex;
@@ -682,7 +682,7 @@
 /* Phone: same views, one column (#231's own acceptance line)          */
 /* ------------------------------------------------------------------ */
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .calendar-toolbar {
     flex-wrap: wrap;
   }

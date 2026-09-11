@@ -8,7 +8,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet.js";
-import { useIsMobile } from "../hooks/use-mobile.js";
+import { useIsPhoneWidth } from "../hooks/use-phone-width.js";
 import { APPS, appForPath, appIconFor } from "./apps.js";
 
 /**
@@ -43,11 +43,11 @@ import { APPS, appForPath, appIconFor } from "./apps.js";
  * hand-rolled listener on this branch: Radix's `Dialog` already dismisses on
  * both, over pointer events, so touch closes it the same way a mouse would.
  * The desktop branch keeps its own manual listeners, since the inline
- * expansion is a plain positioned `div`, not a Radix `Dialog`. `useIsMobile`
- * (768px, `hooks/use-mobile.ts`) is the line between the two branches —
- * `RootLayout.tsx` reads this same hook for `isPhoneChrome`, so the header's
- * own instance of this component and the phone bottom bar's are never both
- * mounted at once (see `PhoneSwitcher` below).
+ * expansion is a plain positioned `div`, not a Radix `Dialog`. `useIsPhoneWidth`
+ * (the app's one 768px breakpoint, #273) is the line between the two
+ * branches — `RootLayout.tsx` reads this same hook for `isPhoneChrome`, so
+ * the header's own instance of this component and the phone bottom bar's
+ * are never both mounted at once (see `PhoneSwitcher` below).
  *
  * Each tab is a router `Link` on both branches, so a reserved App is a real
  * destination (`PlaceholderRoute`) rather than a disabled control.
@@ -55,7 +55,7 @@ import { APPS, appForPath, appIconFor } from "./apps.js";
 export function AppSwitcher({ pathname }: { pathname: string }) {
   const current = appForPath(pathname);
   const [open, setOpen] = useState(false);
-  const isPhone = useIsMobile();
+  const isPhone = useIsPhoneWidth();
   const CurrentIcon = appIconFor(current?.key ?? "mail");
 
   return isPhone ? (
@@ -105,19 +105,20 @@ function AppTabs({
 }
 
 /**
- * The phone switcher (#136, exported as of #155): below 700px there's no
- * header width left for an inline-expanding tab row at all, icon-only or
- * otherwise, so the toggle opens a real bottom `Sheet` instead — the same
- * move `Sidebar.tsx`'s own `MobileSheet` made for the folder rail. Unlike
- * the desktop row, this always lists every App's full name (five, since
- * #187): a sheet has the vertical room a 60px header never does, so there's
- * no "out of room" question here to answer.
+ * The phone switcher (#136, exported as of #155): below the app's one 768px
+ * phone breakpoint there's no header width left for an inline-expanding tab
+ * row at all, icon-only or otherwise, so the toggle opens a real bottom
+ * `Sheet` instead — the same move `Sidebar.tsx`'s own `MobileSheet` made for
+ * the folder rail. Unlike the desktop row, this always lists every App's
+ * full name (five, since #187): a sheet has the vertical room a 60px header
+ * never does, so there's no "out of room" question here to answer.
  *
  * The phone bottom bar (`router/BottomBar.tsx`) renders this directly
- * rather than going through `AppSwitcher`'s own `useIsMobile` branch — the
- * bottom bar is already CSS-gated to the app's 700px phone breakpoint, so a
- * second, differently-thresholded JS check here would just be a chance for
- * the two to disagree. `variant="bottom-bar"` swaps the header's
+ * rather than going through `AppSwitcher`'s own `useIsPhoneWidth` branch —
+ * the bottom bar is already CSS-gated to that same 768px phone breakpoint
+ * (#273 unified the two this app used to carry), so a second JS check here
+ * would just be a chance for the two to disagree. `variant="bottom-bar"`
+ * swaps the header's
  * icon-plus-chevron trigger for one that matches its two siblings there
  * (Folders, Compose) — the current App's name as a caption, no chevron,
  * since a persistent tab item is never "expanded" the way the header's own

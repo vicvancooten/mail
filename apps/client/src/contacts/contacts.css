@@ -304,9 +304,10 @@
   text-overflow: ellipsis;
 }
 
-/* Phone (#211: "the same grid at one column at the app's own 700px
-   breakpoint, no separate route") — `mail.css`'s own 700px convention. */
-@media (max-width: 700px) {
+/* Phone (#211: "the same grid at one column at the app's own phone
+   breakpoint, no separate route") — the app's one 768px breakpoint (#273),
+   `mail.css`'s own convention. */
+@media (max-width: 767px) {
   .contacts-grid {
     grid-template-columns: 1fr;
   }

@@ -8,7 +8,7 @@ const HOVER_QUERY = "(hover: hover) and (pointer: fine)";
  * width (#134): a tablet with a mouse keeps hover-only affordances (the row
  * Done glyph, the Group Done node, bulk actions, the Timeline Spine) at any
  * width, and a phone in landscape does not gain them by growing past a
- * breakpoint. Mirrors `useIsMobile`'s own posture, but reads pointer/hover
+ * breakpoint. Mirrors `useIsPhoneWidth`'s own posture, but reads pointer/hover
  * capability rather than viewport width.
  *
  * Defaults to `true` (today's hover-revealed behavior) wherever
