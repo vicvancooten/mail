@@ -465,11 +465,14 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByText("Routed thread");
 
-      // The home mark, the header's own App Switcher instance and the
-      // appearance toggle are gone from the tree entirely — a real
-      // conditional (#155), not CSS-only visibility, so there's exactly
-      // one "Switch app" control to find, not a duplicate.
-      expect(screen.queryByLabelText("Wicket home")).toBeNull();
+      // The header's own App Switcher instance and the appearance toggle
+      // are gone from the tree entirely — a real conditional (#155), not
+      // CSS-only visibility, so there's exactly one "Switch app" control to
+      // find, not a duplicate. The home mark itself stays (#286,
+      // `CONTEXT.md`'s own Hub entry): the phone top bar keeps it at its
+      // leading edge rather than dropping it alongside the controls the
+      // Dock picks up instead.
+      expect(screen.getByLabelText("Wicket home")).toBeDefined();
       expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
       expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
 
@@ -496,6 +499,40 @@ describe("the app shell over a routed tree (#71)", () => {
       // Compose opens the Composer from the bottom bar directly.
       await user.click(within(bottomBar).getByRole("button", { name: "Compose" }));
       expect(await screen.findByPlaceholderText("Subject")).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("at phone width, the home mark navigates to the current App's own root, not always /mail (#286)", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", "u1", { name: "Groceries", order: 0 })] }),
+      { replace: false },
+    );
+    await applyTaskDelta(
+      delta({ created: [makeTask("t1", "u1", "list-1", { title: "Buy milk" })] }),
+      {
+        replace: false,
+      },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/tasks/t1");
+
+    try {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Groceries" });
+
+      await user.click(screen.getByLabelText("Wicket home"));
+
+      // Home lands on Tasks' own root (`/tasks`), not `/mail` — the mark's
+      // `to` is the current App's own path (`RootLayout.tsx`'s
+      // `currentApp?.path`), not a hardcoded destination.
+      await waitFor(() => {
+        expect(location.pathname).toBe("/tasks");
+      });
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }

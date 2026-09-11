@@ -568,6 +568,12 @@
     padding: 0 10px;
     padding-left: calc(10px + env(safe-area-inset-left));
     padding-right: calc(10px + env(safe-area-inset-right));
+    /* `--shadow-header-flush` (#286): the desktop recipe's top inset
+       highlight reads as a hairline right where the header's top edge
+       meets the safe-area inset (the OS status bar) — dropped here, kept
+       everywhere else, since the bottom shade/drop it keeps still separates
+       the floating header from content scrolling beneath it. */
+    box-shadow: var(--shadow-header-flush);
     transition: transform var(--dur-fast) var(--ease-out);
   }
 
