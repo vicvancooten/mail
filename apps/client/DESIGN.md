@@ -299,9 +299,11 @@ elevation, distinct from `--shadow-overlay`) plus `12px` of padding around it, s
 reads as a raised object sitting *on* the Hub rather than filling the frame; below 768px
 that padding, radius, and shadow all drop to zero — full-bleed, matching the phone rule
 followed everywhere else in the app (the folder rail's Sheet breakpoint, the same
-768px line — see **Responsive breakpoint** below). The header's own `theme-color` meta tags (`index.html`) track this ground:
-`#f5f5f8` light / `#08090b` dark, matching `--color-surface-strong` in each mode so a
-phone's own chrome (status bar/task switcher) reads as part of the same instrument.
+768px line — see **Responsive breakpoint** below). The single `theme-color` meta
+(`index.html`'s pre-paint script, `theme/device-theme.ts`) tracks this ground —
+`#f5f5f8` light / `#08090b` dark, matching `--color-surface-strong` in whichever mode
+is actually resolved — so a phone's own chrome (status bar/task switcher) reads as
+part of the same instrument.
 
 **The App Switcher (signature).** The left header cell is now two adjacent controls (split
 in #96): a plain `Link` **Home mark** (`.home-link` — the mark, the wordmark, to `/mail`)
