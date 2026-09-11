@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { addressBookSchema } from "./address-books.js";
 import { calendarSchema } from "./calendars.js";
 import {
   composeSaveOutcomeSchema,
@@ -7,6 +8,14 @@ import {
   undoSendDelaySchema,
 } from "./compose.js";
 import { connectedAccountSchema } from "./connected-accounts.js";
+import { contactLinkSchema } from "./contact-links.js";
+import {
+  contactBannerSchema,
+  contactRollbackSchema,
+  contactSchema,
+  contactsSortOrderSchema,
+  contactWritableFieldsSchema,
+} from "./contacts.js";
 import { eventSchema } from "./events.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
@@ -269,6 +278,10 @@ export type GmailLabelDelta = z.infer<typeof gmailLabelDeltaSchema>;
 export const noteDeltaSchema = collectionDeltaSchema(noteSchema);
 export type NoteDelta = z.infer<typeof noteDeltaSchema>;
 
+/** `ContactRollback` (#216): append-only, User-scoped — see `contacts.ts#contactRollbackSchema`'s own doc comment. `updated`/`destroyed` are always empty; a row is written once and never revisited. */
+export const contactRollbackDeltaSchema = collectionDeltaSchema(contactRollbackSchema);
+export type ContactRollbackDelta = z.infer<typeof contactRollbackDeltaSchema>;
+
 /** `Calendar` (#229): whole-replicated, User-scoped — see `calendars.ts#calendarSchema`'s own doc comment. */
 export const calendarDeltaSchema = collectionDeltaSchema(calendarSchema);
 export type CalendarDelta = z.infer<typeof calendarDeltaSchema>;
@@ -329,6 +342,8 @@ export const preferenceSchema = z.object({
   autoAdvanceDirection: autoAdvanceDirectionSchema,
   undoSendDelaySeconds: undoSendDelaySchema,
   homeTimeZone: z.string(),
+  /** The Contacts App's own sort order (#211): first name or last name first — see `contacts.ts#contactsSortOrderSchema`'s own doc comment. */
+  contactsSortOrder: contactsSortOrderSchema,
   /**
    * "Answers arriving for Events the User organises" (#243): its own
    * per-User toggle beside the per-Calendar Reminders one on the
@@ -368,6 +383,21 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * the same posture `setUndoSendDelay` takes on its own enum of seconds.
    */
   z.object({ type: z.literal("setHomeTimeZone"), homeTimeZone: z.string().min(1) }),
+  /** Contacts sort order (#211): `contactsSortOrderSchema`'s own enum, the same absolute-set shape as `setHomeTimeZone`/`setUndoSendDelay` above. */
+  z.object({ type: z.literal("setContactsSortOrder"), contactsSortOrder: contactsSortOrderSchema }),
+  /**
+   * The Default Address Book (#211, `address-books.ts#addressBookSchema`'s
+   * own doc comment: "the Local Address Book is the default until a later
+   * ticket lets the User change it" — this is that ticket): flips
+   * `AddressBook.isDefault` so it lands on exactly one row for this User,
+   * across every Origin — not a `Preference` field of its own, since
+   * `isDefault` already exists on the wire and duplicating "which one is
+   * default" into two collections could let them disagree. An absolute
+   * set, same posture as the `Preference` variants above: a second pick
+   * before the first ever reaches the Sync Backend simply replaces it
+   * (`user-mutation-queue.ts#coalesceKey`).
+   */
+  z.object({ type: z.literal("setDefaultAddressBook"), addressBookId: z.string() }),
   /**
    * "Answer received" notification on/off (#243): an absolute set, the same
    * shape as `setNotificationsEnabled` (`mutations.ts`) but User-scoped
@@ -420,6 +450,162 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("unpinNote"), noteId: z.string() }),
   z.object({ type: z.literal("trashNote"), noteId: z.string() }),
   z.object({ type: z.literal("restoreNote"), noteId: z.string() }),
+  /**
+   * A Local Contact's structural actions (#210, ADR-0026): ordinary
+   * User-scoped Optimistic Action intents, real inverses per ADR-0019,
+   * `Note`'s own six above extended by one — `updateContact` — for the
+   * field-family edits a Note has no analogue of.
+   *
+   * `createContact`/`deleteContact` are a genuine inverse pair, exactly
+   * `createNote`/`deleteNote`'s shape: `contactId` is the Client-minted ULID
+   * (`contacts.ts#contactSchema`'s own doc comment), already known before
+   * this intent is ever enqueued, and `deleteContact` is the **permanent**
+   * delete that undoes a still-queued or already-applied `createContact` —
+   * never the User's own "Delete" control, which fires `trashContact` below.
+   *
+   * `trashContact`/`restoreContact` (#224) are Delete and Recently Deleted's
+   * own Restore, arriving after `Note`'s own `trashNote`/`restoreNote` (#194)
+   * exactly the way this doc comment once predicted: a genuine inverse pair,
+   * the same shape, except the field they flip is `deletedAt`
+   * (`contacts.ts#contactSchema`'s own doc comment) rather than a physical
+   * row. Unlike a Note, a synced Contact's mirror identity
+   * (`googleResourceName`/`microsoftId` and siblings) is discarded the
+   * instant `trashContact` lands (ADR-0029: "removal discards the mirror ...
+   * a confirmed act") and the Sync Backend's own write-back outbox removes
+   * Google's/Graph's copy at once; `restoreContact` re-queues a **fresh**
+   * upstream create rather than reactivating the old one, which is what
+   * keeps the same Wicket id (and so its Labels and links) across the round
+   * trip. On a linked card (ADR-0026) the Sync Backend cascades either
+   * intent to every record the named Contact is linked with, so "Delete on a
+   * linked card deletes every linked record; one Undo restores all of them"
+   * holds with the Client only ever naming the one record its own Delete
+   * control was clicked against.
+   *
+   * `addressBookId` (#225) names the target explicitly — #210 shipped this
+   * carrying none at all, always resolving to the caller's own Local
+   * Address Book (`sync/mutations.ts`'s prior doc comment on that case);
+   * Import and Copy/Move both need an ordinary create that can land in *any*
+   * Address Book the User owns, mirrored ones included, so `createContact`
+   * is now that one path, capability-checked against whichever table
+   * `addressBookId` actually names (`sync/mutations.ts`'s own doc comment on
+   * why this still isn't a mirrored-Origin write-back for every Origin).
+   *
+   * `updateContact` carries the Contact's whole `ContactWritableFields` —
+   * every family in one intent, never a per-family patch
+   * (`contacts.ts#contactWritableFieldsSchema`'s own doc comment) — and is
+   * its own real inverse: re-applying the fields as they stood before the
+   * edit, through this same intent type, is a real action on the wire
+   * (ADR-0019), not a queue cancellation, even though it is not a distinct
+   * paired type the way a boolean toggle's inverse is. Whoever calls it
+   * (the edit form) is the one holding the "before" state to replay, the
+   * same "component wires the toast, the store stays store" split
+   * `trashNote`/`restoreNote`'s own callers already draw.
+   *
+   * `labelContact`/`unlabelContact` are `labelNote`/`unlabelNote`'s own
+   * shape: the Label's `name` carried across, its id deterministic
+   * (`labels.ts#labelId`) from `(userId, name)` — a Contact's Labels are
+   * User-owned exactly like a Note's (CONTEXT.md's own **Label** entry).
+   *
+   * `setContactBanner` (#212) is the same shape again: a Wicket-only
+   * decoration, never part of any Origin's capability table
+   * (`contacts.ts#contactBannerSchema`'s own doc comment), so it rides on
+   * any Contact regardless of Origin the same way a Label does, rather
+   * than through `updateContact` and its `LOCAL_CONTACT_CAPABILITY_TABLE`
+   * guard (`sync/mutations.ts`).
+   */
+  z.object({
+    type: z.literal("createContact"),
+    contactId: z.string(),
+    addressBookId: z.string(),
+    fields: contactWritableFieldsSchema,
+  }),
+  z.object({ type: z.literal("deleteContact"), contactId: z.string() }),
+  z.object({
+    type: z.literal("updateContact"),
+    contactId: z.string(),
+    fields: contactWritableFieldsSchema,
+  }),
+  z.object({ type: z.literal("trashContact"), contactId: z.string() }),
+  z.object({ type: z.literal("restoreContact"), contactId: z.string() }),
+  z.object({ type: z.literal("labelContact"), contactId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("unlabelContact"), contactId: z.string(), name: z.string() }),
+  z.object({
+    type: z.literal("setContactBanner"),
+    contactId: z.string(),
+    banner: contactBannerSchema.nullable(),
+  }),
+  /**
+   * Linked Contacts (#222, ADR-0026: "Linked Contacts are a User-scoped
+   * link, never a change to any record") — three intents that touch the
+   * `ContactLink` collection alone and never a Contact row, which is what
+   * makes an unlink able to restore two cards exactly as they were with
+   * nothing to reconstruct.
+   *
+   * `linkContacts`/`unlinkContact` are a genuine inverse pair in ADR-0019's
+   * sense — both are real actions on the wire, and either one applied to the
+   * other's result returns the User to where they started — without being
+   * mirror-image *shapes*: linking names the two records being joined, while
+   * unlinking names the one record leaving. That asymmetry is the set model's
+   * (`contact-links.ts#contactLinkSchema`: a link is a set, not a pair), and
+   * it is why the two sit in separate `coalesceKey` buckets rather than
+   * cancelling each other out while still queued
+   * (`store/user-mutation-queue.ts`).
+   *
+   * `linkId` is the Client-minted ULID for the link this may have to create,
+   * already known before the intent is enqueued — the same offline-derivable
+   * id `createContact`'s own `contactId` is. It is deliberately only a
+   * *proposal*: when either side already belongs to a link, the Sync Backend
+   * unions into that existing row and this id goes unused
+   * (`contacts/link-store.ts#linkContacts`), because the alternative — two
+   * links naming the same Contact — is the one state no reader can make
+   * sense of.
+   *
+   * `setLinkedContactFront` is "the User can pick another" (this ticket's own
+   * acceptance line): an absolute set on one link, `setContactBanner`'s own
+   * latest-pick-wins shape, with `contactId: null` meaning "go back to
+   * deriving it" (the Default Address Book, else the most recently edited —
+   * `contact-links.ts#resolveLinkedContactFront`).
+   */
+  z.object({
+    type: z.literal("linkContacts"),
+    linkId: z.string(),
+    contactId: z.string(),
+    otherContactId: z.string(),
+  }),
+  z.object({ type: z.literal("unlinkContact"), contactId: z.string() }),
+  z.object({
+    type: z.literal("setLinkedContactFront"),
+    linkId: z.string(),
+    contactId: z.string().nullable(),
+  }),
+  /**
+   * Merge within one Address Book (#223, ADR-0026: "the older record
+   * survives and takes the other's fields; the other is deleted") — unlike
+   * Linked Contacts above, this one *does* change a Contact row, which is
+   * exactly why it is only ever offered for a pair sharing one Address Book
+   * (`contact-merge.ts#contactsAreMergeable`): both records already answer
+   * to the same capability table, so nothing a real Merge writes can be a
+   * field neither record could have held on its own.
+   *
+   * Unordered, `linkContacts`' own shape: `contactId`/`otherContactId` name
+   * the pair, and which one survives is derived identically by the Client
+   * and the Sync Backend (`contact-merge.ts#pickContactMergeSurvivor`)
+   * rather than picked by whichever side minted the intent — the same
+   * "don't trust the wire for something both sides can already compute"
+   * posture `linkContacts`' own lowest-id survivor takes. Not a genuine
+   * inverse pair the way `createContact`/`deleteContact` is (ADR-0019): a
+   * Merge is destructive by design (this ticket's own acceptance line —
+   * "the other is deleted"), so it carries no paired undo intent, the same
+   * "undoable on the same terms as a delete" its acceptance line asks for,
+   * matching `deleteContact`'s own present, un-undoable shape rather than
+   * inventing a general reconstruct-a-deleted-row primitive that is #224's
+   * own to build.
+   */
+  z.object({
+    type: z.literal("mergeContacts"),
+    contactId: z.string(),
+    otherContactId: z.string(),
+  }),
   /**
    * A Series' structural actions (#233, ADR-0025's Series/Occurrence/Override
    * vocabulary): the same "ordinary Optimistic Action, real inverse"
@@ -628,6 +814,24 @@ export type CompositionDelta = z.infer<typeof compositionDeltaSchema>;
 export const connectedAccountDeltaSchema = collectionDeltaSchema(connectedAccountSchema);
 export type ConnectedAccountDelta = z.infer<typeof connectedAccountDeltaSchema>;
 
+/** `AddressBook` (#209, ADR-0023, ADR-0026): whole-replicated, riding the User scope (the Local Address Book) or a Connected Account's own scope (a mirrored one) — see `address-books.ts#addressBookSchema`'s own doc comment. */
+export const addressBookDeltaSchema = collectionDeltaSchema(addressBookSchema);
+export type AddressBookDelta = z.infer<typeof addressBookDeltaSchema>;
+
+/** `Contact` (#209, ADR-0023, ADR-0026): `AddressBookDelta`'s sibling, same two scopes. */
+export const contactDeltaSchema = collectionDeltaSchema(contactSchema);
+export type ContactDelta = z.infer<typeof contactDeltaSchema>;
+
+/**
+ * `ContactLink` (#222, ADR-0026): whole-replicated and **User-scoped only**
+ * — unlike `AddressBook`/`Contact` above, which ride two scopes, a link
+ * spans Origins by construction and so belongs to no Connected Account's
+ * Sync Scope at all (`contact-links.ts#contactLinkSchema`'s own doc
+ * comment).
+ */
+export const contactLinkDeltaSchema = collectionDeltaSchema(contactLinkSchema);
+export type ContactLinkDelta = z.infer<typeof contactLinkDeltaSchema>;
+
 /**
  * A requested collection's token. `null` asks for a full bootstrap (the
  * Client holds nothing yet — not the same as a stale/unrecognized token,
@@ -645,6 +849,14 @@ export const userSyncRequestSchema = z.object({
   Note: requestedTokenSchema.optional(),
   /** `ConnectedAccount` (#200, ADR-0023): whole-replicated, User-scoped. */
   ConnectedAccount: requestedTokenSchema.optional(),
+  /** `AddressBook` (#209, ADR-0023): the Local Address Book's own slot — a mirrored one rides its Connected Account's slot instead (`connectedAccountSyncRequestSchema`). */
+  AddressBook: requestedTokenSchema.optional(),
+  /** `Contact` (#209, ADR-0023): `AddressBook`'s sibling — Local Contacts only, same reasoning. */
+  Contact: requestedTokenSchema.optional(),
+  /** `ContactRollback` (#216): `contacts.ts#contactRollbackSchema`'s own doc comment — append-only, User-scoped regardless of which Connected Account the write concerned. */
+  ContactRollback: requestedTokenSchema.optional(),
+  /** `ContactLink` (#222, ADR-0026): User-scoped whole and entire, mirrored or not — see `contactLinkDeltaSchema`. */
+  ContactLink: requestedTokenSchema.optional(),
   /**
    * `Calendar` (#229): whole-replicated, User-scoped on this line — a
    * genuine `connectedAccount`-scoped sync path
@@ -922,11 +1134,28 @@ export const mailAccountSyncRequestSchema = z.object({
 });
 export type MailAccountSyncRequest = z.infer<typeof mailAccountSyncRequestSchema>;
 
+/**
+ * The Connected-Account-scoped slot (#209, ADR-0023: "a `connectedAccounts`
+ * sibling appears when the first Connected-Account-scoped collection
+ * does") — `AddressBook`/`Contact`'s first real user of `scopeKind:
+ * "connectedAccount"`, the branch `collection-registry.ts` declared as a
+ * documented no-op until now. No `mutations`/`composeSaves` yet: nothing
+ * writes back to a mirrored Address Book or Contact in this ticket (no
+ * upstream adapter exists yet, #214+), so there is nothing here to flush.
+ */
+export const connectedAccountSyncRequestSchema = z.object({
+  AddressBook: requestedTokenSchema.optional(),
+  Contact: requestedTokenSchema.optional(),
+});
+export type ConnectedAccountSyncRequest = z.infer<typeof connectedAccountSyncRequestSchema>;
+
 export const syncRequestSchema = z.object({
   /** User-scoped collections. */
   user: userSyncRequestSchema.optional(),
   /** Per-Mail-Account collections, keyed by Mail Account id. */
   mailAccounts: z.record(z.string(), mailAccountSyncRequestSchema).optional(),
+  /** Per-Connected-Account collections, keyed by Connected Account id (#209). */
+  connectedAccounts: z.record(z.string(), connectedAccountSyncRequestSchema).optional(),
 });
 export type SyncRequest = z.infer<typeof syncRequestSchema>;
 
@@ -946,6 +1175,14 @@ export const userSyncResponseSchema = z.object({
   Label: labelDeltaSchema.optional(),
   Note: noteDeltaSchema.optional(),
   ConnectedAccount: connectedAccountDeltaSchema.optional(),
+  /** `AddressBook` (#209): the Local Address Book only — see `userSyncRequestSchema`'s own field. */
+  AddressBook: addressBookDeltaSchema.optional(),
+  /** `Contact` (#209): `AddressBook`'s sibling — Local Contacts only. */
+  Contact: contactDeltaSchema.optional(),
+  /** `ContactRollback` (#216) — `contacts.ts#contactRollbackSchema`'s own doc comment. */
+  ContactRollback: contactRollbackDeltaSchema.optional(),
+  /** `ContactLink` (#222): User-scoped only — see `userSyncRequestSchema`'s own field. */
+  ContactLink: contactLinkDeltaSchema.optional(),
   Calendar: calendarDeltaSchema.optional(),
   Event: eventDeltaSchema.optional(),
   Rollback: rollbackDeltaSchema.optional(),
@@ -982,8 +1219,16 @@ export const mailAccountSyncResponseSchema = z.object({
 });
 export type MailAccountSyncResponse = z.infer<typeof mailAccountSyncResponseSchema>;
 
+/** `connectedAccountSyncRequestSchema`'s answer — `mailAccountSyncResponseSchema`'s sibling, minus mutations/composeSaves (#209's own doc comment on the request side). */
+export const connectedAccountSyncResponseSchema = z.object({
+  AddressBook: addressBookDeltaSchema.optional(),
+  Contact: contactDeltaSchema.optional(),
+});
+export type ConnectedAccountSyncResponse = z.infer<typeof connectedAccountSyncResponseSchema>;
+
 export const syncResponseSchema = z.object({
   user: userSyncResponseSchema,
   mailAccounts: z.record(z.string(), mailAccountSyncResponseSchema),
+  connectedAccounts: z.record(z.string(), connectedAccountSyncResponseSchema),
 });
 export type SyncResponse = z.infer<typeof syncResponseSchema>;

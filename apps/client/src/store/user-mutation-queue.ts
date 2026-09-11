@@ -51,8 +51,15 @@ function coalesceKey(intent: UserMutationIntent): {
     case "setAutoAdvance":
     case "setUndoSendDelay":
     case "setHomeTimeZone":
+    case "setContactsSortOrder":
     case "setAnswerNotificationsEnabled":
       return { type: intent.type, targetId: intent.type, value: true };
+    // The Default Address Book (#211): the same "absolute set, latest pick
+    // wins" shape as the `Preference` fields above — a second pick before
+    // the first ever reaches the Sync Backend simply replaces it, keyed on
+    // a fixed bucket since a User has exactly one default at a time.
+    case "setDefaultAddressBook":
+      return { type: "defaultAddressBook", targetId: "defaultAddressBook", value: true };
     // `createNote`/`deleteNote` (#192, ADR-0019) are a genuine inverse pair,
     // the same shape `mutation-queue.ts`'s `discardComposition`/
     // `undiscardComposition` bucket already has.
@@ -92,6 +99,85 @@ function coalesceKey(intent: UserMutationIntent): {
       return { type: "noteTrash", targetId: intent.noteId, value: true };
     case "restoreNote":
       return { type: "noteTrash", targetId: intent.noteId, value: false };
+    // `createContact`/`deleteContact` (#210) are a genuine inverse pair,
+    // `createNote`/`deleteNote`'s own shape.
+    case "createContact":
+      return { type: "contact", targetId: intent.contactId, value: true };
+    case "deleteContact":
+      return { type: "contact", targetId: intent.contactId, value: false };
+    // `updateContact` (#210) has no fixed paired inverse type — a second
+    // edit to the same Contact while one is still queued **replaces** it
+    // outright, the same `"the User changed their mind again"` shape the
+    // `Preference` variants above already have, keyed into its own bucket so
+    // it never cancels away an unrelated `createContact`/`deleteContact` for
+    // the same Contact.
+    case "updateContact":
+      return { type: "contactUpdate", targetId: intent.contactId, value: true };
+    // `labelContact`/`unlabelContact` (#210) share one bucket keyed on
+    // `contactId:name`, `labelNote`/`unlabelNote`'s own shape.
+    case "labelContact":
+      return {
+        type: "contactLabel",
+        targetId: `${intent.contactId}:${normalizeLabelName(intent.name)}`,
+        value: true,
+      };
+    case "unlabelContact":
+      return {
+        type: "contactLabel",
+        targetId: `${intent.contactId}:${normalizeLabelName(intent.name)}`,
+        value: false,
+      };
+    // `setContactBanner` (#212) is `updateContact`'s own "latest pick wins"
+    // shape — an absolute set with no paired inverse, keyed into its own
+    // bucket so it never cancels away an unrelated `createContact`/
+    // `deleteContact` or `updateContact` for the same Contact.
+    case "setContactBanner":
+      return { type: "contactBanner", targetId: intent.contactId, value: true };
+    // `trashContact`/`restoreContact` (#224) are a genuine inverse pair too,
+    // `trashNote`/`restoreNote`'s own shape — keyed into their own bucket so
+    // a still-queued `trashContact` never cancels away an unrelated
+    // `updateContact`/`labelContact` (or vice versa) for the same Contact.
+    case "trashContact":
+      return { type: "contactTrash", targetId: intent.contactId, value: true };
+    case "restoreContact":
+      return { type: "contactTrash", targetId: intent.contactId, value: false };
+    // Linked Contacts (#222, ADR-0026). `linkContacts` keys on the **pair**,
+    // unordered, so re-linking the same two records while the first is still
+    // queued replaces it rather than queueing a second no-op;
+    // `unlinkContact` keys on the one record leaving. Deliberately separate
+    // buckets rather than one cancel-pair: the two intents are genuine
+    // inverses in effect but not in shape (a link names two records, an
+    // unlink names one — `@mail/shared#userMutationIntentSchema`'s own doc
+    // comment on why the set model makes that asymmetry unavoidable), so
+    // there is no single `targetId` both could agree on without one of them
+    // lying about what it targets. Both are real actions on the wire either
+    // way, which is what ADR-0019 actually asks for.
+    case "linkContacts":
+      return {
+        type: "contactLink",
+        targetId: [intent.contactId, intent.otherContactId].sort().join(":"),
+        value: true,
+      };
+    case "unlinkContact":
+      return { type: "contactUnlink", targetId: intent.contactId, value: true };
+    // `setLinkedContactFront` (#222) is `setContactBanner`'s own absolute-set
+    // shape, keyed on the link so a second pick before the first goes out
+    // simply replaces it.
+    case "setLinkedContactFront":
+      return { type: "contactLinkFront", targetId: intent.linkId, value: true };
+    // Merge within one Address Book (#223) — `linkContacts`' own
+    // unordered-pair bucket: re-merging the same two records while the first
+    // is still queued replaces it rather than queueing a second no-op. Never
+    // in the same bucket as `contactLink`'s own — a duplicate offers either
+    // Merge or Link, never both, so the two can't collide in practice, but
+    // keeping them apart means neither could ever be misread as the other's
+    // inverse if that changed.
+    case "mergeContacts":
+      return {
+        type: "contactMerge",
+        targetId: [intent.contactId, intent.otherContactId].sort().join(":"),
+        value: true,
+      };
     // `createSeries`/`deleteSeries` (#233) are a genuine inverse pair, the
     // same `"note"`-bucket shape `createNote`/`deleteNote` already have.
     case "createSeries":

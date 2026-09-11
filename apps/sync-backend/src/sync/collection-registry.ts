@@ -1,6 +1,12 @@
 import type { CollectionDelta, EventDelta } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { AnyPgTable } from "drizzle-orm/pg-core";
+import {
+  ensureLocalAddressBook,
+  selectAddressBooksForConnectedAccount,
+  selectAddressBooksForUser,
+  toWireAddressBook,
+} from "../address-books/store.js";
 import { computeEventWindow, toWireEvent } from "../calendars/event-store.js";
 import { toWireRollback } from "../calendars/rollback-store.js";
 import { ensurePersonalCalendar, toWireCalendar } from "../calendars/store.js";
@@ -8,11 +14,25 @@ import {
   selectConnectedAccountsForUser,
   toWireConnectedAccount,
 } from "../connected-accounts/store.js";
+import { selectContactLinksForUser, toWireContactLink } from "../contacts/link-store.js";
+import {
+  selectContactRollbacksForUser,
+  toWireContactRollback,
+} from "../contacts/rollback-store.js";
+import {
+  selectContactsForConnectedAccount,
+  selectContactsForUser,
+  toWireContact,
+} from "../contacts/store.js";
 import type { Db } from "../db/client.js";
 import {
+  addressBooks,
   calendars,
   compositions,
   connectedAccounts,
+  contactLinks,
+  contactRollbacks,
+  contacts,
   correspondents,
   events,
   gmailLabels,
@@ -50,14 +70,15 @@ import {
  * /sync` answers for is declared here once — its wire name, its Sync Scope,
  * and its row→wire projection — instead of a hand-written call list with a
  * branch per collection inside `routes/sync.ts`. That route iterates
- * `userCollectionRegistry`/`mailAccountCollectionRegistry` bucketed by which
- * scopes the request actually carries; nothing there names a collection by
- * hand any more. This is the prefactor ADR-0023's later App collections land
- * on: one declaration here, not six edits across six files.
+ * `userCollectionRegistry`/`mailAccountCollectionRegistry`/
+ * `connectedAccountCollectionRegistry` bucketed by which scopes the request
+ * actually carries; nothing there names a collection by hand any more. This
+ * is the prefactor ADR-0023's later App collections land on: one
+ * declaration here, not six edits across six files.
  *
- * `connectedAccount` is declared as an accepted `ScopeKind` below with no
- * member yet — Calendar and Contacts (the Hub Apps) are its first real
- * users, not this ticket's.
+ * `connectedAccount` was declared as an accepted `ScopeKind` with no member
+ * for months — `AddressBook`/`Contact` (#209) are its first real users, the
+ * branch this comment used to call a documented no-op.
  */
 export type ScopeKind = "user" | "mailAccount" | "connectedAccount";
 
@@ -76,6 +97,11 @@ export interface UserScopeContext {
 export interface MailAccountScopeContext {
   mailAccountId: string;
   account: MailAccountRow;
+}
+
+/** The context a Connected-Account-scoped descriptor's `sync` is invoked with — `MailAccountScopeContext`'s sibling (#209), minus a row-specific field to ride along: neither `AddressBook` nor `Contact` needs anything off the Connected Account row itself. */
+export interface ConnectedAccountScopeContext {
+  connectedAccountId: string;
 }
 
 /**
@@ -116,9 +142,20 @@ export interface MailAccountCollectionDescriptor<Payload> extends DeclaredCollec
   ) => Promise<CollectionDelta<Payload> | null>;
 }
 
+export interface ConnectedAccountCollectionDescriptor<Payload> extends DeclaredCollection {
+  scope: "connectedAccount";
+  toPayload: (row: never) => Payload;
+  sync: (
+    db: Db,
+    context: ConnectedAccountScopeContext,
+    token: string | null,
+  ) => Promise<CollectionDelta<Payload> | null>;
+}
+
 export type CollectionDescriptor<Payload = unknown> =
   | UserCollectionDescriptor<Payload>
-  | MailAccountCollectionDescriptor<Payload>;
+  | MailAccountCollectionDescriptor<Payload>
+  | ConnectedAccountCollectionDescriptor<Payload>;
 
 /**
  * Declares one User-scoped collection off its source table —
@@ -134,6 +171,13 @@ export type CollectionDescriptor<Payload = unknown> =
  * (`Preference` matches the User's own `users` row by `id`), which is the
  * same "the registry constrains declaration and dispatch, not query shape"
  * line `Thread` sits on the other side of.
+ *
+ * The tombstone filter also requires **no** `connectedAccountId` (#209):
+ * `AddressBook`/`Contact` widened `sync_tombstones` with that column
+ * (`db/schema.ts`), so a User-scoped bucket (`isNull(mailAccountId)` alone,
+ * this factory's original filter) would otherwise also catch a mirrored
+ * book's tombstones, which belong to its own Connected Account's bucket
+ * instead (`connectedAccountScopedCollection` below).
  */
 function userScopedCollection<Row extends SyncRevRow, Payload>(config: {
   name: string;
@@ -160,6 +204,7 @@ function userScopedCollection<Row extends SyncRevRow, Payload>(config: {
             .where(
               and(
                 isNull(syncTombstones.mailAccountId),
+                isNull(syncTombstones.connectedAccountId),
                 eq(syncTombstones.collection, name),
                 gt(syncTombstones.syncRev, cursorRev),
               ),
@@ -240,24 +285,82 @@ function mailAccountScopedCollection<Row extends SyncRevRow, Payload>(config: {
 }
 
 /**
- * The eight User-scoped collections (ADR-0011, ADR-0025). `MailAccount` and
- * `Preference` are each a thin wrapper around `collection-sync.ts`'s own
+ * Declares one Connected-Account-scoped collection off its source table
+ * (#209) — `userScopedCollection`'s sibling, keyed by `connectedAccountId`
+ * instead of `userId`: `AddressBook`/`Contact`'s own scope, and the first
+ * real member of it. Tombstones are the ones whose `connectedAccountId`
+ * matches, the same shape `mailAccountScopedCollection`'s own filter has.
+ */
+function connectedAccountScopedCollection<Row extends SyncRevRow, Payload>(config: {
+  name: string;
+  table: AnyPgTable;
+  selectRows: (db: Db, connectedAccountId: string, cursorRev: number) => Promise<Row[]>;
+  toPayload: (row: Row) => Payload;
+}): ConnectedAccountCollectionDescriptor<Payload> {
+  const { name, table, selectRows, toPayload } = config;
+  return {
+    name,
+    scope: "connectedAccount",
+    table,
+    toPayload: toPayload as (row: never) => Payload,
+    async sync(db, { connectedAccountId }, token) {
+      const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+      const rows = await selectRows(db, connectedAccountId, cursorRev);
+
+      const tombstoneRows = needsReset
+        ? []
+        : await db
+            .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+            .from(syncTombstones)
+            .where(
+              and(
+                eq(syncTombstones.connectedAccountId, connectedAccountId),
+                eq(syncTombstones.collection, name),
+                gt(syncTombstones.syncRev, cursorRev),
+              ),
+            )
+            .orderBy(asc(syncTombstones.syncRev))
+            .limit(PAGE_SIZE + 1);
+
+      return buildDelta({
+        rows,
+        tombstones: tombstoneRows,
+        cursorRev,
+        needsReset,
+        token,
+        toPayload,
+      });
+    },
+  };
+}
+
+/**
+ * The fourteen User-scoped collections (ADR-0011, ADR-0025). `MailAccount`
+ * and `Preference` are each a thin wrapper around `collection-sync.ts`'s own
  * hand-written query — see `userScopedCollection`'s doc comment for why
  * neither goes through it. `Label` (#186), `Note` (#192, ADR-0023),
- * `ConnectedAccount` (#200), `Calendar` and `Rollback` (#229) all do: each is
- * a plain `userId`-filtered table replicating whole. `Label` moved here from
- * `mailAccountCollectionRegistry` by changing exactly its declaration;
- * `Note` (#192) is this registry's first **new** member rather than a
- * migrated one — the same one-declaration shape either way, which is what
- * #184 built the registry for. `ConnectedAccount`'s own `selectRows` is the
- * one that isn't a one-line `db.select().from(...)` — it joins each account
- * to its own Facets (`connected-accounts/store.ts#selectConnectedAccountsForUser`),
- * the wire shape ADR-0022 asks for — but is otherwise exactly this same
- * shape. `Event` (#229) is the one windowed member — `userScopedCollection`
- * has no room for the window edges its delta carries alongside the ordinary
+ * `TaskList`/`Task` (#251, ADR-0030), `ConnectedAccount` (#200), `Calendar`
+ * and `Rollback` (#229) all do: each is a plain `userId`-filtered table
+ * replicating whole. `Label` moved here from `mailAccountCollectionRegistry`
+ * by changing exactly its declaration; `Note` (#192) is this registry's
+ * first **new** member rather than a migrated one — the same one-declaration
+ * shape either way, which is what #184 built the registry for.
+ * `ConnectedAccount`'s own `selectRows` is the one that isn't a one-line
+ * `db.select().from(...)` — it joins each account to its own Facets
+ * (`connected-accounts/store.ts#selectConnectedAccountsForUser`), the wire
+ * shape ADR-0022 asks for — but is otherwise exactly this same shape.
+ * `Event` (#229) is the one windowed member — `userScopedCollection` has no
+ * room for the window edges its delta carries alongside the ordinary
  * fields, so it is declared by hand below the array, the same "the registry
  * constrains declaration and dispatch, not query shape" line `Thread` sits
  * on the other side of.
+ *
+ * `AddressBook`/`Contact` (#209) are this slot's own **Local** half only —
+ * a mirrored book or Contact rides `connectedAccountCollectionRegistry`
+ * below instead, same row shape, different scope. `AddressBook`'s
+ * `selectRows` mints the Local Address Book first (`ensureLocalAddressBook`)
+ * — the only member here that ever *writes* before it reads.
  *
  * `Calendar` and `Event` are still declared `scope: "user"` here rather than
  * `"connectedAccount"` even though ADR-0025 gives both scopes and this merge
@@ -313,6 +416,45 @@ export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[
     selectRows: (db, userId, cursorRev) =>
       selectConnectedAccountsForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1),
     toPayload: toWireConnectedAccount,
+  }),
+  userScopedCollection({
+    name: "AddressBook",
+    table: addressBooks,
+    selectRows: async (db, userId, cursorRev) => {
+      await ensureLocalAddressBook(db, userId);
+      return selectAddressBooksForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1);
+    },
+    toPayload: toWireAddressBook,
+  }),
+  userScopedCollection({
+    name: "Contact",
+    table: contacts,
+    selectRows: (db, userId, cursorRev) =>
+      selectContactsForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1),
+    toPayload: toWireContact,
+  }),
+  // `ContactRollback` (#216): append-only, `Contact`'s sibling — see
+  // `@mail/shared#contactRollbackSchema`'s own doc comment.
+  userScopedCollection({
+    name: "ContactRollback",
+    table: contactRollbacks,
+    selectRows: (db, userId, cursorRev) =>
+      selectContactRollbacksForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1),
+    toPayload: toWireContactRollback,
+  }),
+  // `ContactLink` (#222, ADR-0026): User-scoped **only** — unlike
+  // `AddressBook`/`Contact` above it has no mirrored half at all, since a
+  // link spans Origins by construction and so belongs to no Connected
+  // Account's Sync Scope (`@mail/shared#contactLinkSchema`'s own doc
+  // comment). Declared after `Contact` deliberately: the Client's own
+  // registry applies these in order, and a link is only meaningful once the
+  // Contacts it names are in the Local Cache.
+  userScopedCollection({
+    name: "ContactLink",
+    table: contactLinks,
+    selectRows: (db, userId, cursorRev) =>
+      selectContactLinksForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1),
+    toPayload: toWireContactLink,
   }),
   userScopedCollection({
     name: "Calendar",
@@ -461,3 +603,32 @@ export const mailAccountCollectionRegistry: readonly MailAccountCollectionDescri
     toPayload: toWireCorrespondent,
   }),
 ];
+
+/**
+ * The two Connected-Account-scoped collections (#209) — `AddressBook`'s and
+ * `Contact`'s own mirrored half, `userCollectionRegistry`'s Local half's
+ * sibling. Both are empty for every Connected Account today: no upstream
+ * adapter creates a mirrored Address Book yet (#214+ does), so this is
+ * wiring proven correct ahead of a real user, the same posture
+ * `scopeKind: "connectedAccount"` itself sat in for months before this
+ * ticket.
+ */
+export const connectedAccountCollectionRegistry: readonly ConnectedAccountCollectionDescriptor<unknown>[] =
+  [
+    connectedAccountScopedCollection({
+      name: "AddressBook",
+      table: addressBooks,
+      selectRows: (db, connectedAccountId, cursorRev) =>
+        selectAddressBooksForConnectedAccount(db, connectedAccountId, cursorRev).limit(
+          PAGE_SIZE + 1,
+        ),
+      toPayload: toWireAddressBook,
+    }),
+    connectedAccountScopedCollection({
+      name: "Contact",
+      table: contacts,
+      selectRows: (db, connectedAccountId, cursorRev) =>
+        selectContactsForConnectedAccount(db, connectedAccountId, cursorRev).limit(PAGE_SIZE + 1),
+      toPayload: toWireContact,
+    }),
+  ];

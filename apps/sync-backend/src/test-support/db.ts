@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { createDb, type Db } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
 import {
+  addressBooks,
   appliedMutations,
   attachmentBlobs,
   bulkTriageBatches,
@@ -13,6 +14,10 @@ import {
   compositions,
   connectedAccountFacets,
   connectedAccounts,
+  contactCarddavWriteBacks,
+  contactLinks,
+  contactPhotoBlobs,
+  contacts,
   correspondents,
   events,
   folders,
@@ -26,6 +31,7 @@ import {
   mailAccounts,
   messageSearch,
   messages,
+  microsoftContactWrites,
   notes,
   notifierOutbox,
   oauthSignInAttempts,
@@ -118,6 +124,23 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(passkeyCredentials);
   await db.delete(oauthSignInAttempts);
   await db.delete(mailAccounts);
+  // #222: `contact_links` names Contacts through a `text[]` with no foreign
+  // key (`db/schema.ts`), so nothing cascades it — cleared ahead of the
+  // Contacts it names, the same reason `contactPhotoBlobs` below needs its
+  // own delete.
+  await db.delete(contactLinks);
+  // #214: missing from this sweep since #209 first added these tables —
+  // both cascade from `connected_accounts`/`users` but need their own
+  // `delete` before those to keep a test run idempotent without relying on
+  // cascades this function doesn't otherwise exercise.
+  await db.delete(microsoftContactWrites); // #227 — cascades from `contacts`/`address_books`, deleted first for the same reason.
+  await db.delete(contactCarddavWriteBacks); // #226 — same reason, cascades from `contacts`/`address_books`.
+  await db.delete(contacts);
+  await db.delete(addressBooks);
+  // #213: content-addressed, no FK to `contacts` at all (`db/schema.ts`'s
+  // own doc comment) — never cascades from anything, so this delete is the
+  // only thing that ever clears it between tests.
+  await db.delete(contactPhotoBlobs);
   await db.delete(connectedAccountFacets);
   await db.delete(connectedAccounts);
   await db.delete(providerRegistrations);

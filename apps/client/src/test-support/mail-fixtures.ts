@@ -1,8 +1,11 @@
 import type {
+  AddressBook,
   Calendar,
   CollectionDelta,
   Composition,
   ConnectedAccount,
+  Contact,
+  ContactRollback,
   Correspondent,
   Event,
   EventDelta,
@@ -112,6 +115,65 @@ export function makeLabel(id: string, userId: string, overrides: Partial<Label> 
     userId,
     name: id,
     updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `AddressBook` (#209, ADR-0023, ADR-0026) — Local by default; pass `origin: { kind: "connectedAccount", connectedAccountId }` for a mirrored one. */
+export function makeAddressBook(id: string, overrides: Partial<AddressBook> = {}): AddressBook {
+  return {
+    id,
+    name: "My Contacts",
+    origin: { kind: "local" },
+    mirrored: false,
+    isDefault: true,
+    capabilityTableId: "local",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Contact` (#209, #210, ADR-0023, ADR-0026) — every field family defaults empty. */
+export function makeContact(
+  id: string,
+  addressBookId: string,
+  overrides: Partial<Contact> = {},
+): Contact {
+  return {
+    id,
+    addressBookId,
+    name: {},
+    emails: [],
+    phones: [],
+    addresses: [],
+    websites: [],
+    organizations: [],
+    birthday: null,
+    notes: "",
+    labelIds: [],
+    customFields: [],
+    banner: null,
+    photo: null,
+    categories: [],
+    deletedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `ContactRollback` (#216) — `makeContact`'s sibling for write-back's own "upstream wins" event. */
+export function makeContactRollback(
+  id: string,
+  contactId: string,
+  overrides: Partial<ContactRollback> = {},
+): ContactRollback {
+  return {
+    id,
+    contactId,
+    contactName: "Ada Lovelace",
+    reason: "google_conflict",
+    createdAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };
 }

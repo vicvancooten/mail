@@ -12,6 +12,7 @@ import {
   DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
+  DEFAULT_CONTACTS_SORT_ORDER,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   HOME_TIME_ZONE_UNSET,
   normalizeSenderAddress,
@@ -151,6 +152,7 @@ function defaultPreference(): Preference {
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: HOME_TIME_ZONE_UNSET,
+    contactsSortOrder: DEFAULT_CONTACTS_SORT_ORDER,
     answerNotificationsEnabled: DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
     updatedAt: new Date(0).toISOString(),
   };
@@ -191,6 +193,9 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
         break;
       case "setHomeTimeZone":
         overlaid = { ...overlaid, homeTimeZone: intent.homeTimeZone };
+        break;
+      case "setContactsSortOrder":
+        overlaid = { ...overlaid, contactsSortOrder: intent.contactsSortOrder };
         break;
       case "setAnswerNotificationsEnabled":
         overlaid = { ...overlaid, answerNotificationsEnabled: intent.enabled };
@@ -259,6 +264,33 @@ export async function readCorrespondents(mailAccountId: string): Promise<Corresp
   const rows = await localCache()
     .correspondents.where("mailAccountId")
     .equals(mailAccountId)
+    .toArray();
+  return rows.sort((left, right) => right.score - left.score);
+}
+
+/**
+ * Every synced Correspondent across a set of Mail Accounts, score-descending
+ * — the Contacts App's own "People you've mailed" tab (#218,
+ * `docs/contacts-spec.md` §Correspondents, compose and the Gatekeeper): "the
+ * Correspondents from every Mail Account in Account Scope, merged by
+ * normalised address." Merging by address and excluding Contact addresses is
+ * `people-youve-mailed.ts`'s own job, not this read's — `useCorrespondents`'
+ * own "load once, filter in memory" shape, just not narrowed to one account.
+ */
+export function useCorrespondentsAcrossAccounts(
+  mailAccountIds: readonly string[],
+): Correspondent[] | undefined {
+  const key = mailAccountIds.join(",");
+  return useLiveQuery(() => readCorrespondentsAcrossAccounts(mailAccountIds), [key]);
+}
+
+export async function readCorrespondentsAcrossAccounts(
+  mailAccountIds: readonly string[],
+): Promise<Correspondent[]> {
+  if (mailAccountIds.length === 0) return [];
+  const rows = await localCache()
+    .correspondents.where("mailAccountId")
+    .anyOf(mailAccountIds as string[])
     .toArray();
   return rows.sort((left, right) => right.score - left.score);
 }

@@ -1,8 +1,12 @@
 import type {
+  AddressBook,
   Calendar,
   CollectionDelta,
   Composition,
   ConnectedAccount,
+  Contact,
+  ContactLink,
+  ContactRollback,
   Correspondent,
   EventDelta,
   GmailLabel,
@@ -14,6 +18,7 @@ import type {
   Thread,
 } from "@mail/shared";
 import Dexie from "dexie";
+import { notifyContactRollback } from "../contacts/contact-rollback-toast.js";
 import { closeStaleThreadNotification } from "../pwa/close-stale-notifications.js";
 import {
   type CachedComposition,
@@ -56,6 +61,12 @@ export const LABEL_TOKEN_KEY = "user:Label";
 export const NOTE_TOKEN_KEY = "user:Note";
 /** `ConnectedAccount` (#199, #200, ADR-0022): User-scoped from the start, so its token is keyed like `Note`'s. */
 export const CONNECTED_ACCOUNT_TOKEN_KEY = "user:ConnectedAccount";
+/** `AddressBook` (#209, ADR-0023): the Local Address Book's own slot — a mirrored book's own token is `connectedAccountAddressBookTokenKey` below. */
+export const ADDRESS_BOOK_TOKEN_KEY = "user:AddressBook";
+/** `Contact` (#209, ADR-0023): `AddressBook`'s sibling — Local Contacts only. */
+export const CONTACT_TOKEN_KEY = "user:Contact";
+/** `ContactRollback` (#216): `Contact`'s sibling — see `@mail/shared#contactRollbackSchema`'s own doc comment. */
+export const CONTACT_ROLLBACK_TOKEN_KEY = "user:ContactRollback";
 /** `Calendar` (#229): User-scoped from the start, so its token is keyed like `Note`'s. */
 export const CALENDAR_TOKEN_KEY = "user:Calendar";
 /** `Event` (#229): User-scoped on this line — see `collection-registry.ts`'s own doc comment on the deferred `connectedAccount` scope. */
@@ -79,6 +90,19 @@ export function correspondentTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Correspondent`;
 }
 
+/** `AddressBook` (#209), scoped to one Connected Account — a mirrored book's own token, `threadTokenKey`'s sibling under the `connectedAccount:` prefix rather than `account:` (which already names a Mail Account). */
+export function connectedAccountAddressBookTokenKey(connectedAccountId: string): string {
+  return `connectedAccount:${connectedAccountId}:AddressBook`;
+}
+
+/** `ContactLink` (#222, ADR-0026): User-scoped only — a link spans Origins by construction and so has no Connected-Account-scoped sibling at all, unlike the two keys above. */
+export const CONTACT_LINK_TOKEN_KEY = "user:ContactLink";
+
+/** `Contact` (#209), scoped to one Connected Account — `connectedAccountAddressBookTokenKey`'s sibling. */
+export function connectedAccountContactTokenKey(connectedAccountId: string): string {
+  return `connectedAccount:${connectedAccountId}:Contact`;
+}
+
 export async function getSyncToken(key: string): Promise<string | null> {
   const row = await localCache().syncState.get(key);
   return row?.token ?? null;
@@ -87,6 +111,11 @@ export async function getSyncToken(key: string): Promise<string | null> {
 /** Which Mail Accounts this Client asks for Thread deltas about: the ones it holds. */
 export async function listCachedMailAccountIds(): Promise<string[]> {
   return localCache().mailAccounts.toCollection().primaryKeys();
+}
+
+/** Which Connected Accounts this Client asks for `AddressBook`/`Contact` deltas about (#209): the ones it holds — `listCachedMailAccountIds`' sibling. */
+export async function listCachedConnectedAccountIds(): Promise<string[]> {
+  return localCache().connectedAccounts.toCollection().primaryKeys();
 }
 
 export interface ApplyDeltaOptions {
@@ -293,6 +322,186 @@ export async function applyConnectedAccountDelta(
     if (upserts.length > 0) await db.connectedAccounts.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.connectedAccounts.bulkDelete(delta.destroyed);
     await db.syncState.put({ key: CONNECTED_ACCOUNT_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/** Every Address Book id currently held whose `origin` matches — `db.addressBooks` is one flat table across every scope (`db.ts`'s own doc comment), so a scoped `replace` clear reads it with a plain filter rather than an index. Small collection, same reasoning `notes`/`connectedAccounts` accept elsewhere. */
+async function addressBookIdsWhere(
+  db: LocalCache,
+  predicate: (book: AddressBook) => boolean,
+): Promise<string[]> {
+  return (await db.addressBooks.toArray()).filter(predicate).map((book) => book.id);
+}
+
+/**
+ * `AddressBook` (#209, ADR-0023, ADR-0026), the Local Address Book's own
+ * slot — `applyConnectedAccountAddressBookDelta` below is this same shape
+ * for a mirrored one. No merge rule, `ConnectedAccount`'s own sibling:
+ * nothing writes an Address Book locally ahead of the server yet (no
+ * Contacts App, no adapter, #210+).
+ */
+export async function applyAddressBookDelta(
+  delta: CollectionDelta<AddressBook>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.addressBooks, db.syncState], async () => {
+    if (replace) {
+      const localIds = await addressBookIdsWhere(db, (book) => book.origin.kind === "local");
+      if (localIds.length > 0) await db.addressBooks.bulkDelete(localIds);
+    }
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.addressBooks.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.addressBooks.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: ADDRESS_BOOK_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/** `AddressBook`, scoped to one Connected Account (#209) — `applyAddressBookDelta`'s sibling for a mirrored book, the `GmailLabel`-style per-scope `replace` shape applied to a shared table instead of a dedicated one. */
+export async function applyConnectedAccountAddressBookDelta(
+  connectedAccountId: string,
+  delta: CollectionDelta<AddressBook>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.addressBooks, db.syncState], async () => {
+    if (replace) {
+      const ids = await addressBookIdsWhere(
+        db,
+        (book) =>
+          book.origin.kind === "connectedAccount" &&
+          book.origin.connectedAccountId === connectedAccountId,
+      );
+      if (ids.length > 0) await db.addressBooks.bulkDelete(ids);
+    }
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.addressBooks.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.addressBooks.bulkDelete(delta.destroyed);
+    await db.syncState.put({
+      key: connectedAccountAddressBookTokenKey(connectedAccountId),
+      token: delta.newState,
+    });
+  });
+}
+
+/**
+ * `Contact` (#209, ADR-0023, ADR-0026), the Local slot — deliberately
+ * minimal, `contacts.ts#contactSchema`'s own doc comment. A Contact carries
+ * no `origin`/`userId` of its own (CONTEXT.md: "takes the Origin of its
+ * collection"), so a scoped `replace` clear has to resolve which Address
+ * Books are Local first, off `db.addressBooks` (already applied earlier in
+ * the same sync round — `USER_COLLECTIONS`' own declared order,
+ * `collection-registry.ts`).
+ */
+export async function applyContactDelta(
+  delta: CollectionDelta<Contact>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.addressBooks, db.contacts, db.syncState], async () => {
+    if (replace) {
+      const localBookIds = new Set(
+        await addressBookIdsWhere(db, (book) => book.origin.kind === "local"),
+      );
+      const localContactIds = (await db.contacts.toArray())
+        .filter((contact) => localBookIds.has(contact.addressBookId))
+        .map((contact) => contact.id);
+      if (localContactIds.length > 0) await db.contacts.bulkDelete(localContactIds);
+    }
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.contacts.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.contacts.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: CONTACT_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `ContactRollback` (#216), User-scoped, append-only — `Label`'s
+ * whole-replication shape (`applyLabelDelta`), plus one thing no other
+ * collection here does: it also raises the toast
+ * (`contacts/contact-rollback-toast.ts#notifyContactRollback`) for every
+ * row genuinely new in this round.
+ *
+ * `!replace` gates that: `replace` is true only on the first page of a
+ * bootstrap/reset replay (`ApplyDeltaOptions`'s own doc comment), whose
+ * `delta.created` is this User's *entire* rollback history rather than
+ * "what happened since the last time this Client asked" — a fresh install,
+ * or a `CACHE_SCHEMA_VERSION` wipe, must not replay every rollback that ever
+ * happened as a fresh burst of toasts.
+ */
+export async function applyContactRollbackDelta(
+  delta: CollectionDelta<ContactRollback>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.contactRollbacks, db.syncState], async () => {
+    if (replace) await db.contactRollbacks.clear();
+    if (delta.created.length > 0) await db.contactRollbacks.bulkPut(delta.created);
+    await db.syncState.put({ key: CONTACT_ROLLBACK_TOKEN_KEY, token: delta.newState });
+  });
+  if (!replace) {
+    for (const rollback of delta.created) notifyContactRollback(rollback);
+  }
+}
+
+/** `Contact`, scoped to one Connected Account (#209) — `applyContactDelta`'s sibling for a mirrored Address Book's Contacts. */
+export async function applyConnectedAccountContactDelta(
+  connectedAccountId: string,
+  delta: CollectionDelta<Contact>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.addressBooks, db.contacts, db.syncState], async () => {
+    if (replace) {
+      const bookIds = new Set(
+        await addressBookIdsWhere(
+          db,
+          (book) =>
+            book.origin.kind === "connectedAccount" &&
+            book.origin.connectedAccountId === connectedAccountId,
+        ),
+      );
+      const contactIds = (await db.contacts.toArray())
+        .filter((contact) => bookIds.has(contact.addressBookId))
+        .map((contact) => contact.id);
+      if (contactIds.length > 0) await db.contacts.bulkDelete(contactIds);
+    }
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.contacts.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.contacts.bulkDelete(delta.destroyed);
+    await db.syncState.put({
+      key: connectedAccountContactTokenKey(connectedAccountId),
+      token: delta.newState,
+    });
+  });
+}
+
+/**
+ * `ContactLink` (#222, ADR-0026), User-scoped and whole — `applyNoteDelta`'s
+ * own no-merge shape rather than either Contact applier's above: a link has
+ * no per-scope `replace` clear to resolve, because there is only one scope
+ * it can belong to.
+ *
+ * Deliberately does **not** drop a link whose members this Client no longer
+ * holds (an unmirrored book's Contacts, a Contact deleted on another
+ * device): the Sync Backend prunes the link itself
+ * (`contacts/link-store.ts#pruneContactLinkMembers`) and sends the real
+ * update or tombstone, and until it arrives every reader already tolerates a
+ * member id it can't resolve (`@mail/shared#resolveLinkedContactGroups`).
+ * Second-guessing that here would mean this Client inventing an unlink the
+ * User never performed.
+ */
+export async function applyContactLinkDelta(
+  delta: CollectionDelta<ContactLink>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.contactLinks, db.syncState], async () => {
+    if (replace) await db.contactLinks.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.contactLinks.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.contactLinks.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: CONTACT_LINK_TOKEN_KEY, token: delta.newState });
   });
 }
 
@@ -546,6 +755,57 @@ async function deleteMailAccountData(db: LocalCache, mailAccountIds: string[]): 
     ...mailAccountIds.map(correspondentTokenKey),
     ...mailAccountIds.map(compositionTokenKey),
   ]);
+}
+
+/**
+ * Drops a mirrored Address Book (and, cascading, its Contacts) whose
+ * Connected Account is gone — `pruneOrphanedMailAccountData`'s own sibling
+ * for #209's collections, same "runs at the end of a round, off the table a
+ * `reset: true` replay has already finished writing" reasoning. The Local
+ * Address Book is never orphaned this way: it has no Connected Account to
+ * lose. A no-op until `ConnectedAccount` has bootstrapped at least once —
+ * before that, an empty table means "not synced yet", not "no accounts".
+ */
+export async function pruneOrphanedAddressBookData(): Promise<void> {
+  const db = localCache();
+  if ((await getSyncToken(CONNECTED_ACCOUNT_TOKEN_KEY)) === null) return;
+
+  await db.transaction(
+    "rw",
+    [db.connectedAccounts, db.addressBooks, db.contacts, db.syncState],
+    async () => {
+      const liveConnectedAccountIds = new Set(
+        await db.connectedAccounts.toCollection().primaryKeys(),
+      );
+      const orphanedBooks = (await db.addressBooks.toArray()).filter(
+        (book) =>
+          book.origin.kind === "connectedAccount" &&
+          !liveConnectedAccountIds.has(book.origin.connectedAccountId),
+      );
+      if (orphanedBooks.length > 0) {
+        await db.addressBooks.bulkDelete(orphanedBooks.map((book) => book.id));
+        const orphanedConnectedAccountIds = new Set(
+          orphanedBooks.map((book) =>
+            book.origin.kind === "connectedAccount" ? book.origin.connectedAccountId : "",
+          ),
+        );
+        await db.syncState.bulkDelete([
+          ...[...orphanedConnectedAccountIds].map(connectedAccountAddressBookTokenKey),
+          ...[...orphanedConnectedAccountIds].map(connectedAccountContactTokenKey),
+        ]);
+      }
+
+      // Covers both the sweep above (whole-account removal) and an ordinary
+      // `AddressBook` destroy already applied this round (turning off just
+      // the Contacts Facet, #206/#209's own removal path) — either way, a
+      // Contact whose Address Book is no longer live goes with it.
+      const liveAddressBookIds = new Set(await db.addressBooks.toCollection().primaryKeys());
+      const orphanedContactIds = (await db.contacts.toArray())
+        .filter((contact) => !liveAddressBookIds.has(contact.addressBookId))
+        .map((contact) => contact.id);
+      if (orphanedContactIds.length > 0) await db.contacts.bulkDelete(orphanedContactIds);
+    },
+  );
 }
 
 async function loadWindow(

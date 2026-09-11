@@ -1158,6 +1158,18 @@
   color: var(--tile-e-ink);
 }
 
+/* A matched Contact's own photo (#221) replaces the initials tile — same
+   round frame at whatever diameter the tier gives `.mail-avatar`, `object-fit:
+   cover` so a non-square upload is never distorted (`contact-card-avatar-image`'s
+   own shape, `contacts.css`). */
+.mail-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
 /* Unread is a dot pinned to the tile's corner, knocked out of the ground
    behind it — the tile's own colour stays the correspondent's identity
    rather than doubling as a read state. */

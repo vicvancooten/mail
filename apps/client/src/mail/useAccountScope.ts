@@ -1,4 +1,4 @@
-import type { ConnectedAccount, MailAccount } from "@mail/shared";
+import type { AddressBook, ConnectedAccount, MailAccount } from "@mail/shared";
 import { useCallback, useSyncExternalStore } from "react";
 import {
   type AccountScope,
@@ -83,4 +83,29 @@ export function deriveMailAccountScope(
   return mailAccounts
     .filter((account) => inScope.has(account.connectedAccountId))
     .map((account) => account.id);
+}
+
+/**
+ * The Contacts App's own view of Account Scope (#211, `apps.ts#AppDef.
+ * observesAccountScope`): which Address Books are in Scope, `deriveMailAccountScope`'s
+ * own shape for the one Origin difference an Address Book has that a Mail
+ * Account doesn't — the Local Address Book is never a Connected Account's
+ * own, so it is always in Scope, in or out of any particular narrowing
+ * (there is no Connected Account id for a Scope toggle to ever exclude it
+ * by). A mirrored book follows `deriveMailAccountScope`'s own fallback too:
+ * every book stays in Scope while the Connected Accounts collection hasn't
+ * synced yet, narrowed once it has.
+ */
+export function deriveAddressBookScope(
+  connectedAccounts: ConnectedAccount[] | undefined,
+  connectedAccountScope: AccountScope,
+  addressBooks: readonly AddressBook[],
+): AddressBook[] {
+  if (!connectedAccounts || connectedAccounts.length === 0) {
+    return [...addressBooks];
+  }
+  const inScope = new Set(connectedAccountScope);
+  return addressBooks.filter(
+    (book) => book.origin.kind === "local" || inScope.has(book.origin.connectedAccountId),
+  );
 }

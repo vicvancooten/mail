@@ -47,6 +47,7 @@ export async function searchRoutes(app: FastifyInstance, { db }: SearchRoutesOpt
       text: filters.text,
       from: filters.from,
       to: filters.to,
+      participants: filters.participants,
       hasAttachment: filters.hasAttachment,
       folder: filters.folder,
       label: filters.label,

@@ -93,6 +93,7 @@ export {
 export {
   readConnectedAccounts,
   readCorrespondents,
+  readCorrespondentsAcrossAccounts,
   readGmailLabels,
   readLabels,
   readMailAccounts,
@@ -108,6 +109,7 @@ export {
   type ThreadWindowPage,
   useConnectedAccounts,
   useCorrespondents,
+  useCorrespondentsAcrossAccounts,
   useGmailLabels,
   useLabels,
   useMailAccounts,

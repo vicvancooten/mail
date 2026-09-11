@@ -1,0 +1,478 @@
+/*
+ * The Contacts App's own chrome (#211): the card directory's grid layout,
+ * toolbar, filter chips and the card itself, all styled from the same
+ * `@mail/design-tokens` every other screen reads — `notes.css`'s own shape,
+ * widened by the banner/avatar hero and the phone breakpoint.
+ */
+
+.contacts-grid-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 32px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+/* ---------- the Contacts / People you've mailed tabs (#218) ---------- */
+
+.contacts-app-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+.contacts-app-tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+}
+
+.contacts-app-tab.active {
+  color: var(--color-ink);
+  border-bottom-color: var(--color-accent);
+}
+
+/* ---------- "People you've mailed" rows ---------- */
+
+.mailed-people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mailed-person-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: var(--hairline) solid var(--color-border);
+  padding: 10px 4px;
+}
+
+.mailed-person-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mailed-person-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mailed-person-address {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contacts-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.contacts-search {
+  flex: 1 1 200px;
+  min-width: 160px;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+}
+
+.contacts-search:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.contacts-new-link {
+  flex: none;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 6px 14px;
+  white-space: nowrap;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.contacts-new-link:hover {
+  background: var(--color-hover);
+}
+
+.contacts-recently-deleted-link {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 5px 0;
+}
+
+.contacts-recently-deleted-link:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
+/* ---------- the Address Book filter row ---------- */
+
+.address-book-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.address-book-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease),
+    border-color var(--dur-press) var(--ease);
+}
+
+.address-book-chip:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.address-book-chip.selected {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.address-book-chip-origin {
+  font-size: 10.5px;
+  color: var(--color-ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.contacts-grid-empty {
+  margin: 0;
+  padding: 32px 0;
+  color: var(--color-ink-faint);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+/* ---------- the grid ---------- */
+
+.contacts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+/* ---------- the card ---------- */
+
+.contact-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    box-shadow var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+
+.contact-card:hover {
+  box-shadow: var(--shadow-card);
+  transform: translateY(-2px);
+}
+
+.contact-card-banner {
+  position: relative;
+  height: 64px;
+  overflow: hidden;
+  transition: transform var(--dur-press) var(--ease);
+}
+
+/* The banner-zoom-on-hover half of #211's own "lift with a subtle banner
+   zoom on hover" — the card itself lifts (`.contact-card:hover` above), the
+   banner underneath it scales up a touch, both plain CSS transitions, no
+   animation library involved (only the stagger-in below reaches for
+   `tw-animate-css`). */
+.contact-card:hover .contact-card-banner {
+  transform: scale(1.06);
+}
+
+.contact-card-origin-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgb(0 0 0 / 35%);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.contact-card-avatar {
+  position: absolute;
+  top: 40px;
+  left: 14px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 3px solid var(--color-surface);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* A real uploaded photo (#213) replaces the initials tile above it — same round frame, `object-fit: cover` so a non-square upload never distorts. */
+.contact-card-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.contact-card-body {
+  padding: 20px 14px 14px;
+  min-height: 56px;
+}
+
+.contact-card-name {
+  margin: 0 0 2px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-card-organization {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Phone (#211: "the same grid at one column at the app's own 700px
+   breakpoint, no separate route") — `mail.css`'s own 700px convention. */
+@media (max-width: 700px) {
+  .contacts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Recently Deleted (#224) ---------- */
+
+.contacts-recently-deleted-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.contacts-recently-deleted-back {
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+  text-decoration: none;
+}
+
+.contacts-recently-deleted-back:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
+.contacts-grid-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/* Greyed (`notes/notes.css`'s own `.note-card-deleted`, "the same card
+   chrome, muted rather than a second layout"): no banner, no avatar, just
+   the name/organisation and a Restore control. */
+.contact-card-deleted {
+  opacity: 0.6;
+}
+
+.contact-card-restore {
+  align-self: flex-start;
+  margin: 0 14px 14px;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.contact-card-restore:hover {
+  background: var(--color-hover);
+}
+
+/* The Duplicates filter (#222, ADR-0026: "a filter on the list") — the
+   Address Book chips' own shape, kept as its own toggle rather than a chip
+   in that row because it filters on something no Address Book can say. */
+.contacts-duplicates-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease),
+    border-color var(--dur-press) var(--ease);
+}
+
+.contacts-duplicates-filter:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.contacts-duplicates-filter.selected {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.contacts-duplicates-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* A card's own chips (#222): "Linked · n" and "Possible duplicate", under
+   the organisation line so the card's own name/organisation rhythm stays
+   the one #211 shipped. */
+.contact-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.contact-card-chip {
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  background: var(--color-hover);
+  color: var(--color-ink-muted);
+}
+
+.contact-card-chip.linked {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.contact-card-chip.duplicate {
+  /* `--color-warn` (`@mail/design-tokens`) — a suggestion, not an error, so
+     the tint stays the hairline-bordered kind rather than a filled pill. */
+  border: var(--hairline) solid var(--color-warn);
+  color: var(--color-warn);
+  background: transparent;
+}
+
+/* ---------- Import, Copy to…/Move to… and Copy all to… (#225) ---------- */
+
+.contact-import-file,
+.contact-import-target,
+.contact-copy-move-target {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+}
+
+.contact-import-target select,
+.contact-copy-move-target select {
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 400;
+  padding: 6px 12px;
+}
+
+.contact-import-error {
+  font-size: 12.5px;
+  color: var(--color-warn);
+}
+
+.contact-copy-move-drops {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+}
+
+.contact-copy-move-drops ul {
+  margin: 0;
+  padding-left: 18px;
+}

@@ -6,10 +6,12 @@ import type {
 } from "@mail/shared";
 import { syncRequestSchema, syncResponseSchema } from "@mail/shared";
 import type { FastifyInstance } from "fastify";
+import { getConnectedAccountForUser } from "../connected-accounts/store.js";
 import type { Db } from "../db/client.js";
 import { getMailAccountForUser } from "../mail-accounts/store.js";
 import { computeUnreadInboxCount } from "../notifier/badge.js";
 import {
+  connectedAccountCollectionRegistry,
   mailAccountCollectionRegistry,
   userCollectionRegistry,
 } from "../sync/collection-registry.js";
@@ -24,10 +26,11 @@ export interface SyncRoutesOptions {
 
 /**
  * The one delta endpoint (ADR-0011, #37): `POST /sync`, session-gated,
- * carrying a map of `{collection → stateToken}` scoped per Mail Account plus
- * a set of User-scoped collections. See `packages/shared/src/sync.ts` for
- * the wire contract this thinly wraps — everything below is request
- * plumbing and per-collection dispatch, no sync logic of its own.
+ * carrying a map of `{collection → stateToken}` scoped per Mail Account,
+ * per Connected Account (#209, ADR-0023) plus a set of User-scoped
+ * collections. See `packages/shared/src/sync.ts` for the wire contract this
+ * thinly wraps — everything below is request plumbing and per-collection
+ * dispatch, no sync logic of its own.
  *
  * A Mail Account's `mutations` (#39) are flushed *before* its Thread delta
  * is computed — ADR-0011's third divergence, "a mutation-flush response
@@ -64,7 +67,11 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       return reply.code(400).send({ error: "invalid_request", issues: body.error.issues });
     }
     const userId = requireUser(request).id;
-    const { user, mailAccounts: requestedMailAccounts } = body.data;
+    const {
+      user,
+      mailAccounts: requestedMailAccounts,
+      connectedAccounts: requestedConnectedAccounts,
+    } = body.data;
 
     const userResult: SyncResponse["user"] = {};
     // `noteSaves` (#192, ADR-0023) flush before `mutations`, the same
@@ -174,6 +181,38 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
       }
     }
 
+    // Connected-Account-scoped collections (#209: `AddressBook`/`Contact`,
+    // the first real user of this scope) — no mutations/composeSaves to
+    // flush here yet (no upstream adapter writes back, #214+), so this is
+    // just per-account dispatch, the same shape the Mail Account loop above
+    // has minus its queues.
+    const connectedAccountsResult: SyncResponse["connectedAccounts"] = {};
+    for (const [connectedAccountId, requested] of Object.entries(
+      requestedConnectedAccounts ?? {},
+    )) {
+      const wantsAnyCollection = connectedAccountCollectionRegistry.some(
+        (descriptor) => readRequestedToken(requested, descriptor.name) !== undefined,
+      );
+      if (!wantsAnyCollection) continue;
+
+      // Silently skipped, same reasoning as a Mail Account the Client still
+      // has cached but no longer owns (above): the `ConnectedAccount`
+      // collection is what tells it the account is gone.
+      const account = await getConnectedAccountForUser(db, userId, connectedAccountId);
+      if (!account) continue;
+
+      const accountResult: Record<string, unknown> = {};
+      for (const descriptor of connectedAccountCollectionRegistry) {
+        const token = readRequestedToken(requested, descriptor.name);
+        if (token === undefined) continue;
+        const delta = await descriptor.sync(db, { connectedAccountId }, token);
+        if (delta) setCollectionDelta(accountResult, descriptor.name, delta);
+      }
+      if (Object.keys(accountResult).length > 0) {
+        connectedAccountsResult[connectedAccountId] = accountResult;
+      }
+    }
+
     // The User-scoped collection deltas come **last**, after every Mail
     // Account's queue has drained — the same "a mutation-flush response
     // carries deltas too" ordering each account gets for its own `Thread`,
@@ -194,7 +233,11 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     // that.
     userResult.unreadInboxCount = await computeUnreadInboxCount(db, userId);
 
-    return syncResponseSchema.parse({ user: userResult, mailAccounts: mailAccountsResult });
+    return syncResponseSchema.parse({
+      user: userResult,
+      mailAccounts: mailAccountsResult,
+      connectedAccounts: connectedAccountsResult,
+    });
   });
 }
 

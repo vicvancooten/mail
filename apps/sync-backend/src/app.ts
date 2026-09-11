@@ -12,6 +12,7 @@ import type { ProviderAdapters } from "./mail-accounts/provider-adapter.js";
 import type { verifyMailAccountCredentials } from "./mail-accounts/verify.js";
 import { disabledVapidKeyStore, type VapidKeyStore } from "./notifier/vapid-keys.js";
 import { noopSyncHintBroker, type SyncHintBroker } from "./realtime/sync-hints.js";
+import { addressBookRoutes } from "./routes/address-books.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { bulkTriageRoutes } from "./routes/bulk-triage.js";
@@ -19,6 +20,7 @@ import { calendarWatchRoutes } from "./routes/calendar-watch.js";
 import { calendarRoutes } from "./routes/calendars.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
 import { connectedAccountRoutes } from "./routes/connected-accounts.js";
+import { contactPhotoRoutes } from "./routes/contact-photos.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
 import { eventsRoutes } from "./routes/events.js";
 import { gatekeeperRoutes } from "./routes/gatekeeper.js";
@@ -38,6 +40,9 @@ import { noopSyncManager, type SyncManager } from "./sync/manager.js";
 
 /** ADR-0012's default: 25MB of encoded message size, matching `env.ts`'s own default. */
 const DEFAULT_ATTACHMENT_BUDGET_BYTES = 25 * 1024 * 1024;
+
+/** #213's default — `@mail/shared#CONTACT_PHOTO_MAX_BYTES`, matching `env.ts`'s own default. */
+const DEFAULT_CONTACT_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 
 // Populated by the Docker build (ADR-0009: one image, Client bundle and API
 // ship together so a fresh load can never skew). Absent in local dev, where
@@ -86,6 +91,8 @@ export interface BuildAppOptions {
   syncManager?: SyncManager;
   /** ADR-0012's instance-level attachment budget, in encoded bytes. Defaults for tests that never touch #48. */
   attachmentBudgetBytes?: number;
+  /** #213's own instance-level Contact photo budget, in raw bytes. Defaults for tests that never touch #213. */
+  contactPhotoMaxBytes?: number;
   /**
    * The instance's Web Push keypair (#53, ADR-0015 as amended): the store
    * `routes/push.ts`, `routes/instance.ts` and the Notifier all read
@@ -123,6 +130,7 @@ export function buildApp({
   providerAdapters = defaultProviderAdapters,
   syncManager = noopSyncManager,
   attachmentBudgetBytes = DEFAULT_ATTACHMENT_BUDGET_BYTES,
+  contactPhotoMaxBytes = DEFAULT_CONTACT_PHOTO_MAX_BYTES,
   syncHints = noopSyncHintBroker,
   eventsHeartbeatMs,
   vapidKeys = disabledVapidKeyStore,
@@ -174,6 +182,7 @@ export function buildApp({
   });
   app.register(syncRoutes, { db });
   app.register(bulkTriageRoutes, { db });
+  app.register(addressBookRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
   app.register(calendarWatchRoutes, { db });
   app.register(calendarRoutes, { db });
@@ -187,6 +196,7 @@ export function buildApp({
   app.register(messageRoutes, { db, mailCredentialKey });
   app.register(composeConfigRoutes, { attachmentBudgetBytes });
   app.register(attachmentRoutes, { db, attachmentBudgetBytes });
+  app.register(contactPhotoRoutes, { db, contactPhotoMaxBytes });
 
   if (existsSync(publicDir)) {
     app.register(fastifyStatic, { root: publicDir });

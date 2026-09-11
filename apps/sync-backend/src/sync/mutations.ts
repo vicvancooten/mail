@@ -7,14 +7,25 @@ import type {
   UserMutationIntent,
 } from "@mail/shared";
 import {
+  CARDDAV_CONTACT_CAPABILITY_TABLE,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   EMPTY_NOTE_DOCUMENT,
+  GOOGLE_CONTACT_CAPABILITY_TABLE,
+  getContactCapabilityTable,
   isValidLabelName,
+  LOCAL_CONTACT_CAPABILITY_TABLE,
   labelId,
+  MICROSOFT_CONTACT_CAPABILITY_TABLE,
   normalizeLabelName,
   UNDO_SEND_DELAY_OPTIONS,
+  validateContactFields,
 } from "@mail/shared";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
+import {
+  addressBookCapabilityTableId,
+  addressBookRowForUser,
+  setDefaultAddressBook,
+} from "../address-books/store.js";
 import {
   rebuildReminderDueForCalendar,
   rebuildReminderDueForUser,
@@ -31,6 +42,29 @@ import {
 } from "../calendars/series-store.js";
 import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
+import {
+  linkContacts,
+  pruneContactLinkMembers,
+  setContactLinkFront,
+  unlinkContact,
+} from "../contacts/link-store.js";
+import { mergeContacts } from "../contacts/merge-store.js";
+import {
+  appendContactLabelId,
+  contactRowForUser,
+  deleteContactRow,
+  enqueueMicrosoftContactWrite,
+  insertContact,
+  restoreContactAndLinkedGroup,
+  trashContactAndLinkedGroup,
+  updateContactBanner,
+  updateContactFields,
+  updateContactLabelIds,
+} from "../contacts/store.js";
+import {
+  enqueueContactCarddavFieldsWriteBack,
+  enqueueContactFieldsWriteBack,
+} from "../contacts/write-back-outbox.js";
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
@@ -381,7 +415,6 @@ async function applyIntent(
  * also act on an Inbox Thread's own row menu, Reader More menu, or `!` for
  * Spam, not only the Screener's held senders.
  *
-
  * The only rejection any of them can produce is `barred_verdict_domain` — a
  * domain-scoped decision aimed at a public provider (`@mail/shared`'s
  * `BARRED_VERDICT_DOMAINS`). Permanent, correctly: no retry of the same
@@ -610,6 +643,16 @@ async function applyUserIntent(
         .set({ answerNotificationsEnabled: intent.enabled, updatedAt: new Date() })
         .where(eq(users.id, userId));
       return { ok: true };
+    case "setContactsSortOrder":
+      await db
+        .update(users)
+        .set({ contactsSortOrder: intent.contactsSortOrder, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
+    case "setDefaultAddressBook": {
+      const applied = await setDefaultAddressBook(db, userId, intent.addressBookId);
+      return applied ? { ok: true } : { ok: false, reason: "address_book_not_found" };
+    }
     case "createNote":
       // `onConflictDoNothing` (#43's `applyLabel` uses the same trick): a
       // retried id after a dropped response, and a `noteSaves` row that
@@ -725,6 +768,253 @@ async function applyUserIntent(
         .set({ deletedAt: null, updatedAt: new Date() })
         .where(eq(notes.id, intent.noteId));
       return { ok: true };
+    }
+    // A Local Contact's structural actions (#210, ADR-0026) —
+    // `sync.ts#userMutationIntentSchema`'s own doc comment on this whole
+    // group. `createContact` (#225) names its own target `addressBookId`
+    // explicitly rather than always resolving to the caller's Local Address
+    // Book (#210's original shape) — Import and Copy/Move both need an
+    // ordinary create that can land in any Address Book the User owns, so
+    // this validates ownership and the target's own capability table first
+    // (`getContactCapabilityTable`, the one declaration every Origin's own
+    // table — including CardDAV's `CARDDAV_CONTACT_CAPABILITY_TABLE`, #226 —
+    // now shares), the same "check the Address Book, not a hardcoded one"
+    // posture `updateContact`/`deleteContact` below already take for an
+    // *existing* Contact of any Origin. `microsoft` additionally enqueues
+    // Graph's own write-through outbox (#227,
+    // `contacts/store.ts#enqueueMicrosoftContactWrite`) — its own
+    // `drainMicrosoftContactWrites` already creates a brand-new upstream
+    // Person when a queued Contact carries no `microsoftId` yet
+    // (`contacts/microsoft/contacts-sync.ts`), so a Copy/Import landing in a
+    // Graph-mirrored Address Book genuinely reaches Graph. `google` and
+    // `caldav_carddav` do **not** get the same enqueue here: neither
+    // write-back outbox (`contacts/write-back-outbox.ts`,
+    // `contacts/google/write-back-loop.ts`/`contacts/carddav/write-back-loop.ts`)
+    // has a "create a new upstream record" call of its own — both only ever
+    // patch a Contact that already carries a `googleResourceName`/
+    // `carddavHref` — so a Copy/Import into either kind of mirrored Address
+    // Book lands in Wicket only for now (harmless:
+    // `contacts/store.ts#listGoogleResourceNamesForAddressBook`'s own
+    // `isNotNull` filter, and `listCarddavHrefEtagsForAddressBook`'s own,
+    // mean a full sync's reconciliation sweep never touches a
+    // resourceName-/href-less row) until a future ticket adds either
+    // Origin's own create-push the way Graph's already exists.
+    //
+    // `deleteContact` itself is the **permanent** delete, the real inverse of
+    // a still-queued `createContact` — it is never the User's own "Delete"
+    // control (`trashContact` below is), so its own Graph delete push
+    // (captured `microsoftId`, below) only ever fires from an
+    // already-mirrored row racing an undo, never from the ordinary Delete
+    // path. There is no Google/CardDAV delete push here to add
+    // symmetrically: today nothing pushes a Local `createContact` into
+    // either kind of mirrored book upstream (the previous paragraph), so
+    // neither kind of Contact ever reaches `deleteContact` at all in
+    // practice.
+    case "createContact": {
+      const book = await addressBookRowForUser(db, userId, intent.addressBookId);
+      if (!book) return { ok: false, reason: "address_book_not_found" };
+      const table = getContactCapabilityTable(book.capabilityTableId);
+      const validation = validateContactFields(intent.fields, table);
+      if (!validation.ok) return { ok: false, reason: validation.reason };
+      await insertContact(
+        db,
+        userId,
+        book.id,
+        intent.contactId,
+        intent.fields,
+        book.connectedAccountId,
+      );
+      if (book.capabilityTableId === "microsoft") {
+        await enqueueMicrosoftContactWrite(db, {
+          addressBookId: book.id,
+          contactId: intent.contactId,
+          kind: "upsert",
+        });
+      }
+      return { ok: true };
+    }
+    case "deleteContact": {
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      // A Contact already gone (Undo racing a second delete, or a retried
+      // id) is a harmless no-op, the same tolerance `deleteNote` gives —
+      // no tombstone for a delete that deleted nothing.
+      const deleted = await deleteContactRow(db, userId, intent.contactId);
+      if (deleted) {
+        // A `ContactLink` naming this Contact can't cascade — its members
+        // are a `text[]` with no foreign key (#222, `db/schema.ts`) — so
+        // the link drops the member here, dissolving outright if that
+        // leaves it with fewer than two.
+        await pruneContactLinkMembers(db, userId, [intent.contactId]);
+        await recordTombstones(db, {
+          mailAccountId: null,
+          collection: "Contact",
+          entityIds: [intent.contactId],
+        });
+        if (contact?.microsoftId) {
+          await enqueueMicrosoftContactWrite(db, {
+            addressBookId: contact.addressBookId,
+            microsoftId: contact.microsoftId,
+            kind: "delete",
+          });
+        }
+      }
+      return { ok: true };
+    }
+    // `trashContact`/`restoreContact` (#224): Delete and Recently Deleted's
+    // own Restore, `trashNote`/`restoreNote`'s own shape — only `deletedAt`
+    // flips, the row is never removed here (`deleteContact` above stays the
+    // permanent one). Both cascade to every record `contactId` is linked
+    // with (`contacts/store.ts#trashContactAndLinkedGroup`'s own doc
+    // comment) — ADR-0026's "Delete on a linked card deletes every linked
+    // record, one Undo restores all", true regardless of which single member
+    // the Client's own intent names. `contactRowForUser` is only this case's
+    // own ownership/existence check; the cascade re-derives the group and
+    // re-checks `userId` itself for every member it touches.
+    case "trashContact": {
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      if (!contact) return { ok: false, reason: "contact_not_found" };
+      await trashContactAndLinkedGroup(db, userId, intent.contactId);
+      return { ok: true };
+    }
+    case "restoreContact": {
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      if (!contact) return { ok: false, reason: "contact_not_found" };
+      await restoreContactAndLinkedGroup(db, userId, intent.contactId);
+      return { ok: true };
+    }
+    case "updateContact": {
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      if (!contact) return { ok: false, reason: "contact_not_found" };
+      const capabilityTableId = await addressBookCapabilityTableId(db, contact.addressBookId);
+      const table =
+        capabilityTableId === "microsoft"
+          ? MICROSOFT_CONTACT_CAPABILITY_TABLE
+          : capabilityTableId === "google"
+            ? GOOGLE_CONTACT_CAPABILITY_TABLE
+            : capabilityTableId === "caldav_carddav"
+              ? CARDDAV_CONTACT_CAPABILITY_TABLE
+              : LOCAL_CONTACT_CAPABILITY_TABLE;
+      const validation = validateContactFields(intent.fields, table);
+      if (!validation.ok) return { ok: false, reason: validation.reason };
+      await updateContactFields(db, intent.contactId, intent.fields);
+      // A mirrored Contact's own write-back — applied to the mirror
+      // optimistically above, exactly like a Local Contact's edit, and
+      // reaches its own Origin's outbox for the actual round trip:
+      // `contacts/google/write-back-loop.ts` chains an etag and reverts the
+      // mirror ("upstream wins") on a rejected write (#216); Graph's own
+      // `contacts/microsoft/contacts-sync.ts#drainMicrosoftContactWrites`
+      // compares `changeKey` instead (#227, this switch's own doc comment
+      // above for its lost-update caveat); CardDAV's own
+      // `contacts/carddav/write-back-loop.ts` chains an etag and reverts the
+      // same "upstream wins" way Google's own loop does (#226). Gated on
+      // `capabilityTableId` rather than a `googleResourceName`/`microsoftId`/
+      // `carddavHref` truthiness check — the one place every Origin agrees
+      // on how to tell "this Contact is mirrored from here" apart.
+      if (capabilityTableId === "google" && contact.connectedAccountId) {
+        await enqueueContactFieldsWriteBack(db, {
+          contactId: intent.contactId,
+          connectedAccountId: contact.connectedAccountId,
+        });
+      } else if (capabilityTableId === "microsoft") {
+        await enqueueMicrosoftContactWrite(db, {
+          addressBookId: contact.addressBookId,
+          contactId: intent.contactId,
+          kind: "upsert",
+        });
+      } else if (capabilityTableId === "caldav_carddav" && contact.connectedAccountId) {
+        await enqueueContactCarddavFieldsWriteBack(db, {
+          contactId: intent.contactId,
+          addressBookId: contact.addressBookId,
+        });
+      }
+      return { ok: true };
+    }
+    case "labelContact": {
+      const name = normalizeLabelName(intent.name);
+      if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      if (!contact) return { ok: false, reason: "contact_not_found" };
+
+      // User-scoped (#186): the same `labelId` derivation `labelNote`
+      // already uses — one set of Labels per User, so a Contact, a Note and
+      // a Thread of this same User's own can share a row.
+      const id = labelId(userId, name);
+      await db.insert(labels).values({ id, userId, name }).onConflictDoNothing({
+        target: labels.id,
+      });
+
+      if (!contact.labelIds.includes(id)) {
+        await appendContactLabelId(db, intent.contactId, id);
+      }
+      return { ok: true };
+    }
+    case "unlabelContact": {
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      if (!contact) return { ok: false, reason: "contact_not_found" };
+
+      const id = labelId(userId, normalizeLabelName(intent.name));
+      if (contact.labelIds.includes(id)) {
+        await updateContactLabelIds(
+          db,
+          intent.contactId,
+          contact.labelIds.filter((existing) => existing !== id),
+        );
+      }
+      // A name with no matching applied Label is a harmless no-op — the
+      // same tolerance `unlabelNote` already has.
+      return { ok: true };
+    }
+    // Linked Contacts (#222, ADR-0026) — three intents that write
+    // `contact_links` and never a Contact row, which is what makes "a
+    // User-scoped link, never a change to any record" true of the code
+    // rather than only of the doc comment. Every ownership check is the
+    // store's own (`contacts/link-store.ts`), which needs both sides in one
+    // query anyway.
+    case "linkContacts": {
+      const result = await linkContacts(db, {
+        userId,
+        linkId: intent.linkId,
+        contactId: intent.contactId,
+        otherContactId: intent.otherContactId,
+      });
+      // Already linked is the shape a replayed intent takes, not a failure
+      // the Client should see — the desired state already holds, the same
+      // way `labelContact` reports `ok` for a Label already applied.
+      if (!result.ok && result.reason === "already_linked") return { ok: true };
+      return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+    }
+    case "unlinkContact": {
+      // A Contact in no link is a harmless no-op (`unlinkContact`'s own doc
+      // comment) — never `contact_not_found`, since the Contact itself is
+      // not what this intent is about.
+      await unlinkContact(db, userId, intent.contactId);
+      return { ok: true };
+    }
+    case "setLinkedContactFront": {
+      const applied = await setContactLinkFront(db, userId, intent.linkId, intent.contactId);
+      return applied ? { ok: true } : { ok: false, reason: "contact_link_not_found" };
+    }
+    case "setContactBanner": {
+      // Wicket-only, never gated by `LOCAL_CONTACT_CAPABILITY_TABLE`
+      // (`@mail/shared#contactBannerSchema`'s own doc comment) — any Contact
+      // this User owns, mirrored or Local, same ownership check
+      // `labelContact`/`unlabelContact` already make.
+      const contact = await contactRowForUser(db, userId, intent.contactId);
+      if (!contact) return { ok: false, reason: "contact_not_found" };
+      await updateContactBanner(db, intent.contactId, intent.banner);
+      return { ok: true };
+    }
+    // Merge within one Address Book (#223, ADR-0026) — `contacts/merge-store.ts`
+    // does the whole of it in one transaction: whole-replace the survivor's
+    // fields, permanently delete the loser, exactly `updateContact`/
+    // `deleteContact`'s own write paths.
+    case "mergeContacts": {
+      const result = await mergeContacts(db, {
+        userId,
+        contactId: intent.contactId,
+        otherContactId: intent.otherContactId,
+      });
+      return result.ok ? { ok: true } : { ok: false, reason: result.reason };
     }
     // A Series' structural actions (#233) — see `sync.ts#userMutationIntentSchema`'s
     // own doc comment for the shape each pair takes. Every store call below

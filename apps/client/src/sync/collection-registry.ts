@@ -1,9 +1,16 @@
 import type { CollectionDelta } from "@mail/shared";
 import {
+  ADDRESS_BOOK_TOKEN_KEY,
   type ApplyDeltaOptions,
+  applyAddressBookDelta,
   applyCalendarDelta,
   applyCompositionDelta,
+  applyConnectedAccountAddressBookDelta,
+  applyConnectedAccountContactDelta,
   applyConnectedAccountDelta,
+  applyContactDelta,
+  applyContactLinkDelta,
+  applyContactRollbackDelta,
   applyCorrespondentDelta,
   applyEventDelta,
   applyGmailLabelDelta,
@@ -15,7 +22,12 @@ import {
   applyThreadDelta,
   CALENDAR_TOKEN_KEY,
   CONNECTED_ACCOUNT_TOKEN_KEY,
+  CONTACT_LINK_TOKEN_KEY,
+  CONTACT_ROLLBACK_TOKEN_KEY,
+  CONTACT_TOKEN_KEY,
   compositionTokenKey,
+  connectedAccountAddressBookTokenKey,
+  connectedAccountContactTokenKey,
   correspondentTokenKey,
   EVENT_TOKEN_KEY,
   gmailLabelTokenKey,
@@ -31,12 +43,14 @@ import {
  * The one collection registry (#185). Every collection this Client holds —
  * wire name, Local Cache table, state-token key, and the function that
  * applies a delta to the table — is declared exactly once, here, split into
- * the two scopes the wire protocol itself has (`packages/shared/src/sync.ts`:
- * `userSyncRequestSchema`/`userSyncResponseSchema` vs.
- * `mailAccountSyncRequestSchema`/`mailAccountSyncResponseSchema`). `sync-round.ts`
- * reads these two arrays and nothing else to build a request and apply a
- * response, so a new collection is one entry here rather than a matching edit
- * in the request builder, the apply pass, and the orphan-cleanup list.
+ * the three scopes the wire protocol itself has
+ * (`packages/shared/src/sync.ts`: `userSyncRequestSchema`/
+ * `userSyncResponseSchema` vs. `mailAccountSyncRequestSchema`/
+ * `mailAccountSyncResponseSchema` vs. `connectedAccountSyncRequestSchema`/
+ * `connectedAccountSyncResponseSchema`, #209). `sync-round.ts` reads these
+ * three arrays and nothing else to build a request and apply a response, so
+ * a new collection is one entry here rather than a matching edit in the
+ * request builder, the apply pass, and the orphan-cleanup list.
  *
  * Payload types differ per collection (`Thread`, `Label`, a `Preference`
  * row, ...), so the arrays below are necessarily non-generic — `apply`'s
@@ -58,6 +72,10 @@ export type CollectionTable =
   | "correspondents"
   | "notes"
   | "connectedAccounts"
+  | "addressBooks"
+  | "contacts"
+  | "contactRollbacks"
+  | "contactLinks"
   | "calendars"
   | "events"
   | "rollbacks";
@@ -69,6 +87,13 @@ type ApplyUserCollectionDelta = (
 
 type ApplyMailAccountCollectionDelta = (
   mailAccountId: string,
+  delta: CollectionDelta<unknown>,
+  options: ApplyDeltaOptions,
+) => Promise<void>;
+
+/** A Connected-Account-scoped collection's `apply` shape — `ApplyMailAccountCollectionDelta`'s sibling (#209), same signature keyed by a different id. */
+type ApplyConnectedAccountCollectionDelta = (
+  connectedAccountId: string,
   delta: CollectionDelta<unknown>,
   options: ApplyDeltaOptions,
 ) => Promise<void>;
@@ -89,7 +114,17 @@ function asApplyMailAccountDelta<Payload>(
   return apply as ApplyMailAccountCollectionDelta;
 }
 
-/** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference`/`Label`/`Note` keys. */
+function asApplyConnectedAccountDelta<Payload>(
+  apply: (
+    connectedAccountId: string,
+    delta: CollectionDelta<Payload>,
+    options: ApplyDeltaOptions,
+  ) => Promise<void>,
+): ApplyConnectedAccountCollectionDelta {
+  return apply as ApplyConnectedAccountCollectionDelta;
+}
+
+/** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s keys. */
 export interface UserCollectionEntry {
   readonly wireKey:
     | "MailAccount"
@@ -97,6 +132,10 @@ export interface UserCollectionEntry {
     | "Label"
     | "Note"
     | "ConnectedAccount"
+    | "AddressBook"
+    | "Contact"
+    | "ContactRollback"
+    | "ContactLink"
     | "Calendar"
     | "Event"
     | "Rollback";
@@ -111,6 +150,14 @@ export interface MailAccountCollectionEntry {
   readonly table: CollectionTable;
   readonly tokenKey: (mailAccountId: string) => string;
   readonly apply: ApplyMailAccountCollectionDelta;
+}
+
+/** A per-Connected-Account collection (#209): `connectedAccountSyncRequestSchema`/`connectedAccountSyncResponseSchema`'s two keys — `AddressBook`/`Contact`'s own mirrored half, `MailAccountCollectionEntry`'s sibling. */
+export interface ConnectedAccountCollectionEntry {
+  readonly wireKey: "AddressBook" | "Contact";
+  readonly table: CollectionTable;
+  readonly tokenKey: (connectedAccountId: string) => string;
+  readonly apply: ApplyConnectedAccountCollectionDelta;
 }
 
 export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
@@ -152,6 +199,40 @@ export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
     table: "connectedAccounts",
     tokenKey: CONNECTED_ACCOUNT_TOKEN_KEY,
     apply: asApplyUserDelta(applyConnectedAccountDelta),
+  },
+  // `AddressBook`/`Contact` (#209, ADR-0023): the Local Address Book's own
+  // slot — a mirrored book or Contact rides `CONNECTED_ACCOUNT_COLLECTIONS`
+  // below instead, same `addressBooks`/`contacts` table, different scope.
+  {
+    wireKey: "AddressBook",
+    table: "addressBooks",
+    tokenKey: ADDRESS_BOOK_TOKEN_KEY,
+    apply: asApplyUserDelta(applyAddressBookDelta),
+  },
+  {
+    wireKey: "Contact",
+    table: "contacts",
+    tokenKey: CONTACT_TOKEN_KEY,
+    apply: asApplyUserDelta(applyContactDelta),
+  },
+  // `ContactRollback` (#216, ADR-0023): `Contact`'s append-only sibling —
+  // `@mail/shared#contactRollbackSchema`'s own doc comment.
+  {
+    wireKey: "ContactRollback",
+    table: "contactRollbacks",
+    tokenKey: CONTACT_ROLLBACK_TOKEN_KEY,
+    apply: asApplyUserDelta(applyContactRollbackDelta),
+  },
+  // `ContactLink` (#222, ADR-0026): User-scoped only — no
+  // `CONNECTED_ACCOUNT_COLLECTIONS` sibling, since a link spans Origins by
+  // construction. Declared **after** `Contact` on purpose: these are applied
+  // in order within a round, and a link only means anything once the
+  // Contacts it names are in the cache.
+  {
+    wireKey: "ContactLink",
+    table: "contactLinks",
+    tokenKey: CONTACT_LINK_TOKEN_KEY,
+    apply: asApplyUserDelta(applyContactLinkDelta),
   },
   // `Calendar` and `Rollback` (#229): `Note`'s shape exactly, whole-replicated
   // and User-scoped from the start.
@@ -207,5 +288,27 @@ export const MAIL_ACCOUNT_COLLECTIONS: readonly MailAccountCollectionEntry[] = [
     table: "correspondents",
     tokenKey: correspondentTokenKey,
     apply: asApplyMailAccountDelta(applyCorrespondentDelta),
+  },
+];
+
+/**
+ * The two Connected-Account-scoped collections (#209) — `AddressBook`'s and
+ * `Contact`'s own mirrored half, `USER_COLLECTIONS`' Local half's sibling.
+ * Both are empty for every Connected Account today (no upstream adapter
+ * mirrors one yet, #214+), same posture the Sync Backend's own
+ * `connectedAccountCollectionRegistry` is in.
+ */
+export const CONNECTED_ACCOUNT_COLLECTIONS: readonly ConnectedAccountCollectionEntry[] = [
+  {
+    wireKey: "AddressBook",
+    table: "addressBooks",
+    tokenKey: connectedAccountAddressBookTokenKey,
+    apply: asApplyConnectedAccountDelta(applyConnectedAccountAddressBookDelta),
+  },
+  {
+    wireKey: "Contact",
+    table: "contacts",
+    tokenKey: connectedAccountContactTokenKey,
+    apply: asApplyConnectedAccountDelta(applyConnectedAccountContactDelta),
   },
 ];

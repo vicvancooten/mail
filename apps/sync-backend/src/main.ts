@@ -17,6 +17,11 @@ import { startSeriesPurgeLoop } from "./calendars/series-purge-loop.js";
 import { startSendLoop } from "./compose/send-loop.js";
 import { upgradeMailAccountsToConnectedAccounts } from "./connected-accounts/boot-upgrade.js";
 import { deriveCredentialKey } from "./connected-accounts/credential-crypto.js";
+import { startCarddavContactsSyncLoop } from "./contacts/carddav/poll-loop.js";
+import { startCarddavContactsWriteBackLoop } from "./contacts/carddav/write-back-loop.js";
+import { startGoogleContactsSyncLoop } from "./contacts/google/poll-loop.js";
+import { startGoogleContactsWriteBackLoop } from "./contacts/google/write-back-loop.js";
+import { startMicrosoftContactsSyncLoop } from "./contacts/microsoft/poll-loop.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
@@ -29,6 +34,7 @@ import { createVapidKeyStore } from "./notifier/vapid-keys.js";
 import { createWebPushSender } from "./notifier/web-push-sender.js";
 import { createSyncHintBroker } from "./realtime/sync-hints.js";
 import { defaultProviderAdapters } from "./routes/oauth-signin.js";
+import { startContactPurgeLoop } from "./sync/contact-purge-loop.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { startGrantRefreshLoop } from "./sync/grant-refresh-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
@@ -108,6 +114,7 @@ const app = buildApp({
   providerAdapters,
   syncManager,
   attachmentBudgetBytes: env.ATTACHMENT_BUDGET_BYTES,
+  contactPhotoMaxBytes: env.CONTACT_PHOTO_BUDGET_BYTES,
   syncHints,
   vapidKeys,
   imageTag: env.MAIL_VERSION,
@@ -224,6 +231,11 @@ pollLoops.push(startSnoozeWakeLoop(db, { logger: app.log }));
 // already stored on `notes`.
 pollLoops.push(startNotePurgeLoop(db, { logger: app.log }));
 
+// A Contact's own Recently Deleted purge sweep (#224) — `startNotePurgeLoop`'s
+// own shape, one row per soft-deleted collection rather than one loop trying
+// to cover both.
+pollLoops.push(startContactPurgeLoop(db, { logger: app.log }));
+
 // The Materialisation Window's daily roll (#230, ADR-0025): re-materialises
 // every Series' Occurrence rows against the current window on every tick,
 // same "first tick runs immediately, boot-time catch-up" shape as the note
@@ -254,6 +266,55 @@ pollLoops.push(
   startGrantRefreshLoop(db, {
     mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
     providerAdapters,
+    logger: app.log,
+  }),
+);
+
+// Google People mirrors an Address Book (#214): every Google Connected
+// Account with an active Contacts Facet, on its own 15-minute schedule,
+// independent of `sync/manager.ts` the same way the loops above are.
+pollLoops.push(
+  startGoogleContactsSyncLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
+
+// Write-back to Google, with upstream-wins rollback (#216): the outbox's own
+// short-interval drain, independent of the 15-minute read-side loop above.
+pollLoops.push(
+  startGoogleContactsWriteBackLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
+
+// Microsoft Graph mirrors an Address Book per contact folder (#227) —
+// `startGoogleContactsSyncLoop`'s own sibling, Microsoft's own `"graph"`
+// oauth audience.
+pollLoops.push(
+  startMicrosoftContactsSyncLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
+
+// CardDAV mirrors an Address Book per discovered collection (#226) —
+// `startGoogleContactsSyncLoop`'s own sibling, a `password` credential
+// rather than an oauth one (RFC 6352 has no OAuth of its own).
+pollLoops.push(
+  startCarddavContactsSyncLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
+    logger: app.log,
+  }),
+);
+
+// Write-back to CardDAV, with upstream-wins rollback (#226): the outbox's
+// own short-interval drain, independent of the 15-minute read-side loop
+// above — `startGoogleContactsWriteBackLoop`'s own sibling.
+pollLoops.push(
+  startCarddavContactsWriteBackLoop(db, {
+    mailCredentialKey: env.MAIL_CREDENTIAL_KEY,
     logger: app.log,
   }),
 );

@@ -16,8 +16,8 @@ describe("apps.ts (#187)", () => {
     expect(appForPath("/notes")?.key).toBe("notes");
   });
 
-  it("Calendar is live since #231; Contacts and Tasks stay reserved", () => {
-    expect(APPS_BY_KEY.contacts.available).toBe(false);
+  it("Contacts (#211) and Calendar (#231) are live; Tasks stays reserved", () => {
+    expect(APPS_BY_KEY.contacts.available).toBe(true);
     expect(APPS_BY_KEY.calendar.available).toBe(true);
     expect(APPS_BY_KEY.tasks.available).toBe(false);
   });
