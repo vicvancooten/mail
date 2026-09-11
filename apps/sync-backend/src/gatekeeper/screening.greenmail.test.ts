@@ -93,6 +93,21 @@ async function deliverToInbox(
   subject: string,
   options: { deliveredTo?: string } = {},
 ): Promise<void> {
+  // No explicit `idate` (4th arg) on the APPEND: `greenmail/standalone:2.1.8`
+  // has a real bug (not this repo's) in how it stamps INTERNALDATE from a
+  // client-supplied date-time literal — RFC 3501's date-time has no AM/PM
+  // marker at all (it's 24-hour by construction), but GreenMail's own
+  // parser for it silently behaves as if there were one, so any literal
+  // whose hour is 12-23 (the afternoon/evening, UTC) comes back stamped 12
+  // hours *earlier* than given. `screening.ts#screenArrivals` prefers
+  // INTERNALDATE over the message's own `Date:` header (correctly, for a
+  // real server), so this test's own Gatekeeper Cutoff comparison — the one
+  // place here that checks an arrival's stamped time against an
+  // independently-real-clock value rather than just relative ordering
+  // between two appended messages — was failing pass-or-fail on whether the
+  // suite happened to run in the UTC afternoon. Leaving off the override
+  // lets GreenMail stamp its own current wall-clock Date directly, with no
+  // string round-trip through the buggy parser.
   await other.append(
     "INBOX",
     buildTestMessage({
@@ -105,7 +120,6 @@ async function deliverToInbox(
       text: "Body.",
     }),
     [],
-    new Date(),
   );
 }
 
