@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The Event editor's one shared panel state (#233's own acceptance line:
+ * The Calendar's one shared panel state (#233's own acceptance line:
  * "One popover is open at a time, gated by a single shared panel state
  * rather than independent open state per popover"). A plain module-level
  * store rather than component state — `CalendarRoute.tsx` mounts one
@@ -9,6 +9,13 @@ import { useSyncExternalStore } from "react";
  * from several places at once (a grid cell's click handler, an `EventChip`,
  * a deep-linked `/calendar/<seriesId>@<originalStart>` route) that have no
  * component ancestry in common to lift it into.
+ *
+ * A due Task's popover (#260) is a `mode: "task"` variant of this same
+ * state rather than a parallel module of its own — the "one popover open at
+ * a time" invariant above is otherwise just a claim; sharing the one state
+ * slot a `TaskChip`'s click and an `EventChip`'s click both write to is what
+ * actually makes opening one close the other, with no extra coordination in
+ * `CalendarRoute.tsx`.
  *
  * `anchorRect` is a plain `{x, y, width, height}` snapshot of a
  * `getBoundingClientRect()` (or a synthetic point for a plain click) — the
@@ -46,6 +53,12 @@ export type EventPanelState =
        * grid click, a plain deep link).
        */
       reminderDueIds?: string[];
+    }
+  | {
+      /** A due Task's popover (#260) — checkbox, title, Due, Task List and Open in Tasks, no body editing. */
+      mode: "task";
+      taskId: string;
+      anchorRect: PanelAnchorRect | null;
     }
   | null;
 
@@ -114,6 +127,12 @@ function takePendingReminderDueIds(eventId: string): string[] | undefined {
   const { reminderDueIds } = pendingReminderClick;
   pendingReminderClick = null;
   return reminderDueIds;
+}
+
+/** Opens the due-Task popover (#260) — `openEditPanel`'s own sibling, over the shared panel state above. */
+export function openTaskPanel(taskId: string, anchorRect: PanelAnchorRect | null): void {
+  state = { mode: "task", taskId, anchorRect };
+  emit();
 }
 
 export function closeEventPanel(): void {

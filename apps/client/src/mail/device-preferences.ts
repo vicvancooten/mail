@@ -409,3 +409,127 @@ export function writeGroupCollapsed(label: string, collapsed: boolean): void {
     // Best-effort; see module docstring.
   }
 }
+
+/**
+ * Tasks' own three Device Preferences (#256): "never synced, because a
+ * Board on a laptop and a list on a phone is an honest default" — keyed per
+ * **view id**, the ticket's own `today` / `upcoming` / a List's own ULID,
+ * rather than one global setting, since each of those is a distinct screen
+ * a User may want shown differently. All three share this file's reactive
+ * `useSyncExternalStore` shape (`useViewMode`'s own pair, above) — one
+ * listener `Set` per preference (not per view id: a write for any view id
+ * notifies every mounted subscriber, the same low-cost "just re-check your
+ * own snapshot" cost `useAccountScope`'s doc comment accepts) so two panes
+ * showing the same List's Board never drift.
+ *
+ * Only `boardMode` is actually offered outside a Task List's own Board
+ * chrome — Today/Upcoming have no Sections to be a Board's columns, so
+ * `TasksApp.tsx` never renders the switch for them (#256's own acceptance
+ * line) even though the key itself is addressable by their view id like the
+ * other two.
+ */
+export type TaskBoardMode = "list" | "board";
+export const DEFAULT_TASK_BOARD_MODE: TaskBoardMode = "list";
+
+/** None (the default), by Label, or by due bucket (Overdue/Today/This week/Later/No date) — `tasks/task-board.ts#buildSwimlaneRows`'s own three shapes. */
+export type TaskSwimlane = "none" | "label" | "dueBucket";
+export const DEFAULT_TASK_SWIMLANE: TaskSwimlane = "none";
+
+const BOARD_MODE_KEY_PREFIX = "tasks.devicePref.boardMode.";
+const SWIMLANE_KEY_PREFIX = "tasks.devicePref.swimlane.";
+const COMPLETED_OPEN_KEY_PREFIX = "tasks.devicePref.completedOpen.";
+
+export function readTaskBoardMode(viewId: string): TaskBoardMode {
+  const stored = readStorage(BOARD_MODE_KEY_PREFIX + viewId);
+  return stored === "board" ? "board" : DEFAULT_TASK_BOARD_MODE;
+}
+
+const taskBoardModeListeners = new Set<() => void>();
+
+export function writeTaskBoardMode(viewId: string, mode: TaskBoardMode): void {
+  writeStorage(BOARD_MODE_KEY_PREFIX + viewId, mode);
+  for (const listener of taskBoardModeListeners) listener();
+}
+
+function subscribeTaskBoardMode(listener: () => void): () => void {
+  taskBoardModeListeners.add(listener);
+  return () => taskBoardModeListeners.delete(listener);
+}
+
+/** Reactive pair for one view's List/Board mode — read and written by `tasks/TaskListView.tsx`'s own header toggle. */
+export function useTaskBoardMode(viewId: string): [TaskBoardMode, (mode: TaskBoardMode) => void] {
+  const mode = useSyncExternalStore(
+    subscribeTaskBoardMode,
+    () => readTaskBoardMode(viewId),
+    () => DEFAULT_TASK_BOARD_MODE,
+  );
+  const setMode = useCallback((next: TaskBoardMode) => writeTaskBoardMode(viewId, next), [viewId]);
+  return [mode, setMode];
+}
+
+export function readTaskSwimlane(viewId: string): TaskSwimlane {
+  const stored = readStorage(SWIMLANE_KEY_PREFIX + viewId);
+  return stored === "label" || stored === "dueBucket" ? stored : DEFAULT_TASK_SWIMLANE;
+}
+
+const taskSwimlaneListeners = new Set<() => void>();
+
+export function writeTaskSwimlane(viewId: string, swimlane: TaskSwimlane): void {
+  writeStorage(SWIMLANE_KEY_PREFIX + viewId, swimlane);
+  for (const listener of taskSwimlaneListeners) listener();
+}
+
+function subscribeTaskSwimlane(listener: () => void): () => void {
+  taskSwimlaneListeners.add(listener);
+  return () => taskSwimlaneListeners.delete(listener);
+}
+
+/** Reactive pair for one view's swimlane grouping — read and written by `tasks/TaskBoardView.tsx`'s own header select. */
+export function useTaskSwimlane(viewId: string): [TaskSwimlane, (swimlane: TaskSwimlane) => void] {
+  const swimlane = useSyncExternalStore(
+    subscribeTaskSwimlane,
+    () => readTaskSwimlane(viewId),
+    () => DEFAULT_TASK_SWIMLANE,
+  );
+  const setSwimlane = useCallback(
+    (next: TaskSwimlane) => writeTaskSwimlane(viewId, next),
+    [viewId],
+  );
+  return [swimlane, setSwimlane];
+}
+
+export function readTaskCompletedOpen(viewId: string): boolean {
+  return readStorage(COMPLETED_OPEN_KEY_PREFIX + viewId) === "1";
+}
+
+const taskCompletedOpenListeners = new Set<() => void>();
+
+/** Un-opening removes the key rather than writing "0" — `writeGroupCollapsed`'s own reasoning, one level up. */
+export function writeTaskCompletedOpen(viewId: string, open: boolean): void {
+  if (open) {
+    writeStorage(COMPLETED_OPEN_KEY_PREFIX + viewId, "1");
+  } else {
+    try {
+      globalThis.localStorage?.removeItem(COMPLETED_OPEN_KEY_PREFIX + viewId);
+    } catch {
+      // Best-effort; see module docstring.
+    }
+  }
+  for (const listener of taskCompletedOpenListeners) listener();
+}
+
+function subscribeTaskCompletedOpen(listener: () => void): () => void {
+  taskCompletedOpenListeners.add(listener);
+  return () => taskCompletedOpenListeners.delete(listener);
+}
+
+/** Reactive pair for whether one view's "N completed" expander is open — read/written by `TaskListView.tsx`, `TaskTodayView.tsx` and `TaskUpcomingView.tsx` alike, each passing their own view id. */
+export function useTaskCompletedOpen(viewId: string): [boolean, (open: boolean) => void] {
+  const open = useSyncExternalStore(
+    subscribeTaskCompletedOpen,
+    () => readTaskCompletedOpen(viewId),
+    () => false,
+  );
+  const setOpen = useCallback((next: boolean) => writeTaskCompletedOpen(viewId, next), [viewId]);
+  return [open, setOpen];
+}

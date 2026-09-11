@@ -148,6 +148,14 @@ export interface ActionContext {
    * the new Note's dialog).
    */
   onAddToNotes: (thread: CachedThread) => void;
+  /**
+   * "Add to Tasks" (#258): unlike "Add to Notes", this only opens the sheet
+   * that asks for a Task List and a Due (`mail/AddToTasksSheet.tsx`) — the
+   * registry's own `run` stays a one-line forward, same shape as
+   * `onAddToNotes`, to `mail/MailSection.tsx`'s own handler, which holds the
+   * sheet's open state and the Thread it's about.
+   */
+  onAddToTasks: (thread: CachedThread) => void;
   /** Moves the selection one Thread `delta` — the list's own collapse-aware mover where one is mounted (`surface-handles.ts`), else the flat neighbour. */
   onMove: (delta: 1 | -1) => void;
   /** How many Threads the current list holds — what makes next/prev available at all. */
@@ -275,6 +283,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onOpenShortcutSheet: () => {},
     onOpenStream: () => {},
     onAddToNotes: () => {},
+    onAddToTasks: () => {},
     onMove: () => {},
     threadCount: 0,
     openPicker: null,

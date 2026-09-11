@@ -113,6 +113,16 @@ export function MailRoute() {
     [navigate],
   );
 
+  // The Reader's Task chips (#259, `mail/ReaderTaskChips.tsx`'s own doc
+  // comment) — the same "one place that knows [it] lives at a route at all"
+  // role `onNoteCreated` above already plays for Notes.
+  const onOpenTask = useCallback(
+    (taskId: string) => {
+      void navigate({ to: "/tasks/$taskId", params: { taskId } });
+    },
+    [navigate],
+  );
+
   return (
     <MailSection
       initialLabelFilter={search.label ?? null}
@@ -122,6 +132,7 @@ export function MailRoute() {
       onLocationChange={onLocationChange}
       onOpenStream={onOpenStream}
       onNoteCreated={onNoteCreated}
+      onOpenTask={onOpenTask}
     />
   );
 }

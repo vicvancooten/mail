@@ -56,6 +56,44 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  * Backend cascades that one intent to every linked record (ADR-0026), so a
  * single announce and a single `restoreContact(id)` are the whole of what
  * "one Undo restores all" needs on the Client's own side.
+ *
+ * `"taskComplete"` (#252) is Tasks' own undoable action — `tasks/TaskListView.tsx`
+ * calls `announceUndoableAction` right after `store/tasks.ts#completeTask`
+ * the same way `noteDelete` rides `trashNote`, despite this module living
+ * under `mail/`: ticking several rows in quick succession folds into the
+ * same "N completed · Undo" toast, `#95`'s own bucketing already built for
+ * exactly this shape.
+ *
+ * `"taskDelete"`/`"taskListDelete"` (#253/#257) are Tasks' own soft-delete
+ * pair, `"noteDelete"`'s exact shape — `tasks/TaskEditor.tsx`'s own Delete
+ * control and `tasks/TasksSidebar.tsx`'s each call `announceUndoableAction`
+ * right after `store/tasks.ts#trashTask`/`deleteTaskList` respectively. Two
+ * separate kinds, not one shared bucket: a Task delete folded together with
+ * a List delete would let one Undo reverse both, which is never what either
+ * control alone means to undo.
+ *
+ * `"taskSectionDelete"` (#255) is that same shape one level down — a
+ * Section's own delete/restore pair, `tasks/TaskListView.tsx`'s group
+ * heading control calling `announceUndoableAction` right after
+ * `store/tasks.ts#deleteSection`. Its own bucket, not folded into
+ * `"taskDelete"`: deleting a Section moves Tasks rather than deleting them,
+ * and Undo here means `restoreSection`, not `restoreTask`.
+ *
+ * `"taskReschedule"` (#261) is a dragged Task chip's own kind —
+ * `calendar/calendar-task-drag.ts#rescheduleTaskTo`, right after the
+ * Calendar's `setTaskDueDate` field-patch — its own bucket, not folded into
+ * `"taskComplete"`: dragging several chips in quick succession undoes only
+ * the reschedules, never an unrelated tick sitting in the same window.
+ *
+ * `"addToTask"`/`"addToTaskAndDone"` (#258) are "Add to Tasks"'s own pair —
+ * `mail/MailSection.tsx`'s `onAddToTasksConfirm`/`onAddToTasksConfirmAndDone`
+ * handlers, `"addToNotes"`'s exact shape for the first, except the second is
+ * a genuinely **compound** intent: creating the Task *and* archiving the
+ * Thread under one toast whose one Undo reverses both together (deletes the
+ * Task, restores the Thread to the Inbox) — never folded into the ordinary
+ * `"done"` bucket `useTriage.ts#archive` already announces its own Undo
+ * into, which would let an unrelated `e` press's Undo also delete this Task
+ * (or vice versa).
  */
 export type UndoableActionKind =
   | "done"
@@ -72,6 +110,13 @@ export type UndoableActionKind =
   | "contactImport"
   | "contactCopy"
   | "contactMove"
+  | "taskComplete"
+  | "taskDelete"
+  | "taskListDelete"
+  | "taskSectionDelete"
+  | "taskReschedule"
+  | "addToTask"
+  | "addToTaskAndDone"
   | "eventDelete"
   | "seriesDelete"
   | "eventMove"
@@ -110,6 +155,23 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   contactImport: { one: "1 Contact imported", many: (count) => `${count} Contacts imported` },
   contactCopy: { one: "Contact copied", many: (count) => `${count} Contacts copied` },
   contactMove: { one: "Contact moved", many: (count) => `${count} Contacts moved` },
+  // Task complete (#252) — `tasks/TaskListView.tsx`'s own checkbox row.
+  taskComplete: { one: "Completed", many: (count) => `${count} completed` },
+  // Task delete (#253) — `tasks/TaskEditor.tsx`'s own Delete control.
+  taskDelete: { one: "Task deleted", many: (count) => `${count} Tasks deleted` },
+  // Task List delete (#257) — `tasks/TasksSidebar.tsx`'s own row control.
+  taskListDelete: { one: "Task List deleted", many: (count) => `${count} Task Lists deleted` },
+  // Section delete (#255) — `tasks/TaskListView.tsx`'s own group heading control.
+  taskSectionDelete: { one: "Section deleted", many: (count) => `${count} Sections deleted` },
+  // Dragging a Task chip to another day on the Calendar (#261) — `calendar/calendar-task-drag.ts#rescheduleTaskTo`.
+  taskReschedule: { one: "Task rescheduled", many: (count) => `${count} Tasks rescheduled` },
+  // "Add to Tasks" (#258) — `mail/MailSection.tsx`'s own `onAddToTasksConfirm` handler.
+  addToTask: { one: "Added to Tasks", many: (count) => `${count} added to Tasks` },
+  // "Add to Tasks" + mark Done (#258) — the compound handler, one toast for both.
+  addToTaskAndDone: {
+    one: "Added to Tasks and marked Done",
+    many: (count) => `${count} added to Tasks and marked Done`,
+  },
   // Deleting one Occurrence (#233) — `calendar/EventEditorPopover.tsx`'s own
   // `addExdate` call, undone by its real inverse `removeExdate`.
   eventDelete: { one: "Event deleted", many: (count) => `${count} events deleted` },

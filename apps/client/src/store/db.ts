@@ -23,6 +23,8 @@ import type {
   Series,
   SeriesAttendee,
   SeriesOverride,
+  Task,
+  TaskList,
   Thread,
   UserMutationIntent,
 } from "@mail/shared";
@@ -47,7 +49,12 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 14; // #209-#224: `addressBooks`/`contacts`/`contactRollbacks`/`contactLinks` tables added; #242: `pendingSeriesSaves` grows `sendUpdate`
+// #209-#224: `addressBooks`/`contacts`/`contactRollbacks`/`contactLinks`
+// tables added; #242: `pendingSeriesSaves` grows `sendUpdate`; #251:
+// `taskLists`/`tasks`/`pendingTaskSaves` tables added — 15 covers all three
+// sets of changes, one wipe-and-resync for whichever a Client is upgrading
+// from.
+export const CACHE_SCHEMA_VERSION = 15;
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -255,10 +262,10 @@ export interface PendingComposeSave {
 }
 
 /**
- * The `noteSaves` channel's coalescing queue (#192, ADR-0023) —
- * `PendingComposeSave`'s sibling, deliberately simpler: no `version`, since a
- * Note body write is never rejected (`@mail/shared`'s `noteSaveSchema` own
- * doc comment). Keyed by `noteId` rather than a fresh id per save, the same
+ * The `documentSaves` channel's coalescing queue (#192, #250, ADR-0023) for
+ * the `Note` collection — `PendingComposeSave`'s sibling, deliberately
+ * simpler: no `version`, since a Note body write is never rejected
+ * (`@mail/shared`'s `documentSaveSchema` own doc comment). Keyed by `noteId` rather than a fresh id per save, the same
  * `put()`-is-the-coalescer trick `PendingComposeSave` uses — a later edit's
  * `put()` simply overwrites a still-unflushed earlier one in place.
  * `saveId` is a fresh ULID minted on every overwrite, the idempotency/replay
@@ -266,6 +273,18 @@ export interface PendingComposeSave {
  */
 export interface PendingNoteSave {
   noteId: string;
+  saveId: string;
+  document: NoteDocument;
+  queuedAt: string;
+}
+
+/**
+ * The `documentSaves` channel's coalescing queue (#251, #250, ADR-0023) for
+ * the `Task` collection — `PendingNoteSave`'s exact sibling, keyed by
+ * `taskId` instead.
+ */
+export interface PendingTaskSave {
+  taskId: string;
   saveId: string;
   document: NoteDocument;
   queuedAt: string;
@@ -398,6 +417,11 @@ export class LocalCache extends Dexie {
    */
   contactLinks!: EntityTable<ContactLink, "id">;
   pendingNoteSaves!: EntityTable<PendingNoteSave, "noteId">;
+  /** `TaskList` (#251, ADR-0030), User-scoped, whole-replicated — `notes`' sibling. */
+  taskLists!: EntityTable<TaskList, "id">;
+  /** `Task` (#251, ADR-0030), User-scoped, whole-replicated, completed Tasks included. */
+  tasks!: EntityTable<Task, "id">;
+  pendingTaskSaves!: EntityTable<PendingTaskSave, "taskId">;
   /** `Calendar` (#229), User-scoped, whole-replicated — `notes`' sibling: a User has at most a handful. */
   calendars!: EntityTable<Calendar, "id">;
   /** `Event` (#229): always empty on this line (no materialiser yet, #230) — kept keyed by `calendarId` for the grid this collection's future rows will feed. */
@@ -449,6 +473,12 @@ export class LocalCache extends Dexie {
       // the grid/Recently Deleted split doesn't need its own schema bump).
       notes: "id, userId, deletedAt",
       pendingNoteSaves: "noteId",
+      // `deletedAt` indexed the same reason `notes`' own is; `taskListId`
+      // is `tasks`' own read pattern — every List's own Tasks, a range scan
+      // rather than a table scan.
+      taskLists: "id, userId, deletedAt",
+      tasks: "id, userId, taskListId, deletedAt",
+      pendingTaskSaves: "taskId",
       connectedAccounts: "id, userId",
       addressBooks: "id",
       // `addressBookId` indexed for `server-writes.ts`'s own scope-cleanup
@@ -507,6 +537,8 @@ const DATA_TABLES = [
   "gmailLabels",
   "correspondents",
   "notes",
+  "taskLists",
+  "tasks",
   "connectedAccounts",
   "addressBooks",
   "contacts",
@@ -544,6 +576,7 @@ export type CacheSchemaOutcome =
       pendingComposeSaves: number;
       pendingUserMutations: number;
       pendingNoteSaves: number;
+      pendingTaskSaves: number;
       pendingSeriesSaves: number;
     };
 
@@ -566,12 +599,14 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
   const pendingComposeSaves = await db.pendingComposeSaves.count();
   const pendingUserMutations = await db.pendingUserMutations.count();
   const pendingNoteSaves = await db.pendingNoteSaves.count();
+  const pendingTaskSaves = await db.pendingTaskSaves.count();
   const pendingSeriesSaves = await db.pendingSeriesSaves.count();
   if (
     pendingMutations > 0 ||
     pendingComposeSaves > 0 ||
     pendingUserMutations > 0 ||
     pendingNoteSaves > 0 ||
+    pendingTaskSaves > 0 ||
     pendingSeriesSaves > 0
   ) {
     return {
@@ -581,6 +616,7 @@ export async function ensureCacheSchema(db: LocalCache): Promise<CacheSchemaOutc
       pendingComposeSaves,
       pendingUserMutations,
       pendingNoteSaves,
+      pendingTaskSaves,
       pendingSeriesSaves,
     };
   }

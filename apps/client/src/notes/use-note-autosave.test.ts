@@ -8,7 +8,7 @@ import { setSessionUserId } from "../store/session.js";
 import { AUTOSAVE_DEBOUNCE_MS, useNoteAutosave } from "./use-note-autosave.js";
 
 /**
- * #192's own acceptance line: body edits ride the `noteSaves` channel with
+ * #192's own acceptance line: body edits ride the `documentSaves` channel with
  * the same `AUTOSAVE_DEBOUNCE_MS = 400` local debounce Composer.tsx already
  * uses — `Composer.test.tsx`'s own "autosaves ... a short debounce after
  * typing" test is this file's template, real timers and `waitFor` rather

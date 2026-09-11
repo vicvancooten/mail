@@ -212,6 +212,43 @@ describe("enqueueUserMutation", () => {
   });
 });
 
+describe("coalesceKey — Task/Task List buckets (#251)", () => {
+  it("cancels a still-queued createTask against its own hard deleteTask, the createNote/deleteNote shape", async () => {
+    await enqueueUserMutation({
+      type: "createTask",
+      taskId: "task-1",
+      taskListId: "list-1",
+      sectionId: null,
+      title: "Buy milk",
+      order: 0,
+    });
+
+    await enqueueUserMutation({ type: "deleteTask", taskId: "task-1" });
+
+    expect(await listQueuedUserMutations()).toEqual([]);
+  });
+
+  it("never cancels createTaskList against a following deleteTaskList — deleteTaskList already pairs with restoreTaskList", async () => {
+    await enqueueUserMutation({ type: "createTaskList", taskListId: "list-1", name: "Errands" });
+
+    await enqueueUserMutation({ type: "deleteTaskList", taskListId: "list-1", taskIds: [] });
+
+    const queued = await listQueuedUserMutations();
+    expect(queued.map((mutation) => mutation.intent.type)).toEqual([
+      "createTaskList",
+      "deleteTaskList",
+    ]);
+  });
+
+  it("cancels a still-queued deleteTaskList against its own restoreTaskList", async () => {
+    await enqueueUserMutation({ type: "deleteTaskList", taskListId: "list-1", taskIds: [] });
+
+    await enqueueUserMutation({ type: "restoreTaskList", taskListId: "list-1", taskIds: [] });
+
+    expect(await listQueuedUserMutations()).toEqual([]);
+  });
+});
+
 describe("resolveUserMutationOutcomes", () => {
   it("dequeues both applied and rejected outcomes", async () => {
     const advanceId = defined(

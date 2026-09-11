@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
+import { useAllTasks } from "../store/tasks.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./calendar.css";
 import { CalendarSlideOver } from "./CalendarSlideOver.js";
@@ -18,6 +19,8 @@ import {
   today,
 } from "./calendar-dates.js";
 import { bucketEventsByDay } from "./calendar-occurrences.js";
+import { bucketTasksByDay } from "./calendar-task-occurrences.js";
+import { useShowTasksOnGrid } from "./calendar-task-visibility.js";
 import {
   type CalendarView,
   calendarSearchFor,
@@ -30,6 +33,7 @@ import { useHiddenCalendarIds } from "./calendar-visibility.js";
 import { DayTimeGrid } from "./DayTimeGrid.js";
 import { EventEditorPopover } from "./EventEditorPopover.js";
 import { MonthGrid } from "./MonthGrid.js";
+import { TaskPopover } from "./TaskPopover.js";
 import { YearGrid } from "./YearGrid.js";
 
 const HEADING = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
@@ -70,6 +74,13 @@ function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDat
  * of which grid cell or `EventChip` opened it. An Occurrence fetched from
  * outside the window carries no pending-mutation overlay either way — it
  * never reached the Local Cache the authoring path writes through.
+ *
+ * Due Tasks (#260) are a read-only overlay on top of all that: a Local
+ * Cache query with no request of its own (`store/tasks.ts#useAllTasks`),
+ * bucketed by due day (`calendar-task-occurrences.ts`) the same shape
+ * `bucketEventsByDay` already gives Events, gated on the slide-over's
+ * "Tasks" row (`calendar-task-visibility.ts`) and never handed to `YearGrid`
+ * at all — Year shows no Tasks (this ticket's own acceptance line).
  */
 export function CalendarRoute() {
   useLocalCacheSync();
@@ -84,6 +95,18 @@ export function CalendarRoute() {
   const { events, outsideWindow, window: eventWindow } = useEventsForRange(range.start, range.end);
   const [hiddenCalendarIds, toggleCalendarVisibility] = useHiddenCalendarIds();
   const [slideOverOpen, setSlideOverOpen] = useState(false);
+
+  // Due Tasks (#260): the Local Cache directly, no request of its own — the
+  // Task collection replicates whole (`store/tasks.ts#useAllTasks`'s own
+  // doc comment), so there is no window to fetch on demand the way Events
+  // has one. Gated on the "Tasks" row's own show/hide Device Preference;
+  // `undefined` when hidden so neither grid component renders a chip.
+  const [showTasks, toggleShowTasks] = useShowTasksOnGrid();
+  const allTasks = useAllTasks() ?? [];
+  const taskBuckets = useMemo(
+    () => (showTasks ? bucketTasksByDay(allTasks) : undefined),
+    [allTasks, showTasks],
+  );
 
   const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars]);
   const visibleEvents = useMemo(
@@ -147,6 +170,7 @@ export function CalendarRoute() {
           <DayTimeGrid
             days={days}
             buckets={buckets}
+            taskBuckets={taskBuckets}
             calendarById={calendarById}
             onOpenDay={(target) => goTo("day", target)}
           />
@@ -156,6 +180,7 @@ export function CalendarRoute() {
             anchorMonth={date.month}
             days={days}
             buckets={buckets}
+            taskBuckets={taskBuckets}
             calendarById={calendarById}
             onOpenDay={(target) => goTo("day", target)}
           />
@@ -175,8 +200,13 @@ export function CalendarRoute() {
         calendars={calendars}
         hiddenCalendarIds={hiddenCalendarIds}
         onToggle={toggleCalendarVisibility}
+        showTasks={showTasks}
+        onToggleTasks={() => toggleShowTasks(!showTasks)}
       />
       <EventEditorPopover calendars={calendars} />
+      <TaskPopover
+        onOpenTask={(taskId) => void navigate({ to: "/tasks/$taskId", params: { taskId } })}
+      />
       <Outlet />
     </section>
   );

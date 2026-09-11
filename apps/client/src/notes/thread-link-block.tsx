@@ -46,7 +46,8 @@ function formatSnapshotDate(date: string): string {
   return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleString();
 }
 
-function ThreadLinkChip({
+/** The mail chip itself, exported for Tasks' own field-driven chip (#258, `tasks/TaskThreadLinkChip.tsx`) — the same rendering, over a Task's `threadLink` field rather than a block's props. */
+export function ThreadLinkChip({
   subject,
   participants,
   date,

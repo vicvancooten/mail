@@ -5,14 +5,14 @@ import { saveNoteBody } from "../store/notes.js";
 /**
  * The Client's own local-write debounce for a Note's body (#192, ADR-0023) —
  * the same value, and the same reasoning, as `compose/Composer.tsx`'s own
- * `AUTOSAVE_DEBOUNCE_MS`: the `noteSaves` channel is modelled directly on
+ * `AUTOSAVE_DEBOUNCE_MS`: the `documentSaves` channel is modelled directly on
  * Composer's autosave.
  */
 export const AUTOSAVE_DEBOUNCE_MS = 400;
 
 /**
  * Wires a Note editor's `onChange` (`notes/NoteEditor.tsx`'s own prop) into
- * the `noteSaves` channel: every call schedules a debounced write, and a
+ * the `documentSaves` channel: every call schedules a debounced write, and a
  * call before the timer fires simply reschedules it — `Composer.tsx`'s
  * `scheduleAutosave` shape exactly, lifted into a reusable hook since a
  * Note editor, unlike the docked Composer, is meant to be embedded from more

@@ -1,18 +1,16 @@
-import type { Calendar, Event } from "@mail/shared";
+import type { Calendar, Event, Task } from "@mail/shared";
 import type { MouseEvent } from "react";
 import { CalendarDayCell } from "./CalendarDayCell.js";
+import { defaultCalendarId, openCreatePanelForDay } from "./calendar-create.js";
 import { type CivilDate, dayKey, isSameDay, today, weekdayLabel } from "./calendar-dates.js";
 import { openCreatePanel, pointAnchorRect } from "./calendar-event-panel.js";
 import { type DayBucket, eventEnd, eventStart, minutesOfDay } from "./calendar-occurrences.js";
+import { rescheduleTaskTo } from "./calendar-task-drag.js";
 import { EventChip } from "./EventChip.js";
+import { TaskChip } from "./TaskChip.js";
 
 /** The default duration a plain click-to-create seeds — the User adjusts it in the popover before saving (#233). */
 const DEFAULT_NEW_EVENT_DURATION_MS = 60 * 60 * 1000;
-
-function defaultCalendarId(calendarById: ReadonlyMap<string, Calendar>): string | null {
-  const all = [...calendarById.values()];
-  return (all.find((calendar) => calendar.isDefault) ?? all[0])?.id ?? null;
-}
 
 const MINUTES_PER_DAY = 24 * 60;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -81,11 +79,14 @@ function layoutTimedEvents(events: readonly Event[]): TimedPlacement[] {
 export function DayTimeGrid({
   days,
   buckets,
+  taskBuckets,
   calendarById,
   onOpenDay,
 }: {
   days: readonly CivilDate[];
   buckets: ReadonlyMap<string, DayBucket>;
+  /** Due Tasks (#260), keyed the same as `buckets` — `undefined` when the "Tasks" row is hidden. Never touches the timed grid below (ADR-0030). */
+  taskBuckets?: ReadonlyMap<string, Task[]>;
   calendarById: ReadonlyMap<string, Calendar>;
   onOpenDay: (date: CivilDate) => void;
 }) {
@@ -103,7 +104,19 @@ export function DayTimeGrid({
               <span className="calendar-weekday-label">{weekdayLabel(day)}</span>
               <span className="calendar-day-number">{day.day}</span>
             </div>
-            <CalendarDayCell date={day} className="calendar-all-day-cell" onOpenDay={onOpenDay}>
+            <CalendarDayCell
+              date={day}
+              className="calendar-all-day-cell"
+              onOpenDay={onOpenDay}
+              onTaskDrop={(taskId) => void rescheduleTaskTo(taskId, day)}
+              onBackgroundClick={(event) =>
+                openCreatePanelForDay(
+                  day,
+                  calendarById,
+                  pointAnchorRect(event.clientX, event.clientY),
+                )
+              }
+            >
               {(bucket?.allDay ?? []).map((event) => (
                 <EventChip
                   key={event.id}
@@ -111,6 +124,9 @@ export function DayTimeGrid({
                   calendar={calendarById.get(event.calendarId)}
                   variant="all-day"
                 />
+              ))}
+              {(taskBuckets?.get(dayKey(day)) ?? []).map((task) => (
+                <TaskChip key={task.id} task={task} variant="all-day" />
               ))}
             </CalendarDayCell>
             <div className="calendar-time-grid-day-body">

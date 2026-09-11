@@ -10,6 +10,7 @@ import {
   Forward,
   Keyboard,
   Layers,
+  ListTodo,
   MailOpen,
   NotebookText,
   PenSquare,
@@ -206,14 +207,13 @@ export const ACTIONS: readonly Action[] = [
     },
   },
   // "Add to Notes" (#195): the Reader's own bridge into Notes — creates a
-  // Note at once (no intermediate sheet, unlike a future "Add to Tasks",
-  // which will sit beside this one once its own spec lands). Reader/menu
-  // only, matching Label's own surfaces: there is no row-hover cluster
-  // control for this any more than there is one for Label. Declared after
-  // Pin/Star (not beside Label, where #195 first placed it) so the Palette's
-  // own registry-order "most-used" fallback (#148) still surfaces the
-  // original five core Triage actions — Compose, Done, Snooze, Label, Pin —
-  // before this newer one.
+  // Note at once (no intermediate sheet, unlike "Add to Tasks" right below,
+  // which opens one). Reader-secondary/menu only, matching Label's own
+  // surfaces: there is no row-hover cluster control for this any more than
+  // there is one for Label. Declared after Pin/Star (not beside Label, where
+  // #195 first placed it) so the Palette's own registry-order "most-used"
+  // fallback (#148) still surfaces the original five core Triage actions —
+  // Compose, Done, Snooze, Label, Pin — before this newer one.
   {
     id: "add-to-notes",
     label: "Add to Notes",
@@ -224,6 +224,22 @@ export const ACTIONS: readonly Action[] = [
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.onAddToNotes(ctx.thread);
+    },
+  },
+  // "Add to Tasks" (#258): beside "Add to Notes", same surfaces — except
+  // `run` only opens the sheet that asks for a Task List and a Due
+  // (`mail/AddToTasksSheet.tsx`) rather than committing at once, since a Due
+  // is the point of a Task and the Reader has no other place to ask for one.
+  {
+    id: "add-to-tasks",
+    label: "Add to Tasks",
+    icon: ListTodo,
+    section: "Triage",
+    binding: null,
+    surfaces: ["reader-secondary", "menu"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.onAddToTasks(ctx.thread);
     },
   },
   // Unbound since #79 gave `u` to "back to list" — reachable from the

@@ -1,4 +1,4 @@
-import type { NoteDocument, NoteSave } from "@mail/shared";
+import type { DocumentSave, NoteDocument } from "@mail/shared";
 import { EMPTY_NOTE_DOCUMENT, labelId } from "@mail/shared";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -256,7 +256,7 @@ describe("pinNote / unpinNote (#193)", () => {
   });
 });
 
-describe("saveNoteBody (the noteSaves channel, #192, ADR-0023)", () => {
+describe("saveNoteBody (the documentSaves channel, #192, #250, ADR-0023)", () => {
   it("writes the durable row and queues one save, keyed by Note id", async () => {
     const id = newNoteId();
     await createNote(id);
@@ -308,7 +308,7 @@ describe("saveNoteBody (the noteSaves channel, #192, ADR-0023)", () => {
 });
 
 describe("toWireNoteSave", () => {
-  it("carries the Note id, saveId and document straight through — no version, unlike a Composition save", async () => {
+  it("carries the collection key, Note id, saveId and document straight through — no version, unlike a Composition save", async () => {
     const id = newNoteId();
     await createNote(id);
     await saveNoteBody(id, paragraph("hi"));
@@ -316,7 +316,12 @@ describe("toWireNoteSave", () => {
 
     const wire = toWireNoteSave(defined(pending));
 
-    expect(wire).toEqual({ id, saveId: defined(pending).saveId, document: paragraph("hi") });
+    expect(wire).toEqual({
+      collection: "Note",
+      id,
+      saveId: defined(pending).saveId,
+      document: paragraph("hi"),
+    });
   });
 });
 
@@ -326,9 +331,12 @@ describe("resolveNoteSaveOutcomes", () => {
     await createNote(id);
     await saveNoteBody(id, paragraph("hi"));
     const [pending] = await listQueuedNoteSaves();
-    const wire: NoteSave = toWireNoteSave(defined(pending));
+    const wire: DocumentSave = toWireNoteSave(defined(pending));
 
-    await resolveNoteSaveOutcomes([wire], [{ id, saveId: wire.saveId, status: "applied" }]);
+    await resolveNoteSaveOutcomes(
+      [wire],
+      [{ collection: "Note", id, saveId: wire.saveId, status: "applied" }],
+    );
 
     expect(await listQueuedNoteSaves()).toEqual([]);
   });
@@ -342,7 +350,7 @@ describe("resolveNoteSaveOutcomes", () => {
 
     await resolveNoteSaveOutcomes(
       [staleWire],
-      [{ id, saveId: staleWire.saveId, status: "applied" }],
+      [{ collection: "Note", id, saveId: staleWire.saveId, status: "applied" }],
     );
 
     const queued = await listQueuedNoteSaves();

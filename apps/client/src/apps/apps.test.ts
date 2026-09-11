@@ -16,10 +16,10 @@ describe("apps.ts (#187)", () => {
     expect(appForPath("/notes")?.key).toBe("notes");
   });
 
-  it("Contacts (#211) and Calendar (#231) are live; Tasks stays reserved", () => {
+  it("Contacts (#211), Calendar (#231) and Tasks (#252) are all live", () => {
     expect(APPS_BY_KEY.contacts.available).toBe(true);
     expect(APPS_BY_KEY.calendar.available).toBe(true);
-    expect(APPS_BY_KEY.tasks.available).toBe(false);
+    expect(APPS_BY_KEY.tasks.available).toBe(true);
   });
 
   it("Mail, Calendar and Contacts observe Account Scope; Tasks and Notes don't", () => {

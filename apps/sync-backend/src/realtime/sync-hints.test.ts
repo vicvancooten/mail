@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { createDb, Db } from "../db/client.js";
-import { mailAccounts, threads } from "../db/schema.js";
+import { mailAccounts, taskLists, threads } from "../db/schema.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { createSyncHintBroker, type SyncHintBroker } from "./sync-hints.js";
@@ -70,6 +70,17 @@ describe("createSyncHintBroker", () => {
     const unsubscribe = broker.subscribe(account.userId, fn);
 
     await db.insert(threads).values({ id: randomUUID(), mailAccountId: account.id });
+
+    await promise;
+    unsubscribe();
+  });
+
+  it("dispatches a hint to a subscribed User when a TaskList row changes (#251)", async () => {
+    const account = await createTestMailAccount(db);
+    const { fn, promise } = waitForCall();
+    const unsubscribe = broker.subscribe(account.userId, fn);
+
+    await db.insert(taskLists).values({ id: randomUUID(), userId: account.userId, name: "Tasks" });
 
     await promise;
     unsubscribe();

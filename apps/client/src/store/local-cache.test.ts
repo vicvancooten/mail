@@ -64,6 +64,15 @@ async function queueNoteSave(): Promise<void> {
   });
 }
 
+async function queueTaskSave(): Promise<void> {
+  await localCache().pendingTaskSaves.put({
+    taskId: "task-1",
+    saveId: "01JTASKSAVE",
+    document: [{ id: "b1", type: "paragraph", props: {}, content: [], children: [] }],
+    queuedAt: "2026-06-01T12:00:00.000Z",
+  });
+}
+
 describe("opening the Local Cache", () => {
   it("reports a first-ever open as fresh", async () => {
     expect(await openLocalCache({ name: uniqueName(), schemaVersion: 1 })).toEqual({
@@ -104,6 +113,7 @@ describe("opening the Local Cache", () => {
       pendingComposeSaves: 0,
       pendingUserMutations: 0,
       pendingNoteSaves: 0,
+      pendingTaskSaves: 0,
       pendingSeriesSaves: 0,
     });
     // The old data stays, and stays readable: an unsent archive performed on
@@ -123,6 +133,7 @@ describe("opening the Local Cache", () => {
       pendingComposeSaves: 1,
       pendingUserMutations: 0,
       pendingNoteSaves: 0,
+      pendingTaskSaves: 0,
       pendingSeriesSaves: 0,
     });
     expect(await localCache().pendingComposeSaves.count()).toBe(1);
@@ -140,9 +151,28 @@ describe("opening the Local Cache", () => {
       pendingComposeSaves: 0,
       pendingUserMutations: 0,
       pendingNoteSaves: 1,
+      pendingTaskSaves: 0,
       pendingSeriesSaves: 0,
     });
     expect(await localCache().pendingNoteSaves.count()).toBe(1);
+  });
+
+  it("never wipes over a non-empty Task autosave queue either (#251, ADR-0023)", async () => {
+    const name = uniqueName();
+    await openLocalCache({ name, schemaVersion: 1 });
+    await queueTaskSave();
+
+    expect(await openLocalCache({ name, schemaVersion: 2 })).toEqual({
+      status: "deferred",
+      from: 1,
+      pendingMutations: 0,
+      pendingComposeSaves: 0,
+      pendingUserMutations: 0,
+      pendingNoteSaves: 0,
+      pendingTaskSaves: 1,
+      pendingSeriesSaves: 0,
+    });
+    expect(await localCache().pendingTaskSaves.count()).toBe(1);
   });
 
   it("performs the deferred wipe once the queue drains", async () => {
@@ -180,6 +210,7 @@ describe("opening the Local Cache", () => {
       pendingComposeSaves: 0,
       pendingUserMutations: 0,
       pendingNoteSaves: 0,
+      pendingTaskSaves: 0,
       pendingSeriesSaves: 0,
     });
     expect(await localCache().threads.count()).toBe(1);

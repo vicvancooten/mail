@@ -1,0 +1,941 @@
+/*
+ * The Tasks App (#252): a sidebar and one main column, `mail/mail.css`'s own
+ * `.split-view`/`.split-list`/`.split-pane`/`.has-selection` shape mirrored
+ * here under a `tasks-` prefix rather than imported — this file has no
+ * dependency on `mail.css` ever having loaded (a User landing straight on
+ * `/tasks` may never mount Mail at all), the same reasoning `notes/notes.css`
+ * already gives its own duplicated toolbar rules.
+ */
+
+.tasks-split-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.tasks-split-list {
+  width: clamp(240px, 26%, 320px);
+  min-width: 200px;
+  max-width: 40%;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+}
+
+.tasks-split-pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-bg);
+}
+
+.tasks-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+}
+
+.tasks-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+/* Today/Upcoming (#254) sit above the Lists, `.tasks-sidebar-link`'s own look, set apart by a rule rather than a heading — two entries don't earn a labeled section. */
+.tasks-sidebar-views {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tasks-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tasks-sidebar-link {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  font-size: 13px;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-sidebar-link:hover {
+  background: var(--color-hover);
+}
+
+.tasks-sidebar-link.current {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 560;
+}
+
+.tasks-sidebar-rename-btn,
+.tasks-sidebar-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.tasks-sidebar-item:hover .tasks-sidebar-rename-btn,
+.tasks-sidebar-rename-btn:focus-visible,
+.tasks-sidebar-item:hover .tasks-sidebar-delete-btn,
+.tasks-sidebar-delete-btn:focus-visible {
+  opacity: 1;
+}
+
+.tasks-sidebar-rename-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+/* Delete (#257): danger on hover, `note-card-delete:hover`'s own shape. */
+.tasks-sidebar-delete-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-danger);
+}
+
+.tasks-sidebar-rename-input,
+.tasks-sidebar-create-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.tasks-sidebar-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks-sidebar-add:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+/* Recently Deleted's own link (#257) — `notes.css#.notes-recently-deleted-link`'s
+   exact shape, a plain button here rather than a `Link` (`TasksSidebar.tsx`'s
+   own doc comment on why the whole sidebar stays router-agnostic). */
+.tasks-recently-deleted-link {
+  align-self: flex-start;
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  padding: 5px 8px;
+}
+
+.tasks-recently-deleted-link:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------- */
+
+.tasks-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 14px 20px 20px;
+  overflow-y: auto;
+}
+
+.tasks-main-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tasks-main-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 620;
+  color: var(--color-ink);
+}
+
+/* List/Board (#256) — `settings/ThisDeviceSection.tsx`'s own plain
+   label+select shape for a Device Preference, one level up (beside the
+   title rather than tucked in Settings, since this one is a Task List's
+   own per-view choice, not a whole-app default). */
+.tasks-mode-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+
+.tasks-mode-field select {
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+/* Back exists only where the sidebar is not already on screen — the narrow
+   breakpoint below brings it back, `mail.css#.reading-back`'s own shape. */
+.tasks-back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
+}
+
+.tasks-back:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.tasks-quick-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+}
+
+.tasks-quick-add-icon {
+  color: var(--color-ink-faint);
+  flex-shrink: 0;
+}
+
+.tasks-quick-add-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13px;
+  outline: none;
+}
+
+.tasks-main-empty {
+  color: var(--color-ink-faint);
+  font-size: 13px;
+}
+
+/* "See all results" (#262): the query as a read-only chip, `mail.css#.search-chip`'s
+   own shape duplicated under a `tasks-` prefix rather than imported — this
+   file's own "no dependency on `mail.css` ever having loaded" reasoning. */
+.tasks-search-chip-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.tasks-search-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-size: 12.5px;
+}
+
+.tasks-search-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+}
+
+.tasks-search-chip-remove:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.tasks-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Sections (#255): the group heading row itself is the drag handle for
+   reordering Sections and the drop target a Task row lands on to move into
+   this one — `TasksSidebar.tsx`'s own hover-reveal shape for the
+   rename/delete pair beside it. */
+.tasks-group-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 4px;
+  cursor: grab;
+}
+
+.tasks-group-heading {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-faint);
+}
+
+.tasks-group-rename-input {
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tasks-group-rename-btn,
+.tasks-group-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.tasks-group-heading-row:hover .tasks-group-rename-btn,
+.tasks-group-rename-btn:focus-visible,
+.tasks-group-heading-row:hover .tasks-group-delete-btn,
+.tasks-group-delete-btn:focus-visible {
+  opacity: 1;
+}
+
+.tasks-group-rename-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.tasks-group-delete-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-danger);
+}
+
+/* "An Add section affordance at the end of the flow" (#255's own words) —
+   `.tasks-sidebar-add`'s own shape, one level up. `--header` is the
+   below-the-threshold variant that sits beside the title instead (`TaskListView.tsx`'s
+   own doc comment on why). */
+.tasks-add-section,
+.tasks-add-section-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks-add-section:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.tasks-add-section--header {
+  margin-left: auto;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.tasks-add-section-input {
+  border: 1px solid var(--color-border);
+  background: var(--color-field);
+  color: var(--color-ink);
+  cursor: text;
+}
+
+/* A row mid-drag (#255) — dimmed in place rather than hidden, so the drop
+   target it's still hovering over doesn't jump. */
+.task-row--dragging {
+  opacity: 0.4;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: var(--radius-md);
+  /* `--dur-leave` (`index.css`'s own "a row or card departing after an
+     action") is the same 260ms `TaskListView.tsx#COMPLETE_ANIMATION_MS`
+     holds the row mounted for — the two can never drift apart. */
+  transition:
+    opacity var(--dur-leave) var(--ease-out),
+    transform var(--dur-leave) var(--ease-out);
+}
+
+.task-row:hover {
+  background: var(--color-hover);
+}
+
+/* Expanded (#253): the summary line stacks over `TaskEditor` rather than
+   sitting beside it — `.task-row`'s own collapsed `align-items: center` row
+   layout doesn't apply here. */
+.task-row--expanded {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px;
+  background: var(--color-field);
+}
+
+.task-row--expanded:hover {
+  background: var(--color-field);
+}
+
+.task-row-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* "animates out of the active rows" (#252's own words) — the row fades and
+   slides in place for `TaskListView.tsx#COMPLETE_ANIMATION_MS`, then the
+   next render (its data already `completed`) drops it from the active
+   group for good. */
+.task-row--completing {
+  opacity: 0;
+  transform: translateX(6px);
+}
+
+/* A real `<input type="checkbox">` (`TaskRow.tsx`'s own doc comment on why,
+   over a `role="checkbox"` button) — `accent-color` is what themes its
+   checked fill to match the rest of the palette, since the native control
+   otherwise paints with whatever the platform's own accent is. */
+.task-row-check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.task-row-title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row--done .task-row-title {
+  color: var(--color-ink-faint);
+  text-decoration: line-through;
+}
+
+/* The expanded summary's own title button (#253) — same collapsed look,
+   just no longer the row's whole click target once `TaskEditor` owns the
+   rest of the row. */
+.task-row-collapse {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 560;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-due-chip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.task-due-chip--overdue {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+
+.tasks-completed-expander {
+  margin-top: 16px;
+}
+
+.tasks-completed-expander summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--color-ink-muted);
+  list-style: none;
+}
+
+.tasks-completed-expander summary::-webkit-details-marker {
+  display: none;
+}
+
+.tasks-completed-expander[open] summary {
+  margin-bottom: 4px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* The expanded row's own editor (#253) — `notes/notes.css#.note-dialog`'s
+   sibling, minus the dialog chrome: this renders in place, not over a
+   backdrop. */
+
+.task-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 4px 2px 28px;
+}
+
+.task-editor-title {
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.task-editor-body {
+  min-height: 60px;
+}
+
+.task-editor-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.task-editor-field select {
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.task-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-editor-due-btn,
+.task-editor-labels-btn,
+.task-editor-delete {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-editor-due-btn:hover,
+.task-editor-labels-btn:hover,
+.task-editor-delete:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.task-editor-due-btn.on,
+.task-editor-labels-btn.on {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-color: transparent;
+}
+
+.task-editor-delete {
+  margin-left: auto;
+  color: var(--color-danger);
+}
+
+.task-editor-delete:hover {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+/* The Due popover (`TaskDuePicker.tsx`) — `mail/SnoozeMenu.tsx`'s own small-popover shape. */
+
+.task-due-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-due-picker-presets {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.task-due-picker-presets button {
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-due-picker-presets button:hover {
+  background: var(--color-hover);
+}
+
+.task-due-picker-custom {
+  display: flex;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.task-due-picker-custom input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.task-due-picker-custom input:disabled {
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Board mode and swimlanes (#256) — the same List's Sections as columns,
+   the fixed Done column last. The header row and every swimlane row below
+   it share one `.task-board-column-slot` width so a column's cards always
+   sit directly under its own heading, whichever row they're in. */
+
+.task-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Columns are fixed-width and never wrap (#256 is "available on a phone",
+     never "reflows into a list on a phone") — this is the one scrollbar,
+     so the header row and every swimlane row's cards scroll together rather
+     than drifting out of alignment with their own. */
+  overflow-x: auto;
+}
+
+.task-board-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.task-board-swimlane-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+}
+
+.task-board-swimlane-field select {
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.task-board-columns-header,
+.task-board-row-columns {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.task-board-columns-header {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.task-board-column-slot {
+  flex: 0 0 240px;
+  min-width: 0;
+}
+
+.task-board-column-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: grab;
+}
+
+.task-board-column-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-board-column-header:hover .tasks-group-rename-btn,
+.task-board-column-header:hover .tasks-group-delete-btn {
+  opacity: 1;
+}
+
+.task-board-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-board-row-heading {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-faint);
+}
+
+.task-board-column-body {
+  min-height: 40px;
+}
+
+/* Cards (#256): `.task-row` unchanged, dressed as a small tile rather than a
+   flat list row — `TaskRow.tsx`'s own doc comment on why this is the same
+   component, not a parallel one. */
+.task-board-cards {
+  gap: 6px;
+}
+
+.task-board-column-body .task-row {
+  align-items: flex-start;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 8px;
+}
+
+.task-board-column-body .task-row:hover {
+  background: var(--color-surface);
+  border-color: var(--color-ink-faint);
+}
+
+.task-board-column-body .task-row--expanded {
+  background: var(--color-field);
+}
+
+/* ---------- Recently Deleted (#257) ---------- */
+
+.tasks-recently-deleted {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  padding: 14px 20px 20px;
+  overflow-y: auto;
+}
+
+.tasks-recently-deleted-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.tasks-recently-deleted-back {
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+  text-decoration: none;
+}
+
+.tasks-recently-deleted-back:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
+.tasks-recently-deleted-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 620;
+  color: var(--color-ink);
+}
+
+.tasks-recently-deleted-list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Greyed (#257's own words): the same row chrome as `.task-row`, muted
+   rather than a second layout — no checkbox, no click-to-rename, just the
+   title and a Restore control, `notes.css#.note-card-deleted`'s own shape. */
+.tasks-recently-deleted-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: var(--radius-md);
+  opacity: 0.6;
+}
+
+.tasks-recently-deleted-row-title {
+  flex: 1;
+  min-width: 0;
+  filter: grayscale(1);
+  color: var(--color-ink);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-recently-deleted-restore {
+  flex-shrink: 0;
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.tasks-recently-deleted-restore:hover {
+  background: var(--color-hover);
+}
+
+/* ============================================================================
+   NARROW VIEWPORT — Sidebar-first, a List push (#252's own "Phone" line)
+   ========================================================================= */
+
+@media (max-width: 700px) {
+  .tasks-split-view {
+    position: relative;
+  }
+
+  .tasks-split-list,
+  .tasks-split-pane {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+
+  .tasks-split-view:not(.has-selection) .tasks-split-pane {
+    display: none;
+  }
+
+  .tasks-split-view.has-selection .tasks-split-list {
+    display: none;
+  }
+
+  .tasks-back {
+    display: flex;
+  }
+}

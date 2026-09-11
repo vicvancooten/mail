@@ -1,8 +1,24 @@
 import type { Label } from "@mail/shared";
 import { Check, Tag } from "lucide-react";
 import { useState } from "react";
-import { type CachedThread, labelNameForId } from "../store/index.js";
-import type { Triage } from "./useTriage.js";
+import { labelNameForId } from "../store/index.js";
+
+/**
+ * The minimum shape `LabelPicker` actually reads off its `thread` prop —
+ * `CachedThread` satisfies this structurally, and so does a bare `Task`
+ * (#253's own reuse, `tasks/TaskEditor.tsx`), with no adapter object beyond
+ * this narrower type.
+ */
+export interface LabelPickerEntity {
+  id: string;
+  labelIds: readonly string[];
+}
+
+/** The minimum shape `LabelPicker` needs to apply/remove a Label — `Triage` satisfies this structurally (`applyLabel`/`removeLabel`), and so does a small Task-scoped adapter (#253's own reuse). */
+export interface LabelPickerActions {
+  applyLabel(id: string, name: string): void;
+  removeLabel(id: string, name: string): void;
+}
 
 /**
  * The apply/remove side of Label (#43): a small popover listing the User's
@@ -10,7 +26,11 @@ import type { Triage } from "./useTriage.js";
  * plus a text field for a brand-new
  * name. No management UI, colors, or nesting (poc-scope.md) — this is the
  * whole of Label's UI surface. Opened from `ThreadDetailPane` (mouse click
- * or the `L` key), closed on Escape or clicking its own toggle again.
+ * or the `L` key), closed on Escape or clicking its own toggle again — and,
+ * unchanged, from `tasks/TaskEditor.tsx` (#253) over a Task instead of a
+ * Thread, which is what narrowed `thread`/`triage` below to the structural
+ * shape this component actually reads rather than `CachedThread`/`Triage`
+ * by name.
  *
  * A Label a Thread already carries but that hasn't synced back into the
  * `Label` collection yet (a brand-new name, applied offline) still renders
@@ -23,10 +43,10 @@ export function LabelPicker({
   triage,
   onClose,
 }: {
-  thread: CachedThread;
+  thread: LabelPickerEntity;
   /** The User's known Labels (#43's `Label` collection, User-scoped since #186) — may not include one just applied offline. */
   labels: Label[];
-  triage: Triage;
+  triage: LabelPickerActions;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState("");

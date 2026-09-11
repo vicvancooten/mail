@@ -16,8 +16,8 @@ import {
   userCollectionRegistry,
 } from "../sync/collection-registry.js";
 import { flushComposeSaves } from "../sync/compose-store.js";
+import { flushDocumentSaves } from "../sync/document-saves.js";
 import { flushMutations, flushUserMutations } from "../sync/mutations.js";
-import { flushNoteSaves } from "../sync/note-store.js";
 import { flushSeriesSaves } from "../sync/series-save-store.js";
 
 export interface SyncRoutesOptions {
@@ -74,15 +74,16 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     } = body.data;
 
     const userResult: SyncResponse["user"] = {};
-    // `noteSaves` (#192, ADR-0023) flush before `mutations`, the same
-    // relative order `composeSaves` keeps ahead of a Mail Account's own
+    // `documentSaves` (#192, #250, ADR-0023) flush before `mutations`, the
+    // same relative order `composeSaves` keeps ahead of a Mail Account's own
     // `mutations` below — see that comment further down for why the order is
     // load-bearing there. It is not load-bearing here (no Note intent reads
     // `document`), but keeping the two channels in the same relative
     // position is one less thing to remember.
-    const noteSaves = user?.noteSaves ?? [];
-    const noteSaveResults = noteSaves.length > 0 ? await flushNoteSaves(db, userId, noteSaves) : [];
-    if (noteSaveResults.length > 0) userResult.noteSaves = noteSaveResults;
+    const documentSaves = user?.documentSaves ?? [];
+    const documentSaveResults =
+      documentSaves.length > 0 ? await flushDocumentSaves(db, userId, documentSaves) : [];
+    if (documentSaveResults.length > 0) userResult.documentSaves = documentSaveResults;
 
     // `seriesSaves` (#233) flush the same relative position `noteSaves`
     // does — not load-bearing (no Series structural intent reads the body),

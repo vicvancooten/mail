@@ -227,6 +227,7 @@ export function SearchResultsView({
   triage,
   onReply,
   onMailtoLink,
+  onOpenTask,
   accounts,
   mailAccountId,
   accountScope,
@@ -236,6 +237,7 @@ export function SearchResultsView({
   triage: Triage;
   onReply: OnReply;
   onMailtoLink: (link: MailtoLink) => void;
+  onOpenTask: (taskId: string) => void;
   accounts: readonly MailAccount[];
   mailAccountId: string | null;
   /** Search's own account badge (#80's "each row shows which account it came from where several are in Scope") — the row itself already carries its `mailAccountId` (`sync.ts#threadSchema`); this is only what decides whether the badge is worth showing at all. */
@@ -345,6 +347,7 @@ export function SearchResultsView({
         triage={triage}
         onReply={onReply}
         onMailtoLink={onMailtoLink}
+        onOpenTask={onOpenTask}
         focusMessageId={state.viewDisplayById.get(selectedThread.id)?.matchedMessageId}
       />
     );
@@ -376,6 +379,7 @@ export function SearchResultsView({
             triage={triage}
             onReply={onReply}
             onMailtoLink={onMailtoLink}
+            onOpenTask={onOpenTask}
             focusMessageId={state.viewDisplayById.get(selectedThread.id)?.matchedMessageId}
           />
         ) : (

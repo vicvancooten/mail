@@ -1684,6 +1684,53 @@
   color: var(--color-ink-faint);
 }
 
+/* The Reader's Task chips (#259) — one per open Task whose Thread Link
+   field names this Thread, `ReaderTaskChips.tsx`'s own doc comment. Same
+   74ch column and side padding `.reading-header` centers itself on, so the
+   row lines up under the subject rather than under the wider message body
+   below it; absent entirely (no margin, no padding) when there are no open
+   Tasks, since the component itself renders nothing then. */
+.reader-task-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 74ch;
+  margin: 0 auto;
+  padding: 0 34px 18px;
+  list-style: none;
+}
+
+.reader-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-field);
+}
+
+.reader-task-chip-check {
+  flex: none;
+}
+
+.reader-task-chip-title {
+  max-width: 32ch;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.reader-task-chip-title:hover {
+  text-decoration: underline;
+}
+
 .reading-body {
   flex: 1;
   min-height: 0;

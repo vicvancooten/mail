@@ -1,6 +1,7 @@
 import type { CollectionDelta, EventDelta } from "@mail/shared";
+import { NOTE_TRASH_RETENTION_DAYS, TASK_TRASH_RETENTION_DAYS } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
-import type { AnyPgTable } from "drizzle-orm/pg-core";
+import type { AnyPgColumn, AnyPgTable } from "drizzle-orm/pg-core";
 import {
   ensureLocalAddressBook,
   selectAddressBooksForConnectedAccount,
@@ -41,6 +42,8 @@ import {
   notes,
   rollbacks,
   syncTombstones,
+  taskLists,
+  tasks,
   threads,
   users,
 } from "../db/schema.js";
@@ -56,12 +59,15 @@ import {
   toWirePreference,
 } from "./collection-sync.js";
 import { resolveCursor } from "./sync-tokens.js";
+import { ensureDefaultTaskList } from "./task-list-store.js";
 import {
   toWireComposition,
   toWireCorrespondent,
   toWireGmailLabel,
   toWireLabel,
   toWireNote,
+  toWireTask,
+  toWireTaskList,
   toWireThread,
 } from "./thread-projection.js";
 
@@ -115,11 +121,34 @@ export interface ConnectedAccountScopeContext {
  * polymorphically, each `sync` closure already carries its own
  * correctly-typed projection.
  */
+/**
+ * A collection's own soft-delete purge sweep (#257, generalising #194's
+ * Note-only `note-purge.ts` into `sync/trash-purge.ts`'s registry-driven
+ * loop): declaring this is what opts a collection into that shared sweep,
+ * rather than a second bespoke loop per collection that grows one. `deletedAt`
+ * and `id` are direct column references into `table` above (every
+ * retention-bearing collection here names its primary key plainly `id`,
+ * `taskListRow`/`taskRow`'s own "`noteRow`'s own shape" precedent) — kept as
+ * data alongside `table`/`toPayload` rather than derived from them, the same
+ * "declared, not computed" posture `DeclaredCollection`'s own doc comment
+ * already takes.
+ */
+interface TombstoneRetention {
+  /** The soft-delete timestamp column this collection's rows carry — null for a live row, stamped the moment a soft delete happens. */
+  deletedAt: AnyPgColumn;
+  /** The row's own primary key column, for `trash-purge.ts` to select and delete by. */
+  id: AnyPgColumn;
+  /** Days after `deletedAt` is stamped before a row is purged for good. */
+  days: number;
+}
+
 interface DeclaredCollection {
   name: string;
   /** The row source this collection reads from. Tombstones, for every collection here, are the shared `syncTombstones` table filtered to `collection = name`. */
   table: AnyPgTable;
   toPayload: (row: never) => unknown;
+  /** Present only for a collection whose soft-deleted rows are purged for good on a retention window (`Note`, `TaskList`, `Task`) — absent for one with no soft delete at all. */
+  retention?: TombstoneRetention;
 }
 
 export interface UserCollectionDescriptor<Payload> extends DeclaredCollection {
@@ -184,13 +213,16 @@ function userScopedCollection<Row extends SyncRevRow, Payload>(config: {
   table: AnyPgTable;
   selectRows: (db: Db, userId: string, cursorRev: number) => Promise<Row[]>;
   toPayload: (row: Row) => Payload;
+  /** Opts this collection into `sync/trash-purge.ts`'s shared sweep (#257) — see `TombstoneRetention`'s own doc comment. Omitted for a collection with no soft delete. */
+  retention?: TombstoneRetention;
 }): UserCollectionDescriptor<Payload> {
-  const { name, table, selectRows, toPayload } = config;
+  const { name, table, selectRows, toPayload, retention } = config;
   return {
     name,
     scope: "user",
     table,
     toPayload: toPayload as (row: never) => Payload,
+    retention,
     async sync(db, { userId }, token) {
       const { rev: cursorRev, needsReset } = resolveCursor(token);
 
@@ -409,6 +441,53 @@ export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[
         .orderBy(asc(notes.syncRev))
         .limit(PAGE_SIZE + 1),
     toPayload: toWireNote,
+    // #257: `trash-purge.ts`'s registry-driven sweep reads this rather than
+    // `note-purge.ts` naming `notes` by hand.
+    retention: { deletedAt: notes.deletedAt, id: notes.id, days: NOTE_TRASH_RETENTION_DAYS },
+  }),
+  // `TaskList` (#251, ADR-0030): `Note`'s sibling, plus a seed
+  // (`ensureDefaultTaskList`) run ahead of every query — see that
+  // function's own doc comment for why running it unconditionally on every
+  // call is what "seeded on first sync" means in practice.
+  userScopedCollection({
+    name: "TaskList",
+    table: taskLists,
+    selectRows: async (db, userId, cursorRev) => {
+      await ensureDefaultTaskList(db, userId);
+      return db
+        .select()
+        .from(taskLists)
+        .where(and(eq(taskLists.userId, userId), gt(taskLists.syncRev, cursorRev)))
+        .orderBy(asc(taskLists.syncRev))
+        .limit(PAGE_SIZE + 1);
+    },
+    toPayload: toWireTaskList,
+    // #257: joins `Note`'s own purge sweep rather than staying un-purged.
+    retention: {
+      deletedAt: taskLists.deletedAt,
+      id: taskLists.id,
+      days: TASK_TRASH_RETENTION_DAYS,
+    },
+  }),
+  // `Task` (#251, ADR-0030): `Note`'s other sibling — no completed-Task
+  // filter, no window ("replicated whole ... completed Tasks are included
+  // in replication and never windowed out").
+  userScopedCollection({
+    name: "Task",
+    table: tasks,
+    selectRows: (db, userId, cursorRev) =>
+      db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, userId), gt(tasks.syncRev, cursorRev)))
+        .orderBy(asc(tasks.syncRev))
+        .limit(PAGE_SIZE + 1),
+    toPayload: toWireTask,
+    // #257: joins the same sweep — `trash-purge.ts`'s own doc comment covers
+    // why it stays correct regardless of this array's declaration order,
+    // even though a Task's row can also vanish via `taskLists`' own
+    // `ON DELETE CASCADE` when its List is purged first.
+    retention: { deletedAt: tasks.deletedAt, id: tasks.id, days: TASK_TRASH_RETENTION_DAYS },
   }),
   userScopedCollection({
     name: "ConnectedAccount",

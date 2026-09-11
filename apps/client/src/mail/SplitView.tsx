@@ -31,6 +31,7 @@ export function SplitView({
   triage,
   onReply,
   onMailtoLink,
+  onOpenTask,
   initialScrollThreadId,
   scrollRestoreKey,
   density,
@@ -48,6 +49,7 @@ export function SplitView({
   triage: Triage;
   onReply: OnReply;
   onMailtoLink: (link: MailtoLink) => void;
+  onOpenTask: (taskId: string) => void;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
   /** Passed straight through to `VirtualizedThreadList` (#142) — Split's own list never unmounts on Reader open, only on leaving Mail for Stream/Settings, so this only ever matters here on that return. */
@@ -94,6 +96,7 @@ export function SplitView({
               triage={triage}
               onReply={onReply}
               onMailtoLink={onMailtoLink}
+              onOpenTask={onOpenTask}
             />
             <ReaderNeighborRail
               onPrev={prevId ? () => onSelect(prevId) : undefined}

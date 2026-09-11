@@ -19,11 +19,12 @@ import {
 import { eventSchema } from "./events.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
-import { noteSaveOutcomeSchema, noteSaveSchema, noteSchema } from "./notes.js";
+import { noteDocumentSchema, noteSchema } from "./notes.js";
 import { snoozeUntilSchema } from "./push.js";
 import { reminderDefaultSchema } from "./reminders.js";
 import { rollbackSchema } from "./rollback.js";
 import { seriesSaveOutcomeSchema, seriesSaveSchema } from "./series.js";
+import { taskListSchema, taskSchema, taskThreadLinkSchema } from "./tasks.js";
 
 /**
  * The one delta endpoint (ADR-0011): `POST /sync` carries a map of
@@ -282,6 +283,79 @@ export type NoteDelta = z.infer<typeof noteDeltaSchema>;
 export const contactRollbackDeltaSchema = collectionDeltaSchema(contactRollbackSchema);
 export type ContactRollbackDelta = z.infer<typeof contactRollbackDeltaSchema>;
 
+/** `TaskList` (#251, ADR-0030): whole-replicated, User-scoped — see `tasks.ts#taskListSchema`'s own doc comment. */
+export const taskListDeltaSchema = collectionDeltaSchema(taskListSchema);
+export type TaskListDelta = z.infer<typeof taskListDeltaSchema>;
+
+/** `Task` (#251, ADR-0030): whole-replicated, User-scoped, completed Tasks included — see `tasks.ts#taskSchema`'s own doc comment. */
+export const taskDeltaSchema = collectionDeltaSchema(taskSchema);
+export type TaskDelta = z.infer<typeof taskDeltaSchema>;
+
+/**
+ * `documentSaves` (#250): the save channel any App collection with a
+ * block-document body rides — `noteSaves` (#192) generalized, keyed by
+ * `{collection, id}` rather than `id` alone so a second collection (Task)
+ * shares the one channel instead of growing its own. `composeSaveSchema`'s
+ * sibling, deliberately simpler, and deliberately **not** folded into it: a
+ * Composition's document is TipTap's rather than BlockNote's, its saves
+ * carry compose-specific outcome codes, and ADR-0013's schema is its own —
+ * two channels with the same shape and different documents is the honest
+ * description.
+ *
+ * `collection` is the wire collection key this save belongs to — `"Note"`
+ * today, a future `"Task"` a new branch of this union rather than a reshape
+ * of it, which is what lets the Client (`sync/document-save-registry.ts`)
+ * and the Sync Backend (`sync/document-saves.ts`) both dispatch on it
+ * generically instead of a hard-coded Note path. `id` is the document's own
+ * id; `saveId` is a fresh ULID minted per save attempt, the idempotency key
+ * a retried `POST /sync` replays against. There is deliberately **no
+ * `version`**: ADR-0023 is explicit that the Sync Backend "takes the latest
+ * by receipt and never rejects a [document] write" — no etag, no conflict,
+ * no rollback. Two devices editing one document offline both flush without
+ * error; whichever save reaches the Sync Backend last wins, silently. A real
+ * merge waits for multiplayer (ADR-0024, out of scope).
+ */
+export const documentSaveSchema = z.discriminatedUnion("collection", [
+  z.object({
+    collection: z.literal("Note"),
+    id: z.string(),
+    saveId: z.string(),
+    document: noteDocumentSchema,
+  }),
+  /**
+   * `Task` (#251): this union's first new branch since the #250
+   * generalization it was built for — a plain addition, no reshape of the
+   * `Note` branch above. Reuses `noteDocumentSchema` verbatim (ADR-0024,
+   * `tasks.ts#taskSchema`'s own doc comment): a Task's body is the same
+   * BlockNote document model a Note's is, not a second one.
+   */
+  z.object({
+    collection: z.literal("Task"),
+    id: z.string(),
+    saveId: z.string(),
+    document: noteDocumentSchema,
+  }),
+]);
+export type DocumentSave = z.infer<typeof documentSaveSchema>;
+
+/**
+ * One save's outcome — always `applied`. There is no `conflict`/`rejected`
+ * branch to model: that is the entire point of the channel (ADR-0023's
+ * "never rejects a document write"). Carried as a real outcome object
+ * anyway, rather than nothing at all, so the Client's `saveId`-matched
+ * dequeue has the same shape to key off regardless of which channel it is
+ * draining. `collection` rides along the same way `documentSaveSchema`'s
+ * does, so a mixed-collection response array still dispatches without
+ * inspecting `id` alone.
+ */
+export const documentSaveOutcomeSchema = z.object({
+  collection: z.enum(["Note", "Task"]),
+  id: z.string(),
+  saveId: z.string(),
+  status: z.literal("applied"),
+});
+export type DocumentSaveOutcome = z.infer<typeof documentSaveOutcomeSchema>;
+
 /** `Calendar` (#229): whole-replicated, User-scoped — see `calendars.ts#calendarSchema`'s own doc comment. */
 export const calendarDeltaSchema = collectionDeltaSchema(calendarSchema);
 export type CalendarDelta = z.infer<typeof calendarDeltaSchema>;
@@ -412,7 +486,7 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * real inverses per ADR-0019, exactly like a Thread's
    * `applyLabel`/`removeLabel` — the difference is only which queue they
    * ride, since a Note has no Mail Account to scope to. Body edits are the
-   * different half (`notes.ts#noteSaveSchema`'s own doc comment); none of
+   * different half (`documentSaveSchema`'s own doc comment above); none of
    * these six ever touch a Note's `document`.
    *
    * `createNote`/`deleteNote` are a genuine inverse pair (ADR-0019, the same
@@ -606,6 +680,150 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
     contactId: z.string(),
     otherContactId: z.string(),
   }),
+  /**
+   * Tasks and Task Lists (#251, epic #249, ADR-0030): ordinary Optimistic
+   * Action intents on this same User-scoped queue, each with a real inverse
+   * (ADR-0019) — the Note intents above are the shape every one of these
+   * follows, not a new pattern.
+   *
+   * **Task List.** `createTaskList`/`renameTaskList`/`reorderTaskList` name
+   * a List the Client already minted a ULID for (`tasks.ts#taskListSchema`'s
+   * own doc comment); `renameTaskList`/`reorderTaskList` are absolute sets
+   * (`setSignature`'s shape) — self-inverse via the Client's own captured
+   * old value, no natural inverse of their own to pair against. `deleteTaskList`
+   * is the one rejectable member of this group (`default_list`, against the
+   * server-seeded first List — `tasks.ts#taskListSchema`'s own doc comment)
+   * — its real inverse `restoreTaskList` restores the List **and** every
+   * Task it cascaded a soft delete onto: `taskIds` is that exact set,
+   * captured by the Client at decision time (`sync.ts#mutationIntentSchema`'s
+   * own `unblockAndRestore` gives the same "captured, not re-derived
+   * server-side" reasoning). `createTaskList`'s own inverse is `deleteTaskList`
+   * with an empty `taskIds` — nothing to cascade off a List no Task has ever
+   * belonged to yet.
+   *
+   * **Section.** Lives on the Task List row (`taskListSchema#sections`), not
+   * a collection of its own, so every one of these names a `taskListId`
+   * alongside the Section: `createSection`/`renameSection`/`reorderSections`
+   * mutate that array directly (`reorderSections` replaces its whole order —
+   * the Client already holds it, so a full replace is no heavier than a
+   * splice would be). `deleteSection`'s real inverse is `restoreSection`:
+   * `taskIds` is, again, the exact set of that User's own Tasks the delete
+   * moved off this Section (to the List's first remaining Section, or none),
+   * captured by the Client the same way `deleteTaskList`'s is; `index` is
+   * where in the array to reinsert the Section, so the restore lands it back
+   * exactly where it was, not appended.
+   *
+   * **Task.** `createTask`'s real inverse is `deleteTask` — a **hard**
+   * delete, `notes.ts#noteSchema`'s own `createNote`/`deleteNote` pair,
+   * reused for the same reason: undoing a Task that never existed for the
+   * User is a physical removal, not the soft `trashTask`/`restoreTask` pair
+   * below it, which is the User's own "Delete" control and stays recoverable.
+   * `setTaskTitle`/`setTaskDueDate`/`setTaskDueTime` are "patch its fields
+   * per field" (`tasks.ts#taskSchema`'s own doc comment) — each an absolute
+   * set, self-inverse the same way `renameTaskList` is. `completeTask`/
+   * `uncompleteTask` is a genuine inverse pair, `pinNote`/`unpinNote`'s
+   * shape. `setTaskSection` moves a Task within its own List;
+   * `setTaskList` moves it to a different List, carrying the destination
+   * `sectionId` too since Sections don't cross Lists — both absolute sets.
+   * `reorderTask` is the same absolute-set shape for `taskSchema#order`.
+   * `labelTask`/`unlabelTask` (#253) carry the Label's `name`, `labelNote`/
+   * `unlabelNote`'s exact shape — the id is derived the same
+   * `(userId, name)` way on both sides.
+   */
+  z.object({ type: z.literal("createTaskList"), taskListId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("renameTaskList"), taskListId: z.string(), name: z.string() }),
+  z.object({
+    type: z.literal("reorderTaskList"),
+    taskListId: z.string(),
+    order: z.number(),
+  }),
+  z.object({
+    type: z.literal("deleteTaskList"),
+    taskListId: z.string(),
+    taskIds: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("restoreTaskList"),
+    taskListId: z.string(),
+    taskIds: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("createSection"),
+    taskListId: z.string(),
+    sectionId: z.string(),
+    name: z.string(),
+  }),
+  z.object({
+    type: z.literal("renameSection"),
+    taskListId: z.string(),
+    sectionId: z.string(),
+    name: z.string(),
+  }),
+  z.object({
+    type: z.literal("reorderSections"),
+    taskListId: z.string(),
+    sectionIds: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("deleteSection"),
+    taskListId: z.string(),
+    sectionId: z.string(),
+    taskIds: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("restoreSection"),
+    taskListId: z.string(),
+    sectionId: z.string(),
+    name: z.string(),
+    index: z.int().nonnegative(),
+    taskIds: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("createTask"),
+    taskId: z.string(),
+    taskListId: z.string(),
+    sectionId: z.string().nullable(),
+    title: z.string(),
+    order: z.number(),
+    // "Add to Tasks" (#258): the Thread Link field, set once at creation —
+    // `null`/absent for every other `createTask` caller (the quick-add row,
+    // the Board's own "+"); optional so every `createTask` intent that
+    // predates this field still validates.
+    threadLink: taskThreadLinkSchema.nullable().optional(),
+  }),
+  z.object({ type: z.literal("deleteTask"), taskId: z.string() }),
+  z.object({ type: z.literal("setTaskTitle"), taskId: z.string(), title: z.string() }),
+  z.object({
+    type: z.literal("setTaskDueDate"),
+    taskId: z.string(),
+    dueDate: z.iso.datetime().nullable(),
+  }),
+  z.object({
+    type: z.literal("setTaskDueTime"),
+    taskId: z.string(),
+    dueTime: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .nullable(),
+  }),
+  z.object({ type: z.literal("completeTask"), taskId: z.string() }),
+  z.object({ type: z.literal("uncompleteTask"), taskId: z.string() }),
+  z.object({
+    type: z.literal("setTaskSection"),
+    taskId: z.string(),
+    sectionId: z.string().nullable(),
+  }),
+  z.object({
+    type: z.literal("setTaskList"),
+    taskId: z.string(),
+    taskListId: z.string(),
+    sectionId: z.string().nullable(),
+  }),
+  z.object({ type: z.literal("reorderTask"), taskId: z.string(), order: z.number() }),
+  z.object({ type: z.literal("trashTask"), taskId: z.string() }),
+  z.object({ type: z.literal("restoreTask"), taskId: z.string() }),
+  z.object({ type: z.literal("labelTask"), taskId: z.string(), name: z.string() }),
+  z.object({ type: z.literal("unlabelTask"), taskId: z.string(), name: z.string() }),
   /**
    * A Series' structural actions (#233, ADR-0025's Series/Occurrence/Override
    * vocabulary): the same "ordinary Optimistic Action, real inverse"
@@ -847,6 +1065,10 @@ export const userSyncRequestSchema = z.object({
   Label: requestedTokenSchema.optional(),
   /** `Note` (#192, ADR-0023): whole-replicated, User-scoped. */
   Note: requestedTokenSchema.optional(),
+  /** `TaskList` (#251, ADR-0030): whole-replicated, User-scoped. */
+  TaskList: requestedTokenSchema.optional(),
+  /** `Task` (#251, ADR-0030): whole-replicated, User-scoped, completed Tasks included. */
+  Task: requestedTokenSchema.optional(),
   /** `ConnectedAccount` (#200, ADR-0023): whole-replicated, User-scoped. */
   ConnectedAccount: requestedTokenSchema.optional(),
   /** `AddressBook` (#209, ADR-0023): the Local Address Book's own slot — a mirrored one rides its Connected Account's slot instead (`connectedAccountSyncRequestSchema`). */
@@ -872,18 +1094,19 @@ export const userSyncRequestSchema = z.object({
   /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
   mutations: z.array(queuedUserMutationSchema).optional(),
   /**
-   * Note body autosaves to flush (#192, ADR-0023, `notes.ts#noteSaveSchema`)
-   * — a *separate* array from `mutations` above, not a `UserMutationIntent`
-   * variant, because it coalesces (last-write-wins per Note) rather than
-   * draining FIFO. `composeSaves`'s User-scoped sibling: at most one entry
-   * per Note per round, since `store/notes.ts`'s coalescing queue holds only
-   * the latest save.
+   * Document body autosaves to flush (#250, generalizing #192's `noteSaves`,
+   * ADR-0023, `documentSaveSchema` above) — a *separate* array from
+   * `mutations` above, not a `UserMutationIntent` variant, because it
+   * coalesces (last-write-wins per document) rather than draining FIFO.
+   * `composeSaves`'s User-scoped sibling: at most one entry per document per
+   * round, since each collection's own coalescing queue (`store/notes.ts`
+   * for `Note`) holds only the latest save.
    */
-  noteSaves: z.array(noteSaveSchema).optional(),
+  documentSaves: z.array(documentSaveSchema).optional(),
   /**
    * Series body autosaves to flush (#233, `series.ts#seriesSaveSchema`) —
-   * `noteSaves`' own sibling channel, at most one entry per Series per round
-   * (`store/series.ts`'s coalescing queue never holds more than that).
+   * `documentSaves`' own sibling channel, at most one entry per Series per
+   * round (`store/series.ts`'s coalescing queue never holds more than that).
    */
   seriesSaves: z.array(seriesSaveSchema).optional(),
 });
@@ -1174,6 +1397,8 @@ export const userSyncResponseSchema = z.object({
   Preference: preferenceDeltaSchema.optional(),
   Label: labelDeltaSchema.optional(),
   Note: noteDeltaSchema.optional(),
+  TaskList: taskListDeltaSchema.optional(),
+  Task: taskDeltaSchema.optional(),
   ConnectedAccount: connectedAccountDeltaSchema.optional(),
   /** `AddressBook` (#209): the Local Address Book only — see `userSyncRequestSchema`'s own field. */
   AddressBook: addressBookDeltaSchema.optional(),
@@ -1188,8 +1413,8 @@ export const userSyncResponseSchema = z.object({
   Rollback: rollbackDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
-  /** Outcomes in the same order as the request's `noteSaves` array. */
-  noteSaves: z.array(noteSaveOutcomeSchema).optional(),
+  /** Outcomes in the same order as the request's `documentSaves` array. */
+  documentSaves: z.array(documentSaveOutcomeSchema).optional(),
   /** Outcomes in the same order as the request's `seriesSaves` array (#233). */
   seriesSaves: z.array(seriesSaveOutcomeSchema).optional(),
   /**

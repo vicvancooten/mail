@@ -2,6 +2,7 @@ import { labelId, type MailAccount } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
 import { resetActiveMailHost } from "./mail/actions/active-mail-host.js";
@@ -16,6 +17,8 @@ import {
   applyLabelDelta,
   applyMailAccountDelta,
   applyNoteDelta,
+  applyTaskDelta,
+  applyTaskListDelta,
   applyThreadDelta,
 } from "./store/server-writes.js";
 import { resetSyncStatus } from "./sync/sync-loop.js";
@@ -25,6 +28,8 @@ import {
   makeLabel,
   makeMailAccount,
   makeNote,
+  makeTask,
+  makeTaskList,
   makeThread,
   minutesAfterEpoch,
 } from "./test-support/mail-fixtures.js";
@@ -134,6 +139,12 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   localCache().close();
   resetUndoToastsForTest();
+  // Sonner's own toast store lives outside React (`mail/MailSection.test.tsx`'s
+  // own doc comment) — a toast one test raised but never dismissed (its own
+  // timer not yet due) would otherwise bleed into the next test's assertions,
+  // e.g. two "Undo" buttons once Tasks' own `taskComplete` toast (#252)
+  // joined Notes' `noteDelete` as a second kind this file can raise.
+  toast.dismiss();
   for (const nm of names.splice(0)) await Dexie.delete(nm);
 });
 
@@ -349,7 +360,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
-  it("the App Switcher names all five Apps as reachable links, only Tasks marked SOON (#72, #86, #187, #193, #211, #231)", async () => {
+  it("the App Switcher names all five Apps as reachable links, none marked SOON (#72, #86, #187, #193, #211, #231, #252)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -362,14 +373,13 @@ describe("the app shell over a routed tree (#71)", () => {
     // The switcher expands into the comp's tab row: real `Link`s, so a
     // reserved App is a destination rather than a disabled menu entry.
     expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-    const tasksTab = screen.getByRole("link", { name: /Tasks/ });
-    expect(tasksTab).toBeDefined();
-    expect(tasksTab.textContent).toContain("SOON");
 
-    // Notes (#193), Contacts (#211) and Calendar (#231) are real behind this — no SOON badge.
+    // Notes (#193), Contacts (#211), Calendar (#231) and Tasks (#252) are
+    // all real behind this — no SOON badge on any of the five Apps.
     expect(screen.getByRole("link", { name: /Calendar/ }).textContent).not.toContain("SOON");
     expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
     expect(screen.getByRole("link", { name: "Contacts" }).textContent).not.toContain("SOON");
+    expect(screen.getByRole("link", { name: /Tasks/ }).textContent).not.toContain("SOON");
 
     await user.click(screen.getByRole("link", { name: /Contacts/ }));
 
@@ -908,7 +918,7 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
-  it("the App Switcher opens a phone sheet naming all five Apps at phone width (#187, #193, #211, #231)", async () => {
+  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187, #193, #211, #231, #252)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -929,9 +939,7 @@ describe("the app shell over a routed tree (#71)", () => {
       await user.click(screen.getByRole("button", { name: "Switch app" }));
 
       expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-      const tasksTab = screen.getByRole("link", { name: /Tasks/ });
-      expect(tasksTab).toBeDefined();
-      expect(tasksTab.textContent).toContain("SOON");
+      expect(screen.getByRole("link", { name: /Tasks/ }).textContent).not.toContain("SOON");
       expect(screen.getByRole("link", { name: /Calendar/ }).textContent).not.toContain("SOON");
       expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
       expect(screen.getByRole("link", { name: "Contacts" }).textContent).not.toContain("SOON");
@@ -1460,5 +1468,251 @@ describe("Notes: soft delete and Recently Deleted (#194)", () => {
     });
     fireEvent.click(screen.getByRole("link", { name: "← Notes" }));
     expect(await screen.findByRole("heading", { name: "Trashed note" })).toBeDefined();
+  });
+});
+
+describe("Tasks: the sidebar, a List's rows and quick add (#252)", () => {
+  it("/tasks renders the real App, reachable from the Hub with no SOON badge, no Account Scope control", async () => {
+    await seedOneThread();
+    stubFetch();
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Switch app" }));
+    fireEvent.click(screen.getByRole("link", { name: "Tasks" }));
+
+    expect(await screen.findByLabelText("Tasks")).toBeDefined();
+    expect(screen.queryByText("Not built yet")).toBeNull();
+    expect(location.pathname).toBe("/tasks");
+    expect(screen.queryByRole("button", { name: /Account Scope/ })).toBeNull();
+  });
+
+  it("creates a List, quick-adds a Task, completes it with Undo, and it round-trips through a second Client", async () => {
+    stubFetch();
+    history.replaceState(null, "", "/tasks");
+
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Task Lists" });
+
+    fireEvent.click(screen.getByRole("button", { name: "New list" }));
+    fireEvent.change(screen.getByPlaceholderText("List name"), {
+      target: { value: "Groceries" },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("List name"), { key: "Enter" });
+
+    expect(await screen.findByRole("heading", { name: "Groceries" })).toBeDefined();
+    // The selected List rides `?list=`, not a path segment (#253's own URL
+    // reshape) — `location.pathname` stays `/tasks`.
+    expect(location.pathname).toBe("/tasks");
+    expect(new URLSearchParams(location.search).get("list")).not.toBeNull();
+
+    const quickAdd = screen.getByLabelText("Add a task");
+    fireEvent.change(quickAdd, { target: { value: "Buy milk" } });
+    fireEvent.submit(quickAdd.closest("form") as HTMLFormElement);
+    const checkbox = await screen.findByRole("checkbox", { name: 'Mark "Buy milk" done' });
+
+    fireEvent.click(checkbox);
+    await waitFor(() => {
+      expect(screen.queryByRole("checkbox", { name: 'Mark "Buy milk" done' })).toBeNull();
+    });
+    expect(await screen.findByText("1 completed")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("checkbox", { name: 'Mark "Buy milk" done' })).toBeDefined();
+
+    // A second Client's own write (#252's own acceptance line) — applied
+    // straight to the Local Cache rather than through this Client's own
+    // controls, `NoteDialog.test.tsx`'s own "two Clients" shape.
+    const createdTaskListId = new URLSearchParams(location.search).get("list") as string;
+    await applyTaskDelta(
+      delta({
+        created: [
+          makeTask("t-remote", NOTES_USER, createdTaskListId, {
+            title: "Remote task",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    expect(await screen.findByRole("button", { name: "Remote task" })).toBeDefined();
+  });
+
+  it("an unknown :taskId redirects silently to /tasks (#253's own path param, replacing :taskListId)", async () => {
+    stubFetch();
+    history.replaceState(null, "", "/tasks/does-not-exist");
+
+    render(<App />);
+
+    await waitFor(() => expect(location.pathname).toBe("/tasks"));
+  });
+
+  it("/tasks/:taskId (#253) opens that Task's own List with its row expanded", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", NOTES_USER, { name: "Groceries", order: 0 })] }),
+      { replace: false },
+    );
+    await applyTaskDelta(
+      delta({ created: [makeTask("t1", NOTES_USER, "list-1", { title: "Buy milk" })] }),
+      { replace: false },
+    );
+    stubFetch();
+    history.replaceState(null, "", "/tasks/t1");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Groceries" })).toBeDefined();
+    expect(await screen.findByDisplayValue("Buy milk")).toBeDefined();
+  });
+
+  it("Phone: the sidebar is the first screen; tapping a List pushes its Tasks, and back returns", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    window.dispatchEvent(new Event("resize"));
+
+    try {
+      await applyTaskListDelta(
+        delta({ created: [makeTaskList("list-1", NOTES_USER, { name: "Groceries", order: 0 })] }),
+        { replace: false },
+      );
+      stubFetch();
+      history.replaceState(null, "", "/tasks");
+
+      render(<App />);
+      const groceriesRow = await screen.findByRole("button", { name: "Groceries" });
+      // Only the sidebar is reachable — no List is open yet.
+      expect(screen.queryByRole("heading", { name: "Groceries" })).toBeNull();
+
+      fireEvent.click(groceriesRow);
+
+      expect(await screen.findByRole("heading", { name: "Groceries" })).toBeDefined();
+      await waitFor(() => {
+        expect(location.pathname).toBe("/tasks");
+        expect(location.search).toBe("?list=list-1");
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Back to Task Lists" }));
+
+      await waitFor(() => expect(location.pathname).toBe("/tasks"));
+      expect(screen.queryByRole("heading", { name: "Groceries" })).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      window.dispatchEvent(new Event("resize"));
+    }
+  });
+});
+
+describe("Tasks: soft delete and Recently Deleted (#257)", () => {
+  it("Delete from the expanded editor removes the Task from the List and raises an Undo toast; Undo brings it back", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", NOTES_USER, { name: "Groceries", order: 0 })] }),
+      { replace: false },
+    );
+    await applyTaskDelta(
+      delta({ created: [makeTask("t1", NOTES_USER, "list-1", { title: "Buy milk" })] }),
+      { replace: false },
+    );
+    stubFetch();
+    history.replaceState(null, "", "/tasks?list=list-1");
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Buy milk" }));
+    await screen.findByDisplayValue("Buy milk");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete task" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Buy milk" })).toBeNull();
+    });
+    expect(await screen.findByText("Task deleted")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByRole("button", { name: "Buy milk" })).toBeDefined();
+  });
+
+  it("The default Task List offers no delete control", async () => {
+    // `/sync` never resolves in this harness (`stubFetch`'s own doc comment
+    // above), so `sync/task-list-store.ts#ensureDefaultTaskList`'s own
+    // server-side seed never reaches the Client here — seeded directly,
+    // `isDefault: true` and all, the same shape that seed itself writes.
+    await applyTaskListDelta(
+      delta({
+        created: [makeTaskList("default-list", NOTES_USER, { name: "Tasks", isDefault: true })],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    history.replaceState(null, "", "/tasks");
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Tasks" });
+
+    expect(screen.queryByRole("button", { name: 'Delete "Tasks"' })).toBeNull();
+  });
+
+  it("deleting a Task List takes its Tasks with it; Recently Deleted lists one entry with the Task count, and Restore brings back the List and every Task", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", NOTES_USER, { name: "Errands", order: 0 })] }),
+      { replace: false },
+    );
+    await applyTaskDelta(
+      delta({
+        created: [
+          makeTask("t1", NOTES_USER, "list-1", { title: "Post office" }),
+          makeTask("t2", NOTES_USER, "list-1", { title: "Bank" }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    history.replaceState(null, "", "/tasks?list=list-1");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Errands" });
+
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Errands"' }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Errands" })).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Recently Deleted" }));
+    await waitFor(() => expect(location.pathname).toBe("/tasks/recently-deleted"));
+
+    expect(await screen.findByText("Errands (2 tasks)")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: 'Restore "Errands"' }));
+    await waitFor(() => {
+      expect(screen.queryByText("Errands (2 tasks)")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: "← Tasks" }));
+    await waitFor(() => expect(location.pathname).toBe("/tasks"));
+    expect(await screen.findByRole("button", { name: "Errands" })).toBeDefined();
+  });
+
+  it("a Task inside a deleted List is not listed separately in Recently Deleted", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", NOTES_USER, { name: "Errands", order: 0 })] }),
+      { replace: false },
+    );
+    await applyTaskDelta(
+      delta({ created: [makeTask("t1", NOTES_USER, "list-1", { title: "Post office" })] }),
+      { replace: false },
+    );
+    stubFetch();
+    history.replaceState(null, "", "/tasks?list=list-1");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Errands" });
+    fireEvent.click(screen.getByRole("button", { name: 'Delete "Errands"' }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Errands" })).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Recently Deleted" }));
+    await waitFor(() => expect(location.pathname).toBe("/tasks/recently-deleted"));
+    await screen.findByText("Errands (1 task)");
+
+    expect(screen.queryByRole("button", { name: 'Restore "Post office"' })).toBeNull();
   });
 });

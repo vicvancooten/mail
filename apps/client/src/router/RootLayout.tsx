@@ -228,8 +228,8 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
     };
   }, [search, pathname, navigate]);
 
-  // A Command Palette local hit's own entry point (#196): `to`/`params` come
-  // from whichever App's own `LocalHitSource` produced the hit
+  // A Command Palette local hit's own entry point (#196, #262): `to`/`params`
+  // come from whichever App's own `LocalHitSource` produced the hit
   // (`mail/command-palette/local-hits.ts`), which knows nothing of the route
   // tree itself. This lives here rather than in whichever Mail-family
   // surface happens to be mounted — unlike `ctx`/`searchOrigin`
@@ -237,10 +237,18 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // Mail-scoped state, just a plain route the Hub's own `navigate` can reach
   // directly, the same "erase the per-collection type once, at the
   // boundary" idiom `sync/collection-registry.ts#asApplyUserDelta` already
-  // uses for the sync side of the same ADR-0023 mechanism.
+  // uses for the sync side of the same ADR-0023 mechanism. A section's own
+  // "See all results" row (#262) reuses this with an empty `params` and a
+  // `search` instead (`/tasks?q=`), so `search` is only ever spread in where
+  // given — an empty object here would otherwise clobber whatever a plain
+  // hit's own route already carries.
   const onOpenLocalHit = useCallback(
-    (to: string, params: Record<string, string>) => {
-      void navigate({ to, params } as unknown as Parameters<typeof navigate>[0]);
+    (to: string, params: Record<string, string>, search?: Record<string, string>) => {
+      void navigate({
+        to,
+        params,
+        ...(search ? { search } : {}),
+      } as unknown as Parameters<typeof navigate>[0]);
     },
     [navigate],
   );

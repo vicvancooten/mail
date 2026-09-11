@@ -15,6 +15,8 @@ import type {
   Note,
   Preference,
   Rollback,
+  Task,
+  TaskList,
   Thread,
 } from "@mail/shared";
 import Dexie from "dexie";
@@ -59,6 +61,10 @@ export const PREFERENCE_TOKEN_KEY = "user:Preference";
 export const LABEL_TOKEN_KEY = "user:Label";
 /** `Note` (#192, ADR-0023): User-scoped from the start, so its token is keyed like `Label`'s. */
 export const NOTE_TOKEN_KEY = "user:Note";
+/** `TaskList` (#251, ADR-0030): User-scoped from the start, `Note`'s own shape. */
+export const TASK_LIST_TOKEN_KEY = "user:TaskList";
+/** `Task` (#251, ADR-0030): User-scoped from the start, `Note`'s own shape. */
+export const TASK_TOKEN_KEY = "user:Task";
 /** `ConnectedAccount` (#199, #200, ADR-0022): User-scoped from the start, so its token is keyed like `Note`'s. */
 export const CONNECTED_ACCOUNT_TOKEN_KEY = "user:ConnectedAccount";
 /** `AddressBook` (#209, ADR-0023): the Local Address Book's own slot — a mirrored book's own token is `connectedAccountAddressBookTokenKey` below. */
@@ -275,7 +281,7 @@ export async function applyLabelDelta(
  * shape, but — like `Composition` below — the only *other* delta with a
  * merge rule: a Note with an unflushed `pendingNoteSaves` row holds a
  * `document` the server has not seen, and taking the wire's older copy would
- * destroy exactly what the `noteSaves` channel exists to protect. Once the
+ * destroy exactly what the `documentSaves` channel exists to protect. Once the
  * save lands there is no queued row and the server's copy is simply
  * adopted, which is also how the *other* device's edit shows up here once
  * this one has nothing outstanding of its own.
@@ -299,6 +305,26 @@ export async function applyNoteDelta(
       await db.pendingNoteSaves.bulkDelete(delta.destroyed);
     }
     await db.syncState.put({ key: NOTE_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `TaskList` (#251, ADR-0030). No merge rule of its own — unlike `Note`/`Task`
+ * a List's own body is `sections`, a plain structural field, never something
+ * a `documentSaves`-style queued save could hold a newer copy of, so a plain
+ * `bulkPut` is the whole of "adopt whatever the wire says" here.
+ */
+export async function applyTaskListDelta(
+  delta: CollectionDelta<TaskList>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.taskLists, db.syncState], async () => {
+    if (replace) await db.taskLists.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.taskLists.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.taskLists.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: TASK_LIST_TOKEN_KEY, token: delta.newState });
   });
 }
 
@@ -502,6 +528,33 @@ export async function applyContactLinkDelta(
     if (upserts.length > 0) await db.contactLinks.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.contactLinks.bulkDelete(delta.destroyed);
     await db.syncState.put({ key: CONTACT_LINK_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `Task` (#251, ADR-0030). `applyNoteDelta`'s exact merge rule: a Task with
+ * an unflushed `pendingTaskSaves` row holds a `document` the server hasn't
+ * seen yet, so its wire copy is adopted everywhere except that one field.
+ */
+export async function applyTaskDelta(
+  delta: CollectionDelta<Task>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.tasks, db.pendingTaskSaves, db.syncState], async () => {
+    if (replace) await db.tasks.clear();
+
+    for (const wire of [...delta.created, ...delta.updated]) {
+      const hasUnflushedEdit = (await db.pendingTaskSaves.get(wire.id)) !== undefined;
+      const local = await db.tasks.get(wire.id);
+      await db.tasks.put(hasUnflushedEdit && local ? { ...wire, document: local.document } : wire);
+    }
+
+    if (delta.destroyed.length > 0) {
+      await db.tasks.bulkDelete(delta.destroyed);
+      await db.pendingTaskSaves.bulkDelete(delta.destroyed);
+    }
+    await db.syncState.put({ key: TASK_TOKEN_KEY, token: delta.newState });
   });
 }
 

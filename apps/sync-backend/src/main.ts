@@ -38,11 +38,11 @@ import { startContactPurgeLoop } from "./sync/contact-purge-loop.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
 import { startGrantRefreshLoop } from "./sync/grant-refresh-loop.js";
 import { createSyncManager, startAllMailAccountSyncs } from "./sync/manager.js";
-import { startNotePurgeLoop } from "./sync/note-purge-loop.js";
 import type { PollLoopHandle } from "./sync/poll-loop.js";
 import { startProtocolWriteLoop } from "./sync/protocol-write-loop.js";
 import { startSearchIndexRebuildLoop } from "./sync/search-index-loop.js";
 import { startSnoozeWakeLoop } from "./sync/snooze-wake-loop.js";
+import { startTrashPurgeLoop } from "./sync/trash-purge-loop.js";
 
 const env = loadEnv();
 
@@ -225,11 +225,12 @@ pollLoops.push(startSearchIndexRebuildLoop(db, { logger: app.log }));
 // down.
 pollLoops.push(startSnoozeWakeLoop(db, { logger: app.log }));
 
-// The Recently Deleted purge sweep (#194): "purged for good 30 days after
-// deletion" — same independent-of-`sync/manager.ts` shape as the snooze wake
-// loop above, since purging a soft-deleted Note only ever touches columns
-// already stored on `notes`.
-pollLoops.push(startNotePurgeLoop(db, { logger: app.log }));
+// The Recently Deleted purge sweep (#194, generalised by #257 to cover
+// `Note`, `TaskList` and `Task`): "purged for good 30 days after deletion" —
+// same independent-of-`sync/manager.ts` shape as the snooze wake loop above,
+// since purging a soft-deleted row only ever touches columns already stored
+// on its own retention-bearing table (`sync/collection-registry.ts`).
+pollLoops.push(startTrashPurgeLoop(db, { logger: app.log }));
 
 // A Contact's own Recently Deleted purge sweep (#224) — `startNotePurgeLoop`'s
 // own shape, one row per soft-deleted collection rather than one loop trying
