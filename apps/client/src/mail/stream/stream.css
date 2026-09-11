@@ -254,7 +254,7 @@
    reservation doesn't touch.
    ========================================================================= */
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .stream-topbar {
     padding: 12px 16px;
   }

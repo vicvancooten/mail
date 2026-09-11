@@ -10,8 +10,9 @@ import type { ActionContext } from "../mail/actions/types.js";
  * the three candidates the redesign brief named, all three kept. Global
  * chrome, mounted once by `RootLayout.tsx` right beside the header (both
  * retract together on scroll, `RootLayout.tsx`'s own `useChromeRetract`) —
- * `shell.css` hides this above 700px, keeping it phone-only the same "both
- * render, CSS decides" way `Sidebar.tsx`'s `DesktopRail`/`MobileSheet` pair
+ * `shell.css` hides this above the app's one 768px phone breakpoint (#273),
+ * keeping it phone-only the same "both render, CSS decides" way
+ * `Sidebar.tsx`'s `DesktopRail`/`MobileSheet` pair
  * already does, rather than a JS width check that could disagree with the
  * CSS.
  *

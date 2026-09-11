@@ -1072,8 +1072,8 @@ describe("Reader action hierarchy (#143)", () => {
     // `useTouchCapablePhone` (#143) is phone width *and* no hover-capable
     // pointer — matching only the phone-width query reports every other
     // query (including the hover one) as not matching, same stub
-    // `settings-phone-integration.test.tsx` uses for the same 700px breakpoint.
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    // `settings-phone-integration.test.tsx` uses for the same 768px breakpoint.
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     await seedTwoThreads();
     stubFetch(never);
 
@@ -1296,7 +1296,7 @@ describe("Swipe between Threads inside the Reader (#150)", () => {
     // Touch-capable phone (#143): prev/next buttons are gone, so swipe and
     // Auto-advance are the only way to move between Threads without
     // returning to the list first.
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     await seedTwoThreads();
     stubFetch(never);
 
@@ -1313,7 +1313,7 @@ describe("Swipe between Threads inside the Reader (#150)", () => {
   });
 
   it("swiping right from the older (last) Thread opens the previous (newer) one", async () => {
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     await seedTwoThreads();
     stubFetch(never);
 
@@ -1330,7 +1330,7 @@ describe("Swipe between Threads inside the Reader (#150)", () => {
   });
 
   it("swiping past the end of the list (no neighbour that way) does nothing — the Thread stays open", async () => {
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     await seedTwoThreads();
     stubFetch(never);
 

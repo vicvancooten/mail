@@ -7,6 +7,7 @@ import {
   lightAvatarTiles,
   lightColors,
 } from "./colors.js";
+import { phoneBreakpoint } from "./breakpoints.js";
 import { darkShadow, hairline, lightShadow, radii, type ShadowTheme } from "./geometry.js";
 import { fonts } from "./typography.js";
 
@@ -72,6 +73,12 @@ ${tileDeclarations(lightAvatarTiles, "  ")}
   --radius-panel: ${radii.panel};
   --radius-pill: ${radii.pill};
   --hairline: ${hairline};
+  /* The one phone breakpoint (#273) — see \`breakpoints.ts\`. Documented here
+     for CSS authors, even though a plain media query feature can't consume
+     a custom property: every phone-only media query in the Client is a
+     literal \`767px\`/\`768px\` pair matching this same number, not derived
+     from it at build time. */
+  --breakpoint-phone: ${phoneBreakpoint}px;
 ${shadowDeclarations(lightShadow, "  ")}
 }
 

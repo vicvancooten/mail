@@ -518,13 +518,10 @@
    Switcher and Compose down there instead, and Appearance folding into
    `AvatarMenu`'s own radio group (which already had it). This query
    matches `RootLayout.tsx`'s own breakpoint exactly — `AppSwitcher.tsx`'s
-   `useIsMobile` (768px), not this app's other 700px breakpoint
-   (`Sidebar.tsx`, `mail.css`'s Split/List switch) — deliberately, so the
-   layout this query authors and the mount/unmount decision that same
-   width drives can never disagree with each other. It's still a different
-   number from Sidebar's own 700px, a narrow seam this app already tolerates
-   elsewhere (`Sidebar.tsx`'s own doc comment) rather than one this ticket
-   introduces fresh. */
+   `useIsPhoneWidth`, the app's one 768px phone breakpoint (#273, also
+   `Sidebar.tsx`'s and `mail.css`'s Split/List switch now) — deliberately,
+   so the layout this query authors and the mount/unmount decision that same
+   width drives can never disagree with each other. */
 @media (max-width: 767px) {
   .app-header {
     position: fixed;
@@ -689,9 +686,9 @@
    The App on a raised card (#96, grill Q20/Q26/Q35–Q37): the viewport takes
    the Hub's own ground colour so the card reads as sitting *on* the Hub
    rather than beside it, with `.app-card` supplying the corners/shadow/inset
-   at ≥701px and nothing at all on the phone — full-bleed, no inset, no
+   at ≥768px and nothing at all on the phone — full-bleed, no inset, no
    radius, no shadow, matching the phone rule everywhere else in this app
-   (`Sidebar.tsx`'s own 700px breakpoint doc comment). The route's own
+   (the app's one 768px phone breakpoint, #273). The route's own
    element still paints its own `--color-bg` fill; `.app-card`'s
    `overflow: hidden` is what clips that fill to the rounded corners rather
    than every route needing its own radius. */
@@ -709,7 +706,7 @@
   overflow: hidden;
 }
 
-@media (min-width: 701px) {
+@media (min-width: 768px) {
   .app-viewport {
     padding: 12px;
   }
