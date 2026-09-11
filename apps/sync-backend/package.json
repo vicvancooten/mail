@@ -35,6 +35,7 @@
     "otplib": "^13.5.0",
     "postgres": "^3.4.9",
     "sanitize-html": "^2.17.7",
+    "tsdav": "2.3.2",
     "web-push": "^3.6.7",
     "zod": "^4.5.4"
   },

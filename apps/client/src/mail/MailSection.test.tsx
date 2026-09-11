@@ -294,7 +294,7 @@ describe("MailSection", () => {
     const responses: SyncResponse[] = [
       {
         user: { MailAccount: delta({ created: [makeMailAccount("acct-1")], newState: "ma-1" }) },
-        mailAccounts: {},
+        mailAccounts: {}, connectedAccounts: {},
       },
       {
         user: {},
@@ -305,11 +305,11 @@ describe("MailSection", () => {
               newState: "th-1",
             }),
           },
-        },
+        }, connectedAccounts: {},
       },
     ];
     stubFetch(() =>
-      Promise.resolve(jsonResponse(responses.shift() ?? { user: {}, mailAccounts: {} })),
+      Promise.resolve(jsonResponse(responses.shift() ?? { user: {}, mailAccounts: {}, connectedAccounts: {} })),
     );
 
     renderMail();
@@ -1530,7 +1530,7 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
       // Resolves immediately (rather than the default never-resolving stub)
       // so a later `requestSyncNow()` round can actually fire a second
       // `/sync` call instead of piling up behind a permanently in-flight one.
-      sync: () => Promise.resolve(jsonResponse({ user: {}, mailAccounts: {} })),
+      sync: () => Promise.resolve(jsonResponse({ user: {}, mailAccounts: {}, connectedAccounts: {} })),
       batch: () =>
         jsonResponse({
           batchId: "batch-1",

@@ -60,7 +60,7 @@ function countingSync() {
   const calls: SyncRequest[] = [];
   const post = (request: SyncRequest): Promise<SyncResponse> => {
     calls.push(request);
-    return Promise.resolve({ user: {}, mailAccounts: {} });
+    return Promise.resolve({ user: {}, mailAccounts: {}, connectedAccounts: {} });
   };
   return { post, calls };
 }
@@ -197,7 +197,7 @@ describe("when the Sync Backend is unreachable", () => {
     const post = () => {
       attempts += 1;
       if (attempts === 1) return Promise.reject(new TypeError("Failed to fetch"));
-      return Promise.resolve({ user: {}, mailAccounts: {} });
+      return Promise.resolve({ user: {}, mailAccounts: {}, connectedAccounts: {} });
     };
     start({ post, locks: createFakeLockManager(), random: () => 0 });
     await settle();

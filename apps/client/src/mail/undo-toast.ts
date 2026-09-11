@@ -49,6 +49,13 @@ import { dismissActionToast, raiseActionToast } from "./action-toast.js";
  *
  * `"addToNotes"` (#195) is the inverse case — `mail/MailSection.tsx`'s
  * `onAddToNotes` handler undoes itself by deleting the Note it just created.
+ *
+ * `"contactDelete"` (#224) is `"noteDelete"`'s own Contact-side counterpart
+ * — `contacts/ContactDialog.tsx`'s Delete control calls `announceUndoableAction`
+ * right after `store/contacts.ts#trashContact`. On a linked card the Sync
+ * Backend cascades that one intent to every linked record (ADR-0026), so a
+ * single announce and a single `restoreContact(id)` are the whole of what
+ * "one Undo restores all" needs on the Client's own side.
  */
 export type UndoableActionKind =
   | "done"
@@ -60,7 +67,11 @@ export type UndoableActionKind =
   | "deny"
   | "discard"
   | "noteDelete"
-  | "addToNotes";
+  | "addToNotes"
+  | "contactDelete"
+  | "contactImport"
+  | "contactCopy"
+  | "contactMove";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -86,6 +97,15 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   noteDelete: { one: "Note deleted", many: (count) => `${count} Notes deleted` },
   // "Add to Notes" (#195) — `mail/MailSection.tsx`'s own `onAddToNotes` handler.
   addToNotes: { one: "Added to Notes", many: (count) => `${count} added to Notes` },
+  // Contact delete (#224) — `contacts/ContactDialog.tsx`'s own Delete control.
+  contactDelete: { one: "Contact deleted", many: (count) => `${count} Contacts deleted` },
+  // vCard import/Copy/Move (#225) — a tight import loop's own per-card calls
+  // coalesce into one toast the same way a fast keyboard Triage burst does,
+  // which is exactly the "one toast with the count" the import sheet's own
+  // acceptance line asks for, with no extra batching logic of its own.
+  contactImport: { one: "1 Contact imported", many: (count) => `${count} Contacts imported` },
+  contactCopy: { one: "Contact copied", many: (count) => `${count} Contacts copied` },
+  contactMove: { one: "Contact moved", many: (count) => `${count} Contacts moved` },
 };
 
 interface Bucket {

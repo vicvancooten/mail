@@ -793,6 +793,7 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
             autoAdvanceDirection: "older",
             undoSendDelaySeconds: 10,
             homeTimeZone: "",
+            contactsSortOrder: "given",
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
         ],
