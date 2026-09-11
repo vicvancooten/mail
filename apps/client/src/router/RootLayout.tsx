@@ -43,8 +43,8 @@ import "./shell.css";
  * acceptance box: a three-column grid whose outer columns are equal
  * fractions, so the centred search field is centred on the *viewport*
  * rather than on whatever is left over beside the switcher. Left is the
- * home mark (`HomeLink.tsx`, a plain `Link` to `/mail`) and, as its own
- * adjacent control, the App Switcher; centre the global search entry;
+ * home mark (`HomeLink.tsx`, a plain `Link` to `/mail` on desktop) and, as
+ * its own adjacent control, the App Switcher; centre the global search entry;
  * right is Account Scope (`AccountScope.tsx`, moved here from
  * `mail/TopBar.tsx` — Client chrome per `CONTEXT.md`'s own Hub entry), the
  * appearance toggle, and the User's avatar menu. Nothing here names the
@@ -71,16 +71,22 @@ import "./shell.css";
  * that width, rather than either route rendering two different trees.
  *
  * Phone chrome (#155, rescinding `DESIGN.md`'s earlier "no bottom tab bar"
- * for phone): `HomeLink`, the header's own `AppSwitcher` instance and the
- * appearance toggle all drop out of the header on phone — a real
- * conditional (`isPhoneChrome` below), not CSS-only visibility, since a
- * hidden-but-mounted "Switch app" control is a duplicate accessible
- * control, not a neutral simplification. `BottomBar.tsx` picks up Folders,
- * the App Switcher and Compose down there instead, and Appearance folds
- * into `AvatarMenu`'s own radio group, which already had it. The header
- * and the bottom bar retract together on scroll-down and return on
- * scroll-up (`useChromeRetract.ts`), `data-chrome-hidden` below being what
- * `shell.css`'s phone query reads to animate both.
+ * for phone): the header's own `AppSwitcher` instance and the appearance
+ * toggle drop out of the header on phone — a real conditional
+ * (`isPhoneChrome` below), not CSS-only visibility, since a hidden-but-
+ * mounted "Switch app" control is a duplicate accessible control, not a
+ * neutral simplification. `BottomBar.tsx` picks up Folders, the App
+ * Switcher and Compose down there instead, and Appearance folds into
+ * `AvatarMenu`'s own radio group, which already had it. `HomeLink` itself
+ * stays (#286, `CONTEXT.md`'s own Hub entry: "on a phone the Hub keeps the
+ * top bar full-width and full-bleed, the home mark at its leading edge, and
+ * hands the App Switcher to the Dock") — its `to` just narrows from `/mail`
+ * to `currentApp`'s own root, since there's no adjacent Switcher on phone to
+ * jump elsewhere with. The header and the bottom bar retract together on
+ * scroll-down and return on scroll-up (`useChromeRetract.ts`),
+ * `data-chrome-hidden` below being what `shell.css`'s phone query reads to
+ * animate both — the header's own box carries its safe-area inset as
+ * padding on itself, so the same transform moves both together.
  *
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
@@ -310,7 +316,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
       <div className="app-shell" data-chrome-hidden={chromeHidden}>
         <header className="app-header">
           <div className="header-left">
-            {!isPhoneChrome && <HomeLink />}
+            <HomeLink to={isPhoneChrome ? (currentApp?.path ?? "/mail") : "/mail"} />
             {!isPhoneChrome && <AppSwitcher pathname={pathname} />}
           </div>
           <div className="header-center">

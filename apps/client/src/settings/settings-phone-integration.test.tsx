@@ -161,12 +161,13 @@ describe("Settings at phone width (#135)", () => {
     expect(screen.queryByRole("link", { name: "Back to Settings" })).toBeNull();
 
     // The Hub's phone chrome: the bottom bar is mounted, and the header's
-    // own Home mark / inline App Switcher are not — `RootLayout.tsx`'s
-    // `isPhoneChrome`.
+    // inline App Switcher is not — `RootLayout.tsx`'s `isPhoneChrome`. The
+    // Home mark itself stays at the top bar's leading edge on phone too
+    // (#286), unlike the switcher instance the Dock picks up instead.
     expect(
       screen.getByRole("navigation", { name: "Folders, switch app, and compose" }),
     ).toBeDefined();
-    expect(screen.queryByLabelText("Wicket home")).toBeNull();
+    expect(screen.getByLabelText("Wicket home")).toBeDefined();
   });
 
   it("at or above the token, the desktop header (Home mark, inline App Switcher, no bottom bar) and Settings' rail both render", async () => {
