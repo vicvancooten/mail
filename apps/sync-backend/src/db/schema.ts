@@ -3512,3 +3512,24 @@ export const oauthSignInAttempts = pgTable(
   (table) => [index("oauth_sign_in_attempts_user_id_idx").on(table.userId)],
 );
 export type OAuthSignInAttemptRow = typeof oauthSignInAttempts.$inferSelect;
+
+/**
+ * A one-off Data Repair's completion record (#284) — the Sync Backend's
+ * only such record, run at boot right after `runMigrations()`
+ * (`repairs/runner.ts`), never as a `.sql` migration file: unlike a schema
+ * change, a repair reads and rewrites row *content* (an email address
+ * demoted onto a Custom Field, #283's own bug), which needs the same
+ * ordinary query surface every other store module uses, not a migration's
+ * raw-SQL-only shape. `id` is the repair's own stable name (`repair-*.ts`'s
+ * own doc comment names it), never a minted id — a row existing at all
+ * *is* "already ran", the same "presence is the fact" shape `claim_tokens`'
+ * absence-means-claimed convention takes in the other direction. Nothing
+ * ever deletes a row here: a repair is written once, runs once per instance
+ * for good, and stays in this table as its own historical record.
+ */
+export const repairs = pgTable("repairs", {
+  /** The repair's own name, e.g. `"repair-demoted-addresses"` — stable across every instance that has ever run it. */
+  id: text("id").primaryKey(),
+  ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type RepairRow = typeof repairs.$inferSelect;
