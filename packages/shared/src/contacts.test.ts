@@ -140,14 +140,26 @@ describe("splitTypedContactFields", () => {
     expect(custom).toEqual([{ id: "p1", label: "Boat", type: "phone", value: "+15551234567" }]);
   });
 
-  it("demotes a non-standard email label to a text Custom Field — email has no Custom Field type of its own", () => {
+  it("never demotes an email, regardless of its label (#283)", () => {
     const { standard, custom } = splitTypedContactFields("email", [
       { id: "e1", label: "school", value: "kid@school.example", primary: false },
     ]);
-    expect(standard).toEqual([]);
-    expect(custom).toEqual([
-      { id: "e1", label: "school", type: "text", value: "kid@school.example" },
+    expect(standard).toEqual([
+      { id: "e1", type: "school", value: "kid@school.example", primary: false },
     ]);
+    expect(custom).toEqual([]);
+  });
+
+  it('defaults a blank email label to "home" instead of demoting it (#283)', () => {
+    const { standard, custom } = splitTypedContactFields("email", [
+      { id: "e1", label: "", value: "kid@school.example", primary: false },
+      { id: "e2", label: "   ", value: "other@example.com", primary: false },
+    ]);
+    expect(standard).toEqual([
+      { id: "e1", type: "home", value: "kid@school.example", primary: false },
+      { id: "e2", type: "home", value: "other@example.com", primary: false },
+    ]);
+    expect(custom).toEqual([]);
   });
 
   it("demotes a non-standard website label to a website Custom Field", () => {

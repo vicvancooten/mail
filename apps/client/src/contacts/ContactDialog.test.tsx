@@ -82,7 +82,7 @@ describe("ContactDialog (#210)", () => {
     });
   });
 
-  it("adds an email row and demotes a Custom-labelled one to a Custom Field on Save", async () => {
+  it("adds a Custom-labelled email row and keeps it as an email on Save, never a Custom Field (#283)", async () => {
     render(
       <ContactDialog
         addressBook={LOCAL_BOOK}
@@ -100,10 +100,10 @@ describe("ContactDialog (#210)", () => {
 
     await waitFor(async () => {
       const rows = await localCache().contacts.toArray();
-      expect(rows[0]?.emails).toEqual([]);
-      expect(rows[0]?.customFields).toEqual([
-        { id: expect.any(String), label: "Boat", type: "text", value: "a@example.com" },
+      expect(rows[0]?.emails).toEqual([
+        { id: expect.any(String), type: "Boat", value: "a@example.com", primary: true },
       ]);
+      expect(rows[0]?.customFields).toEqual([]);
     });
   });
 
