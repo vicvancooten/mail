@@ -1144,7 +1144,11 @@ describe("Notes: the grid and dialog editing (#193)", () => {
     expect(screen.getByRole("heading", { name: "Pinned" })).toBeDefined();
     expect(screen.getByRole("heading", { name: "Others" })).toBeDefined();
     // "Work" appears twice: the filter chip and the card's own Label badge.
-    expect(screen.getAllByText("Work")).toHaveLength(2);
+    // The chip and the badge resolve off two independent Local Cache live
+    // queries (Labels, and the Note-Label join) — the Note heading above
+    // only proves the Notes query settled, not the Label one, so this needs
+    // its own wait rather than a synchronous check right after.
+    await waitFor(() => expect(screen.getAllByText("Work")).toHaveLength(2));
 
     // Others sorted last-edited descending: "Newer other" before "Older other".
     const titles = screen
