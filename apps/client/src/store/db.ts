@@ -1,8 +1,12 @@
 import type {
+  AddressBook,
   AttachmentMeta,
   ComposeDocument,
   CompositionStatus,
   ConnectedAccount,
+  Contact,
+  ContactLink,
+  ContactRollback,
   Correspondent,
   GmailLabel,
   Label,
@@ -36,7 +40,7 @@ import Dexie, { type EntityTable } from "dexie";
  * Bump this for **any** change to the stores below, including a new index.
  * Doubles as the Dexie version number, so one bump is one wipe-and-resync.
  */
-export const CACHE_SCHEMA_VERSION = 11; // #200: `connectedAccounts` table added
+export const CACHE_SCHEMA_VERSION = 12; // #209-#224: `addressBooks`/`contacts`/`contactRollbacks`/`contactLinks` tables added
 
 export const DEFAULT_CACHE_NAME = "mail-local-cache";
 
@@ -300,6 +304,29 @@ export class LocalCache extends Dexie {
   notes!: EntityTable<Note, "id">;
   /** `ConnectedAccount` (#199, #200, ADR-0022), User-scoped, whole-replicated — `notes`' sibling, no `deletedAt` (no soft delete on a Connected Account). */
   connectedAccounts!: EntityTable<ConnectedAccount, "id">;
+  /**
+   * `AddressBook` (#209, ADR-0023, ADR-0026): the Local one and every
+   * mirrored one share this one table — `origin` (not indexed; small
+   * collection, `server-writes.ts`'s own filters read it with a plain scan)
+   * says which. Whole-replicated, riding two Sync Scopes on the wire but
+   * one flat table here, the same "one Contacts list across every Address
+   * Book" CONTEXT.md describes for the future Contacts App.
+   */
+  addressBooks!: EntityTable<AddressBook, "id">;
+  /** `Contact` (#209, ADR-0023, ADR-0026): `addressBooks`' sibling — deliberately empty of every field but `id`/`addressBookId` until #210. */
+  contacts!: EntityTable<Contact, "id">;
+  /** `ContactRollback` (#216, ADR-0023): append-only, User-scoped — `@mail/shared#contactRollbackSchema`'s own doc comment. */
+  contactRollbacks!: EntityTable<ContactRollback, "id">;
+  /**
+   * `ContactLink` (#222, ADR-0026): which Contacts are one person. A
+   * User-scoped collection with no mirrored half at all — unlike
+   * `addressBooks`/`contacts` above, which hold rows from two Sync Scopes in
+   * one table, a link belongs to no Connected Account by construction
+   * (`@mail/shared#contactLinkSchema`'s own doc comment). Small and
+   * whole-replicated, read with a plain `toArray()` the same way
+   * `readAddressBooks` reads its own.
+   */
+  contactLinks!: EntityTable<ContactLink, "id">;
   pendingNoteSaves!: EntityTable<PendingNoteSave, "noteId">;
   listWindows!: EntityTable<ListWindow, "key">;
   cachePins!: EntityTable<CachePin, "threadId">;
@@ -342,6 +369,24 @@ export class LocalCache extends Dexie {
       notes: "id, userId, deletedAt",
       pendingNoteSaves: "noteId",
       connectedAccounts: "id, userId",
+      addressBooks: "id",
+      // `addressBookId` indexed for `server-writes.ts`'s own scope-cleanup
+      // filters (`.where("addressBookId").anyOf(...)`) — Contact has no
+      // `userId`/`connectedAccountId` of its own to index on (CONTEXT.md:
+      // "a Contact ... never has one of its own"). `deletedAt` indexed for
+      // #224, `notes`' own reasoning above: `store/contacts.ts#readContacts`/
+      // `readDeletedContacts` both filter on it.
+      contacts: "id, addressBookId, deletedAt",
+      // No index needed beyond the primary key — read only through
+      // `contact-rollback-toast.ts`'s own delta-driven notify, never
+      // queried by the UI directly.
+      contactRollbacks: "id",
+      // No index past the primary key: a link is read as a whole collection
+      // (`store/contact-links.ts#readContactLinks`) and its members live in
+      // a `contactIds` array, which is not a key an ordinary Dexie index
+      // could answer "which link holds this Contact?" from any faster than
+      // the same tiny scan already does.
+      contactLinks: "id",
       listWindows: "key, mailAccountId",
       cachePins: "threadId, mailAccountId",
       syncState: "key",
@@ -374,6 +419,10 @@ const DATA_TABLES = [
   "correspondents",
   "notes",
   "connectedAccounts",
+  "addressBooks",
+  "contacts",
+  "contactRollbacks",
+  "contactLinks",
   "listWindows",
   "cachePins",
   "syncState",

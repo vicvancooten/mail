@@ -39,6 +39,17 @@ export const searchRequestSchema = z.object({
   from: z.string().optional(),
   /** `to:` — includes `Cc`, same matching as `from`. */
   to: z.string().optional(),
+  /**
+   * The Person Page's own Mail history filter (#217) — never a query-bar
+   * operator, this backend's only caller is `MailHistoryTab.tsx`. OR'd
+   * across every address here and across From/To/Cc; matched on the
+   * **normalised address only** (`normalizeCorrespondentAddress`), never a
+   * display name, which is sender-controlled and would pull in strangers
+   * who happen to share a Contact's name. Absent or `[]` means this filter
+   * contributes nothing — same "absent means not filtered" shape `from`/`to`
+   * already have.
+   */
+  participants: z.array(z.string()).optional(),
   /** `has:attachment` */
   hasAttachment: z.boolean().optional(),
   /**

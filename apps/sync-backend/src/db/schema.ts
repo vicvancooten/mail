@@ -1,4 +1,19 @@
-import type { AttachmentMeta, ComposeDocument, NoteDocument, Recipient } from "@mail/shared";
+import type {
+  AttachmentMeta,
+  ComposeDocument,
+  ContactAddress,
+  ContactBanner,
+  ContactBirthday,
+  ContactEmail,
+  ContactName,
+  ContactOrganization,
+  ContactPhone,
+  ContactPhoto,
+  ContactWebsite,
+  CustomField,
+  NoteDocument,
+  Recipient,
+} from "@mail/shared";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -96,6 +111,15 @@ export const users = pgTable("users", {
    * than this column ever guessing one from the server's clock.
    */
   homeTimeZone: text("home_time_zone").notNull().default(""),
+  /**
+   * The Contacts App's own sort order (#211, `@mail/shared#contactsSortOrderSchema`):
+   * `Preference`'s rest again, same posture as `homeTimeZone` above —
+   * "given" (first name first) is the default until the User picks
+   * "family" from the Contacts settings surface.
+   */
+  contactsSortOrder: text("contacts_sort_order", { enum: ["given", "family"] })
+    .notNull()
+    .default("given"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   // The delta sync API's (#37, #54) cursor pair for the `Preference`
@@ -338,6 +362,419 @@ export const connectedAccountFacets = pgTable(
   ],
 );
 export type ConnectedAccountFacetRow = typeof connectedAccountFacets.$inferSelect;
+
+/**
+ * `AddressBook` (#209, ADR-0023, ADR-0026): one Origin's collection of
+ * Contacts — the User's own Local Address Book, or a Connected Account's
+ * mirrored one. `userId` is always the owning User, denormalized even for a
+ * mirrored book (whose ownership already follows from `connectedAccountId`
+ * → `connected_accounts.user_id`) so every scope-bucketed query here and
+ * `notify_sync_hint`'s fanout stay a plain `user_id` filter, the same "no
+ * join in the hot sync path" reasoning `mail_accounts.user_id` already
+ * follows alongside its own `connected_account_id`. `connectedAccountId` is
+ * null for the Local Address Book and the one thing `origin` (the wire
+ * shape, `@mail/shared#originSchema`) is derived from.
+ *
+ * `capabilityTableId` names which `ContactCapabilityTable`
+ * (`@mail/shared#contacts.ts`) a Contact of this Address Book is drawn
+ * against — kept as its own column rather than derived from
+ * `connectedAccountId` so a future per-server CardDAV table could diverge
+ * without reshaping this row (`address-books.ts#addressBookSchema`'s own
+ * doc comment). Kept as an independent literal list from `provider` above,
+ * the same "two lists, kept in sync by hand" convention this file already
+ * has, because `"local"` is not a Provider.
+ *
+ * `mirrored` (ADR-0031) and `isDefault` (CONTEXT.md's Default Address Book)
+ * are both always their defaults until #214+/a Settings page exist to
+ * change them — declared now so the collection's row shape does not
+ * reshape under those later tickets.
+ *
+ * `googleSyncToken`/`googleSyncTokenMintedAt` (#214) are Google's own sync
+ * state, null for every other Origin — the same "a column on the shared
+ * table, named for its Origin" convention the sibling Calendar epic's
+ * `calendars.googleSyncToken` already established, rather than a side table
+ * for a single pair of columns. `googleSyncTokenMintedAt` is when the token
+ * came from a *full* `connections.list` walk specifically (never bumped by
+ * an incremental round), since that is the clock the People API's
+ * documented 7-day expiry actually runs against
+ * (`docs/research/0010-contacts-sync-and-model.md` §1.1).
+ *
+ * `microsoftFolderId`/`microsoftDeltaLink` (#227) are Graph's own sync
+ * state, null for every other Origin — one row per **contact folder**
+ * (`contacts/microsoft/contacts-sync.ts`'s own discovery walk), unlike
+ * Google's single fixed collection, so `microsoftFolderId` is what makes a
+ * Connected Account's several mirrored books distinct rather than one flag
+ * with nowhere to point. `microsoftDeltaLink` is the opaque
+ * `@odata.deltaLink`/`@odata.nextLink` URL `/contacts/delta` itself hands
+ * back — Graph's delta model has no separate "full sync" call the way
+ * Google's `requestSyncToken` does: calling delta fresh (no stored link)
+ * walks the whole folder, ending in a link for the next incremental round,
+ * so there is no minted-at clock to keep beside it the way Google's needs.
+ *
+ * `carddavCollectionUrl`/`carddavSyncToken`/`carddavCtag` (#226) are
+ * CardDAV's own sync state — the third shape this table holds, one row per
+ * **discovered address book collection** (`contacts/carddav/contacts-sync.ts`'s
+ * own walk of the Facet's `davHomeSetUrl`, #203), the same "one row per
+ * upstream collection, keyed on its own id" posture `microsoftFolderId`
+ * already takes rather than Google's single-collection shape.
+ * `carddavCollectionUrl` is that collection's own DAV URL, resolved absolute
+ * against the home-set — what makes several of a Connected Account's mirrored
+ * books distinct, and the key `contacts.carddavHref` below resolves relative
+ * to. `carddavSyncToken` is RFC 6578's own opaque `sync-token`, null until a
+ * `sync-collection` REPORT has ever run against this collection; a server
+ * that never answers one (predates RFC 6578, or a stale token this ticket's
+ * own sync loop cleared) instead drives off `carddavCtag`
+ * (`docs/research/0009-caldav-carddav-consumption.md` §2.3's own fallback),
+ * compared as a string unconditionally per the same research doc's own
+ * caution (§8.1, `tsdav` issue #200: some servers return a numeric-looking
+ * `ctag` that a loose comparison coerces wrong).
+ */
+export const addressBooks = pgTable(
+  "address_books",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    capabilityTableId: text("capability_table_id", {
+      enum: ["local", "google", "microsoft", "caldav_carddav"],
+    }).notNull(),
+    mirrored: boolean("mirrored").notNull().default(false),
+    isDefault: boolean("is_default").notNull().default(false),
+    googleSyncToken: text("google_sync_token"),
+    googleSyncTokenMintedAt: timestamp("google_sync_token_minted_at", { withTimezone: true }),
+    microsoftFolderId: text("microsoft_folder_id"),
+    microsoftDeltaLink: text("microsoft_delta_link"),
+    carddavCollectionUrl: text("carddav_collection_url"),
+    carddavSyncToken: text("carddav_sync_token"),
+    carddavCtag: text("carddav_ctag"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    // Exactly one Local Address Book per User (ADR-0026: "created on first
+    // use, never deletable") — the safety net `address-books/store.ts#
+    // ensureLocalAddressBook`'s `onConflictDoNothing` targets, so two
+    // concurrent first-use requests can never mint two.
+    uniqueIndex("address_books_user_local_key")
+      .on(table.userId)
+      .where(sql`${table.connectedAccountId} is null`),
+    // Google's People API only ever has the signed-in User's own one
+    // contacts collection (`connections.list`'s `resourceName` is "Required
+    // ... Only `people/me` is valid", research doc §1.1) — exactly one
+    // mirrored Address Book per Connected Account for this capability table.
+    // Scoped to `capabilityTableId = 'google'` only, so it says nothing
+    // about a future CardDAV/Graph Connected Account that may legitimately
+    // mirror several Address Books from one account.
+    uniqueIndex("address_books_connected_account_google_key")
+      .on(table.connectedAccountId)
+      .where(sql`${table.capabilityTableId} = 'google'`),
+    // Graph's own equivalent, scoped to `capabilityTableId = 'microsoft'`
+    // and keyed on `microsoftFolderId` too (#227): unlike Google, one
+    // Connected Account legitimately mirrors several contact folders, so
+    // uniqueness is per (account, folder), not per account alone —
+    // `contacts/microsoft/contacts-sync.ts#ensureMicrosoftAddressBook`'s own
+    // `onConflictDoUpdate` target.
+    uniqueIndex("address_books_connected_account_microsoft_folder_key")
+      .on(table.connectedAccountId, table.microsoftFolderId)
+      .where(
+        sql`${table.capabilityTableId} = 'microsoft' and ${table.microsoftFolderId} is not null`,
+      ),
+    // CardDAV's own equivalent (#226): unlike Google, one Connected Account
+    // legitimately mirrors several address book collections, so uniqueness
+    // is per (account, collection URL) — `contacts/carddav/contacts-sync.ts#
+    // ensureCarddavAddressBook`'s own `onConflictDoUpdate` target, the same
+    // shape `microsoftFolderId` above already takes.
+    uniqueIndex("address_books_connected_account_carddav_collection_key")
+      .on(table.connectedAccountId, table.carddavCollectionUrl)
+      .where(
+        sql`${table.capabilityTableId} = 'caldav_carddav' and ${table.carddavCollectionUrl} is not null`,
+      ),
+    index("address_books_user_id_idx").on(table.userId),
+    index("address_books_user_sync_rev_idx").on(table.userId, table.syncRev),
+    index("address_books_connected_account_id_idx").on(table.connectedAccountId),
+  ],
+);
+export type AddressBookRow = typeof addressBooks.$inferSelect;
+
+/**
+ * `Contact` (#209/#210, ADR-0023, ADR-0026): a Contact "takes the Origin of
+ * its collection and never has one of its own" (CONTEXT.md), so nothing
+ * here duplicates `addressBooks.origin`. Every field family ADR-0026
+ * describes now has its own column — #209 shipped only `id`/`addressBookId`,
+ * deliberately, leaving the rest to this ticket.
+ *
+ * The repeatable families (`emails`/`phones`/`addresses`/`websites`/
+ * `organizations`/`customFields`) are `jsonb` arrays rather than child
+ * tables — the same "small, whole-replicated collection" posture
+ * `notes.document`/`threads.participants` already take for a structure that
+ * is always read and written as one unit with its parent row, never queried
+ * into on its own. `name`/`birthday` are `jsonb` objects for the same
+ * reason, nullable only where the shape itself allows "not held"
+ * (`birthday`; `name` defaults to `{}`, ADR-0026's own "may carry only an
+ * Organization" case). `labelIds` mirrors `notes.labelIds` exactly — a
+ * Contact's Labels are User-owned, never written upstream (CONTEXT.md).
+ *
+ * `userId`/`connectedAccountId` are denormalized from the owning
+ * `addressBookId` at insert time (a Contact never moves between Address
+ * Books — Copy/Move create a new row, ADR-0026), the same reasoning
+ * `addressBooks` itself denormalizes them from `connectedAccounts` — so
+ * this collection's own scope-bucketed queries and `notify_sync_hint`'s
+ * fanout never need to join through `address_books` either.
+ *
+ * `google*` columns (#214) are Wicket's own mirror-bookkeeping for a Google
+ * Contact, held "beside" the Contact's identity rather than as one of its
+ * field families (ADR-0026: "Wicket owns the Contact's identity ... with
+ * the upstream id and concurrency token held beside it on the Sync Backend
+ * only"): `googleResourceName` is the People API's own `people/{id}` (this
+ * ticket's own upsert/tombstone key), `googleEtag` is the Person resource's
+ * whole-resource concurrency token (`updateContact`'s optimistic-concurrency
+ * precondition, research doc §1.4 — unused until #216's write-back),
+ * `googlePayload` is the raw Person resource as returned for this ticket's
+ * fixed `personFields` mask. None of Google's field families (name, emails,
+ * phones, ...) are projected into their own columns here — that shaping for
+ * display/edit is #210's/#212's own deliverable, per this table's own
+ * "deliberately minimal" doc comment above; `googlePayload` is what a later
+ * ticket projects from, so nothing synced here is lost or re-fetched to do
+ * it. All three are null for a Local Contact and for every other Origin.
+ *
+ * `microsoft*` columns (#227) are Graph's own mirror-bookkeeping, the same
+ * shape as Google's: `microsoftId` is the contact's own Graph id
+ * (`contacts/store.ts#upsertMicrosoftContact`'s own upsert/tombstone key),
+ * `microsoftChangeKey` is the resource's own weak concurrency token — the
+ * write path compares this before writing rather than relying on Graph to
+ * refuse a stale one (`If-Match` on a contact `PATCH` is undocumented,
+ * `contacts/microsoft/client.ts`'s own doc comment); a lost update is
+ * possible and is not a rollback Wicket can detect, which is exactly why
+ * Graph's own capability table (`@mail/shared#contacts.ts`) declares the
+ * fewest fields of the three. `microsoftPayload` is the raw contact
+ * resource as returned, `categories` included — a synced-down photo rides
+ * `photo` below instead (#213's own Blob Store, landed alongside this
+ * ticket: `contacts/microsoft/contacts-sync.ts` downloads Graph's binary
+ * endpoint and calls `photo-store.ts#putContactPhoto` the same way a
+ * User's own upload does, rather than stashing bytes in this jsonb column).
+ * `categories` (#227) is its own top-level column rather than folded into
+ * `microsoftPayload` because it rides the wire `Contact` itself
+ * (`@mail/shared#contactSchema`'s own doc comment: "Origin-owned, never
+ * Wicket-owned ... always empty for every Contact that isn't a Graph
+ * mirror") — every other Origin leaves it `'{}'`; CardDAV's own vCard
+ * `CATEGORIES` property (#226) populates this same column, read-only the
+ * same way Graph's own categories are.
+ *
+ * `carddav*` columns (#226) are CardDAV's own mirror-bookkeeping, the
+ * closest in shape to Google's: `carddavHref` is the vCard resource's own
+ * URL within its Address Book's collection (`contacts/carddav/store.ts#
+ * upsertCarddavContact`'s own upsert/tombstone key, resolved absolute
+ * against `addressBooks.carddavCollectionUrl`), `carddavEtag` is `DAV:getetag`,
+ * the whole-resource concurrency token `If-Match` write-back compares
+ * (mandatory per RFC 6352 §6.3.2.3, `docs/research/0009-caldav-carddav-consumption.md`
+ * §4.1). `carddavRawVcard` is the ticket's own honesty rule: **the last raw
+ * vCard as the server actually holds it**, kept verbatim rather than
+ * discarded once mapped — `contacts/carddav/vcard.ts#serializeVcard` only
+ * ever replaces the modelled property lines inside it before a `PUT`, so a
+ * `GEO`, an `X-ABLabel` or a `SOUND` this app's own capability table has no
+ * field for still round-trips through an edit unharmed. Unlike
+ * `googlePayload`/`microsoftPayload`, this is text, not `jsonb`: a vCard is
+ * already the wire format being preserved, and re-parsing it into JSON and
+ * back would be exactly the lossy round trip this column exists to avoid.
+ * All three are null for a Local Contact and for every other Origin.
+ */
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: text("id").primaryKey(),
+    addressBookId: text("address_book_id")
+      .notNull()
+      .references(() => addressBooks.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
+    name: jsonb("name").$type<ContactName>().notNull().default({}),
+    emails: jsonb("emails").$type<ContactEmail[]>().notNull().default([]),
+    phones: jsonb("phones").$type<ContactPhone[]>().notNull().default([]),
+    addresses: jsonb("addresses").$type<ContactAddress[]>().notNull().default([]),
+    websites: jsonb("websites").$type<ContactWebsite[]>().notNull().default([]),
+    organizations: jsonb("organizations").$type<ContactOrganization[]>().notNull().default([]),
+    birthday: jsonb("birthday").$type<ContactBirthday | null>(),
+    notes: text("notes").notNull().default(""),
+    /** Membership side of a Contact's Labels (#210) — `notes.labelIds`'s own shape, naming rows in this same User's one `labels` set. */
+    labelIds: text("label_ids").array().notNull().default([]),
+    customFields: jsonb("custom_fields").$type<CustomField[]>().notNull().default([]),
+    /** The Person Page's own "Change banner" (#212) — Wicket-only, never part of a capability table (`@mail/shared#contactBannerSchema`'s own doc comment), so this rides on any Contact regardless of Origin, `label_ids`' own shape. */
+    banner: jsonb("banner").$type<ContactBanner | null>(),
+    /** Graph's own Outlook Categories (#227) — Origin-owned and read-only; see this table's own doc comment. */
+    categories: text("categories").array().notNull().default([]),
+    /**
+     * A Contact's photo (#213, `@mail/shared#contactPhotoSchema`'s own doc
+     * comment) — a reference into `contact_photo_blobs` below, never the
+     * bytes themselves. Set/cleared by `routes/contact-photos.ts` writing
+     * this column directly (the same `updateContactBanner` shape) for a
+     * Local Contact's own upload, and by Graph's sync
+     * (`contacts/microsoft/contacts-sync.ts`, #227) calling the same
+     * `photo-store.ts#putContactPhoto` for a synced-down Graph photo — never
+     * through `updateContact`'s whole-replace path either way. No FK to
+     * `contact_photo_blobs`: the blob is content-addressed and may be shared
+     * by more than one Contact's `photo`, so there is no single owning row a
+     * foreign key could name — `contacts/photo-store.ts#collectOrphanedBlob`
+     * is what keeps an unreferenced blob from lingering instead.
+     */
+    photo: jsonb("photo").$type<ContactPhoto | null>(),
+    googleResourceName: text("google_resource_name"),
+    googleEtag: text("google_etag"),
+    googlePayload: jsonb("google_payload").$type<Record<string, unknown>>(),
+    microsoftId: text("microsoft_id"),
+    microsoftChangeKey: text("microsoft_change_key"),
+    microsoftPayload: jsonb("microsoft_payload").$type<Record<string, unknown>>(),
+    carddavHref: text("carddav_href"),
+    carddavEtag: text("carddav_etag"),
+    carddavRawVcard: text("carddav_raw_vcard"),
+    /**
+     * Soft delete and Recently Deleted (#224) — `notes.deletedAt`'s own
+     * shape: set by `trashContact`, cleared by its real inverse
+     * `restoreContact` (`sync/mutations.ts`, ADR-0019). Null for an ordinary
+     * Contact. The row keeps syncing as an ordinary `updated` row while this
+     * is set — never a `sync/tombstones.ts` entry until
+     * `contacts/contact-purge.ts` physically deletes it
+     * `CONTACT_TRASH_RETENTION_DAYS` after this is stamped. Unlike a Note,
+     * setting this also clears `googleResourceName`/`googleEtag`/
+     * `googlePayload`/`microsoftId`/`microsoftChangeKey`/`microsoftPayload`/
+     * `carddavHref`/`carddavEtag`/`carddavRawVcard` in the same write
+     * (ADR-0029: "removal discards the mirror ... a confirmed act") —
+     * `restoreContact` re-creates the upstream record fresh rather than
+     * reactivating the old one.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("contacts_address_book_id_idx").on(table.addressBookId),
+    index("contacts_user_id_idx").on(table.userId),
+    index("contacts_user_sync_rev_idx").on(table.userId, table.syncRev),
+    index("contacts_connected_account_id_idx").on(table.connectedAccountId),
+    // `contacts/contact-purge.ts`'s own sweep query: every row past its
+    // retention window, account-wide — `notes_deleted_at_idx`'s own partial
+    // index, same reasoning.
+    index("contacts_deleted_at_idx").on(table.deletedAt).where(sql`${table.deletedAt} is not null`),
+    // One mirrored row per upstream Person within its Address Book — the
+    // sync loop's own upsert key (`contacts/store.ts#upsertGoogleContact`).
+    // Scoped to `addressBookId` rather than `connectedAccountId`: Google
+    // only ever mirrors one Address Book per account (the unique index
+    // above), but scoping here the same way keeps this index meaningful
+    // once a multi-book Origin (CardDAV) reuses these columns.
+    uniqueIndex("contacts_address_book_google_resource_key")
+      .on(table.addressBookId, table.googleResourceName)
+      .where(sql`${table.googleResourceName} is not null`),
+    // Graph's own equivalent (#227) — `contacts/store.ts#upsertMicrosoftContact`'s own upsert/tombstone key.
+    uniqueIndex("contacts_address_book_microsoft_id_key")
+      .on(table.addressBookId, table.microsoftId)
+      .where(sql`${table.microsoftId} is not null`),
+    // CardDAV's own equivalent (#226) — `contacts/store.ts#upsertCarddavContact`'s
+    // own upsert/tombstone key, scoped to `addressBookId` the same reason
+    // `microsoftId` above is: a `carddavHref` is only unique within its own
+    // collection, never account-wide.
+    uniqueIndex("contacts_address_book_carddav_href_key")
+      .on(table.addressBookId, table.carddavHref)
+      .where(sql`${table.carddavHref} is not null`),
+  ],
+);
+export type ContactRow = typeof contacts.$inferSelect;
+
+/**
+ * Graph's own write-through outbox (#227) — `protocolWrites`'s sibling for
+ * this collection, generalized to a stateless REST write rather than a
+ * live IMAP session: `sync/mutations.ts` enqueues a row the instant a Graph
+ * Contact's local edit lands, `contacts/microsoft/contacts-sync.ts#
+ * drainMicrosoftContactWrites` applies it on the next sync tick for that
+ * Contact's own Connected Account. `upsert` re-reads the Contact's *current*
+ * fields fresh at drain time — the same "no captured value, just re-read
+ * current" shape `protocolWrites` already takes — so `contactId` is enough;
+ * `delete` has nothing left to re-read once `deleteContactRow` has run, so
+ * its own `microsoftId` (the upstream contact to remove) is captured at
+ * enqueue time instead, and `contactId` stays null. There is no explicit
+ * rollback path here either, the same as `protocolWrites`'s own doc
+ * comment: a write that never lands simply stays queued for the next drain.
+ */
+export const microsoftContactWrites = pgTable(
+  "microsoft_contact_writes",
+  {
+    id: text("id").primaryKey(),
+    addressBookId: text("address_book_id")
+      .notNull()
+      .references(() => addressBooks.id, { onDelete: "cascade" }),
+    contactId: text("contact_id").references(() => contacts.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["upsert", "delete"] }).notNull(),
+    /** `delete` only: the upstream contact id to remove, captured before the local row was deleted. Null for `upsert` (`drainMicrosoftContactWrites` reads it off the still-live Contact row instead). */
+    microsoftId: text("microsoft_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("microsoft_contact_writes_address_book_id_idx").on(table.addressBookId)],
+);
+export type MicrosoftContactWriteRow = typeof microsoftContactWrites.$inferSelect;
+
+/**
+ * `ContactLink` (#222, ADR-0026: "Linked Contacts are a User-scoped link,
+ * never a change to any record") — the whole of what linking two Contacts
+ * writes anywhere. Nothing on `contacts` above changes when a link is made
+ * or broken, which is what lets an unlink restore two cards exactly as they
+ * stood with nothing to reconstruct.
+ *
+ * `contactIds` is a **set** rather than a pair of columns
+ * (`@mail/shared#contactLinkSchema`'s own doc comment): a third record
+ * joining an already-linked person is one row gaining a member, not three
+ * pairwise rows a reader would have to take the transitive closure of. The
+ * invariant every reader relies on — a Contact appears in at most one link
+ * — is enforced by `contacts/link-store.ts#linkContacts` unioning whatever
+ * links the two sides already belong to, not by a constraint here: Postgres
+ * has no way to say "this element of an array column is unique across rows",
+ * and an exclusion constraint over `&&` would forbid the very union that
+ * *maintains* the invariant mid-transaction.
+ *
+ * A `text[]` with no foreign key, so a Contact's own row deletion cannot
+ * cascade into it — `link-store.ts#pruneContactLinkMembers` is called from
+ * every path that removes a Contact instead (the `deleteContact` intent,
+ * an unmirrored book's discard, a Google tombstone, a Contacts Facet's
+ * removal), and readers additionally tolerate a member id they don't hold
+ * (`@mail/shared#resolveLinkedContactGroups`) so a link can never render as
+ * a card that hides a Contact.
+ *
+ * `userId` only — no `connectedAccountId` column and no place in
+ * `connectedAccountCollectionRegistry`: a link spans Origins by
+ * construction, so it belongs to no Connected Account's Sync Scope, and it
+ * is never written upstream (the same posture `contacts.labelIds` has).
+ */
+export const contactLinks = pgTable(
+  "contact_links",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contactIds: text("contact_ids").array().notNull().default([]),
+    /** The User's own explicit "front this record" pick (#222); null derives it from the Default Address Book, else the most recently edited (`@mail/shared#resolveLinkedContactFront`). */
+    frontContactId: text("front_contact_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("contact_links_user_id_idx").on(table.userId),
+    index("contact_links_user_sync_rev_idx").on(table.userId, table.syncRev),
+  ],
+);
+export type ContactLinkRow = typeof contactLinks.$inferSelect;
 
 /**
  * A connection to an external mail server, owned by exactly one User
@@ -1166,6 +1603,17 @@ export const syncTombstones = pgTable(
     mailAccountId: text("mail_account_id").references(() => mailAccounts.id, {
       onDelete: "cascade",
     }),
+    /**
+     * `AddressBook`/`Contact`'s own scope column (#209) — null for a
+     * Mail-Account- or User-scoped tombstone, exactly as `mailAccountId` is
+     * null for everything that isn't Mail-Account-scoped. A User-scoped
+     * tombstone (the Local Address Book's own Contacts) has **both** columns
+     * null; `collection-registry.ts#userScopedCollection`'s own tombstone
+     * query filters on both for exactly that reason.
+     */
+    connectedAccountId: text("connected_account_id").references(() => connectedAccounts.id, {
+      onDelete: "cascade",
+    }),
     collection: text("collection").notNull(),
     entityId: text("entity_id").notNull(),
     syncRev: bigint("sync_rev", { mode: "number" }).notNull(),
@@ -1173,6 +1621,11 @@ export const syncTombstones = pgTable(
   },
   (table) => [
     index("sync_tombstones_scope_idx").on(table.mailAccountId, table.collection, table.syncRev),
+    index("sync_tombstones_connected_account_scope_idx").on(
+      table.connectedAccountId,
+      table.collection,
+      table.syncRev,
+    ),
   ],
 );
 
@@ -1559,6 +2012,179 @@ export const attachmentBlobs = pgTable(
   (table) => [index("attachment_blobs_composition_idx").on(table.compositionId)],
 );
 export type AttachmentBlobRow = typeof attachmentBlobs.$inferSelect;
+
+/**
+ * A Contact photo's own Blob Store table (#213) — `attachmentBlobs`' sibling,
+ * generalizing ADR-0012's put/get/delete-by-id seam to a second kind of
+ * blob. Content-addressed rather than server-minted: `id` is the sha256 hex
+ * digest of `bytes` (`contacts/photo-store.ts`), so uploading the same image
+ * for a second Contact reuses this row instead of duplicating it — the
+ * ticket's own "served ... by content hash" line, and what makes an
+ * unreferenced row here a real orphan (`contacts.photo->>'blobId'` naming no
+ * row) rather than a class this table's own shape rules out the way
+ * `attachmentBlobs`' `compositionId` FK does. No `contactId`/FK at all for
+ * the same reason: a blob may be named by more than one Contact's `photo`,
+ * so there is no single owning row to cascade from —
+ * `contacts/photo-store.ts#collectOrphanedBlob` deletes a row only once
+ * nothing references it any more.
+ */
+export const contactPhotoBlobs = pgTable("contact_photo_blobs", {
+  id: text("id").primaryKey(),
+  mimeType: text("mime_type").notNull(),
+  bytes: bytea("bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ContactPhotoBlobRow = typeof contactPhotoBlobs.$inferSelect;
+
+/**
+ * Write-back's own outbox (#216, spec's own §Sync): one row per Contact per
+ * kind of pending upstream write, `protocol-writes.ts#protocolWrites`'
+ * sibling for Google's People API instead of IMAP. Unlike that outbox this
+ * one never re-reads a captured value at drain time for the "fields" kind —
+ * `google/write-back-loop.ts` reads `contacts.name`/`emails`/... (the row's
+ * *current* state, whatever the User's latest edit left there) and
+ * `contacts.googleEtag`/`googlePayload` (Google's own last-confirmed truth,
+ * untouched by any optimistic local edit — `contacts/store.ts#updateContactFields`
+ * never writes either) fresh every drain, so this row carries no field
+ * snapshot of its own to go stale. `previousPhoto` is the one snapshot this
+ * table *does* need: unlike a field write, there is no "last confirmed
+ * upstream photo" column to fall back to (Google's own photo is
+ * output-only, never mirrored into `contacts.photo`), so the value from
+ * immediately before the User's edit is the only place a "photo" row's own
+ * rollback can read a prior state from — captured once, at the first still-
+ * pending edit, and never overwritten by a second edit that arrives before
+ * the first has drained (`contacts/photo-store.ts`'s own `onConflictDoNothing`
+ * against `contact_google_write_backs_contact_kind_key` below). Null and
+ * unused for a "fields" row.
+ *
+ * `connectedAccountId` is denormalized from the owning Contact at enqueue
+ * time (`contacts.connectedAccountId`'s own reasoning) so
+ * `google/write-back-loop.ts` can page one account's own queue without a
+ * join — "sequential per Connected Account" (this ticket's own acceptance
+ * line) is exactly this table's rows, drained one at a time, oldest first,
+ * never fanned out within one account's own tick.
+ */
+export const contactGoogleWriteBacks = pgTable(
+  "contact_google_write_backs",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    connectedAccountId: text("connected_account_id")
+      .notNull()
+      .references(() => connectedAccounts.id, { onDelete: "cascade" }),
+    /**
+     * `"delete"`/`"restore"` (#224) join `"fields"`/`"photo"` (#216):
+     * `trashContact` enqueues `"delete"`, `restoreContact` enqueues
+     * `"restore"` — `google/write-back-loop.ts`'s own doc comment on what
+     * each drains to.
+     */
+    kind: text("kind", { enum: ["fields", "photo", "delete", "restore"] }).notNull(),
+    previousPhoto: jsonb("previous_photo").$type<ContactPhoto | null>(),
+    /**
+     * `"delete"` only: the upstream `resourceName` to remove, captured at
+     * enqueue time — the Contact row's own `googleResourceName` is cleared
+     * in that same write (ADR-0029), the same "capture before it's gone"
+     * shape `microsoftContactWrites.microsoftId` already takes for its own
+     * `"delete"` kind. Null for every other kind.
+     */
+    googleResourceName: text("google_resource_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one pending write per Contact per kind (`contacts/write-back-outbox.ts`'s
+    // own `onConflictDoNothing`) — a second edit queued while the first is
+    // still in flight coalesces onto this same row rather than minting a
+    // second one, keeping the *original* `previousPhoto` snapshot as the
+    // rollback target for the whole still-pending streak.
+    uniqueIndex("contact_google_write_backs_contact_kind_key").on(table.contactId, table.kind),
+    index("contact_google_write_backs_account_idx").on(table.connectedAccountId, table.createdAt),
+  ],
+);
+export type ContactGoogleWriteBackRow = typeof contactGoogleWriteBacks.$inferSelect;
+
+/**
+ * CardDAV's own write-back outbox (#226) — `contactGoogleWriteBacks`'s own
+ * shape, keyed to `addressBookId` rather than `connectedAccountId`: unlike
+ * Google, one CardDAV Connected Account legitimately mirrors several
+ * address books (`addressBooks.carddavCollectionUrl`'s own doc comment), so
+ * the write-back loop drains one collection's queue at a time rather than
+ * one account's. `"delete"` captures `carddavHref` (the vCard resource to
+ * `DELETE`) the same "capture before it's gone" reason `googleResourceName`
+ * above does; `"restore"` is a fresh `PUT` with `If-None-Match: *` to a new
+ * href, never a reactivation of the old one (ADR-0029), the same as
+ * Google's own `"restore"` kind.
+ */
+export const contactCarddavWriteBacks = pgTable(
+  "contact_carddav_write_backs",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    addressBookId: text("address_book_id")
+      .notNull()
+      .references(() => addressBooks.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["fields", "photo", "delete", "restore"] }).notNull(),
+    previousPhoto: jsonb("previous_photo").$type<ContactPhoto | null>(),
+    /** `"delete"` only: the vCard href to `DELETE`, captured at enqueue time — the Contact row's own `carddavHref` is cleared in that same write (ADR-0029). Null for every other kind. */
+    carddavHref: text("carddav_href"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one pending write per Contact per kind — `contactGoogleWriteBacks`'s
+    // own coalescing, same reasoning.
+    uniqueIndex("contact_carddav_write_backs_contact_kind_key").on(table.contactId, table.kind),
+    index("contact_carddav_write_backs_address_book_idx").on(table.addressBookId, table.createdAt),
+  ],
+);
+export type ContactCarddavWriteBackRow = typeof contactCarddavWriteBacks.$inferSelect;
+
+/**
+ * Write-back's "upstream wins" narration (#216) — see
+ * `@mail/shared#contactRollbackSchema`'s own doc comment for why this rides
+ * its own collection rather than folding into the Contact delta itself.
+ * `userId` is denormalized the same way every other User-scoped row in this
+ * schema already is, `contactName` is a display-name snapshot rather than a
+ * join to `contacts` at read time (the Contact may have been edited again,
+ * or even deleted, by the time a Client actually renders the toast).
+ * Append-only: nothing here is ever updated, and delete only cascades from
+ * the Contact itself being deleted.
+ */
+export const contactRollbacks = pgTable(
+  "contact_rollbacks",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    contactName: text("contact_name").notNull(),
+    reason: text("reason", {
+      enum: [
+        "google_conflict",
+        "google_not_found",
+        "google_rejected",
+        // #226 — `contacts/carddav/write-back-loop.ts`'s own rollback,
+        // `contactRollbackReasonSchema`'s own doc comment (`@mail/shared`).
+        "carddav_conflict",
+        "carddav_not_found",
+        "carddav_rejected",
+      ],
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("contact_rollbacks_user_id_idx").on(table.userId),
+    index("contact_rollbacks_user_sync_rev_idx").on(table.userId, table.syncRev),
+  ],
+);
+export type ContactRollbackRow = typeof contactRollbacks.$inferSelect;
 
 /**
  * A Web Push subscription (#53, ADR-0015): one device's `PushSubscription`,

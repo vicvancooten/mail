@@ -6,8 +6,9 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
-import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
+import { APPS_BY_KEY } from "../apps/apps.js";
+import { ContactsRecentlyDeleted } from "../contacts/ContactsRecentlyDeleted.js";
 import { isPhoneWidth } from "../hooks/use-phone-width.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
 import { NotesRecentlyDeleted } from "../notes/NotesRecentlyDeleted.js";
@@ -20,7 +21,11 @@ import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
 import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
+import { contactExists } from "../store/contacts.js";
+import { ContactDialogRoute } from "./ContactDialogRoute.js";
+import { ContactsRoute } from "./ContactsRoute.js";
 import { MailRoute } from "./MailRoute.js";
+import { NewContactRoute } from "./NewContactRoute.js";
 import { NoteDialogRoute } from "./NoteDialogRoute.js";
 import { NotesRoute } from "./NotesRoute.js";
 import { RootLayout } from "./RootLayout.js";
@@ -245,10 +250,61 @@ export const settingsInstanceRoute = createRoute({
   component: InstancePage,
 });
 
+/**
+ * Contacts (#211, the App's real screen — no longer a `PlaceholderRoute`):
+ * `notesRoute`'s own layout-route shape, the parent renders the card
+ * directory rather than only nav chrome. `/contacts/:contactId` and
+ * `/contacts/new` are `contactsContactRoute`/`contactsNewRoute` below, not
+ * routes of their own declared inline here, so their dialogs render into
+ * `ContactsRoute`'s own `<Outlet/>` over the always-mounted grid.
+ */
 export const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
-  component: () => <PlaceholderRoute app={APPS_BY_KEY.contacts} />,
+  component: ContactsRoute,
+});
+
+/**
+ * A `:contactId` that resolves to nothing — a wrong id, or one this Client
+ * hasn't synced yet — redirects silently to `/contacts`, `notesNoteRoute`'s
+ * own fallback shape. Registered as `contactsNewRoute`'s sibling below, both
+ * children of `contactsRoute` — `/new` is checked first by the router's own
+ * static-over-dynamic precedence, so a Contact can never legitimately
+ * collide with the id `"new"`.
+ */
+export const contactsContactRoute = createRoute({
+  getParentRoute: () => contactsRoute,
+  path: "/$contactId",
+  beforeLoad: async ({ params }) => {
+    await ensureLocalCacheOpen();
+    if (!(await contactExists(params.contactId))) {
+      throw redirect({ to: "/contacts" });
+    }
+  },
+  component: ContactDialogRoute,
+});
+
+/** `/contacts/new` (#211): the grid's own "New contact" entry point — see `NewContactRoute.tsx`'s own doc comment. */
+export const contactsNewRoute = createRoute({
+  getParentRoute: () => contactsRoute,
+  path: "/new",
+  component: NewContactRoute,
+});
+
+/**
+ * Recently Deleted (#224): registered with its own full path directly off
+ * `rootRoute`, `notesRecentlyDeletedRoute`'s own precedent — a child of
+ * `contactsRoute` instead would render into its own `<Outlet/>` over the
+ * always-mounted grid the way the Person Page dialog does, which is wrong
+ * here: Recently Deleted is its own screen, not an overlay. TanStack Router
+ * still resolves this more specific static path over `contactsContactRoute`'s
+ * own dynamic `$contactId` segment, the same static-over-dynamic precedence
+ * `contactsNewRoute`'s own doc comment describes.
+ */
+export const contactsRecentlyDeletedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/contacts/recently-deleted",
+  component: ContactsRecentlyDeleted,
 });
 
 export const calendarRoute = createRoute({
@@ -343,7 +399,8 @@ export const routeTree = rootRoute.addChildren([
     settingsSecurityRoute,
     settingsInstanceRoute,
   ]),
-  contactsRoute,
+  contactsRoute.addChildren([contactsContactRoute, contactsNewRoute]),
+  contactsRecentlyDeletedRoute,
   calendarRoute,
   tasksRoute,
   notesRoute.addChildren([notesNoteRoute]),

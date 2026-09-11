@@ -1,12 +1,16 @@
 import type { ConnectedAccountFacetKind } from "@mail/shared";
 import { and, eq, gt, sql } from "drizzle-orm";
+import { listAddressBookIdsForConnectedAccount } from "../address-books/store.js";
+import { pruneContactLinkMembers } from "../contacts/link-store.js";
 import type { Db, Tx } from "../db/client.js";
 import {
+  addressBooks,
   type ConnectedAccountFacetRow,
   type ConnectedAccountRow,
   compositions,
   connectedAccountFacets,
   connectedAccounts,
+  contacts,
   mailAccounts,
   threads,
 } from "../db/schema.js";
@@ -20,11 +24,12 @@ import type { ConnectedAccountCredential } from "./credential-crypto.js";
  * same lookups — this module is where both live, the same division
  * `connected-accounts/store.ts` already draws between reads and writes.
  *
- * Only the Mail Facet has real data behind it today (`threads`, and the
- * Undo Send window on `compositions`) — Calendar and Contacts have no
- * mirror to discard yet (#198's own scope note: no Calendar or Address Book
- * row exists until those epics land), so both functions below are no-ops
- * for `kind !== "mail"` past the Facet lookup itself.
+ * The Mail Facet has real data behind it (`threads`, and the Undo Send
+ * window on `compositions`); Calendar still has no mirror to discard
+ * (#229's own epic, not landed). Contacts (#209) is the second Facet with
+ * real data: turning it off, or removing the whole account, discards that
+ * account's Address Books and Contacts — see `removeConnectedAccountFacet`'s
+ * own `kind === "contacts"` branch below for how.
  */
 
 /** One Mail Facet's synced Thread count — `0` for a Facet that was never Mail, or a Mail Facet whose Mail Account has somehow already gone. */
@@ -229,7 +234,32 @@ export async function removeConnectedAccountFacet(
       }
     }
 
+    // Contacts under this account are about to go — by the
+    // `connected_accounts` cascade below, or with their Address Books in the
+    // Contacts branch further down. Either way a `ContactLink` naming one
+    // can't cascade with them (#222, `db/schema.ts#contactLinks`), so the
+    // links drop those members first, while the ids still exist to name.
+    if (accountRemoved || params.kind === "contacts") {
+      const contactRows = await tx
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.connectedAccountId, account.id));
+      await pruneContactLinkMembers(
+        tx,
+        params.userId,
+        contactRows.map((row) => row.id),
+      );
+    }
+
     if (accountRemoved) {
+      // Address Books and Contacts under this account cascade-delete with
+      // the `connected_accounts` row itself (`db/schema.ts`'s own `ON DELETE
+      // CASCADE` chain) — no per-book tombstone needed, the same "no
+      // per-Thread tombstone" reasoning this function's own doc comment
+      // gives for Mail: the Client's `pruneOrphanedAddressBookData` sweep
+      // (`store/server-writes.ts`) wipes anything left under a
+      // `ConnectedAccount` its own tombstone (recorded right below) says is
+      // gone, on its own next sync.
       await tx.delete(connectedAccounts).where(eq(connectedAccounts.id, account.id));
       await recordTombstones(tx, {
         mailAccountId: null,
@@ -252,6 +282,25 @@ export async function removeConnectedAccountFacet(
           collection: "MailAccount",
           entityIds: [mailAccountId],
         });
+      }
+      if (params.kind === "contacts") {
+        // The account survives (another Facet keeps it alive), so — unlike
+        // the `accountRemoved` branch above — there is no `ConnectedAccount`
+        // tombstone for the Client to infer this from; the Address Book(s)
+        // need their own, real, Connected-Account-scoped tombstone (#209,
+        // ADR-0029). Contacts inside them cascade-delete with their Address
+        // Book and need none of their own, the same "the parent's tombstone
+        // is enough" shape.
+        const addressBookIds = await listAddressBookIdsForConnectedAccount(tx, account.id);
+        if (addressBookIds.length > 0) {
+          await tx.delete(addressBooks).where(eq(addressBooks.connectedAccountId, account.id));
+          await recordTombstones(tx, {
+            mailAccountId: null,
+            connectedAccountId: account.id,
+            collection: "AddressBook",
+            entityIds: addressBookIds,
+          });
+        }
       }
       // Bumps `connected_accounts.sync_rev` by hand — see this function's own doc comment.
       await tx

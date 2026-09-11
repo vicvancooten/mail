@@ -1,3 +1,4 @@
+import { normalizeCorrespondentAddress } from "@mail/shared";
 import { and, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, labels } from "../db/schema.js";
@@ -47,6 +48,13 @@ export interface SearchFilters {
   text: string;
   from?: string;
   to?: string;
+  /**
+   * The Person Page's own Mail history filter (#217, `@mail/shared`'s own
+   * doc comment on this field) — OR'd across every address here and across
+   * From/To/Cc, matched on the normalised address only, never a display
+   * name.
+   */
+  participants?: string[];
   hasAttachment?: boolean;
   folder?: string;
   label?: string;
@@ -145,10 +153,13 @@ export async function runSearch(db: Db, filters: SearchFilters): Promise<SearchQ
     ? filters.mailAccountIds.filter((id) => cursorWindows[id] !== null)
     : filters.mailAccountIds;
 
-  // `from:`/`to:`/`has:attachment` need columns `message_search` doesn't
-  // carry — joined in only when actually asked for, so the common
-  // free-text-only query keeps the exact shape `bench:shapes` measures.
-  const needsMessageJoin = Boolean(filters.from || filters.to || filters.hasAttachment);
+  // `from:`/`to:`/`has:attachment`/`participants` need columns
+  // `message_search` doesn't carry — joined in only when actually asked
+  // for, so the common free-text-only query keeps the exact shape
+  // `bench:shapes` measures.
+  const needsMessageJoin = Boolean(
+    filters.from || filters.to || filters.hasAttachment || filters.participants?.length,
+  );
   // Resolved ahead of the per-account loop: one User-scoped lookup, and a
   // `label:` naming no Label of theirs short-circuits the whole page.
   const labelIdFilter = filters.label
@@ -354,6 +365,28 @@ function buildSharedConditions(filters: SearchFilters): SQL[] {
     `);
   }
   if (filters.hasAttachment) conditions.push(sql`fm.has_attachments = true`);
+  if (filters.participants && filters.participants.length > 0) {
+    // Exact match on the normalised address, never `ilike`'s substring —
+    // this filter is driven off a Contact's own curated address list, not
+    // free-typed text, so a needle like "an@example.com" should never also
+    // pull in "ryan@example.com" the way `from:`/`to:` deliberately do.
+    const needles = filters.participants.map((address) => normalizeCorrespondentAddress(address));
+    // No manual parens around `${needles}` — Drizzle's array interpolation
+    // already supplies its own (`$1, $2, ...`); wrapping it again turns a
+    // multi-element list into a row constructor (`in ((a, b, c))`, a single
+    // composite value Postgres can't compare `text` against), a mistake
+    // `resolveFolderIds`'s own `in (${folderIds})` gets away with only
+    // because every array it's ever fed there so far has length 1.
+    conditions.push(sql`
+      (
+        lower(fm.from_address) in ${needles}
+        or exists (
+          select 1 from jsonb_array_elements(fm.to_addresses || fm.cc_addresses) e
+          where lower(e->>'address') in ${needles}
+        )
+      )
+    `);
+  }
   return conditions;
 }
 

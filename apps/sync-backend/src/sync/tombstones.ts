@@ -22,9 +22,15 @@ import { syncTombstones } from "../db/schema.js";
  */
 export async function recordTombstones(
   db: Db | Tx,
-  params: { mailAccountId: string | null; collection: string; entityIds: string[] },
+  params: {
+    mailAccountId: string | null;
+    /** A Connected-Account-scoped tombstone's own scope column (#209) — omitted (defaults to `null`) by every Mail-Account- and User-scoped caller. */
+    connectedAccountId?: string | null;
+    collection: string;
+    entityIds: string[];
+  },
 ): Promise<void> {
-  const { mailAccountId, collection, entityIds } = params;
+  const { mailAccountId, connectedAccountId = null, collection, entityIds } = params;
   if (entityIds.length === 0) return;
 
   const revs = await nextSyncRevs(db, entityIds.length);
@@ -32,6 +38,7 @@ export async function recordTombstones(
     entityIds.map((entityId, index) => ({
       id: randomUUID(),
       mailAccountId,
+      connectedAccountId,
       collection,
       entityId,
       // `nextSyncRevs` returns exactly `entityIds.length` values in order.

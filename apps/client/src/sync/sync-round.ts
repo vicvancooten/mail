@@ -20,14 +20,20 @@ import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-
 import { listQueuedNoteSaves, resolveNoteSaveOutcomes, toWireNoteSave } from "../store/notes.js";
 import {
   getSyncToken,
+  listCachedConnectedAccountIds,
   listCachedMailAccountIds,
+  pruneOrphanedAddressBookData,
   pruneOrphanedMailAccountData,
 } from "../store/server-writes.js";
 import {
   listQueuedUserMutations,
   resolveUserMutationOutcomes,
 } from "../store/user-mutation-queue.js";
-import { MAIL_ACCOUNT_COLLECTIONS, USER_COLLECTIONS } from "./collection-registry.js";
+import {
+  CONNECTED_ACCOUNT_COLLECTIONS,
+  MAIL_ACCOUNT_COLLECTIONS,
+  USER_COLLECTIONS,
+} from "./collection-registry.js";
 import { type PostSync, postSync } from "./sync-api.js";
 
 /**
@@ -89,6 +95,7 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       includeMutations: pages === 0,
     });
     const askedAbout = new Set(Object.keys(request.mailAccounts ?? {}));
+    const askedAboutConnectedAccounts = new Set(Object.keys(request.connectedAccounts ?? {}));
     const response = await post(request);
     pages += 1;
     if (response.user.unreadInboxCount !== undefined) {
@@ -126,14 +133,39 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       }
     }
 
-    // A first-ever boot learns its Mail Accounts from the round it is in the
-    // middle of. Going again immediately is what makes the Threads of a
-    // freshly added account arrive on the cold-boot sync rather than 30s later.
+    // `AddressBook`/`Contact` (#209) — the same per-scope dispatch as the
+    // Mail Account loop above, applied to a Connected Account's own slot
+    // instead.
+    for (const [connectedAccountId, collections] of Object.entries(response.connectedAccounts)) {
+      for (const collection of CONNECTED_ACCOUNT_COLLECTIONS) {
+        const delta = collections[collection.wireKey];
+        if (!delta) continue;
+        changed = true;
+        hasMore ||= delta.hasMore;
+        await collection.apply(connectedAccountId, delta, {
+          replace: startsReplay(
+            replaysStarted,
+            collection.tokenKey(connectedAccountId),
+            delta.reset,
+          ),
+        });
+      }
+    }
+
+    // A first-ever boot learns its Mail Accounts (and, since #209, Connected
+    // Accounts) from the round it is in the middle of. Going again
+    // immediately is what makes the Threads of a freshly added Mail Account,
+    // or the Address Books of a freshly added Connected Account, arrive on
+    // the cold-boot sync rather than 30s later.
     const discovered = (await listCachedMailAccountIds()).some((id) => !askedAbout.has(id));
-    if (!hasMore && !discovered) break;
+    const discoveredConnectedAccount = (await listCachedConnectedAccountIds()).some(
+      (id) => !askedAboutConnectedAccounts.has(id),
+    );
+    if (!hasMore && !discovered && !discoveredConnectedAccount) break;
   }
 
   await pruneOrphanedMailAccountData();
+  await pruneOrphanedAddressBookData();
   // "Set by the leader tab on every delta" (ADR-0015) — this is the leader
   // tab's own writer (the service worker's push handler is the other one,
   // `sw.ts`); both call the same idempotent `setBadgeCount` with a
@@ -240,6 +272,7 @@ function startsReplay(started: Set<string>, key: string, reset: true | undefined
 }
 
 type MailAccountRequestEntry = NonNullable<SyncRequest["mailAccounts"]>[string];
+type ConnectedAccountRequestEntry = NonNullable<SyncRequest["connectedAccounts"]>[string];
 
 interface BuildSyncRequestOptions {
   /** Whether to ask for `Thread`/`MailAccount` deltas at all. */
@@ -281,6 +314,22 @@ async function buildSyncRequest({
     }
   }
 
+  // `AddressBook`/`Contact` (#209) — no mutations/composeSaves to gather
+  // yet (no upstream adapter writes back, #214+), so this is just token
+  // dispatch, the same shape the Mail Account loop above has minus its
+  // queues.
+  const connectedAccountIds = await listCachedConnectedAccountIds();
+  const connectedAccounts: NonNullable<SyncRequest["connectedAccounts"]> = {};
+  if (includeCollections) {
+    for (const connectedAccountId of connectedAccountIds) {
+      const entry: ConnectedAccountRequestEntry = {};
+      for (const collection of CONNECTED_ACCOUNT_COLLECTIONS) {
+        entry[collection.wireKey] = await getSyncToken(collection.tokenKey(connectedAccountId));
+      }
+      connectedAccounts[connectedAccountId] = entry;
+    }
+  }
+
   const user: NonNullable<SyncRequest["user"]> = {};
   if (includeCollections) {
     for (const collection of USER_COLLECTIONS) {
@@ -297,6 +346,7 @@ async function buildSyncRequest({
   return {
     ...(Object.keys(user).length > 0 ? { user } : {}),
     mailAccounts,
+    ...(Object.keys(connectedAccounts).length > 0 ? { connectedAccounts } : {}),
   };
 }
 

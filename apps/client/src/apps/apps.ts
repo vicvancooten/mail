@@ -46,7 +46,7 @@ export const APPS: readonly AppDef[] = [
     path: "/contacts",
     name: "Contacts",
     description: "Everyone you've written to, gathered in one address book.",
-    available: false,
+    available: true,
     observesAccountScope: true,
   },
   {

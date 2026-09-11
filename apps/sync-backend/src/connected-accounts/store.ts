@@ -450,3 +450,53 @@ export async function reactivateConnectedAccountFacet(
       ),
     );
 }
+
+/**
+ * One row of `listActiveConnectedAccountsWithFacet` below — just enough for
+ * a mirror sync loop to mint an access token and know whose Address Book
+ * it's syncing. `davUsername`/`davHomeSetUrl` are CalDAV/CardDAV's own
+ * discovery output (#203) — null for every other Provider, the same
+ * `connectedAccounts`/`connectedAccountFacets` doc comments' own posture —
+ * `contacts/carddav/poll-loop.ts` is this row's first reader of either.
+ */
+export interface ConnectedAccountWithActiveFacet {
+  connectedAccountId: string;
+  userId: string;
+  credential: ConnectedAccountCredential;
+  davUsername: string | null;
+  davHomeSetUrl: string | null;
+}
+
+/**
+ * Every Connected Account of one Provider with an `active` Facet of one kind
+ * — the cross-account iteration a mirror sync loop needs (#214's Contacts
+ * loop is the first caller) and that no existing helper here provides:
+ * `listConnectedAccountFacets`/`getConnectedAccountFacet` above are both
+ * scoped to one already-known account. Mirrors `mail-accounts/store.ts#
+ * listActiveOAuthMailAccounts`'s own join shape, generalized off `kind:
+ * "mail"` to any Facet kind.
+ */
+export function listActiveConnectedAccountsWithFacet(
+  db: Db,
+  provider: ConnectedAccountRow["provider"],
+  kind: ConnectedAccountFacetRow["kind"],
+): Promise<ConnectedAccountWithActiveFacet[]> {
+  return db
+    .select({
+      connectedAccountId: connectedAccounts.id,
+      userId: connectedAccounts.userId,
+      credential: connectedAccounts.credential,
+      davUsername: connectedAccounts.davUsername,
+      davHomeSetUrl: connectedAccountFacets.davHomeSetUrl,
+    })
+    .from(connectedAccounts)
+    .innerJoin(
+      connectedAccountFacets,
+      and(
+        eq(connectedAccountFacets.connectedAccountId, connectedAccounts.id),
+        eq(connectedAccountFacets.kind, kind),
+        eq(connectedAccountFacets.status, "active"),
+      ),
+    )
+    .where(and(eq(connectedAccounts.provider, provider), eq(connectedAccounts.status, "active")));
+}

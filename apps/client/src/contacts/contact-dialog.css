@@ -1,0 +1,370 @@
+/*
+ * `ContactDialog`'s own chrome (#210, widened by the Person Page's hero,
+ * Details view and Edit mode toggle, #212) — the card directory's own
+ * styling is #211's (`contacts.css`).
+ */
+
+.contact-dialog {
+  max-width: min(560px, calc(100% - 2rem));
+  max-height: calc(100% - 4rem);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding-top: 0;
+}
+
+/* ---------- the hero (#212, `ContactCard.tsx`'s own treatment at Person Page scale) ---------- */
+
+.contact-hero {
+  position: relative;
+  margin: 0 -1rem;
+}
+
+.contact-hero-banner {
+  position: relative;
+  height: 96px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px;
+}
+
+.contact-hero-banner-button {
+  align-self: flex-start;
+}
+
+.contact-hero-avatar {
+  position: absolute;
+  top: 64px;
+  left: 20px;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 4px solid var(--color-surface);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+/* A real uploaded photo (#213) replaces the initials tile above it — `contact-card-avatar-image`'s own shape, at hero scale. */
+.contact-hero-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.contact-hero-photo-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 20px 0 104px; /* clears the avatar tile sitting to its left */
+}
+
+.contact-hero-photo-input {
+  /* Triggered only via the "Change photo" button's own click — visually
+     hidden rather than `display: none`, so it stays in the tab order and a
+     screen reader still announces it as a real file input. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.contact-hero-photo-error {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.contact-hero-body {
+  padding: 40px 20px 4px;
+}
+
+.contact-hero-name {
+  margin: 0;
+}
+
+.contact-hero-organization {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--color-ink-faint);
+}
+
+/* ---------- the banner picker (spec's own §Banner) ---------- */
+
+.contact-banner-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contact-banner-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.contact-banner-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: var(--hairline) solid var(--color-border);
+  cursor: pointer;
+  padding: 0;
+}
+
+.contact-banner-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.contact-banner-url-row {
+  display: flex;
+  gap: 6px;
+}
+
+.contact-banner-url-row > input {
+  flex: 1;
+}
+
+/* ---------- the promotion dialog's one-time Address Book override (#218) ---------- */
+
+.contact-dialog-address-book-override {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+}
+
+.contact-dialog-address-book-override select {
+  border: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  padding: 4px 10px;
+}
+
+/* ---------- Save's "Approve as well" checkbox, only present opened from mail (#219) ---------- */
+
+.contact-dialog-approve-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+  margin-right: auto;
+}
+
+/* ---------- the Details/Mail history tabs (Mail history is a later slice, #212's own acceptance line) ---------- */
+
+.contact-dialog-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: var(--hairline) solid var(--color-border);
+}
+
+.contact-dialog-tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+}
+
+.contact-dialog-tab.active {
+  color: var(--color-ink);
+  border-bottom-color: var(--color-accent);
+}
+
+.contact-dialog-tab.disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ---------- Mail history tab (#217) ---------- */
+
+/* `mail.css`'s own `.thread-list { height: 100%; overflow-y: auto; }`
+   (`VirtualizedThreadList.tsx`'s scroll container) needs a bounded ancestor
+   to measure against — `.contact-dialog` itself scrolls the whole dialog
+   instead, so this is the one place in the dialog that carries an explicit
+   height, letting the list scroll internally rather than growing the
+   dialog to fit however many results paged in. */
+.contact-dialog-mail-history {
+  height: min(420px, 60vh);
+}
+
+/* ---------- Details view ---------- */
+
+.contact-dialog-detail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.contact-dialog-detail-label {
+  flex: none;
+  min-width: 72px;
+  color: var(--color-ink-faint);
+  text-transform: capitalize;
+}
+
+.contact-dialog-notes {
+  margin: 0;
+  font-size: 13.5px;
+  white-space: pre-wrap;
+}
+
+/* Graph's own Outlook Categories (#227) — read-only chips, never an editable row: there is no matching section in `ContactEditForm`. */
+.contact-dialog-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.contact-dialog-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-strong);
+  color: var(--color-ink-faint);
+  font-size: 12px;
+}
+
+.contact-dialog-empty {
+  margin: 0;
+  padding: 16px 0;
+  color: var(--color-ink-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.contact-dialog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contact-dialog-legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.contact-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contact-dialog-row > * {
+  flex: 1;
+}
+
+.contact-dialog-row select {
+  flex: none;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: inherit;
+}
+
+/* Phone (this ticket's own acceptance line: "full-screen on phone") —
+   `contacts.css`'s own 700px convention: the dialog fills the viewport
+   rather than floating as a card, the same posture a phone-sized screen
+   asks any editing surface to take. */
+@media (max-width: 700px) {
+  .contact-dialog {
+    max-width: 100%;
+    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    translate: 0 0;
+    border-radius: 0;
+  }
+}
+
+/* Which record a union row came from (#222) — a quiet trailing note, never
+   a second column: the field itself is what the User came to read. */
+.contact-dialog-detail-source {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+}
+
+.contact-dialog-note-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Linked records (#222): one row per record, its own per-record actions
+   beside it — a linked card has no single record a footer button could
+   mean. */
+.contact-dialog-linked-row,
+.contact-dialog-duplicate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.contact-dialog-linked-book,
+.contact-dialog-duplicate-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-ink);
+}
+
+.contact-dialog-linked-origin {
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  background: var(--color-hover);
+  color: var(--color-ink-muted);
+}
+
+.contact-dialog-linked-front {
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.contact-dialog-linked-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
