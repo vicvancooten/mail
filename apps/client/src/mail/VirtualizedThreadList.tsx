@@ -442,6 +442,21 @@ export function VirtualizedThreadList({
       ? selectedThreadId
       : (threadIds[0] ?? null);
 
+  // The `threads.length === 0` branch below renders its own listbox wrapper
+  // — a *plain* ref, deliberately never `setParentRef`: that one also feeds
+  // `scrollContainer` state, which the scroll-restore effects above treat as
+  // "a real mount to restore into" (`restoredRef`'s own once-only guard).
+  // Threads reads `[]` for a beat on every remount, before the Local Cache's
+  // reactive read resolves — routing that transient div through
+  // `setParentRef` fed the restore effect a container with nothing in it
+  // (`virtualizer.getTotalSize()` reads `0`), which found no saved offset
+  // small enough to fit, consumed the guard anyway, and then never got to
+  // run again once the real list actually mounted a beat later. This ref
+  // exists purely so Auto-advance's own "the listbox holds focus once the
+  // list is *genuinely* empty" (#275) still has a node to focus, without
+  // that transient render ever touching scroll-restore's own state.
+  const emptyContainerRef = useRef<HTMLDivElement | null>(null);
+
   // Moves real DOM focus onto `threadId`'s row — or the listbox container
   // itself, `null`/not-yet-rendered's fallback (#275's "when the list
   // becomes empty [focus lands on] the listbox"). Queried by
@@ -454,7 +469,9 @@ export function VirtualizedThreadList({
   const pendingFocusRef = useRef<string | null | undefined>(undefined);
   const attemptPendingFocus = useCallback(() => {
     if (pendingFocusRef.current === undefined) return;
-    const container = parentRef.current;
+    // Exactly one of these is ever mounted at a time (the two return
+    // branches below), so exactly one is non-null for the current render.
+    const container = parentRef.current ?? emptyContainerRef.current;
     if (!container) return;
     const id = pendingFocusRef.current;
     if (id) {
@@ -566,11 +583,16 @@ export function VirtualizedThreadList({
   // there's no row to hold that one roving stop itself (`threadIds.length
   // === 0` below covers both "nothing cached at all" and "every group is
   // collapsed").
+  // The listbox stays the fallback focus target even with nothing in it
+  // (#275: "when the list becomes empty [focus lands on] the listbox") —
+  // Triage emptying the last Thread must not leave `document.activeElement`
+  // stranded on a node this render just unmounted. `ref={emptyContainerRef}`
+  // here, never `setParentRef` — see that ref's own doc comment above.
   if (threads.length === 0) {
     return (
       <div
         className={`thread-list${density === "compact" ? " thread-list--compact" : ""}`}
-        ref={setParentRef}
+        ref={emptyContainerRef}
         role="listbox"
         aria-label="Threads"
         tabIndex={0}
