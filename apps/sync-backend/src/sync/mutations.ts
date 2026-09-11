@@ -96,7 +96,7 @@ import {
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
-import { selectInboxResidentMessageIds } from "./inbox.js";
+import { GMAIL_INBOX_LABEL, selectInboxResidentMessageIds } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { restoreThreadsToInbox } from "./restore-to-inbox.js";
 import { INITIAL_TASK_DOCUMENT } from "./task-store.js";
@@ -309,6 +309,24 @@ async function applyIntent(
         // or trashed — "un-triaging" it out from under them.
         .set({ inInbox: false, folderRole: intent.type, snoozeUntil: null })
         .where(eq(threads.id, intent.threadId));
+      // ADR-0010's 2026-09-11 amendment: on Gmail, `refreshThreadRollups`
+      // derives `inInbox` from `messages.gmailLabels`, not from the row just
+      // written above — and the real `\Inbox` label removal is still sitting
+      // in the outbox `enqueueProtocolWrites` queues below, seconds or
+      // minutes from draining. Any rollup recompute in between (an unrelated
+      // message landing in this Thread, a flag delta on another Message in
+      // it) would otherwise reread the still-stale label, decide the Thread
+      // is still in the Inbox, and publish that as a fresh delta — the
+      // Thread's own pending row already gone, nothing left to hide it with.
+      // Stripping the label here, synchronously, predicts exactly what that
+      // drain will confirm — `protocol-writes.ts#labelBatch` does the same
+      // removal on success and simply finds it already done.
+      if (isGmailAccount(serverKind) && inboxMessageIds.length > 0) {
+        await db
+          .update(messages)
+          .set({ gmailLabels: sql`array_remove(${messages.gmailLabels}, ${GMAIL_INBOX_LABEL})` })
+          .where(inArray(messages.id, inboxMessageIds));
+      }
       await enqueueProtocolWrites(db, mailAccountId, inboxMessageIds, intent.type);
       return { ok: true };
     }
