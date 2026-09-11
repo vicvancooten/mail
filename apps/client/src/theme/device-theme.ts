@@ -19,7 +19,8 @@ import { useCallback, useSyncExternalStore } from "react";
 export type Theme = "system" | "light" | "dark";
 export const DEFAULT_THEME: Theme = "system";
 
-const THEME_KEY = "device.theme";
+/** Exported so `pre-paint.ts` can build the inline script's literal source from the same constant rather than a second copy of the string. */
+export const THEME_KEY = "device.theme";
 
 function readStorage(): string | null {
   try {
@@ -49,23 +50,28 @@ export const HUB_COLOR: Record<"light" | "dark", string> = {
 /**
  * The browser's own chrome continues the Hub (CONTEXT.md's Hub entry: "the
  * browser's own chrome takes the Hub's colour, so the frame reads as one
- * continuous piece"). `index.html` states that as two `prefers-color-scheme`
- * -scoped `<meta name="theme-color">` tags, which is right for `system` and
- * wrong for everything else: Appearance is a Device Preference, so a User on
- * a dark OS who picks `light` in the Hub got a near-black browser chrome
- * above a light app — the reported "theme colour is black rather than the
- * Hub's". A media query cannot see that choice, so this rewrites both tags'
- * `content` instead of adding a third: whichever one the browser matches
- * then carries the appearance actually on screen, and `system` puts the
- * per-scheme pair back.
+ * continuous piece") — a single `<meta name="theme-color">`, carrying
+ * whichever ground the appearance actually on screen resolves to (#287).
+ * Earlier this was a `prefers-color-scheme`-scoped *pair*, one tag per OS
+ * scheme, relying on the browser to pick the right one — wrong for anything
+ * but `system`, since a media query cannot see a Device Preference sitting
+ * in `localStorage`: a User on a dark OS who picked `light` in the Hub got
+ * the dark tag's near-black browser chrome above a light app. Finds the
+ * single tag `index.html`'s pre-paint script already created (or creates
+ * one, for a test/environment that skips that script) rather than assuming
+ * it exists.
  */
 function applyThemeColor(theme: Theme): void {
-  const metas = globalThis.document?.querySelectorAll?.('meta[name="theme-color"]');
-  if (!metas) return;
-  for (const meta of metas) {
-    const scheme = (meta.getAttribute("media") ?? "").includes("dark") ? "dark" : "light";
-    meta.setAttribute("content", HUB_COLOR[theme === "system" ? scheme : theme]);
+  const doc = globalThis.document;
+  if (!doc) return;
+  let meta = doc.querySelector('meta[name="theme-color"]');
+  if (!meta) {
+    meta = doc.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    doc.head.appendChild(meta);
   }
+  const dark = theme === "dark" || (theme === "system" && readSystemDark());
+  meta.setAttribute("content", HUB_COLOR[dark ? "dark" : "light"]);
 }
 
 /**
@@ -143,4 +149,30 @@ function subscribeSystemDark(listener: () => void): () => void {
   const query = systemDarkQuery();
   query?.addEventListener("change", listener);
   return () => query?.removeEventListener("change", listener);
+}
+
+let unsubscribeSystemSync: (() => void) | null = null;
+
+/**
+ * The one place the app wires OS scheme changes to the meta/document
+ * classes themselves (#287), as opposed to `useResolvedAppearance`'s own
+ * `matchMedia` subscription, which only tells an already-mounted component
+ * what to render — nothing previously told `applyThemeColor` to run again
+ * when the OS flips scheme mid-session, so a User in `system` mode watching
+ * the OS switch kept the old browser chrome colour until an explicit
+ * appearance change or a reload. `main.tsx` calls this once at startup,
+ * next to `applyTheme(readTheme())`; re-applies only while the stored
+ * preference is still `system` at the moment the OS actually changes, so an
+ * explicit `light`/`dark` choice is never overridden.
+ *
+ * Idempotent by replacing rather than stacking the subscription, so a test
+ * can call it again after re-stubbing `matchMedia`.
+ */
+export function syncThemeWithSystem(): () => void {
+  unsubscribeSystemSync?.();
+  const unsubscribe = subscribeSystemDark(() => {
+    if (readTheme() === "system") applyTheme("system");
+  });
+  unsubscribeSystemSync = unsubscribe;
+  return unsubscribe;
 }
