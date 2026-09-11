@@ -256,6 +256,15 @@ export function MailSection({
   // previous value in a ref" pattern React's own docs describe.
   const lastSelectedThreadIdRef = useRef<string | null>(initialThreadId);
   if (selectedThreadId) lastSelectedThreadIdRef.current = selectedThreadId;
+  // #275: a plain mirror of `selectedThreadId`, read by the `initialThreadId`
+  // reconciliation effect below — that effect's own deps array can only ever
+  // be `[initialThreadId]` (a re-run on every unrelated `selectedThreadId`
+  // change would defeat the Back/Forward-only reasoning its doc comment
+  // gives), so it needs a ref rather than the state value itself to see the
+  // *current* selection instead of whichever one was live when the effect
+  // last re-subscribed.
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  selectedThreadIdRef.current = selectedThreadId;
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`): the
   // Screener is one of these entries too, so `screenerOpen` below is derived
@@ -359,6 +368,19 @@ export function MailSection({
   // duplicate history entry (#140).
   useEffect(() => {
     if (initialThreadId === reportedThreadIdRef.current) return;
+    // #275: a late URL echo — the router re-delivering a search-param
+    // snapshot that predates a selection Auto-advance already moved forward
+    // locally — must not undo that move just because it happens to land
+    // after it. Genuine Back/Forward always moves to a Thread whose position
+    // isn't *behind* (older than, a higher index in the newest-first list)
+    // the one already selected wins; a Thread this list hasn't loaded yet
+    // (`indexOf` misses, `-1`) is never treated as "behind" either — there's
+    // no ordering to compare it against.
+    const currentIndex = selectedThreadIdRef.current
+      ? idsRef.current.indexOf(selectedThreadIdRef.current)
+      : -1;
+    const incomingIndex = initialThreadId ? idsRef.current.indexOf(initialThreadId) : -1;
+    if (currentIndex !== -1 && incomingIndex > currentIndex) return;
     reportedThreadIdRef.current = initialThreadId;
     urlDrivenRef.current = true;
     setSelectedThreadId(initialThreadId);
@@ -684,6 +706,12 @@ export function MailSection({
 
   const threads = page?.threads ?? [];
   const ids = useMemo(() => threads.map((thread) => thread.id), [threads]);
+  // #275: read by the `initialThreadId` reconciliation effect above (a plain
+  // ref, same reasoning as `selectedThreadIdRef` — that effect can only ever
+  // depend on `[initialThreadId]`) to tell a genuine Back/Forward move from a
+  // late URL echo naming a Thread older than the one already selected.
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
 
   // The filter-by-label picker's data source (#43): the synced `Label`
   // collection, plus any id the currently loaded page's Threads carry that
