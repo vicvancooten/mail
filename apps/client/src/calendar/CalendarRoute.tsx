@@ -1,6 +1,7 @@
 import { Outlet } from "@tanstack/react-router";
 import { PanelLeft } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useHiddenCalendarIds, useShowTasksOnGrid } from "../mail/device-preferences.js";
 import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
@@ -20,7 +21,6 @@ import {
 } from "./calendar-dates.js";
 import { bucketEventsByDay } from "./calendar-occurrences.js";
 import { bucketTasksByDay } from "./calendar-task-occurrences.js";
-import { useShowTasksOnGrid } from "./calendar-task-visibility.js";
 import {
   type CalendarView,
   calendarSearchFor,
@@ -29,7 +29,6 @@ import {
   resolveCalendarView,
   stepDate,
 } from "./calendar-url.js";
-import { useHiddenCalendarIds } from "./calendar-visibility.js";
 import { DayTimeGrid } from "./DayTimeGrid.js";
 import { EventEditorPopover } from "./EventEditorPopover.js";
 import { MonthGrid } from "./MonthGrid.js";
@@ -79,8 +78,9 @@ function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDat
  * Cache query with no request of its own (`store/tasks.ts#useAllTasks`),
  * bucketed by due day (`calendar-task-occurrences.ts`) the same shape
  * `bucketEventsByDay` already gives Events, gated on the slide-over's
- * "Tasks" row (`calendar-task-visibility.ts`) and never handed to `YearGrid`
- * at all — Year shows no Tasks (this ticket's own acceptance line).
+ * "Tasks" row (`mail/device-preferences.ts#useShowTasksOnGrid`) and never
+ * handed to `YearGrid` at all — Year shows no Tasks (this ticket's own
+ * acceptance line).
  */
 export function CalendarRoute() {
   useLocalCacheSync();
