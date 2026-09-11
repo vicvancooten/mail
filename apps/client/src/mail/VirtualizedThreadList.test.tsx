@@ -272,6 +272,45 @@ describe("VirtualizedThreadList — the taper (#75)", () => {
     expect(mounted).toBeGreaterThan(0);
     expect(mounted).toBeLessThan(150);
   });
+
+  it("keeps a Time Group header's own DOM node mounted when a row above it goes away (#279)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const threads = [
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"), // Today
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"), // Today
+      makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"), // Yesterday
+    ];
+    const findYesterdayHeader = () =>
+      Array.from(document.querySelectorAll(".group-header")).find((header) =>
+        header.textContent?.includes("Yesterday"),
+      );
+
+    const { rerender } = render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    const before = findYesterdayHeader();
+    expect(before).toBeDefined();
+
+    // A Group Done on "Today" removes both rows above "Yesterday" — the
+    // running row index every row below used to carry as part of the
+    // header's key shifts, and the old `header:${label}:${index}` key
+    // remounted the header, losing its hover/focus/collapse state (#279).
+    rerender(
+      <VirtualizedThreadList
+        threads={[threads[2] as CachedThread]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    expect(findYesterdayHeader()).toBe(before);
+  });
 });
 
 describe("VirtualizedThreadList — the group header cluster (#66, #77)", () => {
