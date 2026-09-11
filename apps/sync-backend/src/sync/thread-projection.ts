@@ -1,10 +1,21 @@
-import type { Composition, Correspondent, GmailLabel, Label, Note, Thread } from "@mail/shared";
+import type {
+  Composition,
+  Correspondent,
+  GmailLabel,
+  Label,
+  Note,
+  Task,
+  TaskList,
+  Thread,
+} from "@mail/shared";
 import type {
   CompositionRow,
   CorrespondentRow,
   GmailLabelRow,
   LabelRow,
   NoteRow,
+  TaskListRow,
+  TaskRow,
 } from "../db/schema.js";
 import type { ThreadRow } from "./threading.js";
 
@@ -54,6 +65,43 @@ export function toWireNote(row: NoteRow): Note {
     document: row.document,
     labelIds: row.labelIds,
     pinned: row.pinned,
+    deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Maps a stored Task List row (#251, ADR-0030) to ADR-0011's wire projection — User-scoped, `toWireNote`'s own shape. */
+export function toWireTaskList(row: TaskListRow): TaskList {
+  return {
+    id: row.id,
+    userId: row.userId,
+    name: row.name,
+    sections: row.sections,
+    isDefault: row.isDefault,
+    order: row.order,
+    deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Maps a stored Task row (#251, ADR-0030) to ADR-0011's wire projection — User-scoped, completed Tasks included (`toWireNote`'s own shape). */
+export function toWireTask(row: TaskRow): Task {
+  return {
+    id: row.id,
+    userId: row.userId,
+    taskListId: row.taskListId,
+    sectionId: row.sectionId,
+    title: row.title,
+    document: row.document,
+    completed: row.completed,
+    completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+    dueDate: row.dueDate ? row.dueDate.toISOString() : null,
+    dueTime: row.dueTime,
+    labelIds: row.labelIds,
+    threadLink: row.threadLink,
+    order: row.order,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

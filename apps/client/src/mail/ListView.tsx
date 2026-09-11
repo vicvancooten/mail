@@ -24,6 +24,7 @@ export function ListView({
   triage,
   onReply,
   onMailtoLink,
+  onOpenTask,
   initialScrollThreadId,
   scrollRestoreKey,
   density,
@@ -39,6 +40,7 @@ export function ListView({
   triage: Triage;
   onReply: OnReply;
   onMailtoLink: (link: MailtoLink) => void;
+  onOpenTask: (taskId: string) => void;
   /** Passed straight through to `VirtualizedThreadList` — see its own doc comment (#51). */
   initialScrollThreadId?: string | null;
   /** Passed straight through to `VirtualizedThreadList` (#142) — the list unmounts here the moment a Thread opens, which is exactly the case its own doc comment calls out. */
@@ -63,6 +65,7 @@ export function ListView({
         triage={triage}
         onReply={onReply}
         onMailtoLink={onMailtoLink}
+        onOpenTask={onOpenTask}
       />
     );
   }

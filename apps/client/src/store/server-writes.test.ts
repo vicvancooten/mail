@@ -13,6 +13,8 @@ import {
   makeMailAccount,
   makeNote,
   makeRollback,
+  makeTask,
+  makeTaskList,
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
@@ -32,6 +34,8 @@ import {
   applyMailAccountDelta,
   applyNoteDelta,
   applyRollbackDelta,
+  applyTaskDelta,
+  applyTaskListDelta,
   applyThreadDelta,
   CALENDAR_TOKEN_KEY,
   compositionTokenKey,
@@ -46,11 +50,14 @@ import {
   NOTE_TOKEN_KEY,
   pruneOrphanedMailAccountData,
   ROLLBACK_TOKEN_KEY,
+  TASK_LIST_TOKEN_KEY,
+  TASK_TOKEN_KEY,
   THREAD_WINDOW_FLOOR,
   THREAD_WINDOW_HIGH_WATER,
   threadTokenKey,
 } from "./server-writes.js";
 import { setSessionUserId } from "./session.js";
+import { createTask, readTaskLists, readTasks, saveTaskBody } from "./tasks.js";
 
 vi.mock("../pwa/close-stale-notifications.js", () => ({
   closeStaleThreadNotification: vi.fn(async () => {}),
@@ -520,7 +527,7 @@ describe("applyRollbackDelta (#229, ADR-0025)", () => {
  * `Note` (#192, ADR-0023): whole-replicated and User-scoped like `Label`,
  * but — like `Composition` further down — the other delta with a merge
  * rule, since the Client also writes this table itself through the
- * `noteSaves` channel.
+ * `documentSaves` channel.
  */
 describe("applyNoteDelta", () => {
   it("stores Notes and advances the one User-scoped state token", async () => {
@@ -645,6 +652,137 @@ describe("applyNoteDelta", () => {
     );
 
     const row = await localCache().notes.get("n1");
+    expect(row?.document[0]?.content).toEqual([
+      { type: "text", text: "confirmed elsewhere", styles: {} },
+    ]);
+  });
+});
+
+describe("applyTaskListDelta (#251, ADR-0030)", () => {
+  it("stores Task Lists and advances the one User-scoped state token", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("l1", USER)], newState: "task-list-state-1" }),
+      { replace: false },
+    );
+
+    expect((await readTaskLists()).map((list) => list.id)).toEqual(["l1"]);
+    expect(await getSyncToken(TASK_LIST_TOKEN_KEY)).toBe("task-list-state-1");
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyTaskListDelta(delta({ created: [makeTaskList("stale", USER)] }), {
+      replace: false,
+    });
+
+    await applyTaskListDelta(delta({ created: [makeTaskList("fresh", USER)], reset: true }), {
+      replace: true,
+    });
+
+    expect((await readTaskLists()).map((list) => list.id)).toEqual(["fresh"]);
+  });
+
+  it("removes destroyed Task Lists", async () => {
+    await applyTaskListDelta(delta({ created: [makeTaskList("l1", USER)] }), { replace: false });
+
+    await applyTaskListDelta(delta({ destroyed: ["l1"] }), { replace: false });
+
+    expect(await localCache().taskLists.get("l1")).toBeUndefined();
+  });
+});
+
+describe("applyTaskDelta (#251, ADR-0030)", () => {
+  it("stores Tasks, completed included, and advances the one User-scoped state token", async () => {
+    await applyTaskDelta(
+      delta({
+        created: [makeTask("t1", USER, "l1", { completed: true })],
+        newState: "task-state-1",
+      }),
+      { replace: false },
+    );
+
+    expect((await readTasks("l1")).map((task) => task.id)).toEqual(["t1"]);
+    expect(await getSyncToken(TASK_TOKEN_KEY)).toBe("task-state-1");
+  });
+
+  it("removes destroyed Tasks and anything still queued against them", async () => {
+    await saveTaskBody("t1", [
+      { id: "b1", type: "paragraph", props: {}, content: [], children: [] },
+    ]);
+
+    await applyTaskDelta(delta({ destroyed: ["t1"] }), { replace: false });
+
+    expect(await localCache().tasks.get("t1")).toBeUndefined();
+    expect(await localCache().pendingTaskSaves.get("t1")).toBeUndefined();
+  });
+
+  it("never overwrites a body edit this Client still has queued", async () => {
+    await createTask("t1", "l1", null, "Buy milk");
+    await saveTaskBody("t1", [
+      {
+        id: "b1",
+        type: "paragraph",
+        props: {},
+        content: [{ type: "text", text: "typed here", styles: {} }],
+        children: [],
+      },
+    ]);
+
+    await applyTaskDelta(
+      delta({
+        updated: [
+          makeTask("t1", USER, "l1", {
+            document: [
+              {
+                id: "b1",
+                type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "the server's older copy", styles: {} }],
+                children: [],
+              },
+            ],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const row = await localCache().tasks.get("t1");
+    expect(row?.document[0]?.content).toEqual([{ type: "text", text: "typed here", styles: {} }]);
+  });
+
+  it("adopts the server's content once the queued save has flushed", async () => {
+    await createTask("t1", "l1", null, "Buy milk");
+    await saveTaskBody("t1", [
+      {
+        id: "b1",
+        type: "paragraph",
+        props: {},
+        content: [{ type: "text", text: "local", styles: {} }],
+        children: [],
+      },
+    ]);
+    await localCache().pendingTaskSaves.delete("t1"); // flushed
+
+    await applyTaskDelta(
+      delta({
+        updated: [
+          makeTask("t1", USER, "l1", {
+            document: [
+              {
+                id: "b1",
+                type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "confirmed elsewhere", styles: {} }],
+                children: [],
+              },
+            ],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const row = await localCache().tasks.get("t1");
     expect(row?.document[0]?.content).toEqual([
       { type: "text", text: "confirmed elsewhere", styles: {} },
     ]);

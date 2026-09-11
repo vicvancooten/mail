@@ -29,5 +29,6 @@ export * from "./routing.js";
 export * from "./search.js";
 export * from "./series.js";
 export * from "./sync.js";
+export * from "./tasks.js";
 export * from "./ulid.js";
 export * from "./vcard.js";

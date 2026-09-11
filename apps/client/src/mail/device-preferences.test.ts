@@ -5,13 +5,21 @@ import {
   readAccountScope,
   readCommandUsage,
   readGroupCollapsed,
+  readTaskBoardMode,
+  readTaskCompletedOpen,
+  readTaskSwimlane,
   recordCommandUsage,
   resolveAccountScope,
   useListDensity,
   useSidebarCollapsed,
+  useTaskBoardMode,
+  useTaskCompletedOpen,
+  useTaskSwimlane,
   useViewMode,
   writeAccountScope,
   writeGroupCollapsed,
+  writeTaskBoardMode,
+  writeTaskSwimlane,
 } from "./device-preferences.js";
 
 /**
@@ -172,5 +180,61 @@ describe("readCommandUsage / recordCommandUsage", () => {
 
     localStorage.setItem("mail.devicePref.commandUsage", JSON.stringify(["array", "not", "map"]));
     expect(readCommandUsage()).toEqual({});
+  });
+});
+
+/**
+ * Board mode and swimlanes' own three Device Preferences (#256): keyed per
+ * view id (`today`/`upcoming`/a List's own ULID) — `readTaskBoardMode`'s own
+ * doc comment on why one listener `Set` per preference is still correct even
+ * though the read is keyed. `TaskListView.test.tsx`'s "Board mode" describe
+ * block exercises the same seam end to end, through the header toggle and
+ * the swimlane select.
+ */
+describe("Tasks' Device Preferences (#256)", () => {
+  it("readTaskBoardMode defaults to 'list', keyed independently per view id", () => {
+    writeTaskBoardMode("list-1", "board");
+    expect(readTaskBoardMode("list-1")).toBe("board");
+    expect(readTaskBoardMode("list-2")).toBe("list");
+  });
+
+  it("useTaskBoardMode: a write from one subscriber reaches another instantly, for the same view id", () => {
+    const a = renderHook(() => useTaskBoardMode("list-1"));
+    const b = renderHook(() => useTaskBoardMode("list-1"));
+    expect(a.result.current[0]).toBe("list");
+
+    act(() => a.result.current[1]("board"));
+
+    expect(a.result.current[0]).toBe("board");
+    expect(b.result.current[0]).toBe("board");
+  });
+
+  it("readTaskSwimlane defaults to 'none', round-trips 'label'/'dueBucket' and ignores garbage", () => {
+    expect(readTaskSwimlane("list-1")).toBe("none");
+    writeTaskSwimlane("list-1", "dueBucket");
+    expect(readTaskSwimlane("list-1")).toBe("dueBucket");
+    localStorage.setItem("tasks.devicePref.swimlane.list-1", "not-a-real-swimlane");
+    expect(readTaskSwimlane("list-1")).toBe("none");
+  });
+
+  it("useTaskSwimlane: a write from one subscriber reaches another instantly", () => {
+    const a = renderHook(() => useTaskSwimlane("list-1"));
+    const b = renderHook(() => useTaskSwimlane("list-1"));
+
+    act(() => a.result.current[1]("label"));
+
+    expect(a.result.current[0]).toBe("label");
+    expect(b.result.current[0]).toBe("label");
+  });
+
+  it("readTaskCompletedOpen defaults to closed and un-opening clears the stored key, `writeGroupCollapsed`'s own shape", () => {
+    expect(readTaskCompletedOpen("today")).toBe(false);
+    const hook = renderHook(() => useTaskCompletedOpen("today"));
+    act(() => hook.result.current[1](true));
+    expect(readTaskCompletedOpen("today")).toBe(true);
+
+    act(() => hook.result.current[1](false));
+    expect(readTaskCompletedOpen("today")).toBe(false);
+    expect(localStorage.getItem("tasks.devicePref.completedOpen.today")).toBeNull();
   });
 });

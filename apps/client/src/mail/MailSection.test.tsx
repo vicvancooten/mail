@@ -1,5 +1,5 @@
 import type { SyncResponse } from "@mail/shared";
-import { gmailLabelId, labelId } from "@mail/shared";
+import { EMPTY_NOTE_DOCUMENT, gmailLabelId, labelId } from "@mail/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
@@ -9,7 +9,13 @@ import { AuthProvider } from "../auth/AuthContext.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { publishNotificationTarget } from "../pwa/notification-router.js";
 import { EMPTY_COMPOSE_CONTENT, saveComposition } from "../store/compositions.js";
-import { enqueueUserMutation, readNote, useConnectedAccounts } from "../store/index.js";
+import {
+  enqueueUserMutation,
+  readNote,
+  readTask,
+  readTasks,
+  useConnectedAccounts,
+} from "../store/index.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
@@ -17,6 +23,7 @@ import {
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
+  applyTaskListDelta,
   applyThreadDelta,
 } from "../store/server-writes.js";
 import { setSessionUserId } from "../store/session.js";
@@ -27,6 +34,7 @@ import {
   makeGmailLabel,
   makeLabel,
   makeMailAccount,
+  makeTaskList,
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
@@ -428,6 +436,89 @@ describe("MailSection", () => {
     expect(await screen.findByText("Added to Notes")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(async () => expect(await readNote(noteId)).toBeUndefined());
+  });
+
+  describe('"Add to Tasks" (#258)', () => {
+    async function seedDefaultTaskList(): Promise<void> {
+      await applyTaskListDelta(
+        delta({ created: [makeTaskList("list-1", USER, { name: "Tasks", isDefault: true })] }),
+        { replace: false },
+      );
+    }
+
+    it("opens a sheet prefilled from the Thread, and Add creates the Task with its Thread Link field, one Undo toast", async () => {
+      await seedCachedMail();
+      await seedDefaultTaskList();
+      stubFetch(never);
+
+      renderMail();
+      await screen.findByText("Last state");
+      fireEvent.keyDown(window, { key: "j" });
+      await screen.findByRole("button", { name: "Add to Tasks" });
+      fireEvent.click(screen.getByRole("button", { name: "Add to Tasks" }));
+
+      const titleField = await screen.findByLabelText("Task title");
+      expect((titleField as HTMLInputElement).value).toBe("Last state");
+
+      fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+      await waitFor(() => expect(screen.queryByLabelText("Task title")).toBeNull());
+      const tasks = await readTasks("list-1");
+      expect(tasks).toHaveLength(1);
+      const task = tasks[0];
+      expect(task?.title).toBe("Last state");
+      expect(task?.threadLink).toEqual({
+        threadId: "t1",
+        subject: "Last state",
+        participants: "Ada",
+        date: expect.any(String),
+      });
+      // "The mail itself is never copied into the Task" — no body write at all.
+      expect(task?.document).toEqual(EMPTY_NOTE_DOCUMENT);
+
+      expect(await screen.findByText("Added to Tasks")).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      await waitFor(async () => expect(await readTasks("list-1")).toHaveLength(0));
+      // Lets the toast's own exit animation finish before the next test's
+      // sheet raises its own — sonner's toast store outlives `cleanup()`
+      // (`afterEach`'s own doc comment above).
+      await waitFor(() => expect(screen.queryByText("Added to Tasks")).toBeNull());
+    });
+
+    it("Add and mark Done creates the Task and archives the Thread as one action, one Undo reversing both", async () => {
+      await seedCachedMail();
+      await seedDefaultTaskList();
+      stubFetch(never);
+
+      renderMail();
+      await screen.findByText("Last state");
+      fireEvent.keyDown(window, { key: "j" });
+      await screen.findByRole("button", { name: "Add to Tasks" });
+      fireEvent.click(screen.getByRole("button", { name: "Add to Tasks" }));
+      await screen.findByLabelText("Task title");
+
+      fireEvent.click(screen.getByRole("button", { name: "Add and mark Done" }));
+
+      const tasks = await waitFor(async () => {
+        const rows = await readTasks("list-1");
+        expect(rows).toHaveLength(1);
+        return rows;
+      });
+      const taskId = tasks[0]?.id as string;
+
+      // One toast, one Undo — not a second, separate "Done" toast.
+      expect(await screen.findByText("Added to Tasks and marked Done")).toBeDefined();
+      await waitFor(async () => expect(await readTasks("list-1")).toHaveLength(1));
+
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+      // Both halves of the compound Undo land together: the Task is gone
+      // and the Thread is back in the Inbox row (its own list entry, back
+      // alongside the reading pane's header), one Undo click for both.
+      await waitFor(async () => expect(await readTasks("list-1")).toHaveLength(0));
+      await waitFor(async () => expect(await screen.findAllByText("Last state")).toHaveLength(2));
+      expect(await readTask(taskId)).toBeUndefined();
+    });
   });
 
   it("Account Scope defaults to all accounts, merged newest-first (#73)", async () => {

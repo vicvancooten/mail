@@ -4,6 +4,7 @@ import type {
   MutationOutcome,
   QueuedMutation,
   QueuedUserMutation,
+  TaskSection,
   UserMutationIntent,
 } from "@mail/shared";
 import {
@@ -20,7 +21,7 @@ import {
   UNDO_SEND_DELAY_OPTIONS,
   validateContactFields,
 } from "@mail/shared";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   addressBookCapabilityTableId,
   addressBookRowForUser,
@@ -73,6 +74,8 @@ import {
   mailAccounts,
   messages,
   notes,
+  taskLists,
+  tasks,
   threads,
   users,
 } from "../db/schema.js";
@@ -96,6 +99,7 @@ import { findFolderByRole } from "./folders.js";
 import { selectInboxResidentMessageIds } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { restoreThreadsToInbox } from "./restore-to-inbox.js";
+import { INITIAL_TASK_DOCUMENT } from "./task-store.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
 import { recordTombstones } from "./tombstones.js";
 
@@ -602,8 +606,8 @@ async function applyOneUserMutation(
  * *can* be — `note_not_found` for `labelNote`/`unlabelNote`/`deleteNote`
  * against a Note this User does not (or no longer) have — but that is the
  * intent queue's own ordinary idempotency-ledger rejection shape, not the
- * `noteSaves` channel's "never rejects" (`note-store.ts`'s own doc comment):
- * the two are about different things wholesale.
+ * `documentSaves` channel's "never rejects" (`note-store.ts`'s own doc
+ * comment): the two are about different things wholesale.
  */
 async function applyUserIntent(
   db: Db,
@@ -1016,6 +1020,366 @@ async function applyUserIntent(
       });
       return result.ok ? { ok: true } : { ok: false, reason: result.reason };
     }
+    // Task Lists (#251, ADR-0030) — see `sync.ts#userMutationIntentSchema`'s
+    // own doc comment for the shape every one of these below follows.
+    case "createTaskList":
+      // `onConflictDoNothing`, `createNote`'s own trick: a retried id after
+      // a dropped response simply lands on the row it already created.
+      await db
+        .insert(taskLists)
+        .values({ id: intent.taskListId, userId, name: intent.name, sections: [], order: 0 })
+        .onConflictDoNothing({ target: taskLists.id });
+      return { ok: true };
+    case "renameTaskList": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      await db
+        .update(taskLists)
+        .set({ name: intent.name, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      return { ok: true };
+    }
+    case "reorderTaskList": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      await db
+        .update(taskLists)
+        .set({ order: intent.order, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      return { ok: true };
+    }
+    // The ticket's own "never deletable": rejected outright against the
+    // seeded default List (`isDefault`, stamped only by
+    // `task-list-store.ts#ensureDefaultTaskList`) — a property of being the
+    // User's first List, not a name check, so renaming it away from "Tasks"
+    // never opens this back up.
+    case "deleteTaskList": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      if (list.isDefault) return { ok: false, reason: "default_list" };
+      const deletedAt = new Date();
+      await db
+        .update(taskLists)
+        .set({ deletedAt, updatedAt: deletedAt })
+        .where(eq(taskLists.id, intent.taskListId));
+      if (intent.taskIds.length > 0) {
+        await db
+          .update(tasks)
+          .set({ deletedAt, updatedAt: deletedAt })
+          .where(
+            and(
+              eq(tasks.taskListId, intent.taskListId),
+              eq(tasks.userId, userId),
+              inArray(tasks.id, intent.taskIds),
+            ),
+          );
+      }
+      return { ok: true };
+    }
+    // The real inverse of `deleteTaskList` (ADR-0019): restores the List
+    // **and** exactly the Tasks it cascaded a soft delete onto — `taskIds`
+    // is the same Client-captured set `deleteTaskList` itself carried, not
+    // re-derived here (a Task independently trashed before the List delete
+    // would otherwise get wrongly resurrected).
+    case "restoreTaskList": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      await db
+        .update(taskLists)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      if (intent.taskIds.length > 0) {
+        await db
+          .update(tasks)
+          .set({ deletedAt: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(tasks.taskListId, intent.taskListId),
+              eq(tasks.userId, userId),
+              inArray(tasks.id, intent.taskIds),
+            ),
+          );
+      }
+      return { ok: true };
+    }
+
+    // Sections (#251) live on the Task List row's own `sections` array —
+    // every case below reads it, mutates the array in place, and writes the
+    // whole List row back; none of these touch `sync_tombstones`, since a
+    // Section is never its own collection.
+    case "createSection": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      if (list.sections.some((section) => section.id === intent.sectionId)) return { ok: true };
+      const sections = [...list.sections, { id: intent.sectionId, name: intent.name }];
+      await db
+        .update(taskLists)
+        .set({ sections, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      return { ok: true };
+    }
+    case "renameSection": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      const index = list.sections.findIndex((section) => section.id === intent.sectionId);
+      if (index === -1) return { ok: false, reason: "section_not_found" };
+      const sections = list.sections.slice();
+      sections[index] = { id: intent.sectionId, name: intent.name };
+      await db
+        .update(taskLists)
+        .set({ sections, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      return { ok: true };
+    }
+    // Replaces the whole order (the Client already holds it, ADR-0019's own
+    // doc comment on `sync.ts`) — tolerant of a stale array missing a
+    // Section this List has gained since: anything `sectionIds` doesn't
+    // name is appended at the end rather than dropped.
+    case "reorderSections": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      const byId = new Map(list.sections.map((section) => [section.id, section]));
+      const reordered = intent.sectionIds.flatMap((id) => {
+        const section = byId.get(id);
+        return section ? [section] : [];
+      });
+      const missing = list.sections.filter((section) => !intent.sectionIds.includes(section.id));
+      await db
+        .update(taskLists)
+        .set({ sections: [...reordered, ...missing], updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      return { ok: true };
+    }
+    // The real inverse is `restoreSection` below — `taskIds` is this
+    // User's own Tasks the delete is about to move off the Section, captured
+    // by the Client at decision time (`deleteTaskList`'s own doc comment
+    // gives the same reasoning), moved here to the List's first remaining
+    // Section, or `null` if none is left.
+    case "deleteSection": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      const index = list.sections.findIndex((section) => section.id === intent.sectionId);
+      if (index === -1) return { ok: true }; // Already gone — a retried id, or Undo racing a second delete.
+      const sections = list.sections.filter((section) => section.id !== intent.sectionId);
+      const fallbackSectionId = sections[0]?.id ?? null;
+      await db
+        .update(taskLists)
+        .set({ sections, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      if (intent.taskIds.length > 0) {
+        await db
+          .update(tasks)
+          .set({ sectionId: fallbackSectionId, updatedAt: new Date() })
+          .where(
+            and(
+              eq(tasks.taskListId, intent.taskListId),
+              eq(tasks.userId, userId),
+              inArray(tasks.id, intent.taskIds),
+            ),
+          );
+      }
+      return { ok: true };
+    }
+    case "restoreSection": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      if (list.sections.some((section) => section.id === intent.sectionId)) return { ok: true };
+      const sections = list.sections.slice();
+      const index = Math.min(Math.max(intent.index, 0), sections.length);
+      sections.splice(index, 0, { id: intent.sectionId, name: intent.name });
+      await db
+        .update(taskLists)
+        .set({ sections, updatedAt: new Date() })
+        .where(eq(taskLists.id, intent.taskListId));
+      if (intent.taskIds.length > 0) {
+        await db
+          .update(tasks)
+          .set({ sectionId: intent.sectionId, updatedAt: new Date() })
+          .where(
+            and(
+              eq(tasks.taskListId, intent.taskListId),
+              eq(tasks.userId, userId),
+              inArray(tasks.id, intent.taskIds),
+            ),
+          );
+      }
+      return { ok: true };
+    }
+
+    // Tasks (#251) — `createTask`'s real inverse is the **hard** `deleteTask`
+    // below, `createNote`/`deleteNote`'s own pair; `trashTask`/`restoreTask`
+    // further down is the separate soft pair, `trashNote`/`restoreNote`'s.
+    case "createTask": {
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      await db
+        .insert(tasks)
+        .values({
+          id: intent.taskId,
+          userId,
+          taskListId: intent.taskListId,
+          sectionId: intent.sectionId,
+          title: intent.title,
+          document: INITIAL_TASK_DOCUMENT,
+          order: intent.order,
+          labelIds: [],
+          threadLink: intent.threadLink ?? null,
+        })
+        .onConflictDoNothing({ target: tasks.id });
+      return { ok: true };
+    }
+    case "deleteTask": {
+      const deleted = await db
+        .delete(tasks)
+        .where(and(eq(tasks.id, intent.taskId), eq(tasks.userId, userId)))
+        .returning({ id: tasks.id });
+      // A Task already gone (Undo racing a second delete, or a retried id)
+      // is a harmless no-op, `deleteNote`'s own tolerance.
+      if (deleted.length > 0) {
+        await recordTombstones(db, {
+          mailAccountId: null,
+          collection: "Task",
+          entityIds: [intent.taskId],
+        });
+      }
+      return { ok: true };
+    }
+    case "setTaskTitle": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ title: intent.title, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "setTaskDueDate": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({
+          dueDate: intent.dueDate ? new Date(intent.dueDate) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "setTaskDueTime": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ dueTime: intent.dueTime, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "completeTask": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      const completedAt = new Date();
+      await db
+        .update(tasks)
+        .set({ completed: true, completedAt, updatedAt: completedAt })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "uncompleteTask": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ completed: false, completedAt: null, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "setTaskSection": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ sectionId: intent.sectionId, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "setTaskList": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      const list = await taskListRow(db, userId, intent.taskListId);
+      if (!list) return { ok: false, reason: "task_list_not_found" };
+      await db
+        .update(tasks)
+        .set({ taskListId: intent.taskListId, sectionId: intent.sectionId, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "reorderTask": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ order: intent.order, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "trashTask": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "restoreTask": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+      await db
+        .update(tasks)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(tasks.id, intent.taskId));
+      return { ok: true };
+    }
+    case "labelTask": {
+      const name = normalizeLabelName(intent.name);
+      if (!isValidLabelName(name)) return { ok: false, reason: "invalid_label_name" };
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+
+      // User-scoped (#186), `labelNote`'s own derivation — one set of Labels
+      // per User, so a Task can share a row with a Note or a Thread of this
+      // same User's own.
+      const id = labelId(userId, name);
+      await db.insert(labels).values({ id, userId, name }).onConflictDoNothing({
+        target: labels.id,
+      });
+
+      if (!task.labelIds.includes(id)) {
+        await db
+          .update(tasks)
+          .set({ labelIds: sql`array_append(${tasks.labelIds}, ${id})`, updatedAt: new Date() })
+          .where(eq(tasks.id, intent.taskId));
+      }
+      return { ok: true };
+    }
+    case "unlabelTask": {
+      const task = await taskRow(db, userId, intent.taskId);
+      if (!task) return { ok: false, reason: "task_not_found" };
+
+      const id = labelId(userId, normalizeLabelName(intent.name));
+      if (task.labelIds.includes(id)) {
+        await db
+          .update(tasks)
+          .set({
+            labelIds: task.labelIds.filter((existing) => existing !== id),
+            updatedAt: new Date(),
+          })
+          .where(eq(tasks.id, intent.taskId));
+      }
+      // A name with no matching applied Label is a harmless no-op — the
+      // same tolerance `unlabelNote` already gives a Note.
+      return { ok: true };
+    }
     // A Series' structural actions (#233) — see `sync.ts#userMutationIntentSchema`'s
     // own doc comment for the shape each pair takes. Every store call below
     // already carries its own idempotency tolerance (a retried id, or Undo
@@ -1157,6 +1521,33 @@ async function noteRow(
     .select({ labelIds: notes.labelIds })
     .from(notes)
     .where(and(eq(notes.id, noteId), eq(notes.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** `taskListRow`/`taskRow`: `noteRow`'s own shape, the lookup-and-ownership-check every Task List/Task intent above starts from. */
+async function taskListRow(
+  db: Db,
+  userId: string,
+  taskListId: string,
+): Promise<{ sections: TaskSection[]; isDefault: boolean } | null> {
+  const [row] = await db
+    .select({ sections: taskLists.sections, isDefault: taskLists.isDefault })
+    .from(taskLists)
+    .where(and(eq(taskLists.id, taskListId), eq(taskLists.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+async function taskRow(
+  db: Db,
+  userId: string,
+  taskId: string,
+): Promise<{ taskListId: string; labelIds: string[] } | null> {
+  const [row] = await db
+    .select({ taskListId: tasks.taskListId, labelIds: tasks.labelIds })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
     .limit(1);
   return row ?? null;
 }

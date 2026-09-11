@@ -19,6 +19,10 @@ import { CalendarSettingsSheet } from "./CalendarSettingsSheet.js";
  * closes again rather than reflowing it, which is exactly the "no
  * persistent sidebar" shape this ticket asks for on every viewport, not
  * only the phone.
+ *
+ * Beneath the Calendars sits one more row, "Tasks" (#260) — its own
+ * show/hide toggle over `calendar-task-visibility.ts`'s Device Preference,
+ * never a Calendar so it never gets a colour picker or a settings gear.
  */
 export function CalendarSlideOver({
   open,
@@ -26,12 +30,17 @@ export function CalendarSlideOver({
   calendars,
   hiddenCalendarIds,
   onToggle,
+  showTasks,
+  onToggleTasks,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   calendars: readonly Calendar[];
   hiddenCalendarIds: ReadonlySet<string>;
   onToggle: (calendarId: string) => void;
+  /** The "Tasks" row's own show/hide state (#260) — a Device Preference, never a Calendar. */
+  showTasks: boolean;
+  onToggleTasks: () => void;
 }) {
   // The settings sheet (#236) is this component's own concern — a second,
   // right-hand `Sheet` opened by a row's gear button — rather than
@@ -78,6 +87,25 @@ export function CalendarSlideOver({
               </div>
             ))
           )}
+          {/* The "Tasks" row (#260): beneath the Calendars, a fixed neutral
+              colour and no settings gear — Tasks are not a Calendar and
+              never get one's colour or a colour picker (the ticket's own
+              words). */}
+          <div className="calendar-slide-over-row">
+            <label htmlFor="cal-vis-tasks" className="calendar-slide-over-row-main">
+              <input
+                id="cal-vis-tasks"
+                type="checkbox"
+                checked={showTasks}
+                onChange={onToggleTasks}
+              />
+              <span
+                aria-hidden="true"
+                className="calendar-slide-over-swatch calendar-slide-over-tasks-swatch"
+              />
+              <span className="calendar-slide-over-name">Tasks</span>
+            </label>
+          </div>
         </div>
       </SheetContent>
       {/* A sibling `Sheet` (right-hand, #236), not nested inside the list's

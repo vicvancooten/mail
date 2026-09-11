@@ -47,7 +47,17 @@ import {
   trashSeries,
   useSeries,
 } from "../store/series.js";
+import {
+  createTask,
+  newTaskId,
+  setTaskDueDate,
+  setTaskDueTime,
+  useTaskLists,
+} from "../store/tasks.js";
 import { enqueueUserMutation } from "../store/user-mutation-queue.js";
+import { TaskDuePicker } from "../tasks/TaskDuePicker.js";
+import { dateOnlyToWireDueDate } from "../tasks/task-due.js";
+import "../tasks/tasks.css";
 import { closeEventPanel, useEventPanelState } from "./calendar-event-panel.js";
 import { ReminderMinutesEditor } from "./ReminderMinutesEditor.js";
 import {
@@ -58,6 +68,9 @@ import {
   withUntil,
 } from "./recurrence.js";
 import { hiddenReminders, relativePopupReminder } from "./reminder-presets.js";
+
+/** The create popover's own Event/Task switch (#261) — never offered while editing, and never remembered across a fresh create ("the popover always opens on Event"). */
+type EntityKind = "event" | "task";
 
 const BROWSER_TZID = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const RECURRENCE_LABEL: Record<RecurrenceTemplate, string> = {
@@ -129,6 +142,12 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
   const editingSeriesId = panel?.mode === "edit" ? eventSeriesId : null;
   const cachedSeries = useSeries(editingSeriesId);
 
+  const taskLists = useTaskLists() ?? [];
+  const [entityKind, setEntityKind] = useState<EntityKind>("event");
+  const [taskListId, setTaskListId] = useState("");
+  const [taskDueDate, setTaskDueDateInput] = useState<string | null>(null);
+  const [taskDueTime, setTaskDueTimeInput] = useState<string | null>(null);
+
   const [title, setTitle] = useState("");
   const [calendarId, setCalendarId] = useState("");
   const [start, setStart] = useState("");
@@ -189,6 +208,20 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
       setShowMore(false);
       setScope("all");
       setReminderMinutes([]);
+      // "The popover always opens on Event" (#261's own acceptance line) —
+      // the switch is never remembered from a previous create. Due prefills
+      // from this same click: the clicked day always, the clicked time only
+      // when `panel.allDay` is false — a timed-grid click, never the all-day
+      // row or a Month cell (`calendar-create.ts#openCreatePanelForDay`).
+      setEntityKind("event");
+      const clicked = toLocalInputValue(panel.start);
+      setTaskDueDateInput(dateOnlyToWireDueDate(clicked.slice(0, 10)));
+      setTaskDueTimeInput(panel.allDay ? null : clicked.slice(11, 16));
+      // Reset to empty rather than compute the default here — `taskLists`
+      // (`store/tasks.ts#useTaskLists`) is a Local Cache live query that can
+      // still be resolving its first snapshot when this runs; the effect
+      // below picks the default the moment a List is actually available.
+      setTaskListId("");
       return;
     }
     if (!cachedSeries || !eventOriginalStart) return;
@@ -212,7 +245,21 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
     setReminderMinutes(visibleReminders(cachedSeries.reminders).map((r) => r.minutesBefore));
   }, [panel, cachedSeries, eventOriginalStart]);
 
-  if (!panel) return null;
+  // `taskLists` (`store/tasks.ts#useTaskLists`) resolves from the Local
+  // Cache asynchronously — often after the reset above already ran with
+  // none loaded yet. Defaults the picker the moment a first List shows up,
+  // but only while nothing has been chosen (never overriding a User's own
+  // pick mid-create).
+  useEffect(() => {
+    if (panel?.mode !== "create" || taskListId || taskLists.length === 0) return;
+    setTaskListId((taskLists.find((list) => list.isDefault) ?? taskLists[0])?.id ?? "");
+  }, [panel, taskListId, taskLists]);
+
+  // `panel.mode === "task"` (#260) is `TaskPopover.tsx`'s own turn at the
+  // shared state, not this popover's — excluded here the same way `!panel`
+  // already is, so the two never both render a real (`open`) Radix Popover
+  // at once over one shared anchor.
+  if (!panel || panel.mode === "task") return null;
 
   const reminderDueIds = panel.mode === "edit" ? panel.reminderDueIds : undefined;
 
@@ -296,8 +343,31 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
     );
   }
 
+  /**
+   * Creating a Task from the switched popover (#261): the ordinary Tasks
+   * App create intent (`store/tasks.ts#createTask`), no body, and Due
+   * committed right after through its own absolute-set intents
+   * (`setTaskDueDate`/`setTaskDueTime`) — `createTaskFromThreadLink`'s own
+   * "patch its fields per field" posture, not threaded through `createTask`'s
+   * payload. No Undo toast: `createTask` never raises one anywhere else
+   * either (`mail/undo-toast.ts`'s own doc comment lists only structural
+   * deletes and completions as undoable).
+   */
+  async function performCreateTask() {
+    if (!taskListId) return;
+    const id = newTaskId();
+    await createTask(id, taskListId, null, title);
+    if (taskDueDate) await setTaskDueDate(id, taskDueDate);
+    if (taskDueDate && taskDueTime) await setTaskDueTime(id, taskDueTime);
+    closePanel();
+  }
+
   function handleSave() {
     if (!panel) return;
+    if (panel.mode === "create" && entityKind === "task") {
+      void performCreateTask();
+      return;
+    }
     const startDate = fromLocalInputValue(start);
     const endDate = fromLocalInputValue(end);
     const attendees = parseAttendees(attendeesText);
@@ -515,8 +585,38 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
       </PopoverAnchor>
       <PopoverContent className="calendar-event-editor" onOpenAutoFocus={(e) => e.preventDefault()}>
         <PopoverHeader>
-          <PopoverTitle>{panel.mode === "create" ? "New event" : "Edit event"}</PopoverTitle>
+          <PopoverTitle>
+            {panel.mode === "edit"
+              ? "Edit event"
+              : entityKind === "task"
+                ? "New Task"
+                : "New event"}
+          </PopoverTitle>
         </PopoverHeader>
+
+        {panel.mode === "create" ? (
+          // biome-ignore lint/a11y/useSemanticElements: a `<fieldset>` brings its own default border/padding chrome that fights `.calendar-event-editor-row`'s own flex-row look; `role="group"` gives the same "these two toggle buttons are one control" semantics with none of it.
+          <div className="calendar-event-editor-row" role="group" aria-label="Event or Task">
+            <Button
+              type="button"
+              variant={entityKind === "event" ? "default" : "ghost"}
+              size="sm"
+              aria-pressed={entityKind === "event"}
+              onClick={() => setEntityKind("event")}
+            >
+              Event
+            </Button>
+            <Button
+              type="button"
+              variant={entityKind === "task" ? "default" : "ghost"}
+              size="sm"
+              aria-pressed={entityKind === "task"}
+              onClick={() => setEntityKind("task")}
+            >
+              Task
+            </Button>
+          </div>
+        ) : null}
 
         {reminderDueIds && reminderDueIds.length > 0 ? (
           <div className="calendar-event-editor-row calendar-reminder-snooze-row">
@@ -572,132 +672,170 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
           onChange={(e) => setTitle(e.target.value)}
         />
 
-        <div className="calendar-event-editor-row">
-          <label>
-            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />{" "}
-            All day
-          </label>
-        </div>
-        <div className="calendar-event-editor-row">
-          <input
-            type={allDay ? "date" : "datetime-local"}
-            value={allDay ? start.slice(0, 10) : start}
-            onChange={(e) => setStart(e.target.value)}
-          />
-          <span>–</span>
-          <input
-            type={allDay ? "date" : "datetime-local"}
-            value={allDay ? end.slice(0, 10) : end}
-            onChange={(e) => setEnd(e.target.value)}
-          />
-        </div>
-
-        <Select
-          value={calendarId}
-          onValueChange={panel.mode === "edit" ? handleMoveTo : setCalendarId}
-          // A Move only ever carries a whole Series — its Overrides and
-          // `exdates` (#238's own acceptance line) — so the picker is
-          // read-only while editing just one Occurrence or splitting off a
-          // continuation; only "All events" can move Calendars.
-          disabled={panel.mode === "edit" && scope !== "all"}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Calendar" />
-          </SelectTrigger>
-          <SelectContent>
-            {moveDestinationCalendars.map((calendar) => (
-              <SelectItem key={calendar.id} value={calendar.id}>
-                {calendar.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {panel.mode === "edit" && isRecurring ? (
-          <div className="calendar-event-editor-scope">
-            <label>
-              <input type="radio" checked={scope === "this"} onChange={() => setScope("this")} />{" "}
-              This event
-            </label>
-            <label>
-              <input type="radio" checked={scope === "all"} onChange={() => setScope("all")} /> All
-              events
-            </label>
-            <label>
+        {panel.mode === "create" && entityKind === "task" ? (
+          <>
+            <TaskDuePicker
+              dueDate={taskDueDate}
+              dueTime={taskDueTime}
+              onSetDate={(dueDate) => {
+                setTaskDueDateInput(dueDate);
+                if (dueDate === null) setTaskDueTimeInput(null);
+              }}
+              onSetTime={setTaskDueTimeInput}
+            />
+            <Select value={taskListId} onValueChange={setTaskListId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Task List" />
+              </SelectTrigger>
+              <SelectContent>
+                {taskLists.map((list) => (
+                  <SelectItem key={list.id} value={list.id}>
+                    {list.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        ) : (
+          <>
+            <div className="calendar-event-editor-row">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={allDay}
+                  onChange={(e) => setAllDay(e.target.checked)}
+                />{" "}
+                All day
+              </label>
+            </div>
+            <div className="calendar-event-editor-row">
               <input
-                type="radio"
-                checked={scope === "thisAndFollowing"}
-                onChange={() => setScope("thisAndFollowing")}
-              />{" "}
-              This and following
-            </label>
-          </div>
-        ) : null}
+                type={allDay ? "date" : "datetime-local"}
+                value={allDay ? start.slice(0, 10) : start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+              <span>–</span>
+              <input
+                type={allDay ? "date" : "datetime-local"}
+                value={allDay ? end.slice(0, 10) : end}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+            </div>
 
-        <Button type="button" variant="ghost" size="sm" onClick={() => setShowMore((v) => !v)}>
-          {showMore ? "Fewer details" : "More details"}
-        </Button>
+            <Select
+              value={calendarId}
+              onValueChange={panel.mode === "edit" ? handleMoveTo : setCalendarId}
+              // A Move only ever carries a whole Series — its Overrides and
+              // `exdates` (#238's own acceptance line) — so the picker is
+              // read-only while editing just one Occurrence or splitting off a
+              // continuation; only "All events" can move Calendars.
+              disabled={panel.mode === "edit" && scope !== "all"}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Calendar" />
+              </SelectTrigger>
+              <SelectContent>
+                {moveDestinationCalendars.map((calendar) => (
+                  <SelectItem key={calendar.id} value={calendar.id}>
+                    {calendar.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        {showMore && scope !== "this" ? (
-          <div className="calendar-event-editor-more">
-            {customRecurrence ? (
-              <p className="calendar-event-editor-custom-recurrence">
-                Custom recurrence (read-only)
-              </p>
-            ) : (
-              <Select
-                value={recurrence}
-                onValueChange={(value) => setRecurrence(value as RecurrenceTemplate)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RECURRENCE_TEMPLATES.map((template) => (
-                    <SelectItem key={template} value={template}>
-                      {RECURRENCE_LABEL[template]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <textarea
-              placeholder="Attendees (comma-separated emails)"
-              value={attendeesText}
-              onChange={(e) => setAttendeesText(e.target.value)}
-              disabled={attendeeFieldDisabled}
-              title={attendeeFieldDisabled ? "Connect a mail account to invite people" : undefined}
-              rows={2}
-            />
-            {attendeeFieldDisabled ? (
-              <p className="calendar-event-editor-attendee-hint">
-                Connect a mail account to invite people
-              </p>
+            {panel.mode === "edit" && isRecurring ? (
+              <div className="calendar-event-editor-scope">
+                <label>
+                  <input
+                    type="radio"
+                    checked={scope === "this"}
+                    onChange={() => setScope("this")}
+                  />{" "}
+                  This event
+                </label>
+                <label>
+                  <input type="radio" checked={scope === "all"} onChange={() => setScope("all")} />{" "}
+                  All events
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    checked={scope === "thisAndFollowing"}
+                    onChange={() => setScope("thisAndFollowing")}
+                  />{" "}
+                  This and following
+                </label>
+              </div>
             ) : null}
-            <textarea
-              placeholder="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
-            {reminderCap > 0 ? (
-              <ReminderMinutesEditor
-                minutesList={reminderMinutes}
-                allDay={allDay}
-                cap={reminderCap}
-                onChange={setReminderMinutes}
+
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowMore((v) => !v)}>
+              {showMore ? "Fewer details" : "More details"}
+            </Button>
+
+            {showMore && scope !== "this" ? (
+              <div className="calendar-event-editor-more">
+                {customRecurrence ? (
+                  <p className="calendar-event-editor-custom-recurrence">
+                    Custom recurrence (read-only)
+                  </p>
+                ) : (
+                  <Select
+                    value={recurrence}
+                    onValueChange={(value) => setRecurrence(value as RecurrenceTemplate)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RECURRENCE_TEMPLATES.map((template) => (
+                        <SelectItem key={template} value={template}>
+                          {RECURRENCE_LABEL[template]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <textarea
+                  placeholder="Attendees (comma-separated emails)"
+                  value={attendeesText}
+                  onChange={(e) => setAttendeesText(e.target.value)}
+                  disabled={attendeeFieldDisabled}
+                  title={
+                    attendeeFieldDisabled ? "Connect a mail account to invite people" : undefined
+                  }
+                  rows={2}
+                />
+                {attendeeFieldDisabled ? (
+                  <p className="calendar-event-editor-attendee-hint">
+                    Connect a mail account to invite people
+                  </p>
+                ) : null}
+                <textarea
+                  placeholder="Description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                />
+                {reminderCap > 0 ? (
+                  <ReminderMinutesEditor
+                    minutesList={reminderMinutes}
+                    allDay={allDay}
+                    cap={reminderCap}
+                    onChange={setReminderMinutes}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+
+            {showMore || scope === "this" ? (
+              <Input
+                placeholder="Location"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
               />
             ) : null}
-          </div>
-        ) : null}
-
-        {showMore || scope === "this" ? (
-          <Input
-            placeholder="Location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-          />
-        ) : null}
+          </>
+        )}
 
         <div className="calendar-event-editor-actions">
           {panel.mode === "edit" ? (

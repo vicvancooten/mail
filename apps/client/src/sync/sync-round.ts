@@ -1,7 +1,7 @@
 import type {
   ComposeSave,
+  DocumentSave,
   MailAccount,
-  NoteSave,
   QueuedMutation,
   QueuedUserMutation,
   SeriesSave,
@@ -18,7 +18,6 @@ import {
 } from "../store/compositions.js";
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
-import { listQueuedNoteSaves, resolveNoteSaveOutcomes, toWireNoteSave } from "../store/notes.js";
 import {
   listQueuedSeriesSaves,
   resolveSeriesSaveOutcomes,
@@ -40,6 +39,7 @@ import {
   MAIL_ACCOUNT_COLLECTIONS,
   USER_COLLECTIONS,
 } from "./collection-registry.js";
+import { DOCUMENT_SAVE_COLLECTIONS } from "./document-save-registry.js";
 import { type PostSync, postSync } from "./sync-api.js";
 
 /**
@@ -112,7 +112,7 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       await applyMutationOutcomes(request, response);
       await applyComposeSaveOutcomes(request, response);
       await applyUserMutationOutcomes(request, response);
-      await applyNoteSaveOutcomes(request, response);
+      await applyDocumentSaveOutcomes(request, response);
       await applySeriesSaveOutcomes(request, response);
     }
 
@@ -194,7 +194,7 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
   if (
     Object.keys(request.mailAccounts ?? {}).length === 0 &&
     (request.user?.mutations?.length ?? 0) === 0 &&
-    (request.user?.noteSaves?.length ?? 0) === 0 &&
+    (request.user?.documentSaves?.length ?? 0) === 0 &&
     (request.user?.seriesSaves?.length ?? 0) === 0
   ) {
     return 0;
@@ -204,7 +204,7 @@ async function flushMutationsOnly(post: PostSync): Promise<number> {
   await applyMutationOutcomes(request, response);
   await applyComposeSaveOutcomes(request, response);
   await applyUserMutationOutcomes(request, response);
-  await applyNoteSaveOutcomes(request, response);
+  await applyDocumentSaveOutcomes(request, response);
   await applySeriesSaveOutcomes(request, response);
   return 1;
 }
@@ -249,13 +249,25 @@ async function applyUserMutationOutcomes(
   await resolveUserMutationOutcomes(outcomes);
 }
 
-/** Same shape as `applyUserMutationOutcomes`, for the `noteSaves` channel (#192, ADR-0023). */
-async function applyNoteSaveOutcomes(request: SyncRequest, response: SyncResponse): Promise<void> {
-  const queued = request.user?.noteSaves;
+/**
+ * Same shape as `applyUserMutationOutcomes`, for the `documentSaves` channel
+ * (#192, #250, ADR-0023) — dispatched per collection through
+ * `DOCUMENT_SAVE_COLLECTIONS` rather than a hard-coded Note path, so each
+ * collection only ever dequeues the outcomes that are its own.
+ */
+async function applyDocumentSaveOutcomes(
+  request: SyncRequest,
+  response: SyncResponse,
+): Promise<void> {
+  const queued = request.user?.documentSaves;
   if (!queued || queued.length === 0) return;
-  const outcomes = response.user.noteSaves;
-  if (!outcomes || outcomes.length === 0) return;
-  await resolveNoteSaveOutcomes(queued, outcomes);
+  const outcomes = response.user.documentSaves ?? [];
+  for (const entry of DOCUMENT_SAVE_COLLECTIONS) {
+    const ownQueued = queued.filter((save) => save.collection === entry.collection);
+    if (ownQueued.length === 0) continue;
+    const ownOutcomes = outcomes.filter((outcome) => outcome.collection === entry.collection);
+    await entry.resolveOutcomes(ownQueued, ownOutcomes);
+  }
 }
 
 /** Same shape as `applyNoteSaveOutcomes`, for the `seriesSaves` channel (#233). */
@@ -360,8 +372,8 @@ async function buildSyncRequest({
   if (includeMutations) {
     const userMutations = await userMutationsToFlush();
     if (userMutations.length > 0) user.mutations = userMutations;
-    const noteSaves = await noteSavesToFlush();
-    if (noteSaves.length > 0) user.noteSaves = noteSaves;
+    const documentSaves = await documentSavesToFlush();
+    if (documentSaves.length > 0) user.documentSaves = documentSaves;
     const seriesSaves = await seriesSavesToFlush();
     if (seriesSaves.length > 0) user.seriesSaves = seriesSaves;
   }
@@ -383,10 +395,17 @@ async function userMutationsToFlush(): Promise<QueuedUserMutation[]> {
   return queued.map((mutation) => ({ id: mutation.id, intent: mutation.intent }));
 }
 
-/** The `noteSaves` channel's own flush (#192, ADR-0023): no Needs Reauth to gate on, same reason `userMutationsToFlush` has none — a Note is never about a Mail Account. */
-async function noteSavesToFlush(): Promise<NoteSave[]> {
-  const queued = await listQueuedNoteSaves();
-  return queued.map((save) => toWireNoteSave(save));
+/**
+ * The `documentSaves` channel's own flush (#192, #250, ADR-0023): no Needs
+ * Reauth to gate on, same reason `userMutationsToFlush` has none — a
+ * document-backed App collection is never about a Mail Account. Gathers
+ * every registered collection's own queue (`DOCUMENT_SAVE_COLLECTIONS`)
+ * rather than a hard-coded Note call.
+ */
+async function documentSavesToFlush(): Promise<DocumentSave[]> {
+  const saves: DocumentSave[] = [];
+  for (const entry of DOCUMENT_SAVE_COLLECTIONS) saves.push(...(await entry.listQueued()));
+  return saves;
 }
 
 /** The `seriesSaves` channel's own flush (#233) — `noteSavesToFlush`'s own shape: a Series is never about a Mail Account either. */

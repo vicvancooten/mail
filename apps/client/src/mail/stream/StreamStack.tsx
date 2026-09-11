@@ -5,17 +5,22 @@ import { buildReplyContent, type ReplyMode } from "../../compose/reply.js";
 import type { CachedThread } from "../../store/index.js";
 import {
   createNoteFromThreadLink,
+  createTaskFromThreadLink,
   deleteNote,
+  deleteTask,
   EMPTY_COMPOSE_CONTENT,
+  enqueueMutation,
   newCompositionId,
   saveComposition,
   THREAD_PAGE_SIZE,
   useConnectedAccounts,
   useLabels,
   useMailAccounts,
+  useTaskLists,
   useThreadWindow,
 } from "../../store/index.js";
 import { useLocalCacheSync } from "../../sync/use-local-cache-sync.js";
+import { type AddToTasksResult, AddToTasksSheet } from "../AddToTasksSheet.js";
 import { ActionsProvider, useActionKeyboard } from "../actions/ActionsProvider.js";
 import { publishActiveMailHost } from "../actions/active-mail-host.js";
 import { currentReaderHandle } from "../actions/surface-handles.js";
@@ -27,6 +32,7 @@ import { RollbackToast } from "../RollbackToast.js";
 import type { MailtoLink } from "../reading/mailto.js";
 import { useThreadMessages } from "../reading/useThreadMessages.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
+import { threadLinkSnapshot } from "../thread-link-snapshot.js";
 import { findThread, neighborId } from "../thread-navigation.js";
 import { PINNED_GROUP_LABEL, timeGroupLabel } from "../time-groups.js";
 import { announceUndoableAction } from "../undo-toast.js";
@@ -89,10 +95,13 @@ function noop() {}
 export function StreamStack({
   onLeave,
   onNoteCreated = noop,
+  onOpenTask = noop,
 }: {
   onLeave: () => void;
   /** "Add to Notes" (#195)'s own navigation once the new Note exists — `ThreadDetailPane`'s reader toolbar is shared with Mail's own Split/List view, so Stream needs the same real wiring `router/StreamRoute.tsx` gives it, not a stub that would leave the button silently doing nothing here. A no-op default for every unrouted caller, same posture `onLeave` above takes in every one of this file's own tests. */
   onNoteCreated?: (noteId: string) => void;
+  /** A Task chip's title (#259) — `onNoteCreated`'s own posture: real wiring from `router/StreamRoute.tsx`, a no-op default for every unrouted caller. */
+  onOpenTask?: (taskId: string) => void;
 }) {
   useLocalCacheSync();
   const { paletteOpen, openPalette } = usePaletteHost();
@@ -298,6 +307,61 @@ export function StreamStack({
     [onNoteCreated],
   );
 
+  // "Add to Tasks" (#258) — `MailSection.tsx`'s own three handlers
+  // duplicated here for the same reason `onAddToNotes` above already is:
+  // Stream's `topThreadSnapshot` is its own state, not Mail's
+  // `activeSelectedThread`.
+  const [addToTasksThread, setAddToTasksThread] = useState<CachedThread | null>(null);
+  const taskLists = useTaskLists();
+  const defaultTaskListId = (taskLists ?? []).find((list) => list.isDefault)?.id ?? null;
+
+  const onOpenAddToTasksSheet = useCallback((thread: CachedThread) => {
+    setAddToTasksThread(thread);
+  }, []);
+
+  const onAddToTasksConfirm = useCallback(
+    (result: AddToTasksResult) => {
+      const thread = addToTasksThread;
+      if (!thread) return;
+      void (async () => {
+        const taskId = await createTaskFromThreadLink(
+          result.taskListId,
+          result.title,
+          threadLinkSnapshot(thread),
+          result.dueDate,
+        );
+        announceUndoableAction("addToTask", () => void deleteTask(taskId));
+      })();
+    },
+    [addToTasksThread],
+  );
+
+  const onAddToTasksConfirmAndDone = useCallback(
+    (result: AddToTasksResult) => {
+      const thread = addToTasksThread;
+      if (!thread) return;
+      const accountForThread = thread.mailAccountId ?? accountId;
+      void (async () => {
+        const taskId = await createTaskFromThreadLink(
+          result.taskListId,
+          result.title,
+          threadLinkSnapshot(thread),
+          result.dueDate,
+        );
+        if (accountForThread) {
+          void enqueueMutation({ type: "archive", threadId: thread.id }, accountForThread);
+        }
+        announceUndoableAction("addToTaskAndDone", () => {
+          void deleteTask(taskId);
+          if (accountForThread) {
+            void enqueueMutation({ type: "restoreToInbox", threadId: thread.id }, accountForThread);
+          }
+        });
+      })();
+    },
+    [addToTasksThread, accountId],
+  );
+
   const actionContext = useMemo<ActionContext>(
     () => ({
       thread: topThreadSnapshot,
@@ -324,6 +388,7 @@ export function StreamStack({
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream: () => {},
       onAddToNotes,
+      onAddToTasks: onOpenAddToTasksSheet,
       onMove: () => {},
       threadCount: 0,
       openPicker: topThreadSnapshot ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -342,6 +407,7 @@ export function StreamStack({
       onLeave,
       skip,
       onAddToNotes,
+      onOpenAddToTasksSheet,
       openPalette,
     ],
   );
@@ -356,7 +422,10 @@ export function StreamStack({
     [actionContext],
   );
 
-  useActionKeyboard(actionContext, composeId !== null || shortcutSheetOpen || paletteOpen);
+  useActionKeyboard(
+    actionContext,
+    composeId !== null || shortcutSheetOpen || paletteOpen || addToTasksThread !== null,
+  );
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
   if (!page) return null;
@@ -426,6 +495,7 @@ export function StreamStack({
                     triage={triage}
                     onReply={openReply}
                     onMailtoLink={openMailtoLink}
+                    onOpenTask={onOpenTask}
                   />
                 </div>
               </div>
@@ -447,6 +517,16 @@ export function StreamStack({
         </div>
         <RollbackToast />
         <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+        <AddToTasksSheet
+          open={addToTasksThread !== null}
+          thread={addToTasksThread}
+          defaultTaskListId={defaultTaskListId}
+          onOpenChange={(open) => {
+            if (!open) setAddToTasksThread(null);
+          }}
+          onAdd={onAddToTasksConfirm}
+          onAddAndMarkDone={onAddToTasksConfirmAndDone}
+        />
         {composeId && accountId ? (
           <Suspense fallback={null}>
             <Composer

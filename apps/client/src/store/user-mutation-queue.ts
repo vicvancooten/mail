@@ -178,6 +178,84 @@ function coalesceKey(intent: UserMutationIntent): {
         targetId: [intent.contactId, intent.otherContactId].sort().join(":"),
         value: true,
       };
+
+    // Task Lists (#251). `createTaskList` gets its own bucket rather than
+    // pairing with `deleteTaskList`: unlike `createNote`/`deleteNote`,
+    // `deleteTaskList` already has a real inverse of its own
+    // (`restoreTaskList`, right below) to bucket-pair with — one intent type
+    // cannot pair with two different partners in this scheme, so
+    // `createTaskList` simply always flushes (a create immediately undone
+    // before it flushed costs one extra harmless round trip rather than
+    // cancelling for free, the one place this ticket's coalescing is not as
+    // tight as `Note`'s).
+    case "createTaskList":
+      return { type: "taskListCreate", targetId: intent.taskListId, value: true };
+    case "renameTaskList":
+      return { type: "taskListRename", targetId: intent.taskListId, value: true };
+    case "reorderTaskList":
+      return { type: "taskListReorder", targetId: intent.taskListId, value: true };
+    case "deleteTaskList":
+      return { type: "taskListTrash", targetId: intent.taskListId, value: true };
+    case "restoreTaskList":
+      return { type: "taskListTrash", targetId: intent.taskListId, value: false };
+
+    // Sections (#251) — `createSection`'s own bucket, `createTaskList`'s
+    // exact same reasoning above (its real pairing partner, `deleteSection`,
+    // is already spoken for by `restoreSection`).
+    case "createSection":
+      return { type: "sectionCreate", targetId: intent.sectionId, value: true };
+    case "renameSection":
+      return { type: "sectionRename", targetId: intent.sectionId, value: true };
+    case "reorderSections":
+      return { type: "sectionsReorder", targetId: intent.taskListId, value: true };
+    case "deleteSection":
+      return { type: "sectionTrash", targetId: intent.sectionId, value: true };
+    case "restoreSection":
+      return { type: "sectionTrash", targetId: intent.sectionId, value: false };
+
+    // Tasks (#251) — `createTask`/`deleteTask` is a genuine inverse pair,
+    // `createNote`/`deleteNote`'s exact shape (unlike Task List/Section,
+    // a Task's hard delete has no other pairing to compete with, since its
+    // own soft pair lives in the separate `taskTrash` bucket below).
+    case "createTask":
+      return { type: "task", targetId: intent.taskId, value: true };
+    case "deleteTask":
+      return { type: "task", targetId: intent.taskId, value: false };
+    case "setTaskTitle":
+      return { type: "taskTitle", targetId: intent.taskId, value: true };
+    case "setTaskDueDate":
+      return { type: "taskDueDate", targetId: intent.taskId, value: true };
+    case "setTaskDueTime":
+      return { type: "taskDueTime", targetId: intent.taskId, value: true };
+    case "completeTask":
+      return { type: "taskComplete", targetId: intent.taskId, value: true };
+    case "uncompleteTask":
+      return { type: "taskComplete", targetId: intent.taskId, value: false };
+    case "setTaskSection":
+      return { type: "taskSection", targetId: intent.taskId, value: true };
+    case "setTaskList":
+      return { type: "taskMoveList", targetId: intent.taskId, value: true };
+    case "reorderTask":
+      return { type: "taskReorder", targetId: intent.taskId, value: true };
+    case "trashTask":
+      return { type: "taskTrash", targetId: intent.taskId, value: true };
+    case "restoreTask":
+      return { type: "taskTrash", targetId: intent.taskId, value: false };
+    // `labelTask`/`unlabelTask` (#253) share one bucket keyed on
+    // `taskId:name`, `labelNote`/`unlabelNote`'s exact shape above.
+    case "labelTask":
+      return {
+        type: "taskLabel",
+        targetId: `${intent.taskId}:${normalizeLabelName(intent.name)}`,
+        value: true,
+      };
+    case "unlabelTask":
+      return {
+        type: "taskLabel",
+        targetId: `${intent.taskId}:${normalizeLabelName(intent.name)}`,
+        value: false,
+      };
+
     // `createSeries`/`deleteSeries` (#233) are a genuine inverse pair, the
     // same `"note"`-bucket shape `createNote`/`deleteNote` already have.
     case "createSeries":

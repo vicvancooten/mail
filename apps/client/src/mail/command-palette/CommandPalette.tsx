@@ -8,7 +8,7 @@ import { readCommandUsage, recordCommandUsage } from "../device-preferences.js";
 import type { ViewOrigin } from "../search/scope.js";
 import { formatIndexWatermark, type SearchState } from "../search/useSearchState.js";
 import { buildCommands, type PaletteCommand } from "./commands.js";
-import { type LocalHit, useLocalHits } from "./local-hits.js";
+import { type LocalHit, seeAllRouteFor, useLocalHits } from "./local-hits.js";
 
 /** `onOpenLocalHit`'s own no-op default — see that prop's doc comment below. */
 function noop() {}
@@ -16,19 +16,27 @@ function noop() {}
 /** At most this many most-used commands in the empty state (#148) — same size as the "~5 recent searches" it sits beside. */
 const MOST_USED_LIMIT = 5;
 
-/** A palette row is a Command, a mail hit, a local hit (#196, ADR-0023), or a recent search (#148) — one flat, keyboard-navigable list (#79's "keyboard-complete"). */
+/** A palette row is a Command, a mail hit, a local hit (#196, ADR-0023), a recent search (#148), or a local section's own "See all results" (#262) — one flat, keyboard-navigable list (#79's "keyboard-complete"). */
 type PaletteRow =
   | { kind: "command"; command: PaletteCommand }
   | { kind: "hit"; thread: CachedThread }
   | { kind: "local"; hit: LocalHit }
   | { kind: "see-all"; count: number }
-  | { kind: "recent"; query: string };
+  | { kind: "recent"; query: string }
+  | {
+      kind: "local-see-all";
+      section: string;
+      count: number;
+      to: string;
+      search: Record<string, string>;
+    };
 
 function rowValue(row: PaletteRow): string {
   if (row.kind === "command") return `command:${row.command.id}`;
   if (row.kind === "hit") return `hit:${row.thread.id}`;
   if (row.kind === "local") return `local:${row.hit.key}`;
   if (row.kind === "recent") return `recent:${row.query}`;
+  if (row.kind === "local-see-all") return `local-see-all:${row.section}`;
   return "see-all";
 }
 
@@ -115,18 +123,24 @@ export function CommandPalette({
   accountScope: readonly string[];
   /**
    * Selecting a local hit (#196) navigates outside Mail entirely
-   * (`/notes/:noteId` today) — a plain `to`/`params` pair rather than a
-   * typed route, since this component has no business knowing every App's
-   * routes. `router/RootLayout.tsx` is the one caller that actually holds a
-   * `navigate` (moved there with the Palette itself, #147/#133 — a local
-   * hit's destination is never Mail-scoped state, so it needs no relay
-   * through whichever Mail-family surface happens to be mounted, unlike
-   * `ctx`/`searchOrigin` above).
+   * (`/notes/:noteId`, `/tasks/:taskId`) — a plain `to`/`params` pair rather
+   * than a typed route, since this component has no business knowing every
+   * App's routes. A section's own "See all results" row (#262) reuses the
+   * same callback with an empty `params` and a `search` object instead
+   * (`/tasks?q=`). `router/RootLayout.tsx` is the one caller that actually
+   * holds a `navigate` (moved there with the Palette itself, #147/#133 — a
+   * local hit's destination is never Mail-scoped state, so it needs no
+   * relay through whichever Mail-family surface happens to be mounted,
+   * unlike `ctx`/`searchOrigin` above).
    *
    * Optional, no-op default only so a bare `<CommandPalette>` in a test
    * keeps compiling without inventing a handler it never exercises.
    */
-  onOpenLocalHit?: (to: string, params: Record<string, string>) => void;
+  onOpenLocalHit?: (
+    to: string,
+    params: Record<string, string>,
+    search?: Record<string, string>,
+  ) => void;
 }) {
   // `search.engage` (#100) seeds the scope from `searchOrigin` the same way
   // `open` does, so it must fire once per Palette session rather than on
@@ -181,6 +195,18 @@ export function CommandPalette({
   const allLocalHits = useLocalHits(query);
   const localHits = query.trim().length > 0 ? allLocalHits.slice(0, LOCAL_HITS_LIMIT) : [];
   const localHitsBySection = groupLocalHitsBySection(localHits);
+  // Counted off `allLocalHits` (uncapped) rather than the shown, capped
+  // `localHits` — a section's own "See all results (N)" (#262) must count
+  // every match, not just the up-to-`LOCAL_HITS_LIMIT` rendered inline.
+  const localHitCountBySection = groupLocalHitsBySection(allLocalHits).map(
+    ([section, hits]): [string, number] => [section, hits.length],
+  );
+  const seeAllBySection = new Map(
+    localHitCountBySection.flatMap(([section, count]) => {
+      const route = seeAllRouteFor(section, query);
+      return route ? [[section, { count, ...route }] as const] : [];
+    }),
+  );
 
   // Ranking (#148, docs/search-ux-spec.md §Search & commands): matching
   // commands first, capped at three *only* once Mail hits are also on
@@ -266,6 +292,14 @@ export function CommandPalette({
       // "See all results" move below rather than a half-open inline state.
       search.runRecent(row.query);
       search.openResultsView();
+      onClose();
+      return;
+    }
+    if (row.kind === "local-see-all") {
+      // A section's own "See all results" (#262) — narrows that App's own
+      // view with the query as a chip, `search` rather than `params`; no
+      // path params of its own, so an empty object.
+      onOpenLocalHit(row.to, {}, row.search);
       onClose();
       return;
     }
@@ -456,28 +490,57 @@ export function CommandPalette({
                 </CommandPrimitive.Group>
               ) : null}
 
-              {/* Local hits (#196): ranked beneath Commands and Mail, per section — one Group per App that has joined the mechanism, "Notes" today. Gated on a non-empty query (`localHits` above), so this never renders in the empty-field branch. */}
-              {localHitsBySection.map(([section, sectionHits]) => (
-                <CommandPrimitive.Group
-                  key={section}
-                  className="command-palette-section"
-                  heading={section}
-                >
-                  {sectionHits.map((hit) => {
-                    const row: PaletteRow = { kind: "local", hit };
-                    return (
+              {/* Local hits (#196, #262): ranked beneath Commands and Mail, per section — one Group per App that has joined the mechanism, "Notes" and "Tasks" today. Gated on a non-empty query (`localHits` above), so this never renders in the empty-field branch. */}
+              {localHitsBySection.map(([section, sectionHits]) => {
+                const seeAll = seeAllBySection.get(section);
+                return (
+                  <CommandPrimitive.Group
+                    key={section}
+                    className="command-palette-section"
+                    heading={section}
+                  >
+                    {sectionHits.map((hit) => {
+                      const row: PaletteRow = { kind: "local", hit };
+                      return (
+                        <CommandPrimitive.Item
+                          key={hit.key}
+                          value={rowValue(row)}
+                          onSelect={() => runRow(row)}
+                          className="command-palette-row"
+                        >
+                          <span className="command-palette-hit-subject">{hit.title}</span>
+                          {hit.badge ? (
+                            <span className="command-palette-hit-badge">{hit.badge}</span>
+                          ) : null}
+                        </CommandPrimitive.Item>
+                      );
+                    })}
+                    {seeAll ? (
                       <CommandPrimitive.Item
-                        key={hit.key}
-                        value={rowValue(row)}
-                        onSelect={() => runRow(row)}
-                        className="command-palette-row"
+                        value={rowValue({
+                          kind: "local-see-all",
+                          section,
+                          count: seeAll.count,
+                          to: seeAll.to,
+                          search: seeAll.search,
+                        })}
+                        onSelect={() =>
+                          runRow({
+                            kind: "local-see-all",
+                            section,
+                            count: seeAll.count,
+                            to: seeAll.to,
+                            search: seeAll.search,
+                          })
+                        }
+                        className="command-palette-row command-palette-see-all"
                       >
-                        <span className="command-palette-hit-subject">{hit.title}</span>
+                        See all {section} results ({seeAll.count})
                       </CommandPrimitive.Item>
-                    );
-                  })}
-                </CommandPrimitive.Group>
-              ))}
+                    ) : null}
+                  </CommandPrimitive.Group>
+                );
+              })}
             </>
           )}
         </CommandPrimitive.List>

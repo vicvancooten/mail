@@ -1,4 +1,4 @@
-import type { Note, SearchResponse } from "@mail/shared";
+import type { Note, SearchResponse, Task } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,10 +7,19 @@ import { localCache, openLocalCache } from "../../store/local-cache.js";
 import {
   applyMailAccountDelta,
   applyNoteDelta,
+  applyTaskDelta,
+  applyTaskListDelta,
   applyThreadDelta,
 } from "../../store/server-writes.js";
 import { resetSyncStatus } from "../../sync/sync-loop.js";
-import { delta, makeMailAccount, makeNote, makeThread } from "../../test-support/mail-fixtures.js";
+import {
+  delta,
+  makeMailAccount,
+  makeNote,
+  makeTask,
+  makeTaskList,
+  makeThread,
+} from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { resetActiveMailHost } from "../actions/active-mail-host.js";
 import { resetSurfaceHandles } from "../actions/surface-handles.js";
@@ -123,6 +132,17 @@ async function seedNotes(...notes: Partial<Note>[]): Promise<void> {
 
 function renderApp() {
   return render(<App />);
+}
+
+/** #262's own stubbed User — a Task List and its Tasks are User-scoped the same way a Note is. */
+async function seedTask(overrides: Partial<Task> = {}) {
+  await applyTaskListDelta(delta({ created: [makeTaskList("list-1", NOTES_USER)] }), {
+    replace: false,
+  });
+  await applyTaskDelta(
+    delta({ created: [makeTask(overrides.id ?? "task-1", NOTES_USER, "list-1", overrides)] }),
+    { replace: false },
+  );
 }
 
 describe("Command Palette (#79, lifted to Hub level by #147)", () => {
@@ -558,5 +578,109 @@ describe("Notes in the Command Palette (#196)", () => {
     // "Enter opens the top hit" above uses (an actually-open surface, not a
     // spied callback).
     expect(await screen.findByRole("dialog", { name: "Grocery list" })).toBeDefined();
+  });
+});
+
+describe("Tasks in the Command Palette (#262)", () => {
+  it("shows a matching Task as a local hit, ranked beneath Commands and Mail", async () => {
+    await seedOneThread();
+    await seedTask({ title: "Invoice follow-up" });
+    const searchResponse: SearchResponse = {
+      results: [
+        {
+          thread: makeThread("t-invoice", "acct-1", { subject: "Invoice March" }),
+          matchedMessageId: "t-invoice-msg",
+          headline: null,
+          folder: { id: "f1", name: "Inbox", role: "inbox" },
+          gatekeeper: null,
+        },
+      ],
+      cursor: null,
+      indexWatermark: { coveredSince: null, complete: true },
+    };
+    stubFetch(() => Promise.resolve(jsonResponse(searchResponse)));
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "invoice" } });
+
+    const mailHit = await screen.findByText("Invoice March", {
+      selector: ".command-palette-hit-subject",
+    });
+    const taskHit = await screen.findByText("Invoice follow-up", {
+      selector: ".command-palette-hit-subject",
+    });
+    expect(
+      mailHit.compareDocumentPosition(taskHit) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("marks a completed Task with a 'Done' badge", async () => {
+    await seedOneThread();
+    await seedTask({ id: "task-done", title: "Sprocket task", completed: true });
+    stubFetch();
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+
+    fireEvent.change(field, { target: { value: "sprocket" } });
+
+    const taskHit = await screen.findByText("Sprocket task", {
+      selector: ".command-palette-hit-subject",
+    });
+    expect(
+      within(taskHit.closest("[role='option']") as HTMLElement).getByText("Done"),
+    ).toBeDefined();
+  });
+
+  it("selecting a Task hit opens it via real navigation and closes the Palette", async () => {
+    await seedOneThread();
+    await seedTask({ title: "Buy oat milk" });
+    stubFetch();
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+    fireEvent.change(field, { target: { value: "oat milk" } });
+    const taskHit = await screen.findByText("Buy oat milk", {
+      selector: ".command-palette-hit-subject",
+    });
+
+    fireEvent.click(taskHit);
+
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+    // Real navigation (`router/RootLayout.tsx`'s `onOpenLocalHit`, over the
+    // full routed tree per this file's own doc comment) to `/tasks/task-1`,
+    // which expands the Task in place (#253) — the same proof the Note hit
+    // test above uses (an actually-open surface, not a spied callback).
+    const titleInput = (await screen.findByLabelText("Task title")) as HTMLInputElement;
+    expect(titleInput.value).toBe("Buy oat milk");
+  });
+
+  it("'See all Tasks results' narrows the Tasks App via real navigation, and closes the Palette", async () => {
+    await seedOneThread();
+    await seedTask({ title: "Buy oat milk" });
+    stubFetch();
+
+    renderApp();
+    await screen.findByText("Origin thread");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const field = await screen.findByLabelText("Search commands and mail");
+    fireEvent.change(field, { target: { value: "oat milk" } });
+    const seeAllTasks = await screen.findByRole("option", { name: /See all Tasks results/ });
+
+    fireEvent.click(seeAllTasks);
+
+    await waitFor(() => expect(screen.queryByLabelText("Search commands and mail")).toBeNull());
+    // Real navigation to `/tasks?q=oat milk` (`TasksSearchResults.tsx`'s own
+    // doc comment on the query riding as a read-only chip).
+    expect(await screen.findByRole("region", { name: "Task search results" })).toBeDefined();
+    expect(await screen.findByText("Buy oat milk")).toBeDefined();
   });
 });

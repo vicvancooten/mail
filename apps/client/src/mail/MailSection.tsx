@@ -23,8 +23,11 @@ import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   type CachedThread,
   createNoteFromThreadLink,
+  createTaskFromThreadLink,
   deleteNote,
+  deleteTask,
   EMPTY_COMPOSE_CONTENT,
+  enqueueMutation,
   labelNameForId,
   newCompositionId,
   saveComposition,
@@ -37,11 +40,13 @@ import {
   useMailAccounts,
   usePreference,
   useScreenerSenders,
+  useTaskLists,
   useThreadWindow,
 } from "../store/index.js";
 import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
+import { type AddToTasksResult, AddToTasksSheet } from "./AddToTasksSheet.js";
 import { ActionsProvider, useActionKeyboard } from "./actions/ActionsProvider.js";
 import { publishActiveMailHost } from "./actions/active-mail-host.js";
 import { currentListHandle, currentReaderHandle } from "./actions/surface-handles.js";
@@ -72,6 +77,7 @@ import { scrollRestoreKey } from "./scroll-restore.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { wrapSearchTriage } from "./search/useSearchState.js";
+import { threadLinkSnapshot } from "./thread-link-snapshot.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { announceUndoableAction } from "./undo-toast.js";
 import { deriveMailAccountScope, useAccountScope } from "./useAccountScope.js";
@@ -191,6 +197,7 @@ export function MailSection({
   onLocationChange,
   onOpenStream = noop,
   onNoteCreated = noop,
+  onOpenTask = noop,
 }: {
   initialLabelFilter?: string | null;
   initialFolder?: FolderKey;
@@ -209,6 +216,8 @@ export function MailSection({
   onOpenStream?: () => void;
   /** "Add to Notes" (#195)'s own navigation, fired once the new Note actually exists in the Local Cache (the internal `onAddToNotes` handler below awaits the store write first — `notesNoteRoute`'s own `beforeLoad` redirects a `/notes/$noteId` that doesn't resolve yet) — `router/MailRoute.tsx`'s navigation to that route; a no-op default for every unrouted caller (every test in this file included), same posture `onOpenStream` above takes. */
   onNoteCreated?: (noteId: string) => void;
+  /** The Reader's Task chips (#259, `ReaderTaskChips.tsx`'s own doc comment) — `router/MailRoute.tsx`'s navigation to `/tasks/:taskId`; same no-op-default, router-agnostic posture as `onOpenStream`. */
+  onOpenTask?: (taskId: string) => void;
 } = {}) {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts();
@@ -977,6 +986,14 @@ export function MailSection({
   // (opening one while the other's up just replaces it, no stacking logic
   // needed).
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
+  // "Add to Tasks" (#258): the sheet's own open state and the Thread it's
+  // about — `null` while closed, same "the sheet owns nothing but its own
+  // draft" split `AddToTasksSheet.tsx`'s own doc comment draws. Task Lists
+  // are read here (not inside the sheet component) only for `defaultTaskListId`
+  // below; the sheet itself reads the live list straight off `useTaskLists()`.
+  const [addToTasksThread, setAddToTasksThread] = useState<CachedThread | null>(null);
+  const taskLists = useTaskLists();
+  const defaultTaskListId = (taskLists ?? []).find((list) => list.isDefault)?.id ?? null;
 
   // The phone folder Sheet (#155): controlled from here now rather than
   // `Sidebar.tsx`'s own uncontrolled `openMobile`, so the bottom bar's
@@ -1077,6 +1094,77 @@ export function MailSection({
   );
 
   /**
+   * "Add to Tasks" (#258): opens the sheet on `thread` — the registry's own
+   * `onAddToTasks`, a one-line forward like `onAddToNotes` above, except
+   * this never creates anything itself. `AddToTasksSheet` reads
+   * `addToTasksThread` back out through its own `thread` prop.
+   */
+  const onOpenAddToTasksSheet = useCallback((thread: CachedThread) => {
+    setAddToTasksThread(thread);
+  }, []);
+
+  /**
+   * "Add" (#258): creates the Task around the Thread Link field and closes
+   * the sheet, one undo toast — `onAddToNotes`'s exact shape, just handed a
+   * Task List id and a Due from the sheet's own draft.
+   */
+  const onAddToTasksConfirm = useCallback(
+    (result: AddToTasksResult) => {
+      const thread = addToTasksThread;
+      if (!thread) return;
+      void (async () => {
+        const taskId = await createTaskFromThreadLink(
+          result.taskListId,
+          result.title,
+          threadLinkSnapshot(thread),
+          result.dueDate,
+        );
+        announceUndoableAction("addToTask", () => void deleteTask(taskId));
+      })();
+    },
+    [addToTasksThread],
+  );
+
+  /**
+   * "Add and mark Done" (#258): the Task *and* archiving the Thread as one
+   * action under one toast, whose one Undo reverses both together (the
+   * ticket's own acceptance line) — deliberately **not**
+   * `activeTriage.archive`, which raises its own separate "done" toast/Undo
+   * (`useTriage.ts#archive`): that would leave the Task's own Undo stranded
+   * behind a second, unrelated toast, and this Thread's "done" Undo would
+   * restore it to the Inbox without ever touching the Task just created for
+   * it. `enqueueMutation` here is the same `{ type: "archive" }` intent
+   * `archive` itself sends, just without its own announced Undo — the
+   * combined `undo` thunk below enqueues both real inverses
+   * (`deleteTask`/`restoreToInbox`) in the same breath.
+   */
+  const onAddToTasksConfirmAndDone = useCallback(
+    (result: AddToTasksResult) => {
+      const thread = addToTasksThread;
+      if (!thread) return;
+      const accountForThread = thread.mailAccountId ?? accountId;
+      void (async () => {
+        const taskId = await createTaskFromThreadLink(
+          result.taskListId,
+          result.title,
+          threadLinkSnapshot(thread),
+          result.dueDate,
+        );
+        if (accountForThread) {
+          void enqueueMutation({ type: "archive", threadId: thread.id }, accountForThread);
+        }
+        announceUndoableAction("addToTaskAndDone", () => {
+          void deleteTask(taskId);
+          if (accountForThread) {
+            void enqueueMutation({ type: "restoreToInbox", threadId: thread.id }, accountForThread);
+          }
+        });
+      })();
+    },
+    [addToTasksThread, accountId],
+  );
+
+  /**
    * The Action registry's context (#94) — built once, here, and handed both
    * to the single `keydown` listener and (through `ActionsProvider`) to
    * every surface that draws a control: the row cluster, the row/reader/
@@ -1107,6 +1195,7 @@ export function MailSection({
       onOpenShortcutSheet: () => setShortcutSheetOpen(true),
       onOpenStream,
       onAddToNotes,
+      onAddToTasks: onOpenAddToTasksSheet,
       onMove: moveSelection,
       threadCount: activeIds.length,
       openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -1128,6 +1217,7 @@ export function MailSection({
       openPalette,
       onOpenStream,
       onAddToNotes,
+      onOpenAddToTasksSheet,
       moveSelection,
       activeIds.length,
     ],
@@ -1144,10 +1234,15 @@ export function MailSection({
   // **The** `keydown` listener (#94). Inert while the composer owns the
   // keyboard (#45), while the Screener is up with its own modal scheme, and
   // while either overlay is — the Palette handles its own keys, and the
-  // Sheet must not let `e` archive something behind it.
+  // Sheet must not let `e` archive something behind it. "Add to Tasks"'s own
+  // sheet (#258) joins that list for the same reason.
   useActionKeyboard(
     actionContext,
-    composeId !== null || screenerOpen || paletteOpen || shortcutSheetOpen,
+    composeId !== null ||
+      screenerOpen ||
+      paletteOpen ||
+      shortcutSheetOpen ||
+      addToTasksThread !== null,
   );
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
@@ -1189,6 +1284,7 @@ export function MailSection({
                 triage={searchTriage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
+                onOpenTask={onOpenTask}
                 accounts={mailAccounts}
                 mailAccountId={accountId}
                 accountScope={accountScope}
@@ -1213,6 +1309,7 @@ export function MailSection({
                 triage={searchTriage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
+                onOpenTask={onOpenTask}
                 density={density}
                 groupBulk={groupBulk}
               />
@@ -1236,6 +1333,7 @@ export function MailSection({
                 triage={triage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
+                onOpenTask={onOpenTask}
                 initialScrollThreadId={lastSelectedThreadIdRef.current}
                 scrollRestoreKey={listScrollRestoreKey}
                 density={density}
@@ -1253,6 +1351,7 @@ export function MailSection({
                 triage={triage}
                 onReply={openReply}
                 onMailtoLink={openMailto}
+                onOpenTask={onOpenTask}
                 initialScrollThreadId={lastSelectedThreadIdRef.current}
                 scrollRestoreKey={listScrollRestoreKey}
                 density={density}
@@ -1267,6 +1366,16 @@ export function MailSection({
         <NewMailToast />
         <NotificationOfferBanner />
         <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+        <AddToTasksSheet
+          open={addToTasksThread !== null}
+          thread={addToTasksThread}
+          defaultTaskListId={defaultTaskListId}
+          onOpenChange={(open) => {
+            if (!open) setAddToTasksThread(null);
+          }}
+          onAdd={onAddToTasksConfirm}
+          onAddAndMarkDone={onAddToTasksConfirmAndDone}
+        />
         {composeId && accountId && (
           <Suspense fallback={null}>
             <Composer

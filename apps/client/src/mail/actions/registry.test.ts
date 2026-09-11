@@ -82,6 +82,7 @@ describe("the Action registry", () => {
       "label",
       "toggle-read",
       "add-to-notes",
+      "add-to-tasks",
     ]) {
       const action = ACTIONS.find((candidate) => candidate.id === id);
       const availability = action?.availability(ctx);
@@ -103,6 +104,7 @@ describe("the Action registry", () => {
     expect(ids).toContain("label");
     expect(ids).toContain("trash");
     expect(ids).toContain("add-to-notes");
+    expect(ids).toContain("add-to-tasks");
     // #144: Spam, Approve and Block are reachable from any Inbox Thread's
     // own row menu, not only the Screener's contextual entries.
     expect(ids).toContain("spam");
@@ -123,6 +125,19 @@ describe("the Action registry", () => {
 
     expect(onAddToNotes).toHaveBeenCalledTimes(1);
     expect(onAddToNotes).toHaveBeenCalledWith(thread);
+  });
+
+  it('"Add to Tasks" (#258) forwards the Thread to ctx.onAddToTasks, nothing else', () => {
+    const onAddToTasks = vi.fn();
+    const thread = makeThread();
+    const ctx = withThread(noopActionContext({ onAddToTasks }), thread);
+    const action = ACTIONS.find((candidate) => candidate.id === "add-to-tasks");
+
+    expect(action?.availability(ctx)).toEqual({ available: true });
+    action?.run(ctx);
+
+    expect(onAddToTasks).toHaveBeenCalledTimes(1);
+    expect(onAddToTasks).toHaveBeenCalledWith(thread);
   });
 
   it("flips its own label with the state it toggles", () => {

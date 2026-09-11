@@ -1,4 +1,4 @@
-import type { Note, NoteDocument, NoteSave, NoteSaveOutcome } from "@mail/shared";
+import type { DocumentSave, DocumentSaveOutcome, Note, NoteDocument } from "@mail/shared";
 import { EMPTY_NOTE_DOCUMENT } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
 import type { PendingNoteSave } from "./db.js";
@@ -8,10 +8,10 @@ import { generateUlid } from "./ulid.js";
 import { enqueueUserMutation } from "./user-mutation-queue.js";
 
 /**
- * A Note's Local Cache row and the `noteSaves` channel's coalescing queue
- * (#192, ADR-0023) — component-facing read and write together, `sync/`-facing
- * flush together, the same "one focused concern, one module" shape
- * `compositions.ts` uses for its own autosave queue.
+ * A Note's Local Cache row and the `documentSaves` channel's coalescing
+ * queue (#192, #250, ADR-0023) — component-facing read and write together,
+ * `sync/`-facing flush together, the same "one focused concern, one module"
+ * shape `compositions.ts` uses for its own autosave queue.
  *
  * Structural actions (create, delete, label, unlabel) ride the User-scoped
  * Optimistic Action queue (`user-mutation-queue.ts`) with real inverses
@@ -117,7 +117,7 @@ export interface ThreadLinkSnapshot {
  * — no intermediate sheet, unlike a future "Add to Tasks" (the ticket's own
  * framing). Rides `createNote`'s own optimistic-with-a-real-inverse shape
  * (ADR-0019) for the structural half, then immediately overwrites the empty
- * body through `saveNoteBody` (the `noteSaves` channel, #192) with the
+ * body through `saveNoteBody` (the `documentSaves` channel, #192, #250) with the
  * paragraph + Thread Link the ticket asks for — the paragraph carries the
  * Thread's subject as its first block, editable, which is exactly what
  * `note-text.ts#deriveNoteTitle` reads until the User changes it.
@@ -257,9 +257,10 @@ async function removeLabelLocally(id: string, name: string): Promise<void> {
 }
 
 /**
- * Writes one body autosave (#192, ADR-0023) — the `noteSaves` channel's
- * write side, `saveComposition`'s sibling: the durable row and the
- * coalescing queue are written in one transaction, so a reload between them
+ * Writes one body autosave (#192, #250, ADR-0023) — the `documentSaves`
+ * channel's write side for the `Note` collection, `saveComposition`'s
+ * sibling: the durable row and the coalescing queue are written in one
+ * transaction, so a reload between them
  * can never observe one without the other. Coalescing is `pendingNoteSaves
  * .put()`'s own upsert semantics: a second call for the same `id` before the
  * first has flushed simply overwrites the queued row.
@@ -298,8 +299,14 @@ export async function listQueuedNoteSaves(): Promise<PendingNoteSave[]> {
   return localCache().pendingNoteSaves.toArray();
 }
 
-export function toWireNoteSave(pending: PendingNoteSave): NoteSave {
-  return { id: pending.noteId, saveId: pending.saveId, document: pending.document };
+/** This collection's entry on the `documentSaves` channel (#250) — tags a queued row with the `Note` collection key the wire carries it under. */
+export function toWireNoteSave(pending: PendingNoteSave): DocumentSave {
+  return {
+    collection: "Note",
+    id: pending.noteId,
+    saveId: pending.saveId,
+    document: pending.document,
+  };
 }
 
 /**
@@ -308,12 +315,12 @@ export function toWireNoteSave(pending: PendingNoteSave): NoteSave {
  * already-coalesced save overwrote it mid-flight, and that save is what
  * flushes next, never this stale outcome's (`resolveComposeSaveOutcomes`'s
  * own doc comment gives the same reasoning). Every outcome is `applied`
- * (`@mail/shared#noteSaveOutcomeSchema`'s own doc comment) — there is no
+ * (`@mail/shared#documentSaveOutcomeSchema`'s own doc comment) — there is no
  * conflict branch to react to here.
  */
 export async function resolveNoteSaveOutcomes(
-  queued: NoteSave[],
-  outcomes: NoteSaveOutcome[],
+  queued: DocumentSave[],
+  outcomes: DocumentSaveOutcome[],
 ): Promise<void> {
   const ids = new Set(queued.map((save) => save.id));
   const db = localCache();

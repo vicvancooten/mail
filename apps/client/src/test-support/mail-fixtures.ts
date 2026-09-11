@@ -14,6 +14,8 @@ import type {
   MailAccount,
   Note,
   Rollback,
+  Task,
+  TaskList,
   Thread,
 } from "@mail/shared";
 import {
@@ -186,6 +188,54 @@ export function makeNote(id: string, userId: string, overrides: Partial<Note> = 
     document: EMPTY_NOTE_DOCUMENT,
     labelIds: [],
     pinned: false,
+    deletedAt: null,
+    createdAt: "2026-06-01T12:00:00.000Z",
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `TaskList` (#251, ADR-0030) — `makeNote`'s sibling: User-scoped, whole-replicated, its own body is `sections` rather than a document. */
+export function makeTaskList(
+  id: string,
+  userId: string,
+  overrides: Partial<TaskList> = {},
+): TaskList {
+  return {
+    id,
+    userId,
+    name: id,
+    sections: [],
+    isDefault: false,
+    order: 0,
+    deletedAt: null,
+    createdAt: "2026-06-01T12:00:00.000Z",
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Task` (#251, ADR-0030) — `makeNote`'s other sibling, placed in a List by `taskListId`. */
+export function makeTask(
+  id: string,
+  userId: string,
+  taskListId: string,
+  overrides: Partial<Task> = {},
+): Task {
+  return {
+    id,
+    userId,
+    taskListId,
+    sectionId: null,
+    title: id,
+    document: EMPTY_NOTE_DOCUMENT,
+    completed: false,
+    completedAt: null,
+    dueDate: null,
+    dueTime: null,
+    labelIds: [],
+    threadLink: null,
+    order: 0,
     deletedAt: null,
     createdAt: "2026-06-01T12:00:00.000Z",
     updatedAt: "2026-06-01T12:00:00.000Z",

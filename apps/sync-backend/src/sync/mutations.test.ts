@@ -16,6 +16,8 @@ import {
   reminderDue,
   series,
   syncTombstones,
+  taskLists,
+  tasks,
   threads,
   users,
 } from "../db/schema.js";
@@ -33,10 +35,17 @@ import { resolveThread } from "./threading.js";
  * database boundary.
  */
 let db: Db;
-let closeDb: () => Promise<void>;
+let closeDb: (() => Promise<void>) | undefined;
 let account: MailAccountRow;
 
 beforeEach(async () => {
+  // Closes the previous test's own pool before opening a fresh one — this
+  // file's own `beforeEach`/`afterAll` split (closing only the very last
+  // pool) otherwise leaks one `postgres.js` connection per test, and this is
+  // now the one file in the suite with enough cases (113, #251's own Task
+  // cases pushed it past the mark) to exhaust the dev Postgres' own
+  // `max_connections` before `afterAll` ever runs.
+  await closeDb?.();
   const created = await createTestDb();
   db = created.db;
   closeDb = () => created.sql.end();
@@ -1933,5 +1942,697 @@ describe("flushUserMutations — setAnswerNotificationsEnabled (#243)", () => {
     expect(outcomes).toEqual([{ id: "01ANSWERTOGGLE", status: "applied" }]);
     const [row] = await db.select().from(users).where(eq(users.id, account.userId));
     expect(row?.answerNotificationsEnabled).toBe(false);
+  });
+});
+
+/**
+ * Task and Task List structural intents (#251, ADR-0030): `flushUserMutations`'s
+ * own dispatch, the Note describe block above's exact template — same
+ * User-scoped queue, same ledger-idempotency, same "real inverse round trip"
+ * shape (ADR-0019).
+ */
+describe("flushUserMutations — Task List and Task structural intents (#251, ADR-0030)", () => {
+  async function taskListRow(id: string) {
+    const [row] = await db.select().from(taskLists).where(eq(taskLists.id, id)).limit(1);
+    return row;
+  }
+
+  async function taskRow(id: string) {
+    const [row] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    return row;
+  }
+
+  describe("Task List", () => {
+    it("creates a Task List with the Client-given ULID, empty Sections, not the default", async () => {
+      const taskListId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01CREATE", status: "applied" }]);
+      const row = await taskListRow(taskListId);
+      expect(row).toMatchObject({
+        id: taskListId,
+        userId: account.userId,
+        name: "Errands",
+        sections: [],
+        isDefault: false,
+      });
+    });
+
+    it("is idempotent: a retried createTaskList id replays its recorded outcome", async () => {
+      const taskListId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01CREATE", status: "applied" }]);
+      expect(await db.select().from(taskLists).where(eq(taskLists.id, taskListId))).toHaveLength(1);
+    });
+
+    it("renames a Task List", async () => {
+      const taskListId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01RENAME", intent: { type: "renameTaskList", taskListId, name: "Chores" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01RENAME", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.name).toBe("Chores");
+    });
+
+    it("reorders a Task List", async () => {
+      const taskListId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01CREATE", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01REORDER", intent: { type: "reorderTaskList", taskListId, order: 4 } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01REORDER", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.order).toBe(4);
+    });
+
+    it("deletes a Task List, cascading a soft delete onto the Client-captured Tasks it took", async () => {
+      const taskListId = randomUUID();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01LIST", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+        {
+          id: "01TASK",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01DELETE", intent: { type: "deleteTaskList", taskListId, taskIds: [taskId] } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01DELETE", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.deletedAt).not.toBeNull();
+      expect((await taskRow(taskId))?.deletedAt).not.toBeNull();
+    });
+
+    it("restores a Task List, the real inverse of deleteTaskList — List and every Task it took come back", async () => {
+      const taskListId = randomUUID();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01LIST", intent: { type: "createTaskList", taskListId, name: "Errands" } },
+        {
+          id: "01TASK",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+        { id: "01DELETE", intent: { type: "deleteTaskList", taskListId, taskIds: [taskId] } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01RESTORE", intent: { type: "restoreTaskList", taskListId, taskIds: [taskId] } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.deletedAt).toBeNull();
+      expect((await taskRow(taskId))?.deletedAt).toBeNull();
+    });
+
+    it("never deletes the seeded default List — a property of isDefault, not the name", async () => {
+      const defaultId = `${account.userId}:default`;
+      await db.insert(taskLists).values({
+        id: defaultId,
+        userId: account.userId,
+        name: "Tasks",
+        isDefault: true,
+      });
+      // Renaming it away from "Tasks" must not open the delete back up.
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01RENAME",
+          intent: { type: "renameTaskList", taskListId: defaultId, name: "Errands" },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01DELETE", intent: { type: "deleteTaskList", taskListId: defaultId, taskIds: [] } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01DELETE", status: "rejected", reason: "default_list" }]);
+      expect((await taskListRow(defaultId))?.deletedAt).toBeNull();
+    });
+  });
+
+  describe("Section", () => {
+    async function createList(): Promise<string> {
+      const taskListId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: randomUUID(), intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+      return taskListId;
+    }
+
+    it("creates a Section, appended to the List's ordered array", async () => {
+      const taskListId = await createList();
+      const sectionId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01SECTION",
+          intent: { type: "createSection", taskListId, sectionId, name: "Today" },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01SECTION", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.sections).toEqual([{ id: sectionId, name: "Today" }]);
+    });
+
+    it("renames a Section in place", async () => {
+      const taskListId = await createList();
+      const sectionId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01SECTION",
+          intent: { type: "createSection", taskListId, sectionId, name: "Today" },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01RENAME",
+          intent: { type: "renameSection", taskListId, sectionId, name: "This week" },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01RENAME", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.sections).toEqual([
+        { id: sectionId, name: "This week" },
+      ]);
+    });
+
+    it("reorders Sections to the Client's given order", async () => {
+      const taskListId = await createList();
+      const a = randomUUID();
+      const b = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01A", intent: { type: "createSection", taskListId, sectionId: a, name: "A" } },
+        { id: "01B", intent: { type: "createSection", taskListId, sectionId: b, name: "B" } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01REORDER",
+          intent: { type: "reorderSections", taskListId, sectionIds: [b, a] },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01REORDER", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.sections.map((section) => section.id)).toEqual([
+        b,
+        a,
+      ]);
+    });
+
+    it("deletes a Section, moving its Tasks to the List's first remaining Section in the same intent", async () => {
+      const taskListId = await createList();
+      const first = randomUUID();
+      const second = randomUUID();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01A", intent: { type: "createSection", taskListId, sectionId: first, name: "A" } },
+        { id: "01B", intent: { type: "createSection", taskListId, sectionId: second, name: "B" } },
+        {
+          id: "01TASK",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: second,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01DELETE",
+          intent: { type: "deleteSection", taskListId, sectionId: second, taskIds: [taskId] },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01DELETE", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.sections).toEqual([{ id: first, name: "A" }]);
+      expect((await taskRow(taskId))?.sectionId).toBe(first);
+    });
+
+    it("restores a Section, the real inverse of deleteSection — Section and its Tasks return", async () => {
+      const taskListId = await createList();
+      const first = randomUUID();
+      const second = randomUUID();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: "01A", intent: { type: "createSection", taskListId, sectionId: first, name: "A" } },
+        { id: "01B", intent: { type: "createSection", taskListId, sectionId: second, name: "B" } },
+        {
+          id: "01TASK",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: second,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+        {
+          id: "01DELETE",
+          intent: { type: "deleteSection", taskListId, sectionId: second, taskIds: [taskId] },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01RESTORE",
+          intent: {
+            type: "restoreSection",
+            taskListId,
+            sectionId: second,
+            name: "B",
+            index: 1,
+            taskIds: [taskId],
+          },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+      expect((await taskListRow(taskListId))?.sections).toEqual([
+        { id: first, name: "A" },
+        { id: second, name: "B" },
+      ]);
+      expect((await taskRow(taskId))?.sectionId).toBe(second);
+    });
+  });
+
+  describe("Task", () => {
+    async function createList(): Promise<string> {
+      const taskListId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        { id: randomUUID(), intent: { type: "createTaskList", taskListId, name: "Errands" } },
+      ]);
+      return taskListId;
+    }
+
+    it("creates a Task with the Client-given ULID, unsectioned, incomplete", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 1,
+          },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01CREATE", status: "applied" }]);
+      const row = await taskRow(taskId);
+      expect(row).toMatchObject({
+        id: taskId,
+        userId: account.userId,
+        taskListId,
+        sectionId: null,
+        title: "Buy milk",
+        completed: false,
+        order: 1,
+      });
+    });
+
+    it("rejects createTask against a Task List this User does not have", async () => {
+      const taskId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId: randomUUID(),
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      expect(outcomes).toEqual([
+        { id: "01CREATE", status: "rejected", reason: "task_list_not_found" },
+      ]);
+    });
+
+    it("deletes a Task permanently and records a tombstone — the real inverse of createTask", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01DELETE", intent: { type: "deleteTask", taskId } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01DELETE", status: "applied" }]);
+      expect(await taskRow(taskId)).toBeUndefined();
+      const [tombstone] = await db
+        .select()
+        .from(syncTombstones)
+        .where(eq(syncTombstones.entityId, taskId));
+      expect(tombstone).toMatchObject({
+        collection: "Task",
+        entityId: taskId,
+        mailAccountId: null,
+      });
+    });
+
+    it("patches title and due date, each its own field", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01TITLE", intent: { type: "setTaskTitle", taskId, title: "Buy oat milk" } },
+        {
+          id: "01DUE",
+          intent: { type: "setTaskDueDate", taskId, dueDate: "2026-06-01T08:00:00.000Z" },
+        },
+      ]);
+
+      expect(outcomes).toEqual([
+        { id: "01TITLE", status: "applied" },
+        { id: "01DUE", status: "applied" },
+      ]);
+      const row = await taskRow(taskId);
+      expect(row?.title).toBe("Buy oat milk");
+      expect(row?.dueDate?.toISOString()).toBe("2026-06-01T08:00:00.000Z");
+    });
+
+    it("completes and uncompletes a Task, a genuine inverse pair", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      await flushUserMutations(db, account.userId, [
+        { id: "01COMPLETE", intent: { type: "completeTask", taskId } },
+      ]);
+      let row = await taskRow(taskId);
+      expect(row?.completed).toBe(true);
+      expect(row?.completedAt).not.toBeNull();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01UNCOMPLETE", intent: { type: "uncompleteTask", taskId } },
+      ]);
+      expect(outcomes).toEqual([{ id: "01UNCOMPLETE", status: "applied" }]);
+      row = await taskRow(taskId);
+      expect(row?.completed).toBe(false);
+      expect(row?.completedAt).toBeNull();
+    });
+
+    it("moves a Task to a different Section within its List", async () => {
+      const taskListId = await createList();
+      const sectionId = randomUUID();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01SECTION",
+          intent: { type: "createSection", taskListId, sectionId, name: "Today" },
+        },
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01MOVE", intent: { type: "setTaskSection", taskId, sectionId } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01MOVE", status: "applied" }]);
+      expect((await taskRow(taskId))?.sectionId).toBe(sectionId);
+    });
+
+    it("moves a Task to a different List", async () => {
+      const taskListId = await createList();
+      const destinationId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01MOVE",
+          intent: { type: "setTaskList", taskId, taskListId: destinationId, sectionId: null },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01MOVE", status: "applied" }]);
+      expect((await taskRow(taskId))?.taskListId).toBe(destinationId);
+    });
+
+    it("reorders a Task", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01REORDER", intent: { type: "reorderTask", taskId, order: 2.5 } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01REORDER", status: "applied" }]);
+      expect((await taskRow(taskId))?.order).toBe(2.5);
+    });
+
+    it("trashes and restores a Task, a genuine inverse pair distinct from deleteTask", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      await flushUserMutations(db, account.userId, [
+        { id: "01TRASH", intent: { type: "trashTask", taskId } },
+      ]);
+      expect((await taskRow(taskId))?.deletedAt).not.toBeNull();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01RESTORE", intent: { type: "restoreTask", taskId } },
+      ]);
+      expect(outcomes).toEqual([{ id: "01RESTORE", status: "applied" }]);
+      expect((await taskRow(taskId))?.deletedAt).toBeNull();
+    });
+
+    it("rejects field/lifecycle intents against a Task this User does not have", async () => {
+      const missingId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01TITLE", intent: { type: "setTaskTitle", taskId: missingId, title: "x" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01TITLE", status: "rejected", reason: "task_not_found" }]);
+    });
+
+    it("patches a floating due time, independent of setTaskDueDate", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        {
+          id: "01DUE",
+          intent: { type: "setTaskDueDate", taskId, dueDate: "2026-06-01T00:00:00.000Z" },
+        },
+        { id: "01TIME", intent: { type: "setTaskDueTime", taskId, dueTime: "14:30" } },
+      ]);
+
+      expect(outcomes).toEqual([
+        { id: "01DUE", status: "applied" },
+        { id: "01TIME", status: "applied" },
+      ]);
+      expect((await taskRow(taskId))?.dueTime).toBe("14:30");
+    });
+
+    it("applies a Label to a Task, User-scoped the same way labelNote is", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01LABEL", intent: { type: "labelTask", taskId, name: "Work" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01LABEL", status: "applied" }]);
+      const id = labelId(account.userId, "Work");
+      expect((await taskRow(taskId))?.labelIds).toEqual([id]);
+      expect(await db.select().from(labels).where(eq(labels.id, id))).toHaveLength(1);
+    });
+
+    it("removes a Label from a Task", async () => {
+      const taskListId = await createList();
+      const taskId = randomUUID();
+      await flushUserMutations(db, account.userId, [
+        {
+          id: "01CREATE",
+          intent: {
+            type: "createTask",
+            taskId,
+            taskListId,
+            sectionId: null,
+            title: "Buy milk",
+            order: 0,
+          },
+        },
+        { id: "01LABEL", intent: { type: "labelTask", taskId, name: "Work" } },
+      ]);
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01UNLABEL", intent: { type: "unlabelTask", taskId, name: "Work" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01UNLABEL", status: "applied" }]);
+      expect((await taskRow(taskId))?.labelIds).toEqual([]);
+    });
+
+    it("rejects labelTask/unlabelTask against a Task this User does not have", async () => {
+      const missingId = randomUUID();
+
+      const outcomes = await flushUserMutations(db, account.userId, [
+        { id: "01LABEL", intent: { type: "labelTask", taskId: missingId, name: "Work" } },
+      ]);
+
+      expect(outcomes).toEqual([{ id: "01LABEL", status: "rejected", reason: "task_not_found" }]);
+    });
   });
 });

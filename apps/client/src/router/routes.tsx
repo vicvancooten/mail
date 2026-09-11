@@ -6,8 +6,6 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
-import { APPS_BY_KEY } from "../apps/apps.js";
-import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { CalendarRoute } from "../calendar/CalendarRoute.js";
 import { validateCalendarSearch } from "../calendar/calendar-url.js";
 import { ContactsRecentlyDeleted } from "../contacts/ContactsRecentlyDeleted.js";
@@ -24,7 +22,8 @@ import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
 import { contactExists } from "../store/contacts.js";
 import { eventExists } from "../store/events.js";
-import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
+import { ensureLocalCacheOpen, noteExists, taskExists } from "../store/index.js";
+import { TasksRecentlyDeleted } from "../tasks/TasksRecentlyDeleted.js";
 import { CalendarEventRoute } from "./CalendarEventRoute.js";
 import { ContactDialogRoute } from "./ContactDialogRoute.js";
 import { ContactsRoute } from "./ContactsRoute.js";
@@ -34,14 +33,15 @@ import { NoteDialogRoute } from "./NoteDialogRoute.js";
 import { NotesRoute } from "./NotesRoute.js";
 import { RootLayout } from "./RootLayout.js";
 import { StreamRoute } from "./StreamRoute.js";
+import { TasksIndexRoute, TasksTaskRoute } from "./TasksRoute.js";
 
 /**
  * TanStack Router replaces the routerless view state (#71, part of #66): a
  * router and a viewport-owning shell, with real URLs for Mail (a folder,
- * plus a selected Thread), the three placeholder Apps, and Settings — a
- * routed view now rather than a compartment scrolled to below the mail
- * pane. Search deliberately gets none of this (ADR-0017): see
- * `mail/search/useSearchOverlay.ts`.
+ * plus a selected Thread), the two remaining placeholder Apps, Notes,
+ * Tasks (#252) and Settings — a routed view now rather than a compartment
+ * scrolled to below the mail pane. Search deliberately gets none of this
+ * (ADR-0017): see `mail/search/useSearchOverlay.ts`.
  *
  * Code-based routes rather than file-based + codegen: this Client has no
  * build-time route generation set up, and this many routes is still small
@@ -346,10 +346,87 @@ export const calendarEventRoute = createRoute({
   component: CalendarEventRoute,
 });
 
+/**
+ * Tasks (#252/#253): unlike Notes' grid-plus-dialog layout, this is a
+ * genuine two-pane split (`TasksApp.tsx`'s own doc comment, `mail/SplitView.tsx`'s
+ * shape reused for a different domain) — the selected List is therefore a
+ * **search param**, `mailRoute`'s own shape (`folder`/`thread` above), not a
+ * path param the way Notes' `:noteId` is: `?list=`/`?view=` are both view
+ * *snapshots* of the same `/tasks` screen (#253's own "Foundations' URL
+ * shape" line) — `view` reserved for #254/#255/#256's Today/Upcoming/Board,
+ * "today"/"upcoming" now read by `TasksRoute.tsx#asTaskView` (#254), Board
+ * still unread, shaped from the start so those slices only ever add a
+ * reader, never a second search schema.
+ *
+ * `/tasks/:taskId` (`tasksTaskRoute` below) is the one genuine path param:
+ * an *open Task*, not a view snapshot — a permalink that survives a reload
+ * distinctly from `?list=`, landing on that Task's own List with its row
+ * expanded and scrolled to (`TasksTaskRoute`'s own doc comment).
+ */
+export interface TasksSearch {
+  /** The selected Task List id — unset is the sidebar's own "pick a list" empty state. */
+  list?: string;
+  /** "today" | "upcoming" (#254) so far, Board (#256) still reserved and unread — an unrecognized value resolves the same as unset (`TasksRoute.tsx#asTaskView`). */
+  view?: string;
+  /**
+   * The Command Palette's own committed query (#262): "'See all results'
+   * narrows the Tasks App with the query as a chip on the view" —
+   * `TasksApp`'s own read-only filter, never written by a search field of
+   * its own (the ticket's own "adds no search field"). Set, this replaces
+   * the main column with `TasksSearchResults` regardless of `list`, the
+   * same reasoning `search-ux-spec.md`'s ADR-0017 gives Mail's own `?q=`.
+   */
+  q?: string;
+}
+
 export const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks",
-  component: () => <PlaceholderRoute app={APPS_BY_KEY.tasks} />,
+  validateSearch: (search: Record<string, unknown>): TasksSearch => ({
+    list: typeof search.list === "string" ? search.list : undefined,
+    view: typeof search.view === "string" ? search.view : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
+  component: TasksIndexRoute,
+});
+
+/**
+ * A `:taskId` that resolves to nothing — soft-deleted, its own List
+ * soft-deleted (#257), a wrong id, an old bookmark — redirects silently to
+ * `/tasks`, `notesNoteRoute`'s own shape for the same gap. `ensureLocalCacheOpen()`
+ * first for the same reason that route awaits it: nothing guarantees the
+ * cache has been opened yet on a User landing straight on this route.
+ */
+export const tasksTaskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tasks/$taskId",
+  beforeLoad: async ({ params }) => {
+    await ensureLocalCacheOpen();
+    if (!(await taskExists(params.taskId))) {
+      throw redirect({ to: "/tasks" });
+    }
+  },
+  component: TasksTaskRoute,
+});
+
+/**
+ * Recently Deleted for Tasks (#257): registered with its own full path
+ * directly off `rootRoute`, `notesRecentlyDeletedRoute`'s own precedent for
+ * "a screen nested under another App's path, but not actually a child of
+ * that App's own route" — a child of `tasksRoute` instead would render into
+ * an `<Outlet/>` neither `tasksRoute` nor `tasksTaskRoute` has (both render
+ * the whole `TasksApp` directly, no layout wrapper), which is wrong here:
+ * Recently Deleted is its own screen (`TasksRecentlyDeleted.tsx`'s own doc
+ * comment). Registered ahead of `tasksTaskRoute`'s own dynamic `$taskId`
+ * segment in the tree below for exactly the reason that route's own doc
+ * comment gives Notes' identical setup: TanStack Router resolves the more
+ * specific static path here over a dynamic one, regardless of array order,
+ * so "recently-deleted" is never mistaken for a Task id.
+ */
+export const tasksRecentlyDeletedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tasks/recently-deleted",
+  component: TasksRecentlyDeleted,
 });
 
 /**
@@ -436,6 +513,8 @@ export const routeTree = rootRoute.addChildren([
   contactsRecentlyDeletedRoute,
   calendarRoute.addChildren([calendarEventRoute]),
   tasksRoute,
+  tasksTaskRoute,
+  tasksRecentlyDeletedRoute,
   notesRoute.addChildren([notesNoteRoute]),
   notesRecentlyDeletedRoute,
 ]);

@@ -19,6 +19,8 @@ import {
   applyNoteDelta,
   applyPreferenceDelta,
   applyRollbackDelta,
+  applyTaskDelta,
+  applyTaskListDelta,
   applyThreadDelta,
   CALENDAR_TOKEN_KEY,
   CONNECTED_ACCOUNT_TOKEN_KEY,
@@ -36,6 +38,8 @@ import {
   NOTE_TOKEN_KEY,
   PREFERENCE_TOKEN_KEY,
   ROLLBACK_TOKEN_KEY,
+  TASK_LIST_TOKEN_KEY,
+  TASK_TOKEN_KEY,
   threadTokenKey,
 } from "../store/server-writes.js";
 
@@ -71,6 +75,8 @@ export type CollectionTable =
   | "compositions"
   | "correspondents"
   | "notes"
+  | "taskLists"
+  | "tasks"
   | "connectedAccounts"
   | "addressBooks"
   | "contacts"
@@ -131,6 +137,8 @@ export interface UserCollectionEntry {
     | "Preference"
     | "Label"
     | "Note"
+    | "TaskList"
+    | "Task"
     | "ConnectedAccount"
     | "AddressBook"
     | "Contact"
@@ -191,6 +199,21 @@ export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
     table: "notes",
     tokenKey: NOTE_TOKEN_KEY,
     apply: asApplyUserDelta(applyNoteDelta),
+  },
+  // `TaskList`/`Task` (#251, ADR-0030): this registry's next new members
+  // after `Note` — the same one-declaration shape, no hand-written sync
+  // function for either.
+  {
+    wireKey: "TaskList",
+    table: "taskLists",
+    tokenKey: TASK_LIST_TOKEN_KEY,
+    apply: asApplyUserDelta(applyTaskListDelta),
+  },
+  {
+    wireKey: "Task",
+    table: "tasks",
+    tokenKey: TASK_TOKEN_KEY,
+    apply: asApplyUserDelta(applyTaskDelta),
   },
   // `ConnectedAccount` (#199, #200, ADR-0022): `Note`'s sibling above — a
   // plain whole-replicated User-scoped table, no merge rule of its own.

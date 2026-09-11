@@ -17,6 +17,8 @@ import type {
   Recipient,
   ReminderDefault,
   SeriesAttendee,
+  TaskSection,
+  TaskThreadLink,
 } from "@mail/shared";
 import { sql } from "drizzle-orm";
 import {
@@ -1224,9 +1226,10 @@ export type LabelRow = typeof labels.$inferSelect;
  * its `/notes/:noteId` address the instant it is created, before any server
  * round trip. `sync/mutations.ts`'s `createNote`/`deleteNote` intents are
  * what actually create and destroy this row; `sync/note-store.ts`'s
- * `noteSaves` channel only ever updates `document` on an existing one — see
- * that module's own doc comment for why it upserts anyway rather than
- * rejecting a save that raced a not-yet-applied `createNote`.
+ * `documentSaves` channel entry (#192, #250) only ever updates `document` on
+ * an existing one — see that module's own doc comment for why it upserts
+ * anyway rather than rejecting a save that raced a not-yet-applied
+ * `createNote`.
  *
  * `document` is BlockNote's own block document (#191, ADR-0024,
  * `packages/shared/src/notes.ts#noteDocumentSchema`) — deliberately loose,
@@ -1252,7 +1255,8 @@ export const notes = pgTable(
      * by its real inverse `restoreNote` (`sync/mutations.ts`, ADR-0019). Null
      * for an ordinary Note. The row keeps syncing as an ordinary `updated`
      * row while this is set — never a `sync/tombstones.ts` entry until
-     * `sync/note-purge.ts` physically deletes it `NOTE_TRASH_RETENTION_DAYS`
+     * `sync/trash-purge.ts`'s registry-driven sweep (#257, generalising this
+     * ticket's own loop) physically deletes it `NOTE_TRASH_RETENTION_DAYS`
      * after this is stamped.
      */
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -1265,7 +1269,7 @@ export const notes = pgTable(
   },
   (table) => [
     index("notes_sync_rev_idx").on(table.userId, table.syncRev),
-    // `sync/note-purge.ts`'s own sweep query: every row past its retention
+    // `sync/trash-purge.ts`'s own sweep query: every row past its retention
     // window, account-wide — a partial index (`deletedAt IS NOT NULL`) since
     // most Notes never carry one.
     index("notes_deleted_at_idx").on(table.deletedAt).where(sql`${table.deletedAt} is not null`),
@@ -1887,6 +1891,131 @@ export const calendarOutbox = pgTable(
   (table) => [index("calendar_outbox_due_idx").on(table.nextAttemptAt)],
 );
 export type CalendarOutboxRow = typeof calendarOutbox.$inferSelect;
+
+/**
+ * `TaskList` (#251, epic #249, ADR-0030): `notes` above's sibling —
+ * User-scoped, whole-replicated, no window. `id` is a Client-minted ULID
+ * (`tasks.ts#taskListSchema`'s own doc comment) for every List a User
+ * creates themselves, **except** the seeded default: `sync/task-list-
+ * store.ts#ensureDefaultTaskList` mints that one's id deterministically
+ * (`@mail/shared#defaultTaskListId`) so two devices racing that User's first
+ * sync of the collection can `onConflictDoNothing` their way to exactly one
+ * row rather than two competing for a name.
+ *
+ * `sections` is the ordered `{ id, name }[]` Sections live as (the ticket's
+ * own "five entries per List do not earn a third registry descriptor and a
+ * delta stream") — a plain jsonb array, mutated in place by
+ * `createSection`/`renameSection`/`reorderSections`/`deleteSection`/
+ * `restoreSection` (`sync/mutations.ts`), never its own table.
+ *
+ * `isDefault` is stamped once, only by `ensureDefaultTaskList`, and never
+ * recomputed from `name` — "a property of being the User's first List, not
+ * a name check" — which is what `deleteTaskList`'s rejection
+ * (`sync/mutations.ts`) reads rather than comparing against `DEFAULT_TASK_LIST_NAME`.
+ *
+ * `deletedAt` is `deleteTaskList`/`restoreTaskList`'s own field, `notes
+ * .deletedAt`'s exact shape (never a physical delete, never a tombstone
+ * while set) — purged 30 days on by `sync/trash-purge.ts`'s registry-driven
+ * sweep, the same window `notes.deletedAt` gets (#257 generalises #194's
+ * sweep to read this table too, rather than standing up a second loop).
+ */
+export const taskLists = pgTable(
+  "task_lists",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sections: jsonb("sections").$type<TaskSection[]>().notNull().default([]),
+    isDefault: boolean("is_default").notNull().default(false),
+    order: doublePrecision("order").notNull().default(0),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `notes`/`labels` — see their
+    // comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("task_lists_sync_rev_idx").on(table.userId, table.syncRev),
+    // `sync/trash-purge.ts`'s own sweep query, `notes_deleted_at_idx`'s exact
+    // shape — a partial index since most Task Lists never carry one.
+    index("task_lists_deleted_at_idx")
+      .on(table.deletedAt)
+      .where(sql`${table.deletedAt} is not null`),
+  ],
+);
+export type TaskListRow = typeof taskLists.$inferSelect;
+
+/**
+ * `Task` (#251, epic #249, ADR-0030): `notes` above's other sibling —
+ * User-scoped, whole-replicated, **no window and no completed-Task
+ * filter** ("completed Tasks are included in replication and never
+ * windowed out"). `id` is always a Client-minted ULID
+ * (`tasks.ts#taskSchema`'s own doc comment) — unlike `taskLists`, a Task has
+ * no server-seeded row.
+ *
+ * `taskListId`/`sectionId` place a Task; `sectionId` is nullable (no
+ * Section) and is **not** a foreign key into any table of its own — a
+ * Section is an id inside `taskLists.sections`' own jsonb array, not a row.
+ * `document` is the BlockNote body, `notes.document`'s own shape and reason
+ * (`documentSaves` channel, never a version to reject against).
+ *
+ * `deletedAt` is the soft `trashTask`/`restoreTask` pair, `notes.deletedAt`'s
+ * exact shape — purged 30 days on by `sync/trash-purge.ts`'s registry-driven
+ * sweep (#257), the same window a deleted Task List's own row gets: a Task
+ * cascaded into Recently Deleted by its List's own delete (`deleteTaskList`)
+ * carries the same `deletedAt` stamp, so both purge on the same sweep tick
+ * regardless of which of the two `trash-purge.ts` reaches first (its own
+ * doc comment covers the `taskLists`' `ON DELETE CASCADE` this table's `FK`
+ * carries). `createTask`/`deleteTask` (`sync/mutations.ts`) is the separate
+ * hard pair that instead inserts/physically removes this row — the same
+ * "two removal concepts, two intents" split `notes`/`notes.ts#noteSchema`
+ * already draws.
+ */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    taskListId: text("task_list_id")
+      .notNull()
+      .references(() => taskLists.id, { onDelete: "cascade" }),
+    sectionId: text("section_id"),
+    title: text("title").notNull(),
+    document: jsonb("document").$type<NoteDocument>().notNull(),
+    completed: boolean("completed").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    /** A zone-less calendar day (#253) — always stored at UTC midnight; every reader extracts the Y-M-D with a UTC getter, never a local one. See `tasks.ts#taskSchema`'s own doc comment. */
+    dueDate: timestamp("due_date", { withTimezone: true }),
+    /** A floating wall-clock time, `"HH:MM"` — null unless `dueDate` is set (#253, `tasks.ts#taskSchema`'s own doc comment). */
+    dueTime: text("due_time"),
+    /** Membership side of a Task's Labels (#253) — `notes.labelIds`'s own shape, naming rows in this same User's one `labels` set. */
+    labelIds: text("label_ids").array().notNull().default([]),
+    /** "Add to Tasks" (#258, `tasks.ts#taskThreadLinkSchema`'s own doc comment): set once by `createTask`, never patched — `null` for every Task not created from a Thread. */
+    threadLink: jsonb("thread_link").$type<TaskThreadLink | null>(),
+    order: doublePrecision("order").notNull().default(0),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Same shared `sync_rev_seq` trigger as `taskLists`/`notes` — see their
+    // comments above.
+    syncRev: bigint("sync_rev", { mode: "number" }).notNull().default(0),
+    syncCreatedRev: bigint("sync_created_rev", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("tasks_sync_rev_idx").on(table.userId, table.syncRev),
+    index("tasks_task_list_id_idx").on(table.taskListId),
+    // `sync/trash-purge.ts`'s own sweep query, `notes_deleted_at_idx`'s exact
+    // shape — a partial index since most Tasks never carry one.
+    index("tasks_deleted_at_idx").on(table.deletedAt).where(sql`${table.deletedAt} is not null`),
+  ],
+);
+export type TaskRow = typeof tasks.$inferSelect;
 
 /**
  * A Gmail Label (#126, ADR-0020, CONTEXT.md): Gmail's own tag on a message,

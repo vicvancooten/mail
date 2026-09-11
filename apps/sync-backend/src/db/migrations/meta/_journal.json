@@ -351,6 +351,13 @@
       "when": 1789121261208,
       "tag": "0049_light_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789124351788,
+      "tag": "0050_hesitant_scourge",
+      "breakpoints": true
     }
   ]
 }

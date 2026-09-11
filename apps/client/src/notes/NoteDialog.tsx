@@ -25,7 +25,7 @@ import { useNoteAutosave } from "./use-note-autosave.js";
  * hand here.
  *
  * There is no "done editing" step: edits save continuously through the
- * `noteSaves` channel (#192) via `useNoteAutosave`, and `flush()` on close
+ * `documentSaves` channel (#192, #250) via `useNoteAutosave`, and `flush()` on close
  * (this file's own call) only shortens the window a keystroke could
  * otherwise wait out the 400ms debounce before this dialog unmounts.
  */

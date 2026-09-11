@@ -51,5 +51,15 @@ export function StreamRoute() {
     [navigate],
   );
 
-  return <StreamStack onLeave={onLeave} onNoteCreated={onNoteCreated} />;
+  // The Reader's Task chips (#259) — `MailRoute.tsx`'s own `onOpenTask` doc
+  // comment covers the shape; same "shares `ThreadDetailPane`, needs the
+  // same real navigation" reasoning `onNoteCreated` above already gives.
+  const onOpenTask = useCallback(
+    (taskId: string) => {
+      void navigate({ to: "/tasks/$taskId", params: { taskId } });
+    },
+    [navigate],
+  );
+
+  return <StreamStack onLeave={onLeave} onNoteCreated={onNoteCreated} onOpenTask={onOpenTask} />;
 }

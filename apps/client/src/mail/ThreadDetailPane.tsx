@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   Clock,
+  ListTodo,
   NotebookText,
   Pin,
   Reply,
@@ -29,6 +30,7 @@ import { publishReaderHandle } from "./actions/surface-handles.js";
 import { noopActionContext, withThread } from "./actions/types.js";
 import { InviteCard } from "./InviteCard.js";
 import { LabelPicker } from "./LabelPicker.js";
+import { ReaderTaskChips } from "./ReaderTaskChips.js";
 import { MessageList } from "./reading/MessageList.js";
 import type { MailtoLink } from "./reading/mailto.js";
 import { useInvitationCards } from "./reading/useInvitationCards.js";
@@ -75,6 +77,7 @@ export function ThreadDetailPane({
   triage,
   onReply,
   onMailtoLink,
+  onOpenTask,
   focusMessageId,
 }: {
   thread: CachedThread;
@@ -86,6 +89,8 @@ export function ThreadDetailPane({
   onReply: OnReply;
   /** A `mailto:` link clicked inside a Message body (ADR-0018's click bridge) — forwarded to `MessageList`. */
   onMailtoLink: (link: MailtoLink) => void;
+  /** A Task chip's title (#259, `ReaderTaskChips.tsx`'s own doc comment) — forwarded straight through, this pane stays router-agnostic. */
+  onOpenTask: (taskId: string) => void;
   /** A search result's matched message (#51) — forwarded to `MessageList`, see its own doc comment. */
   focusMessageId?: string | null;
 }) {
@@ -344,6 +349,19 @@ export function ThreadDetailPane({
                       <NotebookText size={15} />
                     </button>
                   ) : null}
+                  {/* "Add to Tasks" (#258) — beside "Add to Notes", same
+                    no-Triage-fallback posture: opens the sheet, never commits
+                    anything itself. */}
+                  {secondaryIds.has("add-to-tasks") ? (
+                    <button
+                      type="button"
+                      onClick={() => runReader("add-to-tasks", () => {})}
+                      aria-label="Add to Tasks"
+                      title={buttonTitle("add-to-tasks", "Add to Tasks")}
+                    >
+                      <ListTodo size={15} />
+                    </button>
+                  ) : null}
                   {secondaryIds.has("pin") ? (
                     <button
                       type="button"
@@ -423,6 +441,7 @@ export function ThreadDetailPane({
           </div>
         </div>
 
+        <ReaderTaskChips threadId={thread.id} onOpenTask={onOpenTask} />
         {invitationCards?.map((card) => (
           <InviteCard key={card.uid} card={card} threadId={thread.id} />
         ))}

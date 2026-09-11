@@ -8,6 +8,8 @@ import type {
   MailAccountDelta,
   MutationOutcome,
   NoteDelta,
+  TaskDelta,
+  TaskListDelta,
   ThreadDelta,
 } from "@mail/shared";
 import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
@@ -27,6 +29,7 @@ import {
   mailAccounts,
   messages,
   notes,
+  taskLists,
   threads,
 } from "../db/schema.js";
 import { persistGmailLabels } from "../sync/gmail-labels.js";
@@ -533,7 +536,9 @@ describe("POST /sync", () => {
         headers: { cookie },
         payload: {
           user: {
-            noteSaves: [{ id: "note-1", saveId: "01SAVE", document: EMPTY_NOTE_DOCUMENT }],
+            documentSaves: [
+              { collection: "Note", id: "note-1", saveId: "01SAVE", document: EMPTY_NOTE_DOCUMENT },
+            ],
           },
         },
       });
@@ -785,6 +790,302 @@ describe("POST /sync", () => {
         status: "active",
         facets: [{ kind: "mail", status: "needs_reauth" }],
       });
+    });
+  });
+
+  describe("TaskList & Task (User-scoped, #251, ADR-0030)", () => {
+    it("seeds exactly one default List named 'Tasks' on the first sync of the collection", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { TaskList: null } },
+      });
+
+      const delta = bootstrap.json().user.TaskList as TaskListDelta;
+      expect(delta.created).toHaveLength(1);
+      expect(delta.created[0]).toMatchObject({ name: "Tasks", sections: [], isDefault: true });
+    });
+
+    it("never mints a second default List for two devices racing the first sync", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+
+      const [first, second] = await Promise.all([
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: { user: { TaskList: null } },
+        }),
+        app.inject({
+          method: "POST",
+          url: "/sync",
+          headers: { cookie },
+          payload: { user: { TaskList: null } },
+        }),
+      ]);
+      expect((first.json().user.TaskList as TaskListDelta).created).toHaveLength(1);
+      expect((second.json().user.TaskList as TaskListDelta).created).toHaveLength(1);
+
+      // The DB itself has exactly one row — not just two responses that
+      // happen to agree.
+      const rows = await db.select().from(taskLists);
+      expect(rows).toHaveLength(1);
+    });
+
+    it("the seeded default List can never be deleted, even after renaming it away from 'Tasks'", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { TaskList: null } },
+      });
+      const defaultId = (bootstrap.json().user.TaskList as TaskListDelta).created[0]?.id as string;
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              {
+                id: "01RENAME",
+                intent: { type: "renameTaskList", taskListId: defaultId, name: "Errands" },
+              },
+            ],
+          },
+        },
+      });
+
+      const deleted = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              {
+                id: "01DELETE",
+                intent: { type: "deleteTaskList", taskListId: defaultId, taskIds: [] },
+              },
+            ],
+          },
+        },
+      });
+      expect(deleted.json().user.mutations).toEqual([
+        { id: "01DELETE", status: "rejected", reason: "default_list" },
+      ]);
+    });
+
+    it("replicates a Task whole, completed included, ids the Client's own ULIDs", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { TaskList: null } },
+      });
+      const defaultId = (bootstrap.json().user.TaskList as TaskListDelta).created[0]?.id as string;
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            Task: null,
+            mutations: [
+              {
+                id: "01CREATE",
+                intent: {
+                  type: "createTask",
+                  taskId: "task-1",
+                  taskListId: defaultId,
+                  sectionId: null,
+                  title: "Buy milk",
+                  order: 0,
+                },
+              },
+              { id: "01COMPLETE", intent: { type: "completeTask", taskId: "task-1" } },
+            ],
+          },
+        },
+      });
+      expect(created.json().user.mutations).toEqual([
+        { id: "01CREATE", status: "applied" },
+        { id: "01COMPLETE", status: "applied" },
+      ]);
+      const delta = created.json().user.Task as TaskDelta;
+      expect(delta.created[0]).toMatchObject({
+        id: "task-1",
+        taskListId: defaultId,
+        completed: true,
+      });
+
+      // A second Client, from nothing held, sees the completed Task too —
+      // "completed Tasks are included in replication and never windowed out".
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Task: null } },
+      });
+      const secondDelta = secondClient.json().user.Task as TaskDelta;
+      expect(secondDelta.created).toHaveLength(1);
+      expect(secondDelta.created[0]).toMatchObject({ id: "task-1", completed: true });
+    });
+
+    it("a Task body saves through documentSaves with collection: 'Task'", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const bootstrap = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { TaskList: null } },
+      });
+      const defaultId = (bootstrap.json().user.TaskList as TaskListDelta).created[0]?.id as string;
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              {
+                id: "01CREATE",
+                intent: {
+                  type: "createTask",
+                  taskId: "task-1",
+                  taskListId: defaultId,
+                  sectionId: null,
+                  title: "Buy milk",
+                  order: 0,
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      const saved = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            documentSaves: [
+              { collection: "Task", id: "task-1", saveId: "01SAVE", document: EMPTY_NOTE_DOCUMENT },
+            ],
+          },
+        },
+      });
+      expect(saved.json().user.documentSaves).toEqual([
+        { collection: "Task", id: "task-1", saveId: "01SAVE", status: "applied" },
+      ]);
+
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { Task: null } },
+      });
+      const delta = secondClient.json().user.Task as TaskDelta;
+      expect(delta.created[0]).toMatchObject({ id: "task-1", document: EMPTY_NOTE_DOCUMENT });
+    });
+
+    it("deleteTaskList/restoreTaskList round-trips across two Clients — List and every Task it took come back", async () => {
+      const app = buildTestApp();
+      const cookie = await claimOwner(app);
+      const list = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              {
+                id: "01LIST",
+                intent: { type: "createTaskList", taskListId: "list-1", name: "Errands" },
+              },
+              {
+                id: "01TASK",
+                intent: {
+                  type: "createTask",
+                  taskId: "task-1",
+                  taskListId: "list-1",
+                  sectionId: null,
+                  title: "Buy milk",
+                  order: 0,
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(list.json().user.mutations).toEqual([
+        { id: "01LIST", status: "applied" },
+        { id: "01TASK", status: "applied" },
+      ]);
+
+      await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            mutations: [
+              {
+                id: "01DELETE",
+                intent: { type: "deleteTaskList", taskListId: "list-1", taskIds: ["task-1"] },
+              },
+            ],
+          },
+        },
+      });
+
+      // A second Client, from nothing held, sees both soft-deleted.
+      const secondClient = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: { user: { TaskList: null, Task: null } },
+      });
+      const listDelta = secondClient.json().user.TaskList as TaskListDelta;
+      const taskDelta = secondClient.json().user.Task as TaskDelta;
+      expect(listDelta.created.find((row) => row.id === "list-1")?.deletedAt).not.toBeNull();
+      expect(taskDelta.created.find((row) => row.id === "task-1")?.deletedAt).not.toBeNull();
+
+      const restored = await app.inject({
+        method: "POST",
+        url: "/sync",
+        headers: { cookie },
+        payload: {
+          user: {
+            TaskList: listDelta.newState,
+            Task: taskDelta.newState,
+            mutations: [
+              {
+                id: "01RESTORE",
+                intent: { type: "restoreTaskList", taskListId: "list-1", taskIds: ["task-1"] },
+              },
+            ],
+          },
+        },
+      });
+      expect(restored.json().user.mutations).toEqual([{ id: "01RESTORE", status: "applied" }]);
+      const restoredListDelta = restored.json().user.TaskList as TaskListDelta;
+      const restoredTaskDelta = restored.json().user.Task as TaskDelta;
+      expect(restoredListDelta.updated[0]?.deletedAt).toBeNull();
+      expect(restoredTaskDelta.updated[0]?.deletedAt).toBeNull();
     });
   });
 
@@ -1441,7 +1742,7 @@ describe("POST /sync", () => {
     });
   });
 
-  describe("noteSaves (#192, ADR-0023)", () => {
+  describe("documentSaves (#192, #250, ADR-0023)", () => {
     /** The text of a stored Note's first block — `NoteBlock.content`'s loose union needs narrowing before an index reads it. */
     function firstText(document: unknown): unknown {
       const blocks = document as { content?: unknown }[];
@@ -1459,14 +1760,21 @@ describe("POST /sync", () => {
         headers: { cookie },
         payload: {
           user: {
-            noteSaves: [{ id: "note-1", saveId: "01SAVE-A", document: EMPTY_NOTE_DOCUMENT }],
+            documentSaves: [
+              {
+                collection: "Note",
+                id: "note-1",
+                saveId: "01SAVE-A",
+                document: EMPTY_NOTE_DOCUMENT,
+              },
+            ],
           },
         },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().user.noteSaves).toEqual([
-        { id: "note-1", saveId: "01SAVE-A", status: "applied" },
+      expect(response.json().user.documentSaves).toEqual([
+        { collection: "Note", id: "note-1", saveId: "01SAVE-A", status: "applied" },
       ]);
       const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
       expect(row?.document).toEqual(EMPTY_NOTE_DOCUMENT);
@@ -1481,8 +1789,9 @@ describe("POST /sync", () => {
         headers: { cookie },
         payload: {
           user: {
-            noteSaves: [
+            documentSaves: [
               {
+                collection: "Note",
                 id: "note-1",
                 saveId,
                 document: [
@@ -1506,8 +1815,8 @@ describe("POST /sync", () => {
       // (by receipt, not by content) wins, silently.
       const second = await app.inject(save("01B", "second"));
 
-      expect(second.json().user.noteSaves).toEqual([
-        { id: "note-1", saveId: "01B", status: "applied" },
+      expect(second.json().user.documentSaves).toEqual([
+        { collection: "Note", id: "note-1", saveId: "01B", status: "applied" },
       ]);
       const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
       expect(firstText(row?.document)).toBe("second");
@@ -1523,8 +1832,9 @@ describe("POST /sync", () => {
           headers: { cookie },
           payload: {
             user: {
-              noteSaves: [
+              documentSaves: [
                 {
+                  collection: "Note",
                   id: "note-1",
                   saveId: "01A",
                   document: [
@@ -1548,8 +1858,9 @@ describe("POST /sync", () => {
           headers: { cookie },
           payload: {
             user: {
-              noteSaves: [
+              documentSaves: [
                 {
+                  collection: "Note",
                   id: "note-1",
                   saveId: "01B",
                   document: [
@@ -1571,8 +1882,8 @@ describe("POST /sync", () => {
 
       expect(responseA.statusCode).toBe(200);
       expect(responseB.statusCode).toBe(200);
-      expect(responseA.json().user.noteSaves[0].status).toBe("applied");
-      expect(responseB.json().user.noteSaves[0].status).toBe("applied");
+      expect(responseA.json().user.documentSaves[0].status).toBe("applied");
+      expect(responseB.json().user.documentSaves[0].status).toBe("applied");
       const [row] = await db.select().from(notes).where(eq(notes.id, "note-1"));
       // Whichever reached the Sync Backend last (by receipt) is what stuck —
       // exactly one of the two, not a merge of both.
@@ -1589,19 +1900,26 @@ describe("POST /sync", () => {
           headers: { cookie },
           payload: {
             user: {
-              noteSaves: [{ id: "note-1", saveId: "01RETRY", document: EMPTY_NOTE_DOCUMENT }],
+              documentSaves: [
+                {
+                  collection: "Note",
+                  id: "note-1",
+                  saveId: "01RETRY",
+                  document: EMPTY_NOTE_DOCUMENT,
+                },
+              ],
             },
           },
         });
 
       const first = await save();
-      expect(first.json().user.noteSaves).toEqual([
-        { id: "note-1", saveId: "01RETRY", status: "applied" },
+      expect(first.json().user.documentSaves).toEqual([
+        { collection: "Note", id: "note-1", saveId: "01RETRY", status: "applied" },
       ]);
 
       const retry = await save();
-      expect(retry.json().user.noteSaves).toEqual([
-        { id: "note-1", saveId: "01RETRY", status: "applied" },
+      expect(retry.json().user.documentSaves).toEqual([
+        { collection: "Note", id: "note-1", saveId: "01RETRY", status: "applied" },
       ]);
     });
   });
