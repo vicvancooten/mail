@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/popover";
 import { ProviderReauthAction } from "../mail-accounts/ProviderReauthAction.js";
 import { ReauthMailAccountForm } from "../mail-accounts/ReauthMailAccountForm.js";
+import { AddressBookMirrorChecklist } from "./AddressBookMirrorChecklist.js";
 import { FacetReauthAction } from "./FacetReauthAction.js";
 import { FACET_LABEL, PROVIDER_TABLE_LABEL } from "./provider-table.js";
 import { ReauthCalDavAccountForm } from "./ReauthCalDavAccountForm.js";
@@ -28,7 +29,10 @@ import { RemoveFacetDialog } from "./RemoveFacetDialog.js";
  * Fix is the same incremental-consent round `AddFacetControl.tsx` starts for
  * a fresh Facet (`FacetReauthAction.tsx`) for an OAuth Connected Account, or
  * `ReauthCalDavAccountForm.tsx`'s password-only form for CalDAV/CardDAV —
- * never a password field for an OAuth account either.
+ * never a password field for an OAuth account either. The Contacts Facet
+ * also carries its own `mirrored` checklist (#215, `AddressBookMirrorChecklist.tsx`)
+ * — the #172-prototype-locked home for it, rendered here rather than a
+ * modal.
  */
 export function ConnectedAccountFacetBadge({
   account,
@@ -126,6 +130,12 @@ export function ConnectedAccountFacetBadge({
                 label={`Sign in with ${PROVIDER_TABLE_LABEL[account.provider]} again`}
               />
             ) : null)}
+
+          {/* The Contacts Facet's own selective-sync checklist (#215): "the
+              checklist lives in the Contacts Facet cell's Popover", never a
+              modal — rendered regardless of Needs Reauth, since the Address
+              Book list itself (unlike a Fix) is still worth showing. */}
+          {facet === "contacts" && <AddressBookMirrorChecklist connectedAccountId={account.id} />}
 
           {/* Turning off a Facet, removing a Connected Account (#206,
               ADR-0029) — a confirmed act, so this only opens the dialog; the

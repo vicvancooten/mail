@@ -76,8 +76,12 @@ describe("runSyncRound", () => {
         Label: null,
         Note: null,
         ConnectedAccount: null,
+        AddressBook: null,
+        Contact: null,
+        ContactRollback: null,
+        ContactLink: null,
       },
-      mailAccounts: {}, connectedAccounts: {},
+      mailAccounts: {},
     });
     expect(requests[1]).toEqual({
       user: {
@@ -86,6 +90,10 @@ describe("runSyncRound", () => {
         Label: null,
         Note: null,
         ConnectedAccount: null,
+        AddressBook: null,
+        Contact: null,
+        ContactRollback: null,
+        ContactLink: null,
       },
       mailAccounts: {
         "acct-1": {
@@ -94,7 +102,7 @@ describe("runSyncRound", () => {
           Composition: null,
           Correspondent: null,
         },
-      }, connectedAccounts: {},
+      },
     });
     expect(result.pages).toBe(2);
     expect((await readThreadWindow("acct-1")).threads.map((thread) => thread.id)).toEqual(["t1"]);
@@ -240,8 +248,12 @@ describe("runSyncRound", () => {
         Label: null,
         Note: null,
         ConnectedAccount: null,
+        AddressBook: null,
+        Contact: null,
+        ContactRollback: null,
+        ContactLink: null,
       },
-      mailAccounts: {}, connectedAccounts: {},
+      mailAccounts: {},
     });
     expect(resync.requests[1]?.mailAccounts?.["acct-1"]).toEqual({
       Thread: null,
