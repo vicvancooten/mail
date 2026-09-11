@@ -210,7 +210,12 @@ export function VirtualizedThreadList({
       const collapsed = readGroupCollapsed(groupItem.label);
       flat.push({
         kind: "header",
-        key: `header:${groupItem.label}:${index}`,
+        // Keyed by label alone (#279) — a running row index means a Group
+        // Done removing rows above this header remounts it, losing its
+        // hover/focus/collapse animation state. `groupThreadsByTime` never
+        // re-sorts and only ever merges *contiguous* same-label runs, so one
+        // label can't recur non-adjacently within a render's groups.
+        key: `header:${groupItem.label}`,
         label: groupItem.label,
         tier: groupItem.tier,
         loadedCount: groupItem.threads.length,
