@@ -312,7 +312,11 @@ describe("syncRequestSchema", () => {
 
 describe("syncResponseSchema", () => {
   it("round-trips an all-quiet poll with no changed collections", () => {
-    const result = syncResponseSchema.safeParse({ user: {}, mailAccounts: {} });
+    const result = syncResponseSchema.safeParse({
+      user: {},
+      mailAccounts: {},
+      connectedAccounts: {},
+    });
     expect(result.success).toBe(true);
   });
 
@@ -346,6 +350,7 @@ describe("syncResponseSchema", () => {
           mutations: [{ id: "01JQ", status: "applied" }],
         },
       },
+      connectedAccounts: {},
     });
     expect(result.success).toBe(true);
   });
