@@ -294,12 +294,12 @@ top-level route must follow it.
 **The Hub and the raised-card App layout.** The global header (`router/shell.css`'s
 `.app-header`) sits on `--color-surface-strong` — the Hub's own ground. Beneath it,
 `.app-viewport` also takes `--color-surface-strong`, and the current App renders inside
-`.app-card`: at ≥701px the card gets `--radius-panel` and `--shadow-card` (a page-resident
+`.app-card`: at ≥768px the card gets `--radius-panel` and `--shadow-card` (a page-resident
 elevation, distinct from `--shadow-overlay`) plus `12px` of padding around it, so the App
-reads as a raised object sitting *on* the Hub rather than filling the frame; below 701px
+reads as a raised object sitting *on* the Hub rather than filling the frame; below 768px
 that padding, radius, and shadow all drop to zero — full-bleed, matching the phone rule
 followed everywhere else in the app (the folder rail's Sheet breakpoint, the same
-700/701px line). The header's own `theme-color` meta tags (`index.html`) track this ground:
+768px line — see **Responsive breakpoint** below). The header's own `theme-color` meta tags (`index.html`) track this ground:
 `#f5f5f8` light / `#08090b` dark, matching `--color-surface-strong` in each mode so a
 phone's own chrome (status bar/task switcher) reads as part of the same instrument.
 
@@ -315,8 +315,8 @@ header runs out of room for five full names the row goes icon-only — a width m
 on the rest of the header's own content, not just viewport width; the SOON caption shrinks
 to a small dot alongside its icon rather than disappearing. This is the desktop shape only
 as of #155 — the header's own instance of the switcher (and the Home mark beside it) drops
-out of the tree entirely below 768px (`AppSwitcher.tsx`'s own `useIsMobile`,
-`RootLayout.tsx`'s `isPhoneChrome`); see the phone bottom bar below, where the same toggle
+out of the tree entirely below 768px (`AppSwitcher.tsx`'s and `RootLayout.tsx`'s shared
+`useIsPhoneWidth`, `isPhoneChrome`); see the phone bottom bar below, where the same toggle
 opens a real bottom `Sheet` (`PhoneSwitcher`) listing all five Apps by full name — a sheet
 has the vertical room a 60px header never does.
 
@@ -381,7 +381,7 @@ tier by a fixed delta (-6px rows, -8px headers) rather than flattening the taper
 An ungrouped list (search results) is flat at the T2 row height (46px comfortable) with no
 taper and no group headers at all.
 
-**Responsive.** Below 700/701px: the list/detail split collapses to one pane at a time (both
+**Responsive.** Below 768px (see **Responsive breakpoint** below): the list/detail split collapses to one pane at a time (both
 stay mounted, one hidden), the permanent folder rail becomes a bottom sheet (a real shadcn
 `Sheet`) opened from the phone bottom bar's own Folders button (#155 — its former in-body
 toggle is gone), the Group Header's bulk actions collapse into a single always-visible
@@ -396,6 +396,20 @@ equivalent); on desktop they moved to a small floating rail beside the pane
 rather than a row of icons competing with the subject for space. Vertically centered, not
 stretched to the pane's full height, so it reads as a floating control and not a second
 sidebar.
+
+**Responsive breakpoint (#273).** One number, **768px**, is the only phone breakpoint the
+Client reads, in TypeScript and CSS alike. `@mail/design-tokens#phoneBreakpoint` is its one
+source, consumed as `--breakpoint-phone` in the generated tokens CSS (documentation only — a
+plain `@media` feature can't consume a custom property, so every phone-only media query in
+the app is still a literal `767px`/`768px` pair, not derived from the token at build time) and
+as the number `hooks/use-phone-width.ts`'s `useIsPhoneWidth`/`isPhoneWidth` build their own
+`matchMedia` query from — the one hook every phone-detecting call site in the app now shares
+(`AppSwitcher.tsx`'s toggle, `RootLayout.tsx`'s `isPhoneChrome`, `SettingsLayout.tsx` and its
+route's `beforeLoad`, `use-touch-phone.ts`, the shadcn `Sidebar` primitive). Before this
+ticket the app carried two: this 700px number and a second, shadcn-derived 768px hook
+(`hooks/use-mobile.ts`) that only the Hub's phone chrome read, leaving a 701–767px window
+where phone chrome wrapped a still-desktop layout. 768px won: #270 named it as the
+phone-chrome value to keep, and nothing depended on 700 specifically.
 
 ### Named Rules
 **The Bounded Pane Rule.** `.app-shell` is `100dvh` + `overflow: hidden`; every routed pane
@@ -422,7 +436,7 @@ and the distinction is real, not decorative.
 - **Card** (`--shadow-card` = `0 1px 2px rgb(20 21 26/.05), 0 6px 20px -10px rgb(20 21 26/.16)`;
   dark: `0 1px 2px rgb(0 0 0/.3), 0 8px 24px -12px rgb(0 0 0/.5)`): a page-resident element
   that sits raised *in place* rather than opening over everything — the App's own raised
-  card on the Hub (`.app-card`, ≥701px only). A shallower recipe than overlay on purpose: the
+  card on the Hub (`.app-card`, ≥768px only). A shallower recipe than overlay on purpose: the
   App isn't announcing itself the way a popover does.
 - **Header** (`--shadow-header`, an inset relief: `inset 0 1px 0 white/.5, inset 0 -1px 2px
   ink/.045, 0 1px 2px ink/.03`): the global header's separation from the ground — a fixed
@@ -578,7 +592,7 @@ used selectively rather than uniformly:
 - **Context Menu** — the Thread List's right-click action menu (`actions/ActionMenu.tsx`),
   with the full submenu/checkbox/shortcut vocabulary.
 - **Sheet** — the phone's folder rail (`mail/Sidebar.tsx`) and the Group Header's phone
-  overflow actions (`VirtualizedThreadList.tsx`), both as bottom sheets below the 700px
+  overflow actions (`VirtualizedThreadList.tsx`), both as bottom sheets below the 768px
   breakpoint.
 - **Sidebar** — the desktop/tablet folder rail only (`mail/Sidebar.tsx`). **Not** used for
   Settings' side nav, which is a plain `Link` list (`settings/SettingsLayout.tsx`) styled

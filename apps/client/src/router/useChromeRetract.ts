@@ -27,8 +27,9 @@ const MIN_SCROLL_TOP = 24;
  * over deliberately: a small scroll-up reveals it same as anywhere else.
  *
  * Runs regardless of viewport width — `shell.css`'s own `[data-chrome-
- * hidden="true"]` rule only exists inside the ≤700px phone query, so this
- * has no visible effect at all on desktop, the same "compute unconditionally,
+ * hidden="true"]` rule only exists inside the ≤767px phone query (the app's
+ * one 768px breakpoint, #273), so this has no visible effect at all on
+ * desktop, the same "compute unconditionally,
  * let CSS decide" shape the rest of this shell already uses.
  */
 export function useChromeRetract(resetKey: string): boolean {

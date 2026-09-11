@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsPhoneWidth } from "@/hooks/use-phone-width";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_WIDTH = "16rem";
@@ -63,7 +63,7 @@ function SidebarProvider({
   openMobile?: boolean;
   onOpenMobileChange?: (open: boolean) => void;
 }) {
-  const isMobile = useIsMobile();
+  const isMobile = useIsPhoneWidth();
   const [_openMobile, _setOpenMobile] = React.useState(false);
   const openMobile = openMobileProp ?? _openMobile;
   const setOpenMobile = React.useCallback(

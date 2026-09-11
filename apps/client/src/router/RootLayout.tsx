@@ -9,7 +9,7 @@ import { CalendarReminderToast } from "../calendar/CalendarReminderToast.js";
 import { CalendarRollbackToast } from "../calendar/CalendarRollbackToast.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
-import { useIsMobile } from "../hooks/use-mobile.js";
+import { useIsPhoneWidth } from "../hooks/use-phone-width.js";
 import { AccountScope } from "../mail/AccountScope.js";
 import { isTyping } from "../mail/actions/ActionsProvider.js";
 import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
@@ -64,8 +64,8 @@ import "./shell.css";
  * Mail-only one's.
  *
  * The App itself renders inside `.app-card` (#96): a raised card on the
- * Hub's own ground at ≥701px (`shell.css`'s own breakpoint, matching every
- * other Split/List layout switch in the app) and full-bleed on the phone —
+ * Hub's own ground at ≥768px (`shell.css`'s own breakpoint, the app's one
+ * phone breakpoint, #273) and full-bleed on the phone —
  * `.app-viewport`'s padding and `.app-card`'s radius/shadow both toggle at
  * that width, rather than either route rendering two different trees.
  *
@@ -281,20 +281,17 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   const activeCtx = activeHost?.ctx ?? fallbackCtx;
 
   // The phone/desktop split for this chrome (#155): a real conditional, not
-  // CSS-only visibility, and deliberately `AppSwitcher.tsx`'s own
-  // `useIsMobile` (768px) rather than this app's other 700px breakpoint
-  // (`Sidebar.tsx`, `mail.css`'s Split/List switch) — `AppSwitcher` already
+  // CSS-only visibility — `AppSwitcher.tsx`'s own `useIsPhoneWidth`, the
+  // app's one 768px breakpoint (#273 unified this with the Mail/Settings
+  // split that used to sit at a different 700px). `AppSwitcher` already
   // branches its own Sheet-vs-inline rendering on this exact hook, and
   // mounting *both* a header instance and a bottom-bar instance of it (each
   // carrying the same "Switch app" accessible name) would be a real
   // duplicate-control bug, not just a test inconvenience — CSS `display:
   // none` hides one visually but leaves it in the accessibility tree and
   // tab order. `shell.css`'s own phone query for this chrome matches this
-  // same 768px number for exactly that reason, accepting the narrow
-  // 701–767px seam against Sidebar's own breakpoint that already exists
-  // elsewhere in this app rather than reconciling every breakpoint in one
-  // pass.
-  const isPhoneChrome = useIsMobile();
+  // same 768px number for exactly that reason.
+  const isPhoneChrome = useIsPhoneWidth();
 
   return (
     <TooltipProvider>

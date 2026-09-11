@@ -44,7 +44,7 @@ function makeThreads(count: number): CachedThread[] {
  * Stubs `window.matchMedia` for `useHoverCapable()` (#134): `matches`
  * answers `(hover: hover) and (pointer: fine)` — `true` simulates a
  * mouse/trackpad, `false` a touch-only pointer. Real jsdom has no
- * `matchMedia` at all (`use-mobile.ts`'s own comment), so every test that
+ * `matchMedia` at all (`use-phone-width.ts`'s own comment), so every test that
  * never calls this keeps the hook's `true` fallback — today's
  * hover-revealed behavior, unchanged by this ticket.
  */
