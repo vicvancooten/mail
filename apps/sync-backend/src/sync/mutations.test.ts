@@ -26,6 +26,7 @@ import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { flushMutations, flushUserMutations } from "./mutations.js";
+import { refreshThreadRollups } from "./thread-rollup.js";
 import { resolveThread } from "./threading.js";
 
 /**
@@ -365,6 +366,27 @@ describe("flushMutations — archive/trash on Gmail (#124, ADR-0020)", () => {
     const rows = await outboxRows(gmailAccount.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: "archive" });
+  });
+
+  it("strips the \\Inbox label synchronously, so a rollup recompute before the real removal drains doesn't republish the Thread as still in the Inbox (ADR-0010's 2026-09-11 amendment)", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+
+    await flushMutations(db, gmailAccount.id, [
+      { id: "01ARCHIVE", intent: { type: "archive", threadId } },
+    ]);
+
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).not.toContain("\\Inbox");
+
+    // A rollup recompute racing the still-queued label-remove protocol write
+    // (an unrelated message landing in the Thread, say) must agree with the
+    // mutation already applied above, not overwrite it back to "inbox" from
+    // a stale label.
+    await refreshThreadRollups(db, [threadId]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("archive");
   });
 
   it("restoreToInbox enqueues a label-add of \\Inbox for a Gmail account", async () => {

@@ -227,21 +227,20 @@
   margin: 0;
 }
 
-.compose-swatch-picker {
-  position: relative;
-}
+/* Positioning, portal, background and shadow are the shared `Popover`
+   primitive's own now (#281 — these were their own hand-managed `open`
+   booleans with no dismiss handling at all); this plain, unlayered rule
+   overrides the primitive's own (Tailwind-layered) default `flex flex-col`
+   with this control's own swatch grid, cascade layers alone deciding it —
+   no `!important` needed. */
 .compose-swatch-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
-  padding: 6px;
+  width: auto;
   background: var(--color-surface-strong);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
-  z-index: 60;
 }
 .compose-swatch {
   width: 18px;

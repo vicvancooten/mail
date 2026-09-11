@@ -41,6 +41,7 @@ import {
   providerRegistrations,
   pushSubscriptions,
   reminderDue,
+  repairs,
   rollbacks,
   sessions,
   syncTombstones,
@@ -87,6 +88,9 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  */
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(vapidKeys);
+  // #284: no FK to anything — a bare completion record, cleared the same
+  // reason `vapidKeys` above is.
+  await db.delete(repairs);
   // No FK to `users`/`mailAccounts` — nothing else cascades these away.
   await db.delete(calendarWatchChannels);
   await db.delete(calendarMirrorSyncState);

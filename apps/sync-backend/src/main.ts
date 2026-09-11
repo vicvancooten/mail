@@ -22,6 +22,7 @@ import { startCarddavContactsWriteBackLoop } from "./contacts/carddav/write-back
 import { startGoogleContactsSyncLoop } from "./contacts/google/poll-loop.js";
 import { startGoogleContactsWriteBackLoop } from "./contacts/google/write-back-loop.js";
 import { startMicrosoftContactsSyncLoop } from "./contacts/microsoft/poll-loop.js";
+import { repairDemotedAddresses } from "./contacts/repair-demoted-addresses.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadEnv } from "./env.js";
@@ -33,6 +34,7 @@ import { startNotifierDeliverLoop } from "./notifier/deliver-loop.js";
 import { createVapidKeyStore } from "./notifier/vapid-keys.js";
 import { createWebPushSender } from "./notifier/web-push-sender.js";
 import { createSyncHintBroker } from "./realtime/sync-hints.js";
+import { runRepairs } from "./repairs/runner.js";
 import { defaultProviderAdapters } from "./routes/oauth-signin.js";
 import { startContactPurgeLoop } from "./sync/contact-purge-loop.js";
 import { startDraftPushLoop } from "./sync/draft-push-loop.js";
@@ -58,6 +60,12 @@ const { db, sql } = createDb(env);
 // comment for why this can't be a `.sql` migration file. Fails closed
 // (ADR-0009), same as `runMigrations` itself.
 await upgradeMailAccountsToConnectedAccounts(db, env.MAIL_CREDENTIAL_KEY);
+
+// The Sync Backend's one-off Data Repairs (#284): each runs at most once per
+// instance, right after the schema migrations and the boot upgrade above,
+// and records its own completion (`repairs/runner.ts`) so a later boot never
+// re-runs one that already landed.
+await runRepairs(db, [repairDemotedAddresses]);
 
 // ADR-0015's fanout: a dedicated `LISTEN` connection (never the pooled one
 // queries run on) turning `migration 0016`'s `pg_notify` into `GET

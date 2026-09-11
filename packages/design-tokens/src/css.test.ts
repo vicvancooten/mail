@@ -24,6 +24,7 @@ describe("buildTokensCss", () => {
     expect(root).toContain("--breakpoint-phone: 768px;");
     expect(root).toContain("--shadow-overlay:");
     expect(root).toContain("--shadow-header:");
+    expect(root).toContain("--shadow-header-flush:");
     expect(root).toContain("--shadow-card:");
   });
 
