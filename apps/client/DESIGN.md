@@ -598,8 +598,47 @@ used selectively rather than uniformly:
   Settings' side nav, which is a plain `Link` list (`settings/SettingsLayout.tsx`) styled
   directly in `settings.css` — despite `Sidebar` being available in `components/ui`, Settings
   deliberately did not reach for it.
-- **Dialog** — the Screener's View dialog (below) and the Blocked Alias confirmation.
+- **Dialog** — the Screener's View dialog (below), the Blocked Alias confirmation, the
+  compose Send/Don't send prompt, and (#281) the Shortcut Sheet (`?`).
 - **Command** primitive file is not present; the Command Palette is hand-built on `cmdk`.
+
+### Transient surfaces: the shared-primitive rule (#281)
+Every popover, menu, dialog and sheet is a Radix-backed shadcn primitive (`Popover`,
+`DropdownMenu`, `Dialog`, `Sheet`, `ContextMenu`) — never a hand-managed `open` boolean with
+its own `mousedown`/`keydown` listeners bolted on. The rule exists because two hand-rolled
+surfaces can't coordinate: nothing stops one opening while another is already open, and each
+one reinvents (or forgets) outside-click, Escape, and returning focus to its trigger. Radix
+gives all three for free and enforces "one at a time" the moment two such surfaces would
+otherwise compete for the same pointer/keyboard event.
+
+A component can still hold its own `open` state — `AccountScope.tsx`'s toggle, the compose
+toolbar's `ColorPicker`/`HighlightPicker`, `ThreadRow.tsx`'s Snooze menu — as long as that
+state is only ever handed to the primitive as `open`/`onOpenChange`; the primitive, not the
+component, is what actually listens for the dismissal.
+
+**Exemptions** (things that look like the rule's targets but aren't, because what makes them
+work is structurally incompatible with a Radix `Popover`/`Menu`):
+- **The Command Palette** (`cmdk`) — its own fuzzy-search list and keyboard nav are `cmdk`'s
+  reason to exist; wrapping it in `Popover` would fight `cmdk`'s own state, not simplify it.
+- **Editor-caret-anchored typeahead popups** — the compose recipient combobox
+  (`RecipientField.tsx`) and the Notion-style slash menu (`slash-menu.tsx`, a `tiptap`
+  `Suggestion` extension): both are positioned off the text caret inside a ProseMirror
+  document, not off a DOM trigger element, and both live and die with the editor's own
+  selection state rather than a plain open/close boolean.
+- **The desktop App Switcher's inline expansion** (`AppSwitcher.tsx`'s `DesktopSwitcher`) — the
+  comp's own `grid-template-columns: 0fr → 1fr` transition grows the tab row out of the
+  toggle's own position in the header's flow; a `Popover.Content` always portals and floats,
+  which can't animate from zero width in place. Its outside-click/Escape listeners are
+  therefore this component's own (bound only while `open`, unbound the instant it closes) —
+  audited and kept as of #281 rather than converted, since converting it would mean losing the
+  in-place growth the comp specifies, not just changing which primitive renders it. The phone
+  variant of the same control (`PhoneSwitcher`) is a real shadcn `Sheet` and needs no such
+  exemption.
+
+The #281 audit that established this rule found and converted two further offenders beyond
+Account Scope itself: the compose toolbar's `ColorPicker`/`HighlightPicker` (had no dismiss
+handling at all — clicking elsewhere never closed them) and the Shortcut Sheet (a hand-rolled
+backdrop + `keydown` listener, now a shadcn `Dialog`).
 
 ### The Screener (calm panel) and its View dialog
 Deliberately the *quietest* screen in the app, not the loudest: each Unscreened Sender is a
