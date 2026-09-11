@@ -3,8 +3,29 @@ import { useCallback, useEffect, useRef } from "react";
 import { notifyTriageSucceeded } from "../pwa/notification-offer.js";
 import type { CachedThread } from "../store/index.js";
 import { enqueueMutation } from "../store/index.js";
+import { currentListHandle } from "./actions/surface-handles.js";
 import { invalidateThreadMessages } from "./reading/useThreadMessages.js";
 import { announceUndoableAction } from "./undo-toast.js";
+
+/**
+ * `advanceSelection`'s own fallback neighbor lookup (#275) for a caller with
+ * no `VirtualizedThreadList` mounted to publish a collapse-aware
+ * `ListHandle` — Stream mode (`stream/StreamStack.tsx`'s own doc comment:
+ * "the point of that mode is not having a list"). Exactly the math the list
+ * handle's own `neighborOf` runs, just over a flat id array with no
+ * collapsed groups to skip.
+ */
+function flatNeighbor(
+  ids: readonly string[],
+  threadId: string,
+  direction: AutoAdvanceDirection,
+): string | null {
+  const idx = ids.indexOf(threadId);
+  if (idx === -1) return null;
+  const older = ids[idx + 1] ?? null;
+  const newer = idx > 0 ? (ids[idx - 1] ?? null) : null;
+  return direction === "newer" ? (newer ?? older) : (older ?? newer);
+}
 
 /**
  * The one triage hook every view mode calls (#42, poc-spec.md §Triage &
@@ -24,11 +45,24 @@ import { announceUndoableAction } from "./undo-toast.js";
  *   which raises or coalesces the toast. Star/Pin/Read/Label already toggle,
  *   so they raise no toast and keep returning `void`.
  * - Auto-advance: archiving/trashing/snoozing the *currently selected*
- *   Thread moves the selection to its neighbor first — computed from `ids`
- *   before the Thread vanishes from it, never after — per `direction`.
- *   Archiving a Thread that isn't selected (a future multi-select, a mouse
- *   action on a row you're not reading) leaves the selection alone, matching
- *   an ordinary mail client.
+ *   Thread moves the selection to its neighbor first — computed before the
+ *   Thread vanishes from the list, never after — per `direction`. Archiving
+ *   a Thread that isn't selected (a future multi-select, a mouse action on a
+ *   row you're not reading) leaves the selection alone, matching an ordinary
+ *   mail client. The neighbor itself comes from the mounted list's own
+ *   collapse-aware order (`actions/surface-handles.ts#ListHandle.neighborOf`,
+ *   #275) — the same mover `j`/`k` already use, so a collapsed Time Group
+ *   (#78) is skipped by Auto-advance too — falling back to a flat `ids` scan
+ *   (`flatNeighbor` below) only where no list is mounted to ask (Stream).
+ *   Auto-advance also re-homes DOM focus onto whatever it lands on
+ *   (`ListHandle.focusThread`), or the listbox itself once nothing does, so
+ *   the next keypress after a Triage action needs no click first.
+ *   `selectedThreadId`/`ids` are read through refs here, not the render-time
+ *   props of the same name (`selectedThreadIdRef`/`idsRef` below): two
+ *   Triage actions dispatched before React re-renders once between them —
+ *   two quick Dones — would otherwise both compute their neighbor against
+ *   the *same* stale selection, landing one Thread short of where both
+ *   should end up.
  * - Mark-as-read on open: selecting any unread Thread, by any means,
  *   queues `setRead(true)` for it. Read via a ref so it fires once per
  *   *selection change* — depending on `threads` directly would refire (and
@@ -135,6 +169,19 @@ export function useTriage({
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
 
+  // #275: mirrors of the two render-time props `advanceSelection` used to
+  // read directly — reassigned on every render, same as `threadsRef` above,
+  // *and* written imperatively inside `advanceSelection` itself the instant
+  // it moves the selection, so a second Triage call in the same tick (no
+  // re-render in between) sees the just-advanced-to id rather than the
+  // stale prop. Without that second write, two quick Dones would both
+  // compute their neighbor off the Thread that was selected *before either
+  // ran*, landing the final selection one Thread short.
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  selectedThreadIdRef.current = selectedThreadId;
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+
   /**
    * Cross-account results (#80: "Triage from a cross-account result acts on
    * the right Mail Account"): `threads` can hold rows from more than one
@@ -171,15 +218,20 @@ export function useTriage({
   /** Moves the selection off `threadId` onto its `direction`-preferred neighbor, only if it was selected. */
   const advanceSelection = useCallback(
     (threadId: string) => {
-      if (!autoAdvanceEnabled || selectedThreadId !== threadId) return;
-      const idx = ids.indexOf(threadId);
-      if (idx === -1) return;
-      const older = ids[idx + 1] ?? null;
-      const newer = idx > 0 ? (ids[idx - 1] ?? null) : null;
-      const upcoming = direction === "newer" ? (newer ?? older) : (older ?? newer);
+      if (!autoAdvanceEnabled || selectedThreadIdRef.current !== threadId) return;
+      const list = currentListHandle();
+      const upcoming = list
+        ? list.neighborOf(threadId, direction)
+        : flatNeighbor(idsRef.current, threadId, direction);
+      // Written before `onSelect` fires (#275's own doc comment above) so a
+      // second `advanceSelection` call in this same tick — a second Done
+      // dispatched before React re-renders once — reads *this* call's
+      // result rather than the stale `threadId` it started from.
+      selectedThreadIdRef.current = upcoming;
       if (upcoming) onSelect(upcoming);
+      list?.focusThread(upcoming);
     },
-    [ids, selectedThreadId, direction, autoAdvanceEnabled, onSelect],
+    [direction, autoAdvanceEnabled, onSelect],
   );
 
   /** A handle with nothing to undo — the "couldn't even resolve an account" branch below, which never enqueued the forward action either. */
