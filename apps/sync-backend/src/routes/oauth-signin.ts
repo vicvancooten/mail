@@ -116,9 +116,27 @@ export async function oauthSignInRoutes(
   const redirectUriFor = (provider: RegisteredProvider) =>
     buildProviderRedirectUri(publicUrl, provider);
 
-  function finish(reply: FastifyReply, outcome: OAuthSignInOutcome) {
+  function finish(
+    reply: FastifyReply,
+    outcome: OAuthSignInOutcome,
+    /**
+     * The `signed_in` outcome's own extra pair (#285): which Connected
+     * Account row the Client should scroll to and highlight once its delta
+     * lands — the same `?account=&facet=` shape the `needs-reauth`
+     * notification deep link already lands on
+     * (`connected-accounts/account-focus.ts`), reused rather than a second
+     * mechanism, so `ConnectedAccountsPage.tsx` resolves both the same way.
+     * Every other outcome creates or changes nothing new to point at, so
+     * this stays unset for them.
+     */
+    focus?: { connectedAccountId: string; facet: string },
+  ) {
     const target = new URL(MAIL_ACCOUNTS_SETTINGS_PATH, publicUrl);
     target.searchParams.set(OAUTH_SIGN_IN_OUTCOME_PARAM, outcome);
+    if (focus) {
+      target.searchParams.set("account", focus.connectedAccountId);
+      target.searchParams.set("facet", focus.facet);
+    }
     return reply.redirect(target.toString(), 302);
   }
 
@@ -458,7 +476,9 @@ export async function oauthSignInRoutes(
       // first Connected Account this instance has ever signed in with it.
       await recordFacetFirstGrant(db, provider, "mail");
 
-      return finish(reply, "signed_in");
+      // #285: point Settings at the row it should highlight once this new
+      // Connected Account's delta actually lands in the Local Cache.
+      return finish(reply, "signed_in", { connectedAccountId, facet: "mail" });
     },
   );
 

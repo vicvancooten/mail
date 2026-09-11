@@ -82,23 +82,31 @@ function authResponses(role: "owner" | "member" = "owner"): Record<string, () =>
   };
 }
 
+/** Returns the stubbed `fetch` itself (#285) — a call-count seam for tests that need to prove the sync loop started, or started only once. */
 function stubFetch(mailAccounts: MailAccount[] = [], role: "owner" | "member" = "owner") {
   const authResponsesForRole = authResponses(role);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const auth = authResponsesForRole[url];
-      if (auth) return Promise.resolve(auth());
-      // `/sync` never resolves — every assertion here reads the seeded
-      // Local Cache, never a round trip (ADR-0010).
-      if (url === "/sync") return new Promise<Response>(() => {});
-      // `MailAccountsSection` (Settings) reads this directly, not the Local
-      // Cache — unrelated to the seeded Threads above.
-      if (url === "/mail-accounts") return Promise.resolve(jsonResponse({ mailAccounts }));
-      throw new Error(`Unexpected fetch: ${url}`);
-    }),
-  );
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const auth = authResponsesForRole[url];
+    if (auth) return Promise.resolve(auth());
+    // `/sync` never resolves — every assertion here reads the seeded
+    // Local Cache, never a round trip (ADR-0010).
+    if (url === "/sync") return new Promise<Response>(() => {});
+    // `MailAccountsSection` (Settings) reads this directly, not the Local
+    // Cache — unrelated to the seeded Threads above.
+    if (url === "/mail-accounts") return Promise.resolve(jsonResponse({ mailAccounts }));
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** How many times the sync loop has actually reached out to `/sync` so far. */
+function syncFetchCount(fetchMock: ReturnType<typeof stubFetch>): number {
+  return fetchMock.mock.calls.filter(([input]) => {
+    const url = typeof input === "string" ? input : input.toString();
+    return url === "/sync";
+  }).length;
 }
 
 beforeEach(async () => {
@@ -875,6 +883,79 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
     expect(location.pathname).toBe("/settings/connected-accounts");
     await waitFor(() => expect(screen.getByLabelText("Username")).toBeDefined());
+  });
+
+  it("navigating straight to a Settings route starts the sync loop (#285)", async () => {
+    const fetchMock = stubFetch();
+
+    // No stop at `/mail` first — the whole point of #285 is that a User who
+    // lands directly on Settings gets the sync loop too, not just the nine
+    // App surfaces that used to start it themselves.
+    history.replaceState(null, "", "/settings/general");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "General", level: 2 })).toBeDefined();
+    await waitFor(() => expect(syncFetchCount(fetchMock)).toBeGreaterThan(0));
+  });
+
+  it("navigating between Apps never restarts the sync loop (#285)", async () => {
+    await seedOneThread();
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+    await waitFor(() => expect(syncFetchCount(fetchMock)).toBeGreaterThan(0));
+    const countAtMail = syncFetchCount(fetchMock);
+
+    // The shell (`router/RootLayout.tsx`) never unmounts across these —
+    // only its `<Outlet/>` swaps — so the sync loop's own effect never
+    // tears down and reruns the way it would if each App started it.
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Contacts" }));
+    await screen.findByLabelText("Contacts");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: /Notes/ }));
+    await screen.findByLabelText("Notes");
+
+    expect(syncFetchCount(fetchMock)).toBe(countAtMail);
+  });
+
+  it("returning from a Provider sign-in renders a toast and, once the delta lands, highlights the new Connected Account (#285)", async () => {
+    stubFetch();
+
+    // The backend's own redirect (`routes/oauth-signin.ts#finish`) carries
+    // both the outcome and, for `signed_in`, the new Connected Account's own
+    // focus pair — the same `?account=&facet=` shape the needs-reauth deep
+    // link above lands on, at the pre-#201 address old links still carry.
+    history.replaceState(
+      null,
+      "",
+      "/settings/mail-accounts?oauth=signed_in&account=acct-1-connected&facet=mail",
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByText("Signed in. The new Mail Account is syncing now."),
+    ).toBeDefined();
+    expect(location.pathname).toBe("/settings/connected-accounts");
+
+    // Nothing to highlight yet — the new Connected Account hasn't synced
+    // down into the Local Cache.
+    expect(screen.queryByText("acct-1@example.test")).toBeNull();
+
+    await applyConnectedAccountDelta(
+      delta({ created: [makeConnectedAccount("acct-1-connected")] }),
+      { replace: false },
+    );
+
+    // Once the delta lands, its Facet Badge renders and — being the
+    // redirect's own focus target — opens its Popover immediately, the same
+    // "scroll to and open" the needs-reauth deep link gets: the identity
+    // now appears twice (the Badge itself, plus the open Popover's title).
+    expect(await screen.findAllByText("acct-1@example.test")).toHaveLength(2);
+    expect(screen.getByText("Connected.")).toBeDefined();
   });
 
   it("the placeholder Apps are real, reachable routes", async () => {

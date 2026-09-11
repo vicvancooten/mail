@@ -19,7 +19,6 @@ import {
   useTaskLists,
   useThreadWindow,
 } from "../../store/index.js";
-import { useLocalCacheSync } from "../../sync/use-local-cache-sync.js";
 import { type AddToTasksResult, AddToTasksSheet } from "../AddToTasksSheet.js";
 import { ActionsProvider, useActionKeyboard } from "../actions/ActionsProvider.js";
 import { publishActiveMailHost } from "../actions/active-mail-host.js";
@@ -103,7 +102,6 @@ export function StreamStack({
   /** A Task chip's title (#259) — `onNoteCreated`'s own posture: real wiring from `router/StreamRoute.tsx`, a no-op default for every unrouted caller. */
   onOpenTask?: (taskId: string) => void;
 }) {
-  useLocalCacheSync();
   const { paletteOpen, openPalette } = usePaletteHost();
   const mailAccounts = useMailAccounts();
   const connectedAccounts = useConnectedAccounts();

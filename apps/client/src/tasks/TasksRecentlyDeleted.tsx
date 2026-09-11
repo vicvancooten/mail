@@ -7,7 +7,6 @@ import {
   useDeletedTaskLists,
   useDeletedTasks,
 } from "../store/index.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./tasks.css";
 
 /**
@@ -27,7 +26,6 @@ import "./tasks.css";
  * group.
  */
 export function TasksRecentlyDeleted() {
-  useLocalCacheSync();
   const deletedLists = useDeletedTaskLists();
   const deletedTasks = useDeletedTasks();
   const nothingDeleted =

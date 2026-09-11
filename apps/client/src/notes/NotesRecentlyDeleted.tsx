@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
 import { restoreNote, useDeletedNotes } from "../store/index.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./notes.css";
 import { RecentlyDeletedNoteCard } from "./RecentlyDeletedNoteCard.js";
 
@@ -14,7 +13,6 @@ import { RecentlyDeletedNoteCard } from "./RecentlyDeletedNoteCard.js";
  * re-sort" division `NotesGrid.tsx` draws for the ordinary grid.
  */
 export function NotesRecentlyDeleted() {
-  useLocalCacheSync();
   const notes = useDeletedNotes();
 
   return (
