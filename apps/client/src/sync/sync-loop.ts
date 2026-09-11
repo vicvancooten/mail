@@ -170,13 +170,22 @@ export function startSyncLoop(options: SyncLoopOptions = {}): SyncLoopHandle {
             await runRound(post, onUnauthorized);
           }
           if (signal.aborted) break;
-          await waitForWake(signal, nextDelayMs(intervalMs, random), (resolve) => {
-            wake = resolve;
-          });
-          wake = null;
+          // A `requestSync()` landing while the round above was still in
+          // flight already flipped `syncRequested` back to `true` — that is
+          // a second Done issued mid-round, and it must reach the Sync
+          // Backend as soon as this round frees up, not up to 30s later on
+          // the ordinary interval. Skipping the wait here is what makes that
+          // happen: the loop goes straight back around to run another round.
+          if (!syncRequested) {
+            await waitForWake(signal, nextDelayMs(intervalMs, random), (resolve) => {
+              wake = resolve;
+            });
+            wake = null;
+          }
           // Whatever woke this — the interval, a backoff, `online`, a
-          // regained visible tab, an SSE Sync Hint — is a reason to sync.
-          // Only an abort leaves through the loop condition.
+          // regained visible tab, an SSE Sync Hint, or a request already
+          // pending from mid-round — is a reason to sync. Only an abort
+          // leaves through the loop condition.
           syncRequested = true;
         }
       } finally {

@@ -608,6 +608,62 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
     expect(await listQueuedMutations("acct-1")).toEqual([]);
     expect((await readThreadWindow("acct-1")).threads[0]?.starred).toBe(true);
   });
+
+  it("commits an acknowledged pending mutation's deletion and the Thread delta that reflects it as one transaction (ADR-0010 amendment, #276)", async () => {
+    await localCache().mailAccounts.put(makeMailAccount("acct-1"));
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    const id = await enqueueMutation({ type: "archive", threadId: "t1" }, "acct-1");
+
+    // `storagemutated` fires once per committed IndexedDB transaction — the
+    // same signal `liveQuery` itself listens for — with every table its
+    // commit touched. It is the direct way to assert "one transaction"
+    // rather than inferring it from emission timing, which a `liveQuery`
+    // subscriber can't reliably distinguish: an aborted-and-requeried
+    // in-flight read can just as easily hide two separate commits behind
+    // one emission as one commit can.
+    const commits: string[][] = [];
+    const onStorageMutated = (parts: Record<string, unknown>) => commits.push(Object.keys(parts));
+    Dexie.on("storagemutated", onStorageMutated);
+
+    try {
+      const { post } = scriptedSync([
+        {
+          user: {},
+          mailAccounts: {
+            "acct-1": {
+              Thread: delta({
+                updated: [makeThread("t1", "acct-1", { inInbox: false, folderRole: "archive" })],
+                newState: "th-1",
+              }),
+              mutations: [{ id: id as string, status: "applied" } satisfies MutationOutcome],
+            },
+          },
+          connectedAccounts: {},
+        },
+      ]);
+
+      await runSyncRound(post);
+    } finally {
+      Dexie.on("storagemutated").unsubscribe(onStorageMutated);
+    }
+
+    // At least one commit's touched tables include both `pendingMutations`
+    // (the acknowledged row's deletion) and `threads` (the delta that
+    // reflects it) — committed together, never as two separate transactions
+    // that would show `base` alone for a frame in between.
+    const combined = commits.find(
+      (keys) =>
+        keys.some((key) => key.includes("/pendingMutations/")) &&
+        keys.some((key) => key.includes("/threads/")),
+    );
+    expect(combined).toBeDefined();
+
+    expect(await listQueuedMutations("acct-1")).toEqual([]);
+    expect((await readThreadWindow("acct-1")).threads).toEqual([]);
+  });
 });
 
 describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
