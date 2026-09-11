@@ -6,8 +6,8 @@ import {
   type RouterHistory,
   redirect,
 } from "@tanstack/react-router";
-import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { APPS_BY_KEY } from "../apps/apps.js";
+import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
 import { ContactsRecentlyDeleted } from "../contacts/ContactsRecentlyDeleted.js";
 import { isPhoneWidth } from "../hooks/use-phone-width.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
@@ -20,8 +20,8 @@ import { NotificationsPage } from "../settings/NotificationsPage.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
-import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
 import { contactExists } from "../store/contacts.js";
+import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
 import { ContactDialogRoute } from "./ContactDialogRoute.js";
 import { ContactsRoute } from "./ContactsRoute.js";
 import { MailRoute } from "./MailRoute.js";

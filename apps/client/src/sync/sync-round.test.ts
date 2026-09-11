@@ -57,13 +57,15 @@ describe("runSyncRound", () => {
     const { post, requests } = scriptedSync([
       {
         user: { MailAccount: delta({ created: [makeMailAccount("acct-1")], newState: "ma-1" }) },
-        mailAccounts: {}, connectedAccounts: {},
+        mailAccounts: {},
+        connectedAccounts: {},
       },
       {
         user: {},
         mailAccounts: {
           "acct-1": { Thread: delta({ created: [makeThread("t1", "acct-1")], newState: "th-1" }) },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
 
@@ -112,7 +114,8 @@ describe("runSyncRound", () => {
     const { post, requests } = scriptedSync([
       {
         user: { MailAccount: delta({ created: [makeMailAccount("acct-1")], newState: "ma-1" }) },
-        mailAccounts: {}, connectedAccounts: {},
+        mailAccounts: {},
+        connectedAccounts: {},
       },
       {
         user: {},
@@ -124,7 +127,8 @@ describe("runSyncRound", () => {
               hasMore: true,
             }),
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
       {
         user: {},
@@ -135,7 +139,8 @@ describe("runSyncRound", () => {
               newState: "th-2",
             }),
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
 
@@ -158,7 +163,8 @@ describe("runSyncRound", () => {
     const bootstrap = scriptedSync([
       {
         user: { MailAccount: delta({ created: [makeMailAccount("acct-1")], newState: "ma-1" }) },
-        mailAccounts: {}, connectedAccounts: {},
+        mailAccounts: {},
+        connectedAccounts: {},
       },
       {
         user: {},
@@ -166,7 +172,8 @@ describe("runSyncRound", () => {
           "acct-1": {
             Thread: delta({ created: [makeThread("stale", "acct-1")], newState: "th-1" }),
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(bootstrap.post);
@@ -183,7 +190,8 @@ describe("runSyncRound", () => {
               reset: true,
             }),
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
       {
         user: {},
@@ -195,7 +203,8 @@ describe("runSyncRound", () => {
               reset: true,
             }),
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(replay.post);
@@ -210,13 +219,15 @@ describe("runSyncRound", () => {
     const bootstrap = scriptedSync([
       {
         user: { MailAccount: delta({ created: [makeMailAccount("acct-1")], newState: "ma-1" }) },
-        mailAccounts: {}, connectedAccounts: {},
+        mailAccounts: {},
+        connectedAccounts: {},
       },
       {
         user: {},
         mailAccounts: {
           "acct-1": { Thread: delta({ created: [makeThread("t1", "acct-1")], newState: "th-1" }) },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(bootstrap.post);
@@ -228,13 +239,15 @@ describe("runSyncRound", () => {
     const resync = scriptedSync([
       {
         user: { MailAccount: delta({ created: [makeMailAccount("acct-1")], newState: "ma-2" }) },
-        mailAccounts: {}, connectedAccounts: {},
+        mailAccounts: {},
+        connectedAccounts: {},
       },
       {
         user: {},
         mailAccounts: {
           "acct-1": { Thread: delta({ created: [makeThread("t1", "acct-1")], newState: "th-2" }) },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(resync.post);
@@ -275,7 +288,8 @@ describe("runSyncRound", () => {
     const { post, requests } = scriptedSync([
       {
         user: {},
-        mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } }, connectedAccounts: {},
+        mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } },
+        connectedAccounts: {},
       },
     ]);
     const result = await runSyncRound(post);
@@ -305,7 +319,8 @@ describe("runSyncRound", () => {
       scriptedSync([
         {
           user: {},
-          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } }, connectedAccounts: {},
+          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -346,7 +361,9 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
       "acct-1",
     );
 
-    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {}, connectedAccounts: {} }]);
+    const { post, requests } = scriptedSync([
+      { user: {}, mailAccounts: {}, connectedAccounts: {} },
+    ]);
     await runSyncRound(post);
 
     expect(requests).toHaveLength(1);
@@ -367,7 +384,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
       scriptedSync([
         {
           user: {},
-          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } }, connectedAccounts: {},
+          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -398,7 +416,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
       scriptedSync([
         {
           user: {},
-          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } }, connectedAccounts: {},
+          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -423,7 +442,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
             "acct-1": {
               mutations: [{ id: id as string, status: "rejected", reason: "thread_not_found" }],
             },
-          }, connectedAccounts: {},
+          },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -448,7 +468,9 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
 
     // A defensive shape-mismatch: the account entry is present (matching
     // `askedAbout`) but carries no `mutations` at all.
-    await runSyncRound(scriptedSync([{ user: {}, mailAccounts: { "acct-1": {} }, connectedAccounts: {} }]).post);
+    await runSyncRound(
+      scriptedSync([{ user: {}, mailAccounts: { "acct-1": {} }, connectedAccounts: {} }]).post,
+    );
 
     expect((await listQueuedMutations("acct-1")).map((mutation) => mutation.id)).toEqual([id]);
   });
@@ -465,7 +487,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
     const { post, requests } = scriptedSync([
       {
         user: {},
-        mailAccounts: { "acct-1": { mutations: [{ id: activeId as string, status: "applied" }] } }, connectedAccounts: {},
+        mailAccounts: { "acct-1": { mutations: [{ id: activeId as string, status: "applied" }] } },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(post);
@@ -498,7 +521,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
       scriptedSync([
         {
           user: {},
-          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } }, connectedAccounts: {},
+          mailAccounts: { "acct-1": { mutations: [{ id: id as string, status: "applied" }] } },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -532,7 +556,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
             "acct-1": {
               mutations: [{ id: id as string, status: "rejected", reason: "no_archive_folder" }],
             },
-          }, connectedAccounts: {},
+          },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -559,7 +584,8 @@ describe("runSyncRound — Optimistic Action queue flush", () => {
             }),
             mutations: [{ id: id as string, status: "applied" } satisfies MutationOutcome],
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(post);
@@ -577,7 +603,9 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
       direction: "newer",
     });
 
-    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {}, connectedAccounts: {} }]);
+    const { post, requests } = scriptedSync([
+      { user: {}, mailAccounts: {}, connectedAccounts: {} },
+    ]);
     await runSyncRound(post);
 
     expect(requests).toHaveLength(1);
@@ -613,7 +641,8 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
               newState: "pref-1",
             }),
           },
-          mailAccounts: {}, connectedAccounts: {},
+          mailAccounts: {},
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -636,7 +665,11 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
 
     await runSyncRound(
       scriptedSync([
-        { user: { mutations: [{ id: id as string, status: "applied" }] }, mailAccounts: {}, connectedAccounts: {} },
+        {
+          user: { mutations: [{ id: id as string, status: "applied" }] },
+          mailAccounts: {},
+          connectedAccounts: {},
+        },
       ]).post,
     );
     expect(await listQueuedUserMutations()).toEqual([]);
@@ -649,7 +682,9 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
     await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "v1" });
     await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "v2" });
 
-    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {}, connectedAccounts: {} }]);
+    const { post, requests } = scriptedSync([
+      { user: {}, mailAccounts: {}, connectedAccounts: {} },
+    ]);
     await runSyncRound(post);
 
     expect(requests).toHaveLength(1);
@@ -674,7 +709,8 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
             "acct-1": {
               composeSaves: [{ id: "comp-1", saveId: queuedSaveId, status: "applied", version: 1 }],
             },
-          }, connectedAccounts: {},
+          },
+          connectedAccounts: {},
         },
       ]).post,
     );
@@ -729,7 +765,8 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
           "acct-1": {
             composeSaves: [{ id: "comp-1", saveId: reloadedSaveId, status: "applied", version: 1 }],
           },
-        }, connectedAccounts: {},
+        },
+        connectedAccounts: {},
       },
     ]);
     await runSyncRound(post);
@@ -744,7 +781,9 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
     await saveComposition("comp-1", "acct-1", { ...EMPTY_COMPOSE_CONTENT, subject: "held" });
     await saveComposition("comp-2", "acct-2", { ...EMPTY_COMPOSE_CONTENT, subject: "flows" });
 
-    const { post, requests } = scriptedSync([{ user: {}, mailAccounts: {}, connectedAccounts: {} }]);
+    const { post, requests } = scriptedSync([
+      { user: {}, mailAccounts: {}, connectedAccounts: {} },
+    ]);
     await runSyncRound(post);
 
     const request = requests[0];
@@ -780,14 +819,18 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
     // "reopen after a quiet gap" (a visibility-change round is an ordinary
     // round from `runSyncRound`'s own point of view — same code path).
     it("snaps the badge to the response's unreadInboxCount", async () => {
-      const { post } = scriptedSync([{ user: { unreadInboxCount: 3 }, mailAccounts: {}, connectedAccounts: {} }]);
+      const { post } = scriptedSync([
+        { user: { unreadInboxCount: 3 }, mailAccounts: {}, connectedAccounts: {} },
+      ]);
       await runSyncRound(post);
       expect(setAppBadge).toHaveBeenCalledWith(3);
       expect(clearAppBadge).not.toHaveBeenCalled();
     });
 
     it("clears the badge once nothing is unread", async () => {
-      const { post } = scriptedSync([{ user: { unreadInboxCount: 0 }, mailAccounts: {}, connectedAccounts: {} }]);
+      const { post } = scriptedSync([
+        { user: { unreadInboxCount: 0 }, mailAccounts: {}, connectedAccounts: {} },
+      ]);
       await runSyncRound(post);
       expect(clearAppBadge).toHaveBeenCalled();
       expect(setAppBadge).not.toHaveBeenCalled();
@@ -798,7 +841,9 @@ describe("runSyncRound — Composition autosave flush (#45, ADR-0014)", () => {
         configurable: true,
         value: { permission: "denied" },
       });
-      const { post } = scriptedSync([{ user: { unreadInboxCount: 5 }, mailAccounts: {}, connectedAccounts: {} }]);
+      const { post } = scriptedSync([
+        { user: { unreadInboxCount: 5 }, mailAccounts: {}, connectedAccounts: {} },
+      ]);
       await runSyncRound(post);
       expect(setAppBadge).not.toHaveBeenCalled();
       expect(clearAppBadge).not.toHaveBeenCalled();
