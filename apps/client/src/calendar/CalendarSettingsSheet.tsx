@@ -7,9 +7,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet.js";
+import { useHiddenCalendarIds } from "../mail/device-preferences.js";
 import { enqueueUserMutation } from "../store/index.js";
 import { useMailAccounts } from "../store/reads.js";
-import { useHiddenCalendarIds } from "./calendar-visibility.js";
 import { ReminderMinutesEditor } from "./ReminderMinutesEditor.js";
 
 /** Every IANA zone this browser knows — the same list `GeneralSection.tsx`'s Home Time Zone picker offers (#189). */
