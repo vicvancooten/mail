@@ -96,6 +96,7 @@ import {
   updateMailAccountSignature,
 } from "../mail-accounts/store.js";
 import { findFolderByRole } from "./folders.js";
+import { setGmailInboxLabel } from "./gmail-labels.js";
 import { selectInboxResidentMessageIds } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { restoreThreadsToInbox } from "./restore-to-inbox.js";
@@ -309,7 +310,27 @@ async function applyIntent(
         // or trashed — "un-triaging" it out from under them.
         .set({ inInbox: false, folderRole: intent.type, snoozeUntil: null })
         .where(eq(threads.id, intent.threadId));
+
+      // Gmail Done stays Done (#278, ADR-0020): this synchronous ack above is
+      // exactly right the instant it lands, but `thread-rollup.ts`'s Gmail
+      // projection re-derives `folderRole`/`inInbox` from `messages.gmailLabels`
+      // fresh every time it runs — and the protocol write below only confirms
+      // that with the real server seconds later. A rollup in that gap (any
+      // later poll cycle that touches this Thread) would otherwise republish
+      // the pre-action `\Inbox` label as a fresh delta, undoing the ack the
+      // instant the Client's own pending row is already gone. Writing the
+      // intended label removal onto the Messages themselves, right here,
+      // closes that gap: the rollup this call triggers next recomputes from
+      // the *intended* state, not stale pre-action labels. `trash` strips it
+      // too — Gmail keeps a stale `\Inbox` label on a trashed message forever
+      // (`restore-to-inbox.ts`'s own doc comment), so nothing else ever clears
+      // it, and the same rollup-in-the-gap risk applies until the real MOVE
+      // below lands.
+      if (isGmailAccount(serverKind)) {
+        await setGmailInboxLabel(db, inboxMessageIds, false);
+      }
       await enqueueProtocolWrites(db, mailAccountId, inboxMessageIds, intent.type);
+      await refreshThreadRollups(db, [intent.threadId]);
       return { ok: true };
     }
 

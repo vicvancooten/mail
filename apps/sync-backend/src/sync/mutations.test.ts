@@ -26,6 +26,7 @@ import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { flushMutations, flushUserMutations } from "./mutations.js";
+import { refreshThreadRollups } from "./thread-rollup.js";
 import { resolveThread } from "./threading.js";
 
 /**
@@ -417,6 +418,50 @@ describe("flushMutations — archive/trash on Gmail (#124, ADR-0020)", () => {
     ]);
 
     expect(outcomes).toEqual([{ id: "01NOTRASH", status: "rejected", reason: "no_trash_folder" }]);
+  });
+
+  it("archive strips \\Inbox off the Message so the Thread stays out of the Inbox across a rollup that runs before the protocol drain (#278)", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+
+    await flushMutations(db, gmailAccount.id, [
+      { id: "01ARCHIVE", intent: { type: "archive", threadId } },
+    ]);
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+
+    // The protocol write loop has not drained yet — nothing here has told
+    // Gmail anything. A rollup running in that gap (any later poll cycle
+    // touching this Thread) is exactly the bug #278 exists to fix: without
+    // the optimistic label write, this call would recompute `inInbox: true`
+    // straight off the still-`\Inbox`-labelled Message and republish it.
+    await refreshThreadRollups(db, [threadId]);
+
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("archive");
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).toEqual([]);
+  });
+
+  it("trash also strips \\Inbox off the Message, so the Thread stays out of the Inbox across the same rollup gap (#278)", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+    await db.insert(folders).values({
+      id: randomUUID(),
+      mailAccountId: gmailAccount.id,
+      path: "[Gmail]/Trash",
+      name: "Trash",
+      role: "trash",
+    });
+
+    await flushMutations(db, gmailAccount.id, [
+      { id: "01TRASH", intent: { type: "trash", threadId } },
+    ]);
+    await refreshThreadRollups(db, [threadId]);
+
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).toEqual([]);
   });
 });
 
