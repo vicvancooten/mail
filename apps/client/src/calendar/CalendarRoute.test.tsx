@@ -38,7 +38,11 @@ const USER = "u1";
 let counter = 0;
 const names: string[] = [];
 
-function stubFetch(onEventRange?: (url: string) => unknown) {
+function stubFetch(
+  onEventRange?: (url: string) => unknown,
+  /** #282's own edit-lockdown tests: `EventEditorPopover.tsx`'s own `hydrateSeries` fetch (`GET /calendars/:calendarId/series/:seriesId`), stubbed only where a test actually opens an existing Event for edit. */
+  onSeriesFetch?: (url: string) => unknown,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
@@ -69,9 +73,52 @@ function stubFetch(onEventRange?: (url: string) => unknown) {
           }),
         );
       }
+      if (onSeriesFetch && /\/calendars\/.+\/series\/.+/.test(url)) {
+        return Promise.resolve(jsonResponse(onSeriesFetch(url)));
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     }),
   );
+}
+
+/** A minimal, valid `SeriesBodyResponse` (`@mail/shared#seriesBodyResponseSchema`) — #282's own edit-lockdown tests' `hydrateSeries` fixture, one non-recurring Series with no Overrides. */
+function makeSeriesBodyResponse(
+  seriesId: string,
+  calendarId: string,
+  overrides: Partial<{
+    title: string;
+    dtstart: string;
+    durationMs: number;
+  }> = {},
+) {
+  return {
+    series: {
+      id: seriesId,
+      userId: USER,
+      calendarId,
+      uid: `${seriesId}@mail.test`,
+      sequence: 0,
+      title: overrides.title ?? "Team Standup",
+      description: null,
+      location: null,
+      allDay: false,
+      floating: false,
+      tzid: "UTC",
+      dtstart: overrides.dtstart ?? "2026-09-08T09:00:00.000Z",
+      durationMs: overrides.durationMs ?? 30 * 60 * 1000,
+      rrules: [],
+      rdates: [],
+      exdates: [],
+      transparency: "opaque",
+      attendees: [],
+      reminders: [],
+      upstreamId: null,
+      etag: null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    },
+    overrides: [],
+  };
 }
 
 beforeEach(async () => {
@@ -632,5 +679,148 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
     const chipTitle = await screen.findByText("Buy milk");
     await user.click(chipTitle);
     expect(await screen.findByText("Errands")).not.toBeNull();
+  });
+});
+
+const READ_ONLY_CAPABILITIES = {
+  writable: false,
+  historyBounded: false,
+  invitesSentByUpstream: true,
+  canSuppressInviteMail: false,
+  recurrenceGrammar: "none",
+  perEventReminders: 5,
+  attachments: false,
+  conferencing: false,
+} as const;
+
+/**
+ * The client-side half of #282's own acceptance line: "a read-only Calendar
+ * shows a read-only indication and offers no event creation or editing" —
+ * `calendar-create.test.ts#creatableCalendars`/`#defaultCalendarId` already
+ * cover the pure filtering rules; this proves the whole grid actually wires
+ * up to them.
+ */
+describe("Read-only Calendars (#282)", () => {
+  it("shows the read-only flag next to a reader-access Calendar in the slide-over", async () => {
+    await applyCalendarDelta(
+      delta({
+        created: [
+          makeCalendar("cal-holidays", USER, {
+            name: "Holidays",
+            capabilities: READ_ONLY_CAPABILITIES,
+            isDefault: false,
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Show Calendars" }));
+
+    const row = (await screen.findByText("Holidays")).closest(".calendar-slide-over-row");
+    expect(row?.querySelector('[aria-label="Read-only"]')).not.toBeNull();
+  });
+
+  it("clicking to create when every Calendar is read-only opens no popover", async () => {
+    await applyCalendarDelta(
+      delta({
+        created: [
+          makeCalendar("cal-holidays", USER, {
+            name: "Holidays",
+            capabilities: READ_ONLY_CAPABILITIES,
+            isDefault: true,
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Today" });
+
+    fireEvent.click(document.querySelector(".calendar-all-day-cell") as HTMLElement);
+
+    expect(screen.queryByText("New event")).toBeNull();
+  });
+
+  it("clicking to create with a read-only default Calendar and a writable one lands on the writable Calendar", async () => {
+    await applyCalendarDelta(
+      delta({
+        created: [
+          makeCalendar("cal-holidays", USER, {
+            name: "Holidays",
+            capabilities: READ_ONLY_CAPABILITIES,
+            isDefault: true,
+          }),
+          makeCalendar("cal-personal", USER, { name: "Personal", isDefault: false }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Today" });
+
+    await clickToCreate(() => document.querySelector(".calendar-all-day-cell"));
+    await user.type(screen.getByPlaceholderText("Title"), "Trip");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByText("New event")).toBeNull());
+
+    // `/sync` never resolves in this suite (`stubFetch`'s own doc comment),
+    // so the grid itself never re-materialises this Series into an
+    // Occurrence — reading the Local Cache's own `seriesCache` row directly
+    // is what actually proves the Save landed on the writable Calendar, not
+    // the read-only default (a Save against that one would have rolled back
+    // invisibly instead — `sync/mutations.ts#calendar_not_writable`).
+    const saved = await localCache().seriesCache.toArray();
+    const trip = saved.find((series) => series.title === "Trip");
+    expect(trip?.calendarId).toBe("cal-personal");
+  });
+
+  it("editing an Event on a read-only Calendar disables every field and offers no Save or Delete", async () => {
+    await applyCalendarDelta(
+      delta({
+        created: [
+          makeCalendar("cal-holidays", USER, {
+            name: "Holidays",
+            capabilities: READ_ONLY_CAPABILITIES,
+            isDefault: false,
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyEventDelta(
+      eventDelta({
+        created: [
+          makeEvent("e1", "cal-holidays", {
+            title: "Public Holiday",
+            start: "2026-09-08T09:00:00.000Z",
+            end: "2026-09-08T09:30:00.000Z",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    stubFetch(undefined, () =>
+      makeSeriesBodyResponse("e1", "cal-holidays", { title: "Public Holiday" }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByText("Public Holiday"));
+
+    expect(
+      await screen.findByText("Read-only — this Calendar doesn't allow changes."),
+    ).not.toBeNull();
+    expect((screen.getByPlaceholderText("Title") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 });

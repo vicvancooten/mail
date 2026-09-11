@@ -58,6 +58,7 @@ import { enqueueUserMutation } from "../store/user-mutation-queue.js";
 import { TaskDuePicker } from "../tasks/TaskDuePicker.js";
 import { dateOnlyToWireDueDate } from "../tasks/task-due.js";
 import "../tasks/tasks.css";
+import { creatableCalendars } from "./calendar-create.js";
 import { closeEventPanel, useEventPanelState } from "./calendar-event-panel.js";
 import { ReminderMinutesEditor } from "./ReminderMinutesEditor.js";
 import {
@@ -274,7 +275,10 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
 
   // Cross-Connected-Account destinations are hidden, not disabled (#238's own
   // acceptance line) — the current Calendar is always kept in the list so the
-  // picker still shows where the Event already lives.
+  // picker still shows where the Event already lives. A read-only Calendar is
+  // never itself an eligible *destination* (#282) — `creatableCalendars`'s own
+  // gate — though the current Calendar is still kept even when it is one, for
+  // the same "shows where the Event already lives" reason.
   const currentCalendar =
     panel.mode === "edit" && cachedSeries
       ? calendars.find((calendar) => calendar.id === cachedSeries.calendarId)
@@ -283,9 +287,20 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
     ? calendars.filter(
         (calendar) =>
           calendar.id === currentCalendar.id ||
-          canMoveBetweenOrigins(currentCalendar.origin, calendar.origin),
+          (calendar.capabilities.writable &&
+            canMoveBetweenOrigins(currentCalendar.origin, calendar.origin)),
       )
-    : calendars;
+    : creatableCalendars(calendars);
+
+  // #282's own acceptance line: "offers no event creation or editing" on a
+  // read-only Calendar — `currentCalendar` is only set once its Series has
+  // actually hydrated (`cachedSeries`), so this stays `false` for the brief
+  // moment before that resolves, the same tolerance `attendeeFieldDisabled`
+  // below already has for the same window.
+  const readOnlyEdit =
+    panel.mode === "edit" &&
+    currentCalendar !== undefined &&
+    !currentCalendar.capabilities.writable;
 
   // The Reminder editor's own ceiling (#244): the Calendar's own
   // `perEventReminders` count, itself never above `MAX_EVENT_REMINDERS` —
@@ -594,6 +609,17 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
           </PopoverTitle>
         </PopoverHeader>
 
+        {/* #282's own acceptance line: a read-only Calendar's Event "offers
+            no ... editing" — this note is the only thing this popover adds
+            beyond disabling every field below, since nothing here is ever
+            hidden outright (a User should still be able to read what a
+            read-only Event says, just never change it). */}
+        {readOnlyEdit ? (
+          <p className="calendar-event-editor-readonly-note">
+            Read-only — this Calendar doesn't allow changes.
+          </p>
+        ) : null}
+
         {panel.mode === "create" ? (
           // biome-ignore lint/a11y/useSemanticElements: a `<fieldset>` brings its own default border/padding chrome that fights `.calendar-event-editor-row`'s own flex-row look; `role="group"` gives the same "these two toggle buttons are one control" semantics with none of it.
           <div className="calendar-event-editor-row" role="group" aria-label="Event or Task">
@@ -670,6 +696,7 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
           placeholder="Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          disabled={readOnlyEdit}
         />
 
         {panel.mode === "create" && entityKind === "task" ? (
@@ -704,6 +731,7 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
                   type="checkbox"
                   checked={allDay}
                   onChange={(e) => setAllDay(e.target.checked)}
+                  disabled={readOnlyEdit}
                 />{" "}
                 All day
               </label>
@@ -713,12 +741,14 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
                 type={allDay ? "date" : "datetime-local"}
                 value={allDay ? start.slice(0, 10) : start}
                 onChange={(e) => setStart(e.target.value)}
+                disabled={readOnlyEdit}
               />
               <span>–</span>
               <input
                 type={allDay ? "date" : "datetime-local"}
                 value={allDay ? end.slice(0, 10) : end}
                 onChange={(e) => setEnd(e.target.value)}
+                disabled={readOnlyEdit}
               />
             </div>
 
@@ -728,8 +758,10 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
               // A Move only ever carries a whole Series — its Overrides and
               // `exdates` (#238's own acceptance line) — so the picker is
               // read-only while editing just one Occurrence or splitting off a
-              // continuation; only "All events" can move Calendars.
-              disabled={panel.mode === "edit" && scope !== "all"}
+              // continuation; only "All events" can move Calendars. A
+              // read-only Calendar's own Event (#282) never offers a Move
+              // either — there is nothing here a Save could ever commit.
+              disabled={(panel.mode === "edit" && scope !== "all") || readOnlyEdit}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Calendar" />
@@ -782,6 +814,7 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
                   <Select
                     value={recurrence}
                     onValueChange={(value) => setRecurrence(value as RecurrenceTemplate)}
+                    disabled={readOnlyEdit}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue />
@@ -799,7 +832,7 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
                   placeholder="Attendees (comma-separated emails)"
                   value={attendeesText}
                   onChange={(e) => setAttendeesText(e.target.value)}
-                  disabled={attendeeFieldDisabled}
+                  disabled={attendeeFieldDisabled || readOnlyEdit}
                   title={
                     attendeeFieldDisabled ? "Connect a mail account to invite people" : undefined
                   }
@@ -814,9 +847,10 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
                   placeholder="Description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  disabled={readOnlyEdit}
                   rows={3}
                 />
-                {reminderCap > 0 ? (
+                {reminderCap > 0 && !readOnlyEdit ? (
                   <ReminderMinutesEditor
                     minutesList={reminderMinutes}
                     allDay={allDay}
@@ -832,13 +866,14 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
                 placeholder="Location"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
+                disabled={readOnlyEdit}
               />
             ) : null}
           </>
         )}
 
         <div className="calendar-event-editor-actions">
-          {panel.mode === "edit" ? (
+          {panel.mode === "edit" && !readOnlyEdit ? (
             <>
               <Button
                 type="button"
@@ -855,9 +890,14 @@ export function EventEditorPopover({ calendars }: { calendars: Calendar[] }) {
               ) : null}
             </>
           ) : null}
-          <Button type="button" size="sm" onClick={() => void handleSave()}>
-            Save
-          </Button>
+          {/* #282: nothing on a read-only Calendar's own Event ever has
+              anything left to Save — every field above is already disabled,
+              so the button would only ever roll back. */}
+          {!readOnlyEdit ? (
+            <Button type="button" size="sm" onClick={() => void handleSave()}>
+              Save
+            </Button>
+          ) : null}
         </div>
       </PopoverContent>
 

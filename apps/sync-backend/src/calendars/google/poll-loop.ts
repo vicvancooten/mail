@@ -1,5 +1,6 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
+import { listActiveConnectedAccountsWithFacet } from "../../connected-accounts/store.js";
 import type { Db } from "../../db/client.js";
 import { calendarMirrorSyncState, calendars } from "../../db/schema.js";
 import { type PollLoopHandle, startPollLoop } from "../../sync/poll-loop.js";
@@ -70,37 +71,37 @@ export async function runCalendarMirrorTick(
     isStopped?: () => boolean;
   },
 ): Promise<void> {
-  const accounts = await listMirroredAccounts(db);
+  const accounts = await listGoogleCalendarFacetAccounts(db);
   for (const account of accounts) {
     if (deps.isStopped?.()) return;
     await tickOneAccount(db, account, deps);
   }
 }
 
-interface MirroredAccount {
+interface CalendarFacetAccount {
   connectedAccountId: string;
   userId: string;
 }
 
-/** Every distinct Connected Account with at least one mirrored Calendar — there is no Connected Account table to list instead (see this file's own doc comment). */
-async function listMirroredAccounts(db: Db): Promise<MirroredAccount[]> {
-  const rows = await db
-    .selectDistinct({ connectedAccountId: calendars.connectedAccountId, userId: calendars.userId })
-    .from(calendars)
-    .where(
-      and(eq(calendars.originType, "connectedAccount"), isNotNull(calendars.connectedAccountId)),
-    );
-  return rows
-    .filter(
-      (row): row is { connectedAccountId: string; userId: string } =>
-        row.connectedAccountId !== null,
-    )
-    .map((row) => ({ connectedAccountId: row.connectedAccountId, userId: row.userId }));
+/**
+ * Every Google Connected Account with an `active` Calendar Facet (#282) —
+ * a fresh Facet grant with zero mirrored Calendar rows yet must still be
+ * ticked so its first `syncGoogleCalendarList` run can actually create
+ * them. The previous `calendars`-table-derived query only ever found an
+ * account that already had at least one row, which meant a brand-new grant
+ * was never listed and so could never mirror at all — `connectedAccounts.ts
+ * #listActiveConnectedAccountsWithFacet` (already `contacts/google/poll-
+ * loop.ts`'s own seam) is the Facet-driven source of truth this loop should
+ * have used from the start.
+ */
+async function listGoogleCalendarFacetAccounts(db: Db): Promise<CalendarFacetAccount[]> {
+  const rows = await listActiveConnectedAccountsWithFacet(db, "google", "calendar");
+  return rows.map((row) => ({ connectedAccountId: row.connectedAccountId, userId: row.userId }));
 }
 
 async function tickOneAccount(
   db: Db,
-  account: MirroredAccount,
+  account: CalendarFacetAccount,
   deps: {
     client: GoogleCalendarClient;
     credentials: GoogleCalendarCredentialProvider;

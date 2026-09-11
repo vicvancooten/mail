@@ -1,5 +1,6 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
+import { listActiveConnectedAccountsWithFacet } from "../../connected-accounts/store.js";
 import type { Db } from "../../db/client.js";
 import { calendarMirrorSyncState, calendars } from "../../db/schema.js";
 import { type PollLoopHandle, startPollLoop } from "../../sync/poll-loop.js";
@@ -64,37 +65,34 @@ export async function runGraphCalendarMirrorTick(
     isStopped?: () => boolean;
   },
 ): Promise<void> {
-  const accounts = await listMirroredAccounts(db);
+  const accounts = await listGraphCalendarFacetAccounts(db);
   for (const account of accounts) {
     if (deps.isStopped?.()) return;
     await tickOneAccount(db, account, deps);
   }
 }
 
-interface MirroredAccount {
+interface CalendarFacetAccount {
   connectedAccountId: string;
   userId: string;
 }
 
-/** Every distinct Connected Account with at least one mirrored Graph Calendar — `graphCalendarRowId`'s own `gcal-ms:` prefix keeps this from ever picking up a Google account's rows. */
-async function listMirroredAccounts(db: Db): Promise<MirroredAccount[]> {
-  const rows = await db
-    .selectDistinct({ connectedAccountId: calendars.connectedAccountId, userId: calendars.userId })
-    .from(calendars)
-    .where(
-      and(eq(calendars.originType, "connectedAccount"), isNotNull(calendars.connectedAccountId)),
-    );
-  return rows
-    .filter(
-      (row): row is { connectedAccountId: string; userId: string } =>
-        row.connectedAccountId !== null,
-    )
-    .map((row) => ({ connectedAccountId: row.connectedAccountId, userId: row.userId }));
+/**
+ * Every Microsoft Connected Account with an `active` Calendar Facet (#282)
+ * — `google/poll-loop.ts#listGoogleCalendarFacetAccounts`'s own reasoning:
+ * a fresh grant with zero mirrored rows yet must still be ticked so its
+ * first `syncGraphCalendarList` run can create them, which the previous
+ * `calendars`-table-derived query could never do for an account that
+ * hadn't already mirrored at least one row.
+ */
+async function listGraphCalendarFacetAccounts(db: Db): Promise<CalendarFacetAccount[]> {
+  const rows = await listActiveConnectedAccountsWithFacet(db, "microsoft", "calendar");
+  return rows.map((row) => ({ connectedAccountId: row.connectedAccountId, userId: row.userId }));
 }
 
 async function tickOneAccount(
   db: Db,
-  account: MirroredAccount,
+  account: CalendarFacetAccount,
   deps: {
     client: GraphCalendarClient;
     credentials: GraphCalendarCredentialProvider;
