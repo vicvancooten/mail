@@ -645,7 +645,9 @@ describe("VirtualizedThreadList — roving tabindex and focus (#275)", () => {
     // `onSelect` doesn't itself re-render this uncontrolled harness, so the
     // row's own `tabIndex` hasn't moved — but real DOM focus, which is what
     // #275 is actually about, already has.
-    expect(document.activeElement).toBe(screen.getByRole("option", { name: /Subject t-yesterday/ }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("option", { name: /Subject t-yesterday/ }),
+    );
   });
 
   it("neighborOf (#275's Auto-advance seam) skips a collapsed Time Group's rows, same as the mover", () => {
@@ -666,7 +668,12 @@ describe("VirtualizedThreadList — roving tabindex and focus (#275)", () => {
 
   it("an empty list stays a focusable listbox rather than losing its own tab stop", () => {
     render(
-      <VirtualizedThreadList threads={[]} complete={true} selectedThreadId={null} onSelect={() => {}} />,
+      <VirtualizedThreadList
+        threads={[]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
     );
     const listbox = screen.getByRole("listbox");
     expect(listbox.tabIndex).toBe(0);
