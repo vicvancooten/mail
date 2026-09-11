@@ -1,3 +1,4 @@
+import { phoneBreakpoint } from "./breakpoints.js";
 import {
   type AvatarTileKey,
   type AvatarTileTheme,
@@ -7,7 +8,6 @@ import {
   lightAvatarTiles,
   lightColors,
 } from "./colors.js";
-import { phoneBreakpoint } from "./breakpoints.js";
 import { darkShadow, hairline, lightShadow, radii, type ShadowTheme } from "./geometry.js";
 import { fonts } from "./typography.js";
 
