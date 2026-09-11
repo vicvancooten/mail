@@ -1,6 +1,7 @@
 import type { SeriesAttendee } from "@mail/shared";
 import ICAL from "ical.js";
 import { DateTime } from "luxon";
+import { icalTimeToUtcDate } from "../../ical-time.js";
 
 /**
  * Builds and parses the raw RFC 5545 `.ics` body a CalDAV `PUT`/`REPORT`
@@ -228,18 +229,22 @@ function parseVevent(vevent: ICAL.Component): ParsedCaldavInstance | null {
   const dtstartProp = vevent.getFirstProperty("dtstart");
   const dtstartValue = dtstartProp?.getFirstValue();
   if (!(dtstartValue instanceof ICAL.Time)) return null;
+  const dtstartTzid = dtstartProp ? tzidParam(dtstartProp) : null;
 
   const recurrenceIdProp = vevent.getFirstProperty("recurrence-id");
   const recurrenceIdValue = recurrenceIdProp?.getFirstValue();
-  const recurrenceId = recurrenceIdValue instanceof ICAL.Time ? recurrenceIdValue.toJSDate() : null;
+  const recurrenceId =
+    recurrenceIdValue instanceof ICAL.Time
+      ? icalTimeToUtcDate(recurrenceIdValue, recurrenceIdProp ? tzidParam(recurrenceIdProp) : null)
+      : null;
 
   const dtendProp = vevent.getFirstProperty("dtend");
   const dtendValue = dtendProp?.getFirstValue();
   const durationProp = vevent.getFirstPropertyValue("duration");
-  const start = dtstartValue.toJSDate();
+  const start = icalTimeToUtcDate(dtstartValue, dtstartTzid);
   const end =
     dtendValue instanceof ICAL.Time
-      ? dtendValue.toJSDate()
+      ? icalTimeToUtcDate(dtendValue, dtendProp ? tzidParam(dtendProp) : null)
       : durationProp instanceof ICAL.Duration
         ? new Date(start.getTime() + durationProp.toSeconds() * 1000)
         : start;
@@ -272,4 +277,9 @@ function parseVevent(vevent: ICAL.Component): ParsedCaldavInstance | null {
 function firstStringValue(component: ICAL.Component, name: string): string | null {
   const value = component.getFirstPropertyValue(name);
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function tzidParam(property: ICAL.Property): string | null {
+  const value = property.getParameter("tzid");
+  return typeof value === "string" ? value : null;
 }

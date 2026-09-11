@@ -1,5 +1,6 @@
 import ICAL from "ical.js";
 import type { InvitationParticipant, InvitationVevent } from "../db/schema.js";
+import { icalTimeToUtcDate } from "../ical-time.js";
 
 /**
  * Reads a `text/calendar` part into zero or more parsed Invitations (#239,
@@ -79,8 +80,8 @@ function parseVevent(vevent: ICAL.Component, method: IcalMethod): ParsedInvitati
   const uid = firstStringValue(vevent, "uid");
   if (!uid) return null; // RFC 5545 requires it; nothing to key a row on without it.
 
-  const recurrenceId = firstTimeValue(vevent, "recurrence-id");
-  const dtstamp = firstTimeValue(vevent, "dtstamp") ?? firstTimeValue(vevent, "dtstart");
+  const recurrenceId = readTimeProperty(vevent, "recurrence-id");
+  const dtstamp = readTimeProperty(vevent, "dtstamp") ?? readTimeProperty(vevent, "dtstart");
   const sequenceRaw = vevent.getFirstPropertyValue("sequence");
   const sequence =
     typeof sequenceRaw === "number"
@@ -96,9 +97,11 @@ function parseVevent(vevent: ICAL.Component, method: IcalMethod): ParsedInvitati
   return {
     method,
     uid,
-    recurrenceId: recurrenceId ? recurrenceId.toJSDate().toISOString() : "",
+    recurrenceId: recurrenceId
+      ? icalTimeToUtcDate(recurrenceId.time, recurrenceId.tzid).toISOString()
+      : "",
     sequence: Number.isFinite(sequence) ? sequence : 0,
-    dtstamp: dtstamp?.toJSDate() ?? new Date(),
+    dtstamp: dtstamp ? icalTimeToUtcDate(dtstamp.time, dtstamp.tzid) : new Date(),
     organizer: readParticipant(vevent, "organizer"),
     attendees: vevent
       .getAllProperties("attendee")
@@ -108,8 +111,8 @@ function parseVevent(vevent: ICAL.Component, method: IcalMethod): ParsedInvitati
       title: firstStringValue(vevent, "summary"),
       description: firstStringValue(vevent, "description"),
       location: firstStringValue(vevent, "location"),
-      start: dtstart?.time.toJSDate().toISOString() ?? null,
-      end: dtend?.time.toJSDate().toISOString() ?? null,
+      start: dtstart ? icalTimeToUtcDate(dtstart.time, dtstart.tzid).toISOString() : null,
+      end: dtend ? icalTimeToUtcDate(dtend.time, dtend.tzid).toISOString() : null,
       allDay: dtstart?.time.isDate ?? false,
       tzid: dtstart?.tzid ?? null,
       status: statusRaw ? statusRaw.toUpperCase() : null,
@@ -120,11 +123,6 @@ function parseVevent(vevent: ICAL.Component, method: IcalMethod): ParsedInvitati
 function firstStringValue(component: ICAL.Component, name: string): string | null {
   const value = component.getFirstPropertyValue(name);
   return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function firstTimeValue(component: ICAL.Component, name: string): ICAL.Time | null {
-  const value = component.getFirstPropertyValue(name);
-  return value instanceof ICAL.Time ? value : null;
 }
 
 function readTimeProperty(

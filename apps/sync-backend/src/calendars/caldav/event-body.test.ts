@@ -37,6 +37,13 @@ describe("buildCaldavEventBody / parseCaldavObject round-trip", () => {
     expect(instance?.allDay).toBe(false);
     expect(instance?.status).toBe("confirmed");
     expect(instance?.transparency).toBe("opaque");
+    // The name says "timing" but nothing above actually checked it — Amsterdam
+    // is UTC+1 in March, so a build that goes through the wall clock and a
+    // parse that doesn't convert it back only round-trips by coincidence.
+    expect(instance?.start.toISOString()).toBe(BASE_SERIES.dtstart.toISOString());
+    expect(instance?.end.toISOString()).toBe(
+      new Date(BASE_SERIES.dtstart.getTime() + BASE_SERIES.durationMs).toISOString(),
+    );
   });
 
   it("round-trips an all-day event's own DATE (not DATE-TIME) values", () => {
