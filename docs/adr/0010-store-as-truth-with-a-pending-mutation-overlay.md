@@ -32,3 +32,22 @@ Three hard cases fall out of it at no cost:
 - **Two modules, two rules.** A `store` module is the only code importing Dexie, exposing reactive read hooks that *already apply the overlay* plus a single `enqueue(intent)`; a `sync` module is the only writer of base rows and the only holder of state tokens. Components read only through hooks and write only through `enqueue`; base rows are written only by `sync`. No component sees Dexie, a state token, or a queue row. With AI-assisted development a first-class constraint, the point of the seam is not testability — it is that the wrong move ("just write to the table") isn't reachable.
 - **Dexie runs on the main thread**, with one tab elected leader via the **Web Locks API** to own the sync loop and the queue flush. `SharedWorker` was the conceptually clean answer and is out on a hard fact: Chrome for Android does not support it, and the phone PWA is in scope. A Web Lock auto-releases when its tab dies, so leader failover needs no heartbeats; Dexie's `liveQuery` already propagates cross-tab, so follower tabs stay live with no extra machinery. A dedicated worker was rejected *for now* because it adds a `structuredClone` hop to the read path the `<100ms` bar measures — the seam above makes moving reads into a worker a contained change if benchmarking demands it.
 - **Cold start**: shell from the service-worker cache → paint chrome → read the **top page only** (~50 rows) of the last-active list window with the overlay applied; that paint is "interactive", and sync starts after it. Nothing on that path touches the network or scans the cache. Session validation runs in parallel and never blocks the paint (an expired session must keep rendering cached mail). The last-active Mail Account and view are restored from Device Preferences. Only a first-ever boot against an empty cache shows a loading state, and even then renders the first page as it arrives.
+
+## Amendment (2026-09-11, #270): rollback only on definitive rejection
+
+"Rolling back visibly on failure" is narrowed. A pending Optimistic Action is rolled back only when
+the Sync Backend definitively rejects it (a 4xx, the Thread no longer exists). Network failure,
+timeouts and 5xx responses keep the row queued and retried, exactly as Needs Reauth already holds
+the queue rather than failing it. The User sees the action as applied until it is impossible, never
+merely until it is slow.
+
+Two consequences of the overlay that this amendment makes explicit, because the first release of
+the Hub Apps broke both:
+
+- Deleting an acknowledged pending row and writing the delta that reflects it must commit **as one
+  transaction**. Committing them separately shows `base` alone for a frame, and a Done Thread
+  reappears in the Inbox until the delta lands.
+- The Sync Backend's own derived state (Gmail Thread rollups recomputed from message labels) must
+  agree with the mutation the moment it is applied, not after the protocol write drains. Otherwise
+  a rollup republishes pre-action state as a fresh delta and the overlay, its pending row already
+  gone, has nothing left to hide it with.

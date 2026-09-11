@@ -71,8 +71,16 @@ _Avoid_: app rail, nav bar
 The Client's own chrome: the bar holding the App Switcher, the home mark, search, Account Scope,
 appearance and the User's menu. It belongs to no App and is present on every screen. The current
 App sits on it as a raised card, and the browser's own chrome takes the Hub's colour, so the frame
-reads as one continuous piece rather than a bar inside a page.
+reads as one continuous piece rather than a bar inside a page. On a phone the Hub keeps the top bar
+full-width and full-bleed, the home mark at its leading edge, and hands the App Switcher to the Dock.
 _Avoid_: header, top bar, nav bar
+
+**Dock**:
+The floating bar at the foot of a phone screen, holding the App Switcher and the current App's two
+most-used controls. Floats over the page rather than framing it, so what shows around it is the page
+itself, and it retracts while the User scrolls. Phone only: on a desktop everything it holds lives in
+the Hub or the App.
+_Avoid_: bottom bar, tab bar, footer
 
 **Local Cache**:
 The Client's own copy of a bounded slice of its mail, holding what the User is actually triaging rather than the whole mailbox. Deliberately disposable: it can be discarded and rebuilt from the Sync Backend at any time, so it is never a replica and never a source of truth for anything but rendering.
@@ -174,7 +182,9 @@ _Avoid_: category, section, date group
 Marking every Thread in one Time Group as Done in a single action, from the check control on that
 group's header. The control is the same "check means Done" glyph a hovered Thread row shows, grown
 to sit beside the group's title; it is an action, never a selection — nothing in the list is ever
-"selected" by a checkbox.
+"selected" by a checkbox. The glyph appears only while the pointer or keyboard focus rests on the
+row or header it acts on; the Thread open in the Reader does not keep showing one, because a
+persistent check reads as a selected state, and there is no such state.
 _Avoid_: bulk select, select all, check all
 
 **Timeline Spine**:
@@ -214,6 +224,20 @@ screen on a phone, and the face of each card in Stream. Opening a Thread from th
 the User can take back; moving to another Thread from inside the Reader is not a further step, so
 Back always returns to the list, however many Threads were read in between.
 _Avoid_: detail view, reading mode, mail detail, thread view
+
+**Reader Sheet**:
+The Reader lifted out of the split layout into a large surface over the list, for reading one
+Thread without the list beside it. Opened by double-clicking a Thread; the same Thread can also be
+opened in its own browser window, which shows nothing but the Reader. Neither remembers anything
+about layout: closing returns to the list exactly as it was.
+_Avoid_: popup, modal reader, reading window
+
+**Contact Card**:
+The small card that appears over a sender's avatar in the Reader: who they are as Contacts knows
+them, the last few Threads exchanged with them, and a way into their Contact. For a sender Contacts
+does not know, it offers to add them. Shown on hover with a short delay where hovering exists, on
+tap where it does not.
+_Avoid_: hover card, mini profile, sender popover
 
 **Stream**:
 Processing the Inbox one Thread at a time, full screen, as a stack of cards: the newest Thread on
@@ -337,3 +361,10 @@ _Avoid_: backfill progress
 **Device Preference**:
 A setting that deliberately never syncs, because it means something different on each device the User signs in from — layout, list density, and appearance (light/dark/system; defaults to system; #72, ADR-0011 amended). Distinct from the User-scoped and Mail-Account-scoped preferences, which do sync and are the same everywhere.
 _Avoid_: local setting, client setting
+
+**Region Setting**:
+A User-scoped preference about how dates and times read: language and region, 12- or 24-hour
+clock, first day of the week, Home Time Zone, and the Calendar's default view. Client-wide — Mail's
+dates honour it as much as Calendar's — and the same on every device, because a person's week does
+not start on a different day on their phone.
+_Avoid_: locale (as a setting name), calendar settings (for these), format options
