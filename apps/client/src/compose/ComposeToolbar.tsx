@@ -23,7 +23,8 @@ import {
   Table,
   Underline,
 } from "lucide-react";
-import { useState } from "react";
+import { forwardRef, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
 
 /**
  * The composer's authoring surface (compose-spec §Editor): a fixed toolbar
@@ -210,20 +211,28 @@ export function insertLink(editor: Editor): void {
   editor.chain().focus().extendMarkRange("link").setLink({ href: url.trim() }).run();
 }
 
-function ToolbarButton({
-  label,
-  onClick,
-  active,
-  children,
-}: {
-  editor: Editor;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-  children: React.ReactNode;
-}) {
+/**
+ * `forwardRef` plus a `...rest` spread (rather than the plain function this
+ * was before #281) purely so the two swatch pickers below can use it as a
+ * shadcn `PopoverTrigger`'s `asChild` target — Radix clones its own
+ * `aria-expanded`/`data-state`/ref onto whatever single element it wraps,
+ * which only reaches the real `<button>` if this forwards both. Every other
+ * call site (plain toolbar buttons, no popover) passes none of that and is
+ * unaffected.
+ */
+const ToolbarButton = forwardRef<
+  HTMLButtonElement,
+  {
+    editor: Editor;
+    label: string;
+    onClick: () => void;
+    active?: boolean;
+    children: React.ReactNode;
+  } & React.ComponentProps<"button">
+>(function ToolbarButton({ label, onClick, active, children, editor: _editor, ...rest }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       className={`compose-toolbar-button${active ? " active" : ""}`}
       title={label}
@@ -234,92 +243,103 @@ function ToolbarButton({
       // for a command like `toggleBold` to act on.
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
+      {...rest}
     >
       {children}
     </button>
   );
-}
+});
 
 function Divider() {
   return <span className="compose-toolbar-divider" aria-hidden="true" />;
 }
 
+/** #281: was its own `open` boolean with no dismiss handling at all — now a shadcn `Popover`, closed on outside click, Escape, or picking a swatch. */
 function ColorPicker({ editor }: { editor: Editor }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="compose-swatch-picker">
-      <ToolbarButton editor={editor} label="Text colour" onClick={() => setOpen((o) => !o)}>
-        <Palette size={16} />
-      </ToolbarButton>
-      {open && (
-        <div className="compose-swatch-menu" role="menu">
-          {COMPOSE_TEXT_COLORS.map((color) => (
-            <button
-              key={color.name}
-              type="button"
-              className="compose-swatch"
-              style={{ backgroundColor: color.value }}
-              aria-label={color.name}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                editor.chain().focus().setColor(color.value).run();
-                setOpen(false);
-              }}
-            />
-          ))}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <ToolbarButton editor={editor} label="Text colour" onClick={() => setOpen((o) => !o)}>
+          <Palette size={16} />
+        </ToolbarButton>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="compose-swatch-menu"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        {COMPOSE_TEXT_COLORS.map((color) => (
           <button
+            key={color.name}
             type="button"
-            className="compose-swatch-clear"
+            className="compose-swatch"
+            style={{ backgroundColor: color.value }}
+            aria-label={color.name}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
-              editor.chain().focus().unsetColor().run();
+              editor.chain().focus().setColor(color.value).run();
               setOpen(false);
             }}
-          >
-            Clear
-          </button>
-        </div>
-      )}
-    </div>
+          />
+        ))}
+        <button
+          type="button"
+          className="compose-swatch-clear"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            editor.chain().focus().unsetColor().run();
+            setOpen(false);
+          }}
+        >
+          Clear
+        </button>
+      </PopoverContent>
+    </Popover>
   );
 }
 
+/** #281: same shape as `ColorPicker` above — a shadcn `Popover` rather than an always-listening, never-dismissing `open` boolean. */
 function HighlightPicker({ editor }: { editor: Editor }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="compose-swatch-picker">
-      <ToolbarButton editor={editor} label="Highlight" onClick={() => setOpen((o) => !o)}>
-        <Highlighter size={16} />
-      </ToolbarButton>
-      {open && (
-        <div className="compose-swatch-menu" role="menu">
-          {COMPOSE_HIGHLIGHT_COLORS.map((color) => (
-            <button
-              key={color.name}
-              type="button"
-              className="compose-swatch"
-              style={{ backgroundColor: color.value }}
-              aria-label={color.name}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                editor.chain().focus().toggleHighlight({ color: color.value }).run();
-                setOpen(false);
-              }}
-            />
-          ))}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <ToolbarButton editor={editor} label="Highlight" onClick={() => setOpen((o) => !o)}>
+          <Highlighter size={16} />
+        </ToolbarButton>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="compose-swatch-menu"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        {COMPOSE_HIGHLIGHT_COLORS.map((color) => (
           <button
+            key={color.name}
             type="button"
-            className="compose-swatch-clear"
+            className="compose-swatch"
+            style={{ backgroundColor: color.value }}
+            aria-label={color.name}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
-              editor.chain().focus().unsetHighlight().run();
+              editor.chain().focus().toggleHighlight({ color: color.value }).run();
               setOpen(false);
             }}
-          >
-            Clear
-          </button>
-        </div>
-      )}
-    </div>
+          />
+        ))}
+        <button
+          type="button"
+          className="compose-swatch-clear"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            editor.chain().focus().unsetHighlight().run();
+            setOpen(false);
+          }}
+        >
+          Clear
+        </button>
+      </PopoverContent>
+    </Popover>
   );
 }
