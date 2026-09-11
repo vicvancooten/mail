@@ -129,26 +129,30 @@
 
 .switcher-cell {
   display: grid;
-  /* The two cells' *default* tracks must already differ — the first (the
-     compact toggle) starts at `1fr` so the mark is visible before any
-     click, the second (the tab row) starts at `0fr` so it's collapsed
-     until expanded. `.open` below is what makes them trade: without this
-     split, both cells shared one `0fr` default and only diverged once
-     `.open` applied identically to both, leaving the toggle itself
-     invisible any time the Palette was closed. */
+  /* The two cells' *default* tracks must already differ — the toggle cell
+     starts at `1fr` so the mark is visible before any click, the tab-row
+     cell starts at `0fr` so it's collapsed until expanded. `.open` below is
+     what makes them trade: without this split, both cells shared one `0fr`
+     default and only diverged once `.open` applied identically to both,
+     leaving the toggle itself invisible any time the Palette was closed.
+     Naming which cell is which via `-toggle`/`-tabs` modifiers rather than
+     `:first-child`/`:last-child` (#280): the measuring row above is a real
+     DOM sibling, so the toggle cell isn't actually its parent's first child
+     — `:first-child` matched nothing, and the toggle sized as the bare
+     `.switcher-cell` default (`0fr`) whether or not it was open. */
   grid-template-columns: 0fr;
   transition: grid-template-columns 280ms var(--ease);
 }
 
-.switcher-cell:first-child {
+.switcher-cell-toggle {
   grid-template-columns: 1fr;
 }
 
-.switcher-cell:first-child.open {
+.switcher-cell-toggle.open {
   grid-template-columns: 0fr;
 }
 
-.switcher-cell:last-child.open {
+.switcher-cell-tabs.open {
   grid-template-columns: 1fr;
 }
 
@@ -209,6 +213,37 @@
 .switcher-compact-btn .chev {
   color: var(--color-ink-faint);
   flex: none;
+}
+
+/* The toggle's own discovery hint (#280): a sliver of the *next* App's mark
+   peeking out from behind the current one, decorative and `aria-hidden` —
+   not a persistent row, just enough to say a click reveals more Apps. Sized
+   wider than a single tile so the peek has room to show past its edge. */
+.app-tile-stack {
+  position: relative;
+  width: 32px;
+  height: 24px;
+  flex: none;
+}
+
+.app-tile-stack .app-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.app-tile-peek {
+  left: 8px;
+  top: 3px;
+  width: 20px;
+  height: 20px;
+  opacity: 0.55;
+  z-index: 0;
+  color: var(--color-ink-faint);
+}
+
+.app-tile-stack .app-tile:not(.app-tile-peek) {
+  z-index: 1;
 }
 
 .tabs-row {
