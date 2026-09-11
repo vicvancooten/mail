@@ -85,6 +85,51 @@ describe("pushPayloadSchema", () => {
   it("rejects an unknown kind", () => {
     expect(pushPayloadSchema.safeParse({ kind: "snooze_expired" }).success).toBe(false);
   });
+
+  it("accepts the calendar_reminder kind (#245, #246, ADR-0028), events[] included", () => {
+    const result = pushPayloadSchema.safeParse({
+      kind: "calendar_reminder",
+      events: [
+        {
+          reminderDueId: "rd-1",
+          eventId: "evt-1",
+          seriesId: "series-1",
+          title: "Standup",
+          body: "in 5 min",
+        },
+      ],
+      badgeCount: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts the calendar_answer kind (#243), answers[] included", () => {
+    const result = pushPayloadSchema.safeParse({
+      kind: "calendar_answer",
+      eventId: "evt-1",
+      seriesId: "series-1",
+      title: "Standup",
+      answers: [
+        { attendeeName: "Ada", attendeeEmail: "ada@example.com", responseStatus: "accepted" },
+      ],
+      badgeCount: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a calendar_answer responseStatus outside accepted/declined/tentative", () => {
+    const result = pushPayloadSchema.safeParse({
+      kind: "calendar_answer",
+      eventId: "evt-1",
+      seriesId: "series-1",
+      title: "Standup",
+      answers: [
+        { attendeeName: null, attendeeEmail: "ada@example.com", responseStatus: "needsAction" },
+      ],
+      badgeCount: 0,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("notificationActionRequestSchema", () => {
@@ -104,5 +149,44 @@ describe("notificationActionRequestSchema", () => {
       intent: { type: "trash", threadId: "thread-1" },
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts snoozeReminder with a null mailAccountId (#246, ADR-0028) — a Reminder Due row has none", () => {
+    const result = notificationActionRequestSchema.safeParse({
+      id: "01ULID",
+      mailAccountId: null,
+      intent: {
+        type: "snoozeReminder",
+        reminderDueIds: ["rd-1"],
+        snoozeUntil: { kind: "minutes", minutes: 5 },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a snoozeUntil minutes value outside the fixed 5/10/15 set", () => {
+    const result = notificationActionRequestSchema.safeParse({
+      id: "01ULID",
+      mailAccountId: null,
+      intent: {
+        type: "snoozeReminder",
+        reminderDueIds: ["rd-1"],
+        snoozeUntil: { kind: "minutes", minutes: 7 },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts snoozeUntil's 'eventStart' kind", () => {
+    const result = notificationActionRequestSchema.safeParse({
+      id: "01ULID",
+      mailAccountId: null,
+      intent: {
+        type: "snoozeReminder",
+        reminderDueIds: ["rd-1"],
+        snoozeUntil: { kind: "eventStart" },
+      },
+    });
+    expect(result.success).toBe(true);
   });
 });

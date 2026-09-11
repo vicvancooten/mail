@@ -78,4 +78,20 @@ describe("startNotificationRouter", () => {
 
     expect(received).toEqual([{ kind: "screener", mailAccountId: "acct-1" }]);
   });
+
+  it("publishes a calendar-event target (#246)", () => {
+    const container = fakeContainer();
+    startNotificationRouter(container);
+    const received: NotificationTarget[] = [];
+    unsubscribe = subscribeNotificationTarget((target) => received.push(target));
+
+    container.emit({
+      type: "notification-click",
+      target: { kind: "calendar-event", eventId: "evt-1", reminderDueIds: ["rd-1", "rd-2"] },
+    });
+
+    expect(received).toEqual([
+      { kind: "calendar-event", eventId: "evt-1", reminderDueIds: ["rd-1", "rd-2"] },
+    ]);
+  });
 });

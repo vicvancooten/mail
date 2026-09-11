@@ -6,6 +6,9 @@ import {
   appliedMutations,
   attachmentBlobs,
   bulkTriageBatches,
+  calendarMirrorSyncState,
+  calendars,
+  calendarWatchChannels,
   claimTokens,
   composeSaveLedger,
   compositions,
@@ -16,15 +19,20 @@ import {
   contactPhotoBlobs,
   contacts,
   correspondents,
+  events,
   folders,
   gatekeeperVerdicts,
   gmailLabels,
+  imipReplies,
+  imipRequests,
+  invitations,
   labels,
   loginChallenges,
   mailAccounts,
   messageSearch,
   messages,
   microsoftContactWrites,
+  notes,
   notifierOutbox,
   oauthSignInAttempts,
   passkeyCredentials,
@@ -32,6 +40,8 @@ import {
   providerFacetHealth,
   providerRegistrations,
   pushSubscriptions,
+  reminderDue,
+  rollbacks,
   sessions,
   syncTombstones,
   threadMessageIds,
@@ -77,6 +87,16 @@ export async function createTestDb(): Promise<ReturnType<typeof createDb>> {
  */
 export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(vapidKeys);
+  // No FK to `users`/`mailAccounts` — nothing else cascades these away.
+  await db.delete(calendarWatchChannels);
+  await db.delete(calendarMirrorSyncState);
+  await db.delete(reminderDue);
+  await db.delete(imipReplies);
+  await db.delete(imipRequests);
+  await db.delete(events);
+  await db.delete(calendars);
+  await db.delete(rollbacks);
+  await db.delete(notes);
   await db.delete(notifierOutbox);
   await db.delete(pushSubscriptions);
   await db.delete(bulkTriageBatches);
@@ -87,6 +107,7 @@ export async function resetTestDb(db: Db): Promise<void> {
   await db.delete(protocolWrites);
   await db.delete(gatekeeperVerdicts);
   await db.delete(messageSearch);
+  await db.delete(invitations);
   await db.delete(messages);
   await db.delete(threadMessageIds);
   await db.delete(syncTombstones);

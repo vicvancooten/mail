@@ -82,6 +82,9 @@ describe("runSyncRound", () => {
         Contact: null,
         ContactRollback: null,
         ContactLink: null,
+        Calendar: null,
+        Rollback: null,
+        Event: null,
       },
       mailAccounts: {},
     });
@@ -96,6 +99,9 @@ describe("runSyncRound", () => {
         Contact: null,
         ContactRollback: null,
         ContactLink: null,
+        Calendar: null,
+        Rollback: null,
+        Event: null,
       },
       mailAccounts: {
         "acct-1": {
@@ -265,6 +271,9 @@ describe("runSyncRound", () => {
         Contact: null,
         ContactRollback: null,
         ContactLink: null,
+        Calendar: null,
+        Rollback: null,
+        Event: null,
       },
       mailAccounts: {},
     });
@@ -635,6 +644,7 @@ describe("runSyncRound — User-scoped Preference queue flush (#54)", () => {
                   undoSendDelaySeconds: 10,
                   homeTimeZone: "",
                   contactsSortOrder: "given",
+                  answerNotificationsEnabled: true,
                   updatedAt: "2026-01-01T00:00:00.000Z",
                 },
               ],

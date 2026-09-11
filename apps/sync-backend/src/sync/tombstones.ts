@@ -18,7 +18,10 @@ import { syncTombstones } from "../db/schema.js";
  *
  * Takes `Db | Tx` (#206): a Connected Account removal's tombstone(s) and its
  * row deletion need to commit or roll back together, which only holds
- * inside one `db.transaction(...)` callback.
+ * inside one `db.transaction(...)` callback. #235's
+ * `mirror-discard.ts#discardMirroredEvents` is a second caller with the
+ * same need — unmirroring a Calendar deletes its Series/Overrides/
+ * Occurrences and tombstones them in that same transaction.
  */
 export async function recordTombstones(
   db: Db | Tx,

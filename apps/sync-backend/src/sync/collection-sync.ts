@@ -160,6 +160,7 @@ export function toWirePreference(row: typeof users.$inferSelect): Preference {
       : DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: row.homeTimeZone,
     contactsSortOrder: row.contactsSortOrder,
+    answerNotificationsEnabled: row.answerNotificationsEnabled,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

@@ -52,6 +52,7 @@ function coalesceKey(intent: UserMutationIntent): {
     case "setUndoSendDelay":
     case "setHomeTimeZone":
     case "setContactsSortOrder":
+    case "setAnswerNotificationsEnabled":
       return { type: intent.type, targetId: intent.type, value: true };
     // The Default Address Book (#211): the same "absolute set, latest pick
     // wins" shape as the `Preference` fields above — a second pick before
@@ -177,6 +178,62 @@ function coalesceKey(intent: UserMutationIntent): {
         targetId: [intent.contactId, intent.otherContactId].sort().join(":"),
         value: true,
       };
+    // `createSeries`/`deleteSeries` (#233) are a genuine inverse pair, the
+    // same `"note"`-bucket shape `createNote`/`deleteNote` already have.
+    case "createSeries":
+      return { type: "series", targetId: intent.seriesId, value: true };
+    case "deleteSeries":
+      return { type: "series", targetId: intent.seriesId, value: false };
+    // `trashSeries`/`restoreSeries` (#233) mirror `trashNote`/`restoreNote`'s
+    // own bucket shape, keyed separately so a still-queued `trashSeries`
+    // never cancels away an unrelated `createSeries`/`deleteSeries`.
+    case "trashSeries":
+      return { type: "seriesTrash", targetId: intent.seriesId, value: true };
+    case "restoreSeries":
+      return { type: "seriesTrash", targetId: intent.seriesId, value: false };
+    // `addExdate`/`removeExdate` (#233) are keyed on `seriesId:exdate` — two
+    // different Occurrences of the same Series are deleted (and undone)
+    // independently, the same per-value granularity `labelNote`/`unlabelNote`
+    // already have for a Label's `name`.
+    case "addExdate":
+      return { type: "exdate", targetId: `${intent.seriesId}:${intent.exdate}`, value: true };
+    case "removeExdate":
+      return { type: "exdate", targetId: `${intent.seriesId}:${intent.exdate}`, value: false };
+    // `moveSeries` (#238) has no natural inverse of its own — undoing it is
+    // `restoreSeries`/`trashSeries` on two different Series ids
+    // (`sync.ts#userMutationIntentSchema`'s own doc comment), which already
+    // coalesce through the `"seriesTrash"` bucket above. Keyed on `seriesId`
+    // alone, its own bucket, so re-picking a different destination before the
+    // first Move flushes simply replaces it rather than queuing two.
+    case "moveSeries":
+      return { type: "seriesMove", targetId: intent.seriesId, value: true };
+    // A Calendar's settings sheet (#236): each of the four fields is its own
+    // absolute set with no natural inverse, the same `setAutoAdvance`-style
+    // bucket shape above — keyed per-Calendar-per-field so an edit to one
+    // Calendar's colour never supersedes another Calendar's still-queued
+    // name change.
+    case "updateCalendarDetails":
+      return { type: "calendarDetails", targetId: intent.calendarId, value: true };
+    case "setCalendarColor":
+      return { type: "calendarColor", targetId: intent.calendarId, value: true };
+    case "setDefaultCalendar":
+      return { type: "calendarDefault", targetId: intent.calendarId, value: true };
+    case "setCalendarMailAccount":
+      return { type: "calendarMailAccount", targetId: intent.calendarId, value: true };
+    // Reminder settings (#244, ADR-0028) — the same per-Calendar-per-field
+    // bucket shape as the four above.
+    case "setCalendarRemindersEnabled":
+      return { type: "calendarRemindersEnabled", targetId: intent.calendarId, value: true };
+    case "setCalendarReminderDefault":
+      return { type: "calendarReminderDefault", targetId: intent.calendarId, value: true };
+    // Snoozing a fired Reminder (#246, ADR-0028) has no natural inverse —
+    // nothing to undo back to, the fired row it came from stays fired
+    // either way — so this is the same absolute-set bucket shape
+    // `setAutoAdvance` above takes, keyed on the joined ids so tapping a
+    // different Snooze length twice in a row (a mis-tap, a change of mind)
+    // replaces the still-queued one rather than sending both.
+    case "snoozeReminder":
+      return { type: "snoozeReminder", targetId: intent.reminderDueIds.join(","), value: true };
   }
 }
 

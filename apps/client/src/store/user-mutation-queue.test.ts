@@ -104,6 +104,112 @@ describe("enqueueUserMutation", () => {
       "setAutoAdvance",
     ]);
   });
+
+  /**
+   * A Series' structural intents (#233): genuine inverse pairs, unlike the
+   * `Preference` fields above — a still-queued `createSeries` meeting its
+   * own `deleteSeries` cancels both away, the same trick
+   * `mutation-queue.test.ts`'s own `discardComposition`/`undiscardComposition`
+   * coverage exercises for the per-Thread queue.
+   */
+  describe("Series structural intents (#233)", () => {
+    it("cancels a still-queued createSeries against its own deleteSeries", async () => {
+      const seriesId = "series-1";
+      await enqueueUserMutation({ type: "createSeries", seriesId, calendarId: "cal-1" });
+
+      const id = await enqueueUserMutation({ type: "deleteSeries", seriesId });
+
+      expect(id).toBeNull();
+      expect(await listQueuedUserMutations()).toHaveLength(0);
+    });
+
+    it("keeps trashSeries/restoreSeries in their own bucket, never cancelling an unrelated createSeries", async () => {
+      const seriesId = "series-1";
+      await enqueueUserMutation({ type: "createSeries", seriesId, calendarId: "cal-1" });
+
+      const id = await enqueueUserMutation({ type: "trashSeries", seriesId });
+
+      expect(id).not.toBeNull();
+      expect(await listQueuedUserMutations()).toHaveLength(2);
+    });
+
+    it("keys addExdate/removeExdate on seriesId:exdate, so two different Occurrences stay independent", async () => {
+      const seriesId = "series-1";
+      await enqueueUserMutation({
+        type: "addExdate",
+        seriesId,
+        exdate: "2026-01-05T09:00:00.000Z",
+      });
+      await enqueueUserMutation({
+        type: "addExdate",
+        seriesId,
+        exdate: "2026-01-12T09:00:00.000Z",
+      });
+
+      expect(await listQueuedUserMutations()).toHaveLength(2);
+    });
+
+    it("cancels a still-queued addExdate against its own removeExdate for the same Occurrence", async () => {
+      const seriesId = "series-1";
+      const exdate = "2026-01-05T09:00:00.000Z";
+      await enqueueUserMutation({ type: "addExdate", seriesId, exdate });
+
+      const id = await enqueueUserMutation({ type: "removeExdate", seriesId, exdate });
+
+      expect(id).toBeNull();
+      expect(await listQueuedUserMutations()).toHaveLength(0);
+    });
+  });
+
+  describe("Calendar settings sheet intents (#236)", () => {
+    it("supersedes an earlier edit to the same Calendar's colour, but keeps a different Calendar's edit independent", async () => {
+      await enqueueUserMutation({
+        type: "setCalendarColor",
+        calendarId: "cal-1",
+        color: "#111111",
+      });
+      await enqueueUserMutation({
+        type: "setCalendarColor",
+        calendarId: "cal-1",
+        color: "#222222",
+      });
+      await enqueueUserMutation({
+        type: "setCalendarColor",
+        calendarId: "cal-2",
+        color: "#333333",
+      });
+
+      const queued = await listQueuedUserMutations();
+      expect(queued).toHaveLength(2);
+      expect(queued.map((mutation) => mutation.intent)).toEqual([
+        { type: "setCalendarColor", calendarId: "cal-1", color: "#222222" },
+        { type: "setCalendarColor", calendarId: "cal-2", color: "#333333" },
+      ]);
+    });
+
+    it("keeps a Calendar's details/colour/default/mailAccount edits as independent queued rows", async () => {
+      await enqueueUserMutation({
+        type: "updateCalendarDetails",
+        calendarId: "cal-1",
+        name: "Work",
+        description: null,
+        timeZone: "UTC",
+      });
+      await enqueueUserMutation({
+        type: "setCalendarColor",
+        calendarId: "cal-1",
+        color: "#111111",
+      });
+      await enqueueUserMutation({ type: "setDefaultCalendar", calendarId: "cal-1" });
+      await enqueueUserMutation({
+        type: "setCalendarMailAccount",
+        calendarId: "cal-1",
+        mailAccountId: "acct-1",
+      });
+
+      expect(await listQueuedUserMutations()).toHaveLength(4);
+    });
+  });
 });
 
 describe("resolveUserMutationOutcomes", () => {

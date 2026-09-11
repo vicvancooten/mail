@@ -1,5 +1,5 @@
 import type { ConnectedAccountFacetKind } from "@mail/shared";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { messages, notifierOutbox } from "../db/schema.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
@@ -234,5 +234,90 @@ export async function recordFailedSendNotification(
       subject: composition.subject,
       detail,
     },
+  });
+}
+
+/**
+ * "Answers arriving for Events the User organises" (#243, part of ADR-0027):
+ * one push per Event, **coalesced over a few minutes** — the ticket's own
+ * acceptance line, not merely "one per Answer". The first Answer for an
+ * Event opens a fresh `calendar_answer` row held for
+ * `CALENDAR_ANSWER_COALESCE_WINDOW_MS` (`db/schema.ts#notifierOutbox
+ * .readyAt`'s own doc comment); every later Answer for that same Event,
+ * arriving before that row delivers, is folded straight into its `answers`
+ * array instead of opening a second row — a second Attendee replying five
+ * minutes after the first still surfaces as one notification, and a later
+ * Answer from the same Attendee (an Undo'd Answer answered differently)
+ * replaces their own entry rather than doubling it.
+ *
+ * `invitations/answer-apply.ts#applyAnswerInvitation` is the one caller,
+ * once a `REPLY` has already matched an organised Series — this function's
+ * only job is the coalescing, not deciding whether an Answer counts.
+ */
+export const CALENDAR_ANSWER_COALESCE_WINDOW_MS = 3 * 60_000;
+
+export interface CalendarAnswerNotificationInput {
+  userId: string;
+  eventId: string;
+  seriesId: string;
+  title: string;
+  attendeeEmail: string;
+  attendeeName: string | null;
+  responseStatus: "accepted" | "declined" | "tentative";
+}
+
+export async function recordCalendarAnswerNotification(
+  db: Db,
+  input: CalendarAnswerNotificationInput,
+  now: Date = new Date(),
+): Promise<void> {
+  const [pending] = await db
+    .select()
+    .from(notifierOutbox)
+    .where(
+      and(
+        eq(notifierOutbox.kind, "calendar_answer"),
+        isNull(notifierOutbox.deliveredAt),
+        sql`${notifierOutbox.payload} ->> 'eventId' = ${input.eventId}`,
+      ),
+    )
+    .orderBy(desc(notifierOutbox.createdAt))
+    .limit(1);
+
+  const answerEntry = {
+    attendeeEmail: input.attendeeEmail,
+    attendeeName: input.attendeeName,
+    responseStatus: input.responseStatus,
+  };
+
+  if (pending && pending.payload.kind === "calendar_answer") {
+    const normalizedAttendee = input.attendeeEmail.trim().toLowerCase();
+    const otherAnswers = pending.payload.answers.filter(
+      (answer) => answer.attendeeEmail.trim().toLowerCase() !== normalizedAttendee,
+    );
+    await db
+      .update(notifierOutbox)
+      .set({ payload: { ...pending.payload, answers: [...otherAnswers, answerEntry] } })
+      .where(eq(notifierOutbox.id, pending.id));
+    return;
+  }
+
+  await insertOutboxEntry(db, {
+    userId: input.userId,
+    mailAccountId: null,
+    kind: "calendar_answer",
+    // A later, separate coalescing window for the same Event is a genuine
+    // new notification, not a repeat of the one already delivered — the
+    // recording instant is part of the key the same reason `needs_reauth`'s
+    // own dedupKey carries the transition instant rather than a bare id.
+    dedupKey: `${input.eventId}:${now.toISOString()}`,
+    payload: {
+      kind: "calendar_answer",
+      eventId: input.eventId,
+      seriesId: input.seriesId,
+      title: input.title,
+      answers: [answerEntry],
+    },
+    readyAt: new Date(now.getTime() + CALENDAR_ANSWER_COALESCE_WINDOW_MS),
   });
 }

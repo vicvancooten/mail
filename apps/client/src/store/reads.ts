@@ -9,6 +9,7 @@ import type {
   Thread,
 } from "@mail/shared";
 import {
+  DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
   DEFAULT_CONTACTS_SORT_ORDER,
@@ -152,6 +153,7 @@ function defaultPreference(): Preference {
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: HOME_TIME_ZONE_UNSET,
     contactsSortOrder: DEFAULT_CONTACTS_SORT_ORDER,
+    answerNotificationsEnabled: DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
     updatedAt: new Date(0).toISOString(),
   };
 }
@@ -194,6 +196,9 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
         break;
       case "setContactsSortOrder":
         overlaid = { ...overlaid, contactsSortOrder: intent.contactsSortOrder };
+        break;
+      case "setAnswerNotificationsEnabled":
+        overlaid = { ...overlaid, answerNotificationsEnabled: intent.enabled };
         break;
     }
   }

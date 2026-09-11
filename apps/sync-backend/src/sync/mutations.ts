@@ -26,6 +26,20 @@ import {
   addressBookRowForUser,
   setDefaultAddressBook,
 } from "../address-books/store.js";
+import {
+  rebuildReminderDueForCalendar,
+  rebuildReminderDueForUser,
+  snoozeReminderDue,
+} from "../calendars/reminder-due-store.js";
+import {
+  addExdate,
+  createSeriesSkeleton,
+  deleteSeriesPermanently,
+  moveSeries,
+  removeExdate,
+  restoreSeries,
+  trashSeries,
+} from "../calendars/series-store.js";
 import { discardComposition, undiscardComposition } from "../compose/discard.js";
 import { acceptSend, cancelSend } from "../compose/pending-send.js";
 import {
@@ -54,6 +68,7 @@ import {
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
+  calendars,
   labels,
   mailAccounts,
   messages,
@@ -617,6 +632,16 @@ async function applyUserIntent(
         .update(users)
         .set({ homeTimeZone: intent.homeTimeZone, updatedAt: new Date() })
         .where(eq(users.id, userId));
+      // "Changing the Home Time Zone recomputes every all-day and floating
+      // `dueAt`" (ADR-0028) — every Calendar's own Reminders in one sweep,
+      // the same posture the Reminder toggle/Default changes below take.
+      await rebuildReminderDueForUser(db, userId);
+      return { ok: true };
+    case "setAnswerNotificationsEnabled":
+      await db
+        .update(users)
+        .set({ answerNotificationsEnabled: intent.enabled, updatedAt: new Date() })
+        .where(eq(users.id, userId));
       return { ok: true };
     case "setContactsSortOrder":
       await db
@@ -991,6 +1016,135 @@ async function applyUserIntent(
       });
       return result.ok ? { ok: true } : { ok: false, reason: result.reason };
     }
+    // A Series' structural actions (#233) — see `sync.ts#userMutationIntentSchema`'s
+    // own doc comment for the shape each pair takes. Every store call below
+    // already carries its own idempotency tolerance (a retried id, or Undo
+    // racing a later edit, is a harmless no-op), so each is a thin dispatch.
+    case "createSeries":
+      return createSeriesSkeleton(db, userId, intent.seriesId, intent.calendarId);
+    case "deleteSeries":
+      await deleteSeriesPermanently(db, userId, intent.seriesId);
+      return { ok: true };
+    case "trashSeries":
+      return trashSeries(db, userId, intent.seriesId);
+    case "restoreSeries":
+      return restoreSeries(db, userId, intent.seriesId);
+    case "addExdate":
+      return addExdate(db, userId, intent.seriesId, intent.exdate);
+    case "removeExdate":
+      return removeExdate(db, userId, intent.seriesId, intent.exdate);
+    case "moveSeries":
+      return moveSeries(db, userId, intent.seriesId, intent.newSeriesId, intent.calendarId);
+    // A Calendar's settings sheet (#236) — see `sync.ts#userMutationIntentSchema`'s
+    // own doc comment on why these are four absolute-set intents rather than
+    // one combined "patch".
+    case "updateCalendarDetails": {
+      const calendar = await calendarRow(db, userId, intent.calendarId);
+      if (!calendar) return { ok: false, reason: "calendar_not_found" };
+      // "A Calendar the upstream grants only reading of shows no edit
+      // affordances at all" (#236) — the sheet never sends this intent for
+      // one, so this is defense in depth against a stale client, not the
+      // primary guard.
+      if (!calendar.capabilities.writable) return { ok: false, reason: "calendar_not_writable" };
+      await db
+        .update(calendars)
+        .set({
+          name: intent.name,
+          description: intent.description,
+          timeZone: intent.timeZone,
+          updatedAt: new Date(),
+        })
+        .where(eq(calendars.id, intent.calendarId));
+      return { ok: true };
+    }
+    case "setCalendarColor": {
+      const calendar = await calendarRow(db, userId, intent.calendarId);
+      if (!calendar) return { ok: false, reason: "calendar_not_found" };
+      await db
+        .update(calendars)
+        .set({ color: intent.color, updatedAt: new Date() })
+        .where(eq(calendars.id, intent.calendarId));
+      return { ok: true };
+    }
+    case "setDefaultCalendar": {
+      const calendar = await calendarRow(db, userId, intent.calendarId);
+      if (!calendar) return { ok: false, reason: "calendar_not_found" };
+      if (calendar.isDefault) return { ok: true };
+      // "Exactly one `true` row per User" (`calendars.ts#calendarSchema`'s
+      // own doc comment) — cleared and set in one transaction so a crash
+      // mid-way never leaves either zero or two default Calendars.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(calendars)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(and(eq(calendars.userId, userId), eq(calendars.isDefault, true)));
+        await tx
+          .update(calendars)
+          .set({ isDefault: true, updatedAt: new Date() })
+          .where(eq(calendars.id, intent.calendarId));
+      });
+      return { ok: true };
+    }
+    case "setCalendarMailAccount": {
+      const calendar = await calendarRow(db, userId, intent.calendarId);
+      if (!calendar) return { ok: false, reason: "calendar_not_found" };
+      // "Always `null` for a mirrored Calendar, whose Organiser is the
+      // upstream's own concern" (`calendars.ts#calendarSchema`'s own doc
+      // comment) — settable for Local Calendars only until a self-scheduled
+      // Calendar concept exists to extend this to (#236's closing comment).
+      if (calendar.originType !== "local") return { ok: false, reason: "calendar_not_local" };
+      if (intent.mailAccountId !== null) {
+        const ownerId = await getMailAccountOwnerId(db, intent.mailAccountId);
+        if (ownerId !== userId) return { ok: false, reason: "mail_account_not_found" };
+      }
+      await db
+        .update(calendars)
+        .set({ mailAccountId: intent.mailAccountId, updatedAt: new Date() })
+        .where(eq(calendars.id, intent.calendarId));
+      return { ok: true };
+    }
+    // Reminder settings (#244, ADR-0028) — Wicket-owned fields, applied
+    // unconditionally regardless of `capabilities.writable` the same
+    // "never pushed upstream at all" reasoning `setCalendarColor` already
+    // has above.
+    case "setCalendarRemindersEnabled": {
+      const calendar = await calendarRow(db, userId, intent.calendarId);
+      if (!calendar) return { ok: false, reason: "calendar_not_found" };
+      await db
+        .update(calendars)
+        .set({ remindersEnabled: intent.enabled, updatedAt: new Date() })
+        .where(eq(calendars.id, intent.calendarId));
+      // "The table rebuilds on a change to... the Calendar toggle" (#245,
+      // ADR-0028) — off drops every Reminder Due row for this Calendar
+      // outright, on rebuilds them fresh, both inside the same sweep.
+      await rebuildReminderDueForCalendar(db, intent.calendarId);
+      return { ok: true };
+    }
+    case "setCalendarReminderDefault": {
+      const calendar = await calendarRow(db, userId, intent.calendarId);
+      if (!calendar) return { ok: false, reason: "calendar_not_found" };
+      await db
+        .update(calendars)
+        .set({ reminderDefault: intent.reminderDefault, updatedAt: new Date() })
+        .where(eq(calendars.id, intent.calendarId));
+      await rebuildReminderDueForCalendar(db, intent.calendarId);
+      return { ok: true };
+    }
+    // The Snooze toast, the Event page, and `routes/push.ts`'s own direct
+    // POST for the OS notification's button (#246, ADR-0028) all resolve to
+    // this one call per fired row a Snooze request names; a group snooze
+    // (several Reminders sharing one notification) applies each
+    // independently so one Occurrence already gone doesn't sink the rest.
+    case "snoozeReminder": {
+      let applied = false;
+      let lastReason: string | undefined;
+      for (const reminderDueId of intent.reminderDueIds) {
+        const result = await snoozeReminderDue(db, userId, reminderDueId, intent.snoozeUntil);
+        if (result.ok) applied = true;
+        else lastReason = result.reason;
+      }
+      return applied ? { ok: true } : { ok: false, reason: lastReason ?? "reminder_not_found" };
+    }
   }
 }
 
@@ -1003,6 +1157,16 @@ async function noteRow(
     .select({ labelIds: notes.labelIds })
     .from(notes)
     .where(and(eq(notes.id, noteId), eq(notes.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** This User's own Calendar row, or `null` for a bad id or someone else's Calendar — the same ownership guard every `case` above needs before touching one. */
+async function calendarRow(db: Db, userId: string, calendarId: string) {
+  const [row] = await db
+    .select()
+    .from(calendars)
+    .where(and(eq(calendars.id, calendarId), eq(calendars.userId, userId)))
     .limit(1);
   return row ?? null;
 }

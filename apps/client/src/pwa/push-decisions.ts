@@ -1,4 +1,9 @@
-import { type ConnectedAccountFacetKind, type PushPayload, pushPayloadSchema } from "@mail/shared";
+import {
+  type ConnectedAccountFacetKind,
+  type PushPayload,
+  pushPayloadSchema,
+  type SnoozeUntil,
+} from "@mail/shared";
 import { FACET_LABEL } from "../connected-accounts/provider-table.js";
 
 /**
@@ -75,6 +80,36 @@ export function buildNotificationContent(payload: PushPayload): NotificationCont
         body: describeHeldSenders(payload.senders, payload.count),
         tag: `mail-gatekeeper-${payload.mailAccountId}`,
       };
+    case "calendar_reminder": {
+      // "Two Reminders on one Occurrence fire separately and share a
+      // notification tag, so the later replaces the earlier on the device"
+      // (ADR-0028) — tagging on the first (only, in the common case)
+      // Occurrence's own id is what gives a same-Occurrence pair that
+      // replacement; a genuine multi-Occurrence group (several due the same
+      // minute) still needs one tag, so it takes the earliest-fired entry's.
+      const [first] = payload.events;
+      return {
+        title: first?.title ?? "Reminder",
+        body: payload.events.map((event) => event.body).join("\n"),
+        tag: `calendar-reminder-${first?.eventId ?? "group"}`,
+        // "Snooze is the one action: a fixed 5 minutes as the OS
+        // notification's button (Android and desktop; iOS has none)"
+        // (ADR-0028) — Chrome/Android-only per this type's own doc comment,
+        // silently ignored everywhere else, so no platform branch is needed
+        // here either.
+        actions: [{ action: "snooze", title: "Snooze 5 min" }],
+      };
+    }
+    case "calendar_answer":
+      // "Answers arriving for Events the User organises" (#243): the
+      // notification names the Event, several Answers coalesced
+      // (`notifier/record.ts`'s own doc comment) reading as one list in the
+      // order they were folded into the payload's own `answers[]`.
+      return {
+        title: payload.title,
+        body: describeAnswers(payload.answers),
+        tag: `calendar-answer-${payload.eventId}`,
+      };
   }
 }
 
@@ -84,6 +119,29 @@ function describeHeldSenders(senders: string[], count: number): string {
   const remaining = count - senders.length;
   const named = senders.join(", ");
   return remaining > 0 ? `${named} and ${remaining} more` : named;
+}
+
+const RESPONSE_STATUS_VERB: Record<"accepted" | "declined" | "tentative", string> = {
+  accepted: "accepted",
+  declined: "declined",
+  tentative: "tentatively accepted",
+};
+
+/** "Ada accepted" / "Ada accepted; Grace declined" — never a bare count, recognizing a name is the point. */
+function describeAnswers(
+  answers: readonly {
+    attendeeName: string | null;
+    attendeeEmail: string;
+    responseStatus: "accepted" | "declined" | "tentative";
+  }[],
+): string {
+  if (answers.length === 0) return "An Attendee answered.";
+  return answers
+    .map(
+      (answer) =>
+        `${answer.attendeeName ?? answer.attendeeEmail} ${RESPONSE_STATUS_VERB[answer.responseStatus]}`,
+    )
+    .join("; ");
 }
 
 /** The slice of `WindowClient` a suppression check needs — narrowed so a test double beats casting a fake. */
@@ -121,12 +179,20 @@ export function hasVisibleClient(clients: readonly VisibilityLike[]): boolean {
  * `new_mail_burst` stays `focus-only`: it's a coalesced *Inbox* digest, not
  * a Gatekeeper hold — there is no single stranger's decision waiting on it,
  * so it falls back to the plain focus a click always gets at minimum.
+ *
+ * `calendar_reminder` (#246, ADR-0028: "tapping opens the Event in an
+ * existing window... a group lands on the Day view at the earliest start")
+ * names the first event's own id — the payload's own `events[]` doc comment
+ * already establishes that a group's first entry is the earliest-due one.
+ * `calendar_answer` (#243) opens the Event named, the same click target,
+ * with no `reminderDueId` of its own since an Answer fires no Snooze row.
  */
 export type NotificationClickTarget =
   | { kind: "thread"; mailAccountId: string; threadId: string }
   | { kind: "failed-send"; mailAccountId: string; compositionId: string }
   | { kind: "needs-reauth"; connectedAccountId: string; facet: ConnectedAccountFacetKind }
   | { kind: "screener"; mailAccountId: string }
+  | { kind: "calendar-event"; eventId: string; reminderDueIds: string[] }
   | { kind: "focus-only" };
 
 export function notificationClickTarget(payload: PushPayload): NotificationClickTarget {
@@ -147,6 +213,17 @@ export function notificationClickTarget(payload: PushPayload): NotificationClick
       };
     case "gatekeeper_digest":
       return { kind: "screener", mailAccountId: payload.mailAccountId };
+    case "calendar_reminder": {
+      const [first] = payload.events;
+      if (!first) return { kind: "focus-only" };
+      return {
+        kind: "calendar-event",
+        eventId: first.eventId,
+        reminderDueIds: payload.events.map((event) => event.reminderDueId),
+      };
+    }
+    case "calendar_answer":
+      return { kind: "calendar-event", eventId: payload.eventId, reminderDueIds: [] };
     default:
       return { kind: "focus-only" };
   }
@@ -178,6 +255,13 @@ export function notificationTargetUrl(target: NotificationClickTarget): string {
       // query param names, read back by `ConnectedAccountsPage` once
       // `/settings/mail-accounts`'s own redirect (`routes.tsx`) lands there.
       return `/settings/mail-accounts?account=${encodeURIComponent(target.connectedAccountId)}&facet=${encodeURIComponent(target.facet)}`;
+    // #246: `calendarEventRoute`'s own path segment is the Event's own id
+    // (`<seriesId>@<originalStart>`, `router/routes.tsx`'s own doc comment)
+    // — `reminderDueIds` rides no further than the warm-start
+    // `NotificationTarget` above, a cold start has no Event page mounted
+    // yet to hand a Snooze row's own id to.
+    case "calendar-event":
+      return `/calendar/${encodeURIComponent(target.eventId)}`;
     case "failed-send":
     case "focus-only":
       return "/";
@@ -197,4 +281,34 @@ export function buildArchiveActionRequest(
   ulid: string,
 ): ArchiveActionRequest {
   return { id: ulid, mailAccountId, intent: { type: "archive", threadId } };
+}
+
+/**
+ * The direct-POST body for the OS notification's Snooze button (#246,
+ * ADR-0028): "posted to the existing notification-actions endpoint with an
+ * idempotency key and Background Sync retry exactly as Archive is." User-
+ * scoped, unlike Archive — `mailAccountId` is always `null`, a Reminder Due
+ * row has none. The OS button always snoozes 5 minutes; the toast and Event
+ * page's own longer/at-start choices post through the normal Optimistic
+ * Action queue instead (`user-mutation-queue.ts`), not this direct path.
+ */
+export interface SnoozeActionRequest {
+  id: string;
+  mailAccountId: null;
+  intent: { type: "snoozeReminder"; reminderDueIds: string[]; snoozeUntil: SnoozeUntil };
+}
+
+export function buildSnoozeActionRequest(
+  reminderDueIds: string[],
+  ulid: string,
+): SnoozeActionRequest {
+  return {
+    id: ulid,
+    mailAccountId: null,
+    intent: {
+      type: "snoozeReminder",
+      reminderDueIds,
+      snoozeUntil: { kind: "minutes", minutes: 5 },
+    },
+  };
 }

@@ -21,7 +21,16 @@ export type NotificationTarget =
    * open — every `needs_reauth` push carries both now, Mail Facet included,
    * so this never needs `mailAccountId` to resolve a click. */
   | { kind: "needs-reauth"; connectedAccountId: string; facet: ConnectedAccountFacetKind }
-  | { kind: "screener"; mailAccountId: string };
+  | { kind: "screener"; mailAccountId: string }
+  /**
+   * A `calendar_reminder` click (#246, ADR-0028: "tapping opens the Event
+   * in an existing window"). `reminderDueIds` rides along purely so the
+   * Event page can offer its own Snooze row for *this* fired Reminder —
+   * "fired... state is server-side only; the Client never syncs it"
+   * (ADR-0028) means there is no other way for the page to learn a
+   * Reminder just fired for the Event it's opening.
+   */
+  | { kind: "calendar-event"; eventId: string; reminderDueIds: string[] };
 
 const listeners = new Set<(target: NotificationTarget) => void>();
 const startedContainers = new WeakSet<MessageContainer>();
@@ -53,6 +62,8 @@ function isNotificationTarget(data: unknown): data is NotificationTarget {
     compositionId?: unknown;
     connectedAccountId?: unknown;
     facet?: unknown;
+    eventId?: unknown;
+    reminderDueIds?: unknown;
   };
   switch (target.kind) {
     case "thread":
@@ -65,6 +76,12 @@ function isNotificationTarget(data: unknown): data is NotificationTarget {
       // Widened by #204: keyed by Connected Account + Facet, not a Mail
       // Account (this type's own doc comment above).
       return typeof target.connectedAccountId === "string" && typeof target.facet === "string";
+    case "calendar-event":
+      return (
+        typeof target.eventId === "string" &&
+        Array.isArray(target.reminderDueIds) &&
+        target.reminderDueIds.every((id) => typeof id === "string")
+      );
     default:
       return false;
   }

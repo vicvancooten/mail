@@ -3,12 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeStaleThreadNotification } from "../pwa/close-stale-notifications.js";
 import {
   delta,
+  eventDelta,
+  makeCalendar,
   makeComposition,
   makeCorrespondent,
+  makeEvent,
   makeGmailLabel,
   makeLabel,
   makeMailAccount,
   makeNote,
+  makeRollback,
   makeThread,
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
@@ -19,15 +23,20 @@ import { localCache, openLocalCache } from "./local-cache.js";
 import { readNotes, saveNoteBody } from "./notes.js";
 import { readCorrespondents, readGmailLabels, readLabels, readThreadWindow } from "./reads.js";
 import {
+  applyCalendarDelta,
   applyCompositionDelta,
   applyCorrespondentDelta,
+  applyEventDelta,
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyNoteDelta,
+  applyRollbackDelta,
   applyThreadDelta,
+  CALENDAR_TOKEN_KEY,
   compositionTokenKey,
   correspondentTokenKey,
+  EVENT_TOKEN_KEY,
   flushScheduledWindowTrims,
   getSyncToken,
   gmailLabelTokenKey,
@@ -36,6 +45,7 @@ import {
   MAIL_ACCOUNT_TOKEN_KEY,
   NOTE_TOKEN_KEY,
   pruneOrphanedMailAccountData,
+  ROLLBACK_TOKEN_KEY,
   THREAD_WINDOW_FLOOR,
   THREAD_WINDOW_HIGH_WATER,
   threadTokenKey,
@@ -403,6 +413,106 @@ describe("applyLabelDelta (#43, User-scoped since #186)", () => {
     await applyLabelDelta(delta({ destroyed: ["l1"] }), { replace: false });
 
     expect(await readLabels()).toEqual([]);
+  });
+});
+
+describe("applyCalendarDelta (#229)", () => {
+  it("stores Calendars and advances the one User-scoped state token", async () => {
+    await applyCalendarDelta(
+      delta({ created: [makeCalendar("cal-1", USER)], newState: "calendar-state-1" }),
+      { replace: false },
+    );
+
+    expect(await localCache().calendars.get("cal-1")).toMatchObject({ name: "Personal" });
+    expect(await getSyncToken(CALENDAR_TOKEN_KEY)).toBe("calendar-state-1");
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyCalendarDelta(delta({ created: [makeCalendar("stale", USER)] }), { replace: false });
+
+    await applyCalendarDelta(delta({ created: [makeCalendar("fresh", USER)], reset: true }), {
+      replace: true,
+    });
+
+    expect((await localCache().calendars.toArray()).map((cal) => cal.id)).toEqual(["fresh"]);
+  });
+
+  it("removes destroyed Calendars", async () => {
+    await applyCalendarDelta(delta({ created: [makeCalendar("cal-1", USER)] }), { replace: false });
+
+    await applyCalendarDelta(delta({ destroyed: ["cal-1"] }), { replace: false });
+
+    expect(await localCache().calendars.toArray()).toEqual([]);
+  });
+});
+
+/**
+ * `Event` (#229): always empty on this line (no materialiser yet, #230) —
+ * these tests exercise the wire shape and the Event Window bookkeeping the
+ * way `applyLabelDelta`'s do for an ordinary whole-replicated collection,
+ * plus the one thing genuinely new here: persisting `windowStart`/`windowEnd`.
+ */
+describe("applyEventDelta (#229)", () => {
+  it("persists both Event Window edges alongside an empty page", async () => {
+    await applyEventDelta(eventDelta({ newState: "event-state-1" }), { replace: false });
+
+    expect(await localCache().eventWindows.get("current")).toEqual({
+      key: "current",
+      start: "2026-03-01T00:00:00.000Z",
+      end: "2027-06-01T00:00:00.000Z",
+    });
+    expect(await getSyncToken(EVENT_TOKEN_KEY)).toBe("event-state-1");
+  });
+
+  it("stores an Event row were one ever to arrive, and advances the window on the next round", async () => {
+    await applyEventDelta(eventDelta({ created: [makeEvent("ev-1", "cal-1")] }), {
+      replace: false,
+    });
+    expect(await localCache().events.get("ev-1")).toMatchObject({ calendarId: "cal-1" });
+
+    await applyEventDelta(
+      eventDelta({
+        windowStart: "2026-04-01T00:00:00.000Z",
+        windowEnd: "2027-07-01T00:00:00.000Z",
+      }),
+      { replace: false },
+    );
+    expect(await localCache().eventWindows.get("current")).toMatchObject({
+      start: "2026-04-01T00:00:00.000Z",
+      end: "2027-07-01T00:00:00.000Z",
+    });
+  });
+
+  it("replaces rather than merges on the first page of a reset replay", async () => {
+    await applyEventDelta(eventDelta({ created: [makeEvent("stale", "cal-1")] }), {
+      replace: false,
+    });
+
+    await applyEventDelta(eventDelta({ created: [makeEvent("fresh", "cal-1")], reset: true }), {
+      replace: true,
+    });
+
+    expect((await localCache().events.toArray()).map((event) => event.id)).toEqual(["fresh"]);
+  });
+});
+
+describe("applyRollbackDelta (#229, ADR-0025)", () => {
+  it("stores Rollbacks and advances the one User-scoped state token", async () => {
+    await applyRollbackDelta(
+      delta({ created: [makeRollback("rb-1", USER)], newState: "rollback-state-1" }),
+      { replace: false },
+    );
+
+    expect(await localCache().rollbacks.get("rb-1")).toMatchObject({ collection: "Event" });
+    expect(await getSyncToken(ROLLBACK_TOKEN_KEY)).toBe("rollback-state-1");
+  });
+
+  it("removes destroyed Rollbacks", async () => {
+    await applyRollbackDelta(delta({ created: [makeRollback("rb-1", USER)] }), { replace: false });
+
+    await applyRollbackDelta(delta({ destroyed: ["rb-1"] }), { replace: false });
+
+    expect(await localCache().rollbacks.toArray()).toEqual([]);
   });
 });
 

@@ -10,6 +10,8 @@ import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { listUndelivered } from "./outbox.js";
 import {
+  CALENDAR_ANSWER_COALESCE_WINDOW_MS,
+  recordCalendarAnswerNotification,
   recordFailedSendNotification,
   recordMailFacetNeedsReauthNotification,
   recordNewMailNotifications,
@@ -188,6 +190,154 @@ describe("recordMailFacetNeedsReauthNotification", () => {
       `${account.connectedAccountId}:mail:${account.updatedAt.toISOString()}`,
     );
     expect(entry?.payload).toEqual({ kind: "needs_reauth", emailAddress: account.emailAddress });
+  });
+});
+
+describe("recordCalendarAnswerNotification (#243)", () => {
+  it("holds a first Answer for the coalescing window — not yet ready to deliver", async () => {
+    const now = new Date("2026-01-05T09:00:00Z");
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        attendeeEmail: "bob@example.com",
+        attendeeName: "Bob",
+        responseStatus: "accepted",
+      },
+      now,
+    );
+
+    expect(await listUndelivered(db, now)).toEqual([]);
+
+    const ready = new Date(now.getTime() + CALENDAR_ANSWER_COALESCE_WINDOW_MS);
+    const [entry] = await listUndelivered(db, ready);
+    expect(entry?.kind).toBe("calendar_answer");
+    expect(entry?.payload).toEqual({
+      kind: "calendar_answer",
+      eventId: "evt-1",
+      seriesId: "series-1",
+      title: "Standup",
+      answers: [
+        { attendeeEmail: "bob@example.com", attendeeName: "Bob", responseStatus: "accepted" },
+      ],
+    });
+  });
+
+  it("coalesces a second Attendee's Answer for the same Event into the same row", async () => {
+    const now = new Date("2026-01-05T09:00:00Z");
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        attendeeEmail: "bob@example.com",
+        attendeeName: "Bob",
+        responseStatus: "accepted",
+      },
+      now,
+    );
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        attendeeEmail: "carol@example.com",
+        attendeeName: "Carol",
+        responseStatus: "declined",
+      },
+      new Date(now.getTime() + 60_000),
+    );
+
+    const ready = new Date(now.getTime() + CALENDAR_ANSWER_COALESCE_WINDOW_MS);
+    const rows = await listUndelivered(db, ready);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.payload).toMatchObject({
+      answers: [
+        { attendeeEmail: "bob@example.com", responseStatus: "accepted" },
+        { attendeeEmail: "carol@example.com", responseStatus: "declined" },
+      ],
+    });
+  });
+
+  it("replaces a repeat Answer from the same Attendee rather than doubling it", async () => {
+    const now = new Date("2026-01-05T09:00:00Z");
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        attendeeEmail: "bob@example.com",
+        attendeeName: "Bob",
+        responseStatus: "tentative",
+      },
+      now,
+    );
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        attendeeEmail: "bob@example.com",
+        attendeeName: "Bob",
+        responseStatus: "accepted",
+      },
+      new Date(now.getTime() + 60_000),
+    );
+
+    const ready = new Date(now.getTime() + CALENDAR_ANSWER_COALESCE_WINDOW_MS);
+    const rows = await listUndelivered(db, ready);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.payload).toMatchObject({
+      answers: [{ attendeeEmail: "bob@example.com", responseStatus: "accepted" }],
+    });
+  });
+
+  it("opens a fresh row for a different Event", async () => {
+    const now = new Date("2026-01-05T09:00:00Z");
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        attendeeEmail: "bob@example.com",
+        attendeeName: "Bob",
+        responseStatus: "accepted",
+      },
+      now,
+    );
+    await recordCalendarAnswerNotification(
+      db,
+      {
+        userId: account.userId,
+        eventId: "evt-2",
+        seriesId: "series-2",
+        title: "Retro",
+        attendeeEmail: "bob@example.com",
+        attendeeName: "Bob",
+        responseStatus: "declined",
+      },
+      now,
+    );
+
+    const ready = new Date(now.getTime() + CALENDAR_ANSWER_COALESCE_WINDOW_MS);
+    const rows = await listUndelivered(db, ready);
+    expect(
+      rows.map((row) => (row.payload.kind === "calendar_answer" ? row.payload.eventId : null)),
+    ).toEqual(expect.arrayContaining(["evt-1", "evt-2"]));
+    expect(rows).toHaveLength(2);
   });
 });
 

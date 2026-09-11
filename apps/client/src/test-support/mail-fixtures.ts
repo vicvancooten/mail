@@ -1,18 +1,29 @@
 import type {
   AddressBook,
+  Calendar,
   CollectionDelta,
   Composition,
   ConnectedAccount,
   Contact,
   ContactRollback,
   Correspondent,
+  Event,
+  EventDelta,
   GmailLabel,
   Label,
   MailAccount,
   Note,
+  Rollback,
   Thread,
 } from "@mail/shared";
-import { EMPTY_COMPOSE_DOCUMENT, EMPTY_NOTE_DOCUMENT } from "@mail/shared";
+import {
+  EMPTY_COMPOSE_DOCUMENT,
+  EMPTY_NOTE_DOCUMENT,
+  LOCAL_ALL_DAY_REMINDER_DEFAULT,
+  LOCAL_CALENDAR_CAPABILITIES,
+  LOCAL_CALENDAR_ORIGIN,
+  LOCAL_TIMED_REMINDER_DEFAULT,
+} from "@mail/shared";
 
 /** Builders for the `POST /sync` wire shapes, so a test states only the field it is about. */
 
@@ -178,6 +189,87 @@ export function makeNote(id: string, userId: string, overrides: Partial<Note> = 
     deletedAt: null,
     createdAt: "2026-06-01T12:00:00.000Z",
     updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Calendar` (#229) — the Local Personal Calendar shape by default. */
+export function makeCalendar(
+  id: string,
+  userId: string,
+  overrides: Partial<Calendar> = {},
+): Calendar {
+  return {
+    id,
+    userId,
+    name: "Personal",
+    description: null,
+    timeZone: "",
+    origin: LOCAL_CALENDAR_ORIGIN,
+    color: "#4285F4",
+    isDefault: true,
+    mailAccountId: null,
+    mirrored: true,
+    capabilities: LOCAL_CALENDAR_CAPABILITIES,
+    remindersEnabled: true,
+    reminderDefault: {
+      timed: LOCAL_TIMED_REMINDER_DEFAULT,
+      allDay: LOCAL_ALL_DAY_REMINDER_DEFAULT,
+    },
+    createdAt: "2026-06-01T12:00:00.000Z",
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Event` (#229) — always empty on this line, but this is what one row will look like once #230 lands. */
+export function makeEvent(id: string, calendarId: string, overrides: Partial<Event> = {}): Event {
+  return {
+    id,
+    calendarId,
+    seriesId: id,
+    originalStart: "2026-06-01T12:00:00.000Z",
+    start: "2026-06-01T12:00:00.000Z",
+    end: "2026-06-01T13:00:00.000Z",
+    allDay: false,
+    tzid: null,
+    floating: false,
+    title: "Event",
+    location: null,
+    status: "confirmed",
+    transparency: "opaque",
+    updatedAt: "2026-06-01T12:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** An `EventDelta` (#229) — `delta()`'s sibling, always carrying the two Event Window edges. */
+export function eventDelta(overrides: Partial<EventDelta> = {}): EventDelta {
+  return {
+    created: [],
+    updated: [],
+    destroyed: [],
+    newState: "state-1",
+    hasMore: false,
+    windowStart: "2026-03-01T00:00:00.000Z",
+    windowEnd: "2027-06-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** A wire `Rollback` (#229, ADR-0025) — always empty until #237 produces one. */
+export function makeRollback(
+  id: string,
+  userId: string,
+  overrides: Partial<Rollback> = {},
+): Rollback {
+  return {
+    id,
+    userId,
+    collection: "Event",
+    entityId: "event-1",
+    reason: null,
+    occurredAt: "2026-06-01T12:00:00.000Z",
     ...overrides,
   };
 }

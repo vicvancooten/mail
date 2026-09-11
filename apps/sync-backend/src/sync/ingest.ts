@@ -9,6 +9,7 @@ import type {
 import type { Db } from "../db/client.js";
 import { folders, type MessageAddress, messages } from "../db/schema.js";
 import { resolveRecipientAlias } from "../gatekeeper/alias.js";
+import { extractInvitations } from "../invitations/store.js";
 import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import { bumpThreadsEpoch, getMailAccountById } from "../mail-accounts/store.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
@@ -260,7 +261,7 @@ export async function fetchAndStoreSequenceBatch(
   }
 
   if (range.fetchBodies) {
-    await fetchBodiesFor(db, client, newestFirst, batch);
+    await fetchBodiesFor(db, client, newestFirst, batch, folder.mailAccountId);
   }
 
   await refreshThreadRollups(
@@ -469,22 +470,47 @@ export async function storeMessage(
  * purpose: they share the one connection ADR-0005 gives the account, and
  * ImapFlow serializes commands on it anyway — issuing them in parallel only
  * queues them somewhere less visible.
+ *
+ * Also where an eager ingest (`fetchBodies: true`, the e2e tests and small
+ * mailboxes) finds this message's Invitations (#239, ADR-0027) — the
+ * ordinary path is the body sweep (`sync/body-sweep.ts`) instead, since
+ * bodies are lazy by default (ADR-0005), but a message parsed here must not
+ * wait for that sweep to also visit it, or "every ingested Message parsed
+ * once" would double-count whichever one gets there first. Both call the
+ * same `invitations/store.ts#extractInvitations`, whose upsert is idempotent
+ * per `(messageId, uid, recurrenceId)`, so a message this function already
+ * covers costs the sweep nothing beyond the no-op parts scan.
  */
 async function fetchBodiesFor(
   db: Db,
   client: ImapFlow,
   fetchedBatch: FetchMessageObject[],
   stored: IngestedMessage[],
+  mailAccountId: string,
 ): Promise<void> {
-  const idByUid = new Map(stored.map((message) => [message.uid, message.id]));
+  const storedByUid = new Map(stored.map((message) => [message.uid, message]));
   for (const fetched of fetchedBatch) {
     const parts = readBodyParts(fetched.bodyStructure);
-    if (!parts.textPart && !parts.htmlPart) continue;
-    const messageId = idByUid.get(fetched.uid);
-    if (!messageId) continue;
+    const message = storedByUid.get(fetched.uid);
+    if (!message) continue;
 
-    const body = await fetchMessageBody(client, fetched.uid, parts);
-    await storeMessageBody(db, messageId, body);
+    if (parts.textPart || parts.htmlPart) {
+      const body = await fetchMessageBody(client, fetched.uid, parts);
+      await storeMessageBody(db, message.id, body);
+    }
+
+    await extractInvitations(
+      db,
+      client,
+      fetched.uid,
+      {
+        id: message.id,
+        threadId: message.threadId,
+        mailAccountId,
+        fallbackDtstamp: message.receivedAt,
+      },
+      parts.attachments,
+    );
   }
 }
 

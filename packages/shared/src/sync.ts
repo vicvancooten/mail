@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addressBookSchema } from "./address-books.js";
+import { calendarSchema } from "./calendars.js";
 import {
   composeSaveOutcomeSchema,
   composeSaveSchema,
@@ -15,9 +16,14 @@ import {
   contactsSortOrderSchema,
   contactWritableFieldsSchema,
 } from "./contacts.js";
+import { eventSchema } from "./events.js";
 import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
 import { noteSaveOutcomeSchema, noteSaveSchema, noteSchema } from "./notes.js";
+import { snoozeUntilSchema } from "./push.js";
+import { reminderDefaultSchema } from "./reminders.js";
+import { rollbackSchema } from "./rollback.js";
+import { seriesSaveOutcomeSchema, seriesSaveSchema } from "./series.js";
 
 /**
  * The one delta endpoint (ADR-0011): `POST /sync` carries a map of
@@ -276,6 +282,29 @@ export type NoteDelta = z.infer<typeof noteDeltaSchema>;
 export const contactRollbackDeltaSchema = collectionDeltaSchema(contactRollbackSchema);
 export type ContactRollbackDelta = z.infer<typeof contactRollbackDeltaSchema>;
 
+/** `Calendar` (#229): whole-replicated, User-scoped — see `calendars.ts#calendarSchema`'s own doc comment. */
+export const calendarDeltaSchema = collectionDeltaSchema(calendarSchema);
+export type CalendarDelta = z.infer<typeof calendarDeltaSchema>;
+
+/**
+ * `Event` (#229): the one windowed App collection (ADR-0023, ADR-0025) —
+ * `windowStart`/`windowEnd` ride alongside the ordinary delta fields so the
+ * Client can draw the Event Window honestly, the same way `MailAccount`'s
+ * `indexWatermark` does for mail's own bounded sweep. Present whenever the
+ * delta itself is (i.e. whenever `collectionDeltaSchema` would not have
+ * collapsed the response to "nothing changed") — see `events.ts` for why
+ * both edges are simply recomputed from "now" on this ticket's line.
+ */
+export const eventDeltaSchema = collectionDeltaSchema(eventSchema).extend({
+  windowStart: z.iso.datetime(),
+  windowEnd: z.iso.datetime(),
+});
+export type EventDelta = z.infer<typeof eventDeltaSchema>;
+
+/** `Rollback` (#229, ADR-0025): whole-replicated, User-scoped — see `rollback.ts#rollbackSchema`'s own doc comment. */
+export const rollbackDeltaSchema = collectionDeltaSchema(rollbackSchema);
+export type RollbackDelta = z.infer<typeof rollbackDeltaSchema>;
+
 /** Where Auto-advance (CONTEXT.md) moves after archive/trash: to the next-older or next-newer Thread in the list. */
 export const autoAdvanceDirectionSchema = z.enum(["older", "newer"]);
 export type AutoAdvanceDirection = z.infer<typeof autoAdvanceDirectionSchema>;
@@ -315,9 +344,19 @@ export const preferenceSchema = z.object({
   homeTimeZone: z.string(),
   /** The Contacts App's own sort order (#211): first name or last name first — see `contacts.ts#contactsSortOrderSchema`'s own doc comment. */
   contactsSortOrder: contactsSortOrderSchema,
+  /**
+   * "Answers arriving for Events the User organises" (#243): its own
+   * per-User toggle beside the per-Calendar Reminders one on the
+   * Notifications page, User-scoped like every other Preference field —
+   * default `true`, the same posture `remindersEnabled` gives every Origin.
+   */
+  answerNotificationsEnabled: z.boolean(),
   updatedAt: z.iso.datetime(),
 });
 export type Preference = z.infer<typeof preferenceSchema>;
+
+/** `Preference`'s own default for `answerNotificationsEnabled` — `DEFAULT_AUTO_ADVANCE_ENABLED`'s sibling. */
+export const DEFAULT_ANSWER_NOTIFICATIONS_ENABLED = true;
 
 export const preferenceDeltaSchema = collectionDeltaSchema(preferenceSchema);
 export type PreferenceDelta = z.infer<typeof preferenceDeltaSchema>;
@@ -359,6 +398,14 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * (`user-mutation-queue.ts#coalesceKey`).
    */
   z.object({ type: z.literal("setDefaultAddressBook"), addressBookId: z.string() }),
+  /**
+   * "Answer received" notification on/off (#243): an absolute set, the same
+   * shape as `setNotificationsEnabled` (`mutations.ts`) but User-scoped
+   * rather than per-Mail-Account, since an Answer names no one Mail Account
+   * in particular — it can arrive at whichever address the organiser sent
+   * the `REQUEST` through.
+   */
+  z.object({ type: z.literal("setAnswerNotificationsEnabled"), enabled: z.boolean() }),
   /**
    * A Note's structural actions (#192, ADR-0023; `pinNote`/`unpinNote` joined
    * in #193): ordinary Optimistic Action intents on the User-scoped queue,
@@ -559,6 +606,137 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
     contactId: z.string(),
     otherContactId: z.string(),
   }),
+  /**
+   * A Series' structural actions (#233, ADR-0025's Series/Occurrence/Override
+   * vocabulary): the same "ordinary Optimistic Action, real inverse"
+   * (ADR-0019) shape the Note six above already have — the difference is
+   * only that a Series' *body* (title, rules, attendees, description,
+   * Location, its Overrides) never rides this queue at all, it rides its own
+   * `seriesSaves` channel (`series.ts#seriesSaveSchema`'s own doc comment),
+   * the exact split `noteSaveSchema` draws for a Note.
+   *
+   * `createSeries`/`deleteSeries` are a genuine inverse pair, `createNote`/
+   * `deleteNote`'s own shape: `seriesId` is the Client-minted ULID
+   * (`series.ts#seriesSchema`'s own doc comment) already known before this
+   * intent is ever enqueued, and `deleteSeries` here is the **permanent**
+   * delete that undoes a still-queued or already-applied `createSeries` —
+   * not the User-facing "Delete" below.
+   *
+   * `trashSeries`/`restoreSeries` are Delete-a-Series and its Undo: a real
+   * inverse pair too, `trashNote`/`restoreNote`'s own shape, except a
+   * Series has no Recently Deleted grid to browse — the 24-hour window this
+   * ticket's own body promises ("`restoreEvent` recreates a deleted Series
+   * from a 24-hour snapshot") is a purge delay exactly like
+   * `NOTE_TRASH_RETENTION_DAYS`, just far shorter, and the soft-deleted row
+   * itself *is* that snapshot: nothing here diffs or reconstructs a Series,
+   * `restoreSeries` only ever clears the same `deletedAt` `trashSeries` set.
+   *
+   * `addExdate`/`removeExdate` are deleting one Occurrence and its Undo
+   * (this ticket's own acceptance line: "Deleting one Occurrence adds an
+   * `exdate`; Undo removes it") — a real inverse pair over one RFC 5545
+   * date-time string rather than a boolean, since two different Occurrences
+   * of the same Series can be deleted independently and each needs its own
+   * inverse.
+   *
+   * `moveSeries` (#238) is Moving an Event between Calendars: "no upstream
+   * lets a calendar object change container while keeping identity", so a
+   * Move is a copy plus delete with a fresh UID, not an absolute-set
+   * `calendarId` field on an existing intent. `newSeriesId` is Client-minted
+   * up front, `createSeries`'s own shape, so the destination Series' id is
+   * already known before this intent is ever enqueued. There is deliberately
+   * no dedicated inverse intent: Undoing a Move is `restoreSeries(seriesId)`
+   * (bring the source back) paired with `trashSeries(newSeriesId)` (send the
+   * copy away again) — two intents this queue already has real inverses for,
+   * rather than a third bespoke "unmove" this queue would need to learn.
+   */
+  z.object({ type: z.literal("createSeries"), seriesId: z.string(), calendarId: z.string() }),
+  z.object({ type: z.literal("deleteSeries"), seriesId: z.string() }),
+  z.object({ type: z.literal("trashSeries"), seriesId: z.string() }),
+  z.object({ type: z.literal("restoreSeries"), seriesId: z.string() }),
+  z.object({ type: z.literal("addExdate"), seriesId: z.string(), exdate: z.iso.datetime() }),
+  z.object({ type: z.literal("removeExdate"), seriesId: z.string(), exdate: z.iso.datetime() }),
+  z.object({
+    type: z.literal("moveSeries"),
+    seriesId: z.string(),
+    newSeriesId: z.string(),
+    calendarId: z.string(),
+  }),
+  /**
+   * A Calendar's own settings sheet (#236, CONTEXT.md's Calendar entry):
+   * four independent absolute-set intents, the same "one field, no natural
+   * inverse, `coalesceKey` collapses a re-edit" shape `setHomeTimeZone`
+   * already takes, rather than one combined "patch" — a User flipping the
+   * default Calendar offline and recolouring a different one a moment later
+   * are unrelated edits that should never contend for one queue slot.
+   *
+   * `updateCalendarDetails` is name/description/timeZone together (not
+   * three separate intents) because a settings sheet's Save button commits
+   * all three as one edit; the server rejects the whole intent when the
+   * Calendar isn't `capabilities.writable` (this ticket's "no edit
+   * affordances" line — the sheet never offers these fields at all in that
+   * case, so this is defense in depth, not the primary guard). Pushing the
+   * result upstream for a mirrored Calendar is `fold.ts#capabilitiesFromAccessRole`'s
+   * own "write-back itself is #237's" deferral — this intent only ever
+   * updates Wicket's own copy.
+   *
+   * `setCalendarColor` and `setCalendarMailAccount` touch fields that are
+   * never pushed upstream at all (colour: CONTEXT.md, seeded once and
+   * User-owned from then on; Mail Account: an Organiser identity Wicket
+   * alone tracks), so both apply unconditionally regardless of
+   * `capabilities.writable`.
+   *
+   * `setDefaultCalendar` is "the one Calendar across every Origin" (#236) —
+   * applying it clears `isDefault` on every other Calendar this User owns
+   * in the same transaction, the same "exactly one `true` row" invariant
+   * `calendars/store.ts#ensurePersonalCalendar`'s own doc comment names.
+   *
+   * `setCalendarRemindersEnabled`/`setCalendarReminderDefault` (#244,
+   * ADR-0028) join the same four above: two more Wicket-owned fields that
+   * never touch the upstream, the same unconditional-of-`writable` posture
+   * `setCalendarColor` already has. The Notifications settings page fires
+   * the first for any Calendar; `CalendarSettingsSheet.tsx` offers both.
+   */
+  z.object({
+    type: z.literal("updateCalendarDetails"),
+    calendarId: z.string(),
+    name: z.string().min(1),
+    description: z.string().nullable(),
+    timeZone: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("setCalendarColor"),
+    calendarId: z.string(),
+    color: z.string().min(1),
+  }),
+  z.object({ type: z.literal("setDefaultCalendar"), calendarId: z.string() }),
+  z.object({
+    type: z.literal("setCalendarMailAccount"),
+    calendarId: z.string(),
+    mailAccountId: z.string().nullable(),
+  }),
+  z.object({
+    type: z.literal("setCalendarRemindersEnabled"),
+    calendarId: z.string(),
+    enabled: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("setCalendarReminderDefault"),
+    calendarId: z.string(),
+    reminderDefault: reminderDefaultSchema,
+  }),
+  /**
+   * The Snooze toast and the Event page (#246, ADR-0028) — the same intent
+   * `push.ts#notificationActionIntentSchema`'s `snoozeReminder` carries for
+   * the OS notification's button, queued through the ordinary User-scoped
+   * Optimistic Action path here instead since the main thread already has
+   * one. No inverse: Snooze has nothing to undo back to (the fired Reminder
+   * it came from stays fired either way).
+   */
+  z.object({
+    type: z.literal("snoozeReminder"),
+    reminderDueIds: z.array(z.string()).min(1),
+    snoozeUntil: snoozeUntilSchema,
+  }),
 ]);
 export type UserMutationIntent = z.infer<typeof userMutationIntentSchema>;
 
@@ -679,6 +857,18 @@ export const userSyncRequestSchema = z.object({
   ContactRollback: requestedTokenSchema.optional(),
   /** `ContactLink` (#222, ADR-0026): User-scoped whole and entire, mirrored or not — see `contactLinkDeltaSchema`. */
   ContactLink: requestedTokenSchema.optional(),
+  /**
+   * `Calendar` (#229): whole-replicated, User-scoped on this line — a
+   * genuine `connectedAccount`-scoped sync path
+   * (`sync/collection-registry.ts#ScopeKind`'s own doc comment) is future
+   * work this recovery deliberately did not build; see this repo's
+   * recovery notes for why.
+   */
+  Calendar: requestedTokenSchema.optional(),
+  /** `Event` (#229): the windowed collection, User-scoped on this line — see the `Calendar` entry above. */
+  Event: requestedTokenSchema.optional(),
+  /** `Rollback` (#229, ADR-0025): whole-replicated, User-scoped — always empty until #237's write-back. */
+  Rollback: requestedTokenSchema.optional(),
   /** This User's queue to flush, oldest first — see `queuedUserMutationSchema`. */
   mutations: z.array(queuedUserMutationSchema).optional(),
   /**
@@ -690,6 +880,12 @@ export const userSyncRequestSchema = z.object({
    * the latest save.
    */
   noteSaves: z.array(noteSaveSchema).optional(),
+  /**
+   * Series body autosaves to flush (#233, `series.ts#seriesSaveSchema`) —
+   * `noteSaves`' own sibling channel, at most one entry per Series per round
+   * (`store/series.ts`'s coalescing queue never holds more than that).
+   */
+  seriesSaves: z.array(seriesSaveSchema).optional(),
 });
 export type UserSyncRequest = z.infer<typeof userSyncRequestSchema>;
 
@@ -987,10 +1183,15 @@ export const userSyncResponseSchema = z.object({
   ContactRollback: contactRollbackDeltaSchema.optional(),
   /** `ContactLink` (#222): User-scoped only — see `userSyncRequestSchema`'s own field. */
   ContactLink: contactLinkDeltaSchema.optional(),
+  Calendar: calendarDeltaSchema.optional(),
+  Event: eventDeltaSchema.optional(),
+  Rollback: rollbackDeltaSchema.optional(),
   /** Outcomes in the same order as the request's `mutations` array. */
   mutations: z.array(mutationOutcomeSchema).optional(),
   /** Outcomes in the same order as the request's `noteSaves` array. */
   noteSaves: z.array(noteSaveOutcomeSchema).optional(),
+  /** Outcomes in the same order as the request's `seriesSaves` array (#233). */
+  seriesSaves: z.array(seriesSaveOutcomeSchema).optional(),
   /**
    * The app-icon badge (#53, ADR-0015): unread Inbox threads across every
    * Mail Account, Gatekeeper-held mail never counted. The real server always

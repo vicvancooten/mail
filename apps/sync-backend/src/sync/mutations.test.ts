@@ -1,18 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { labelId } from "@mail/shared";
+import { LOCAL_CALENDAR_CAPABILITIES, labelId } from "@mail/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../db/client.js";
 import {
   appliedMutations,
+  calendars,
   compositions,
+  events,
   folders,
   labels,
   messages,
   notes,
   protocolWrites,
+  reminderDue,
+  series,
   syncTombstones,
   threads,
+  users,
 } from "../db/schema.js";
 import { resolveVerdict } from "../gatekeeper/verdicts.js";
 import type { MailAccountRow } from "../mail-accounts/store.js";
@@ -1417,5 +1422,516 @@ describe("flushUserMutations — Note structural intents (#192, ADR-0023)", () =
 
       expect(outcomes).toEqual([{ id: "01TRASH", status: "rejected", reason: "note_not_found" }]);
     });
+  });
+});
+
+describe("flushUserMutations — Calendar settings (#236)", () => {
+  async function insertCalendar(
+    overrides: Partial<typeof calendars.$inferInsert> = {},
+  ): Promise<string> {
+    const id = overrides.id ?? randomUUID();
+    await db.insert(calendars).values({
+      userId: account.userId,
+      name: "Personal",
+      description: null,
+      timeZone: "UTC",
+      originType: "local",
+      connectedAccountId: null,
+      color: "#4285F4",
+      isDefault: false,
+      mailAccountId: null,
+      mirrored: true,
+      capabilities: LOCAL_CALENDAR_CAPABILITIES,
+      ...overrides,
+      id,
+    });
+    return id;
+  }
+
+  async function calendarRow(id: string) {
+    const [row] = await db.select().from(calendars).where(eq(calendars.id, id)).limit(1);
+    return row;
+  }
+
+  it("updateCalendarDetails applies name/description/timeZone on a writable Calendar", async () => {
+    const calendarId = await insertCalendar();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01DETAILS",
+        intent: {
+          type: "updateCalendarDetails",
+          calendarId,
+          name: "Work",
+          description: "Meetings",
+          timeZone: "Europe/Amsterdam",
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01DETAILS", status: "applied" }]);
+    const row = await calendarRow(calendarId);
+    expect(row).toMatchObject({
+      name: "Work",
+      description: "Meetings",
+      timeZone: "Europe/Amsterdam",
+    });
+  });
+
+  it("rejects updateCalendarDetails against a read-only Calendar", async () => {
+    const calendarId = await insertCalendar({
+      originType: "connectedAccount",
+      connectedAccountId: "acct-1",
+      capabilities: { ...LOCAL_CALENDAR_CAPABILITIES, writable: false },
+    });
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01DETAILS",
+        intent: {
+          type: "updateCalendarDetails",
+          calendarId,
+          name: "Renamed",
+          description: null,
+          timeZone: "UTC",
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01DETAILS", status: "rejected", reason: "calendar_not_writable" },
+    ]);
+    const row = await calendarRow(calendarId);
+    expect(row?.name).toBe("Personal");
+  });
+
+  it("setCalendarColor applies regardless of writability", async () => {
+    const calendarId = await insertCalendar({
+      originType: "connectedAccount",
+      connectedAccountId: "acct-1",
+      capabilities: { ...LOCAL_CALENDAR_CAPABILITIES, writable: false },
+    });
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01COLOR", intent: { type: "setCalendarColor", calendarId, color: "#ff0000" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01COLOR", status: "applied" }]);
+    const row = await calendarRow(calendarId);
+    expect(row?.color).toBe("#ff0000");
+  });
+
+  it("setDefaultCalendar moves the one true default off every other Calendar this User owns", async () => {
+    const first = await insertCalendar({ isDefault: true });
+    const second = await insertCalendar({ id: randomUUID(), name: "Other" });
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01DEFAULT", intent: { type: "setDefaultCalendar", calendarId: second } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01DEFAULT", status: "applied" }]);
+    expect((await calendarRow(first))?.isDefault).toBe(false);
+    expect((await calendarRow(second))?.isDefault).toBe(true);
+  });
+
+  it("setCalendarMailAccount sets a Local Calendar's Mail Account", async () => {
+    const calendarId = await insertCalendar();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01MAILACCT",
+        intent: { type: "setCalendarMailAccount", calendarId, mailAccountId: account.id },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01MAILACCT", status: "applied" }]);
+    expect((await calendarRow(calendarId))?.mailAccountId).toBe(account.id);
+  });
+
+  it("rejects setCalendarMailAccount against a mirrored Calendar", async () => {
+    const calendarId = await insertCalendar({
+      originType: "connectedAccount",
+      connectedAccountId: "acct-1",
+    });
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01MAILACCT",
+        intent: { type: "setCalendarMailAccount", calendarId, mailAccountId: account.id },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01MAILACCT", status: "rejected", reason: "calendar_not_local" },
+    ]);
+  });
+
+  it("setCalendarRemindersEnabled applies regardless of writability (#244, ADR-0028)", async () => {
+    const calendarId = await insertCalendar({
+      originType: "connectedAccount",
+      connectedAccountId: "acct-1",
+      capabilities: { ...LOCAL_CALENDAR_CAPABILITIES, writable: false },
+    });
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01REMENABLED",
+        intent: { type: "setCalendarRemindersEnabled", calendarId, enabled: false },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01REMENABLED", status: "applied" }]);
+    const row = await calendarRow(calendarId);
+    expect(row?.remindersEnabled).toBe(false);
+  });
+
+  it("setCalendarReminderDefault replaces both lists (#244, ADR-0028)", async () => {
+    const calendarId = await insertCalendar();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01REMDEFAULT",
+        intent: {
+          type: "setCalendarReminderDefault",
+          calendarId,
+          reminderDefault: { timed: [30], allDay: [2340] },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01REMDEFAULT", status: "applied" }]);
+    const row = await calendarRow(calendarId);
+    expect(row?.reminderDefault).toEqual({ timed: [30], allDay: [2340] });
+  });
+
+  /** A Series plus one already-materialised, still-live Occurrence — the minimum a Reminder Due rebuild needs something to build. */
+  async function insertSeriesWithOccurrence(calendarId: string): Promise<{ eventId: string }> {
+    const seriesId = randomUUID();
+    await db.insert(series).values({
+      id: seriesId,
+      userId: account.userId,
+      calendarId,
+      uid: `${seriesId}@test`,
+      sequence: 0,
+      title: "Standup",
+      description: null,
+      location: null,
+      allDay: false,
+      floating: false,
+      tzid: "UTC",
+      dtstart: new Date(Date.now() + 60 * 60 * 1000),
+      durationMs: 30 * 60 * 1000,
+      rrules: [],
+      rdates: [],
+      exdates: [],
+      transparency: "opaque",
+      attendees: [],
+      reminders: [],
+    });
+    const originalStart = new Date(Date.now() + 60 * 60 * 1000);
+    const eventId = `${seriesId}@${originalStart.toISOString()}`;
+    await db.insert(events).values({
+      id: eventId,
+      userId: account.userId,
+      calendarId,
+      seriesId,
+      originalStart,
+      startAt: originalStart,
+      endAt: new Date(originalStart.getTime() + 30 * 60 * 1000),
+      allDay: false,
+      tzid: "UTC",
+      floating: false,
+      title: "Standup",
+      location: null,
+      status: "confirmed",
+      transparency: "opaque",
+    });
+    return { eventId };
+  }
+
+  it("setCalendarRemindersEnabled(false) drops every Reminder Due row for the Calendar (#245, ADR-0028)", async () => {
+    const calendarId = await insertCalendar({ reminderDefault: { timed: [10], allDay: [] } });
+    const { eventId } = await insertSeriesWithOccurrence(calendarId);
+    await flushUserMutations(db, account.userId, [
+      {
+        id: "01SEED",
+        intent: {
+          type: "setCalendarReminderDefault",
+          calendarId,
+          reminderDefault: { timed: [10], allDay: [] },
+        },
+      },
+    ]);
+    expect(
+      await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId)),
+    ).not.toHaveLength(0);
+
+    await flushUserMutations(db, account.userId, [
+      { id: "01OFF", intent: { type: "setCalendarRemindersEnabled", calendarId, enabled: false } },
+    ]);
+
+    expect(
+      await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId)),
+    ).toHaveLength(0);
+  });
+
+  it("setCalendarReminderDefault rebuilds every Series' Reminder Due rows on the Calendar (#245, ADR-0028)", async () => {
+    const calendarId = await insertCalendar({ reminderDefault: { timed: [10], allDay: [] } });
+    const { eventId } = await insertSeriesWithOccurrence(calendarId);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01REMDEFAULT2",
+        intent: {
+          type: "setCalendarReminderDefault",
+          calendarId,
+          reminderDefault: { timed: [5, 15], allDay: [] },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01REMDEFAULT2", status: "applied" }]);
+    const rows = await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId));
+    expect(rows.map((row) => row.minutesBefore).sort((a, b) => a - b)).toEqual([5, 15]);
+  });
+
+  it("rejects every Calendar intent against a Calendar this User does not have", async () => {
+    const missingId = randomUUID();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01COLOR", intent: { type: "setCalendarColor", calendarId: missingId, color: "#fff" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01COLOR", status: "rejected", reason: "calendar_not_found" }]);
+  });
+});
+
+/**
+ * `setHomeTimeZone` (#189, widened by #245/ADR-0028): "Changing the Home
+ * Time Zone recomputes every all-day and floating `dueAt`" — the
+ * `flushUserMutations`-level slice of that; `routes/sync.test.ts`'s own
+ * `Preference` suite already covers the column write and its sync-delta
+ * round trip.
+ */
+describe("flushUserMutations — setHomeTimeZone rebuilds Reminder Due (#245, ADR-0028)", () => {
+  it("recomputes an all-day Occurrence's dueAt across every Calendar this User owns", async () => {
+    const calendarId = randomUUID();
+    await db.insert(calendars).values({
+      id: calendarId,
+      userId: account.userId,
+      name: "Personal",
+      description: null,
+      timeZone: "UTC",
+      originType: "local",
+      connectedAccountId: null,
+      color: "#4285F4",
+      isDefault: false,
+      mailAccountId: null,
+      mirrored: true,
+      capabilities: LOCAL_CALENDAR_CAPABILITIES,
+      reminderDefault: { timed: [], allDay: [900] },
+    });
+    const seriesId = randomUUID();
+    await db.insert(series).values({
+      id: seriesId,
+      userId: account.userId,
+      calendarId,
+      uid: `${seriesId}@test`,
+      sequence: 0,
+      title: "Conference",
+      description: null,
+      location: null,
+      allDay: true,
+      floating: false,
+      tzid: null,
+      dtstart: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      durationMs: 24 * 60 * 60 * 1000,
+      rrules: [],
+      rdates: [],
+      exdates: [],
+      transparency: "opaque",
+      attendees: [],
+      reminders: [],
+    });
+    const wallClockStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const eventId = `${seriesId}@${wallClockStart.toISOString()}`;
+    await db.insert(events).values({
+      id: eventId,
+      userId: account.userId,
+      calendarId,
+      seriesId,
+      originalStart: wallClockStart,
+      startAt: wallClockStart,
+      endAt: new Date(wallClockStart.getTime() + 24 * 60 * 60 * 1000),
+      allDay: true,
+      tzid: null,
+      floating: false,
+      title: "Conference",
+      location: null,
+      status: "confirmed",
+      transparency: "opaque",
+    });
+    // Home Time Zone unset yet — nothing can be computed against it.
+    expect(
+      await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId)),
+    ).toHaveLength(0);
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01TZ", intent: { type: "setHomeTimeZone", homeTimeZone: "Europe/Amsterdam" } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01TZ", status: "applied" }]);
+    const [userRow] = await db.select().from(users).where(eq(users.id, account.userId));
+    expect(userRow?.homeTimeZone).toBe("Europe/Amsterdam");
+    const rows = await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId));
+    expect(rows).not.toHaveLength(0);
+  });
+});
+
+/** The Snooze toast/Event page's own path (#246, ADR-0028) — `routes/push.ts`'s own test covers the OS notification's direct-POST path onto the same `snoozeReminderDue` call. */
+describe("flushUserMutations — snoozeReminder (#246, ADR-0028)", () => {
+  async function insertCalendarWithFiredReminder(): Promise<{
+    calendarId: string;
+    eventId: string;
+    firedId: string;
+  }> {
+    const calendarId = randomUUID();
+    await db.insert(calendars).values({
+      id: calendarId,
+      userId: account.userId,
+      name: "Personal",
+      description: null,
+      timeZone: "UTC",
+      originType: "local",
+      connectedAccountId: null,
+      color: "#4285F4",
+      isDefault: false,
+      mailAccountId: null,
+      mirrored: true,
+      capabilities: LOCAL_CALENDAR_CAPABILITIES,
+      reminderDefault: { timed: [10], allDay: [] },
+    });
+    const seriesId = randomUUID();
+    await db.insert(series).values({
+      id: seriesId,
+      userId: account.userId,
+      calendarId,
+      uid: `${seriesId}@test`,
+      sequence: 0,
+      title: "Standup",
+      description: null,
+      location: null,
+      allDay: false,
+      floating: false,
+      tzid: "UTC",
+      dtstart: new Date(Date.now() + 60 * 60 * 1000),
+      durationMs: 30 * 60 * 1000,
+      rrules: [],
+      rdates: [],
+      exdates: [],
+      transparency: "opaque",
+      attendees: [],
+      reminders: [],
+    });
+    const originalStart = new Date(Date.now() + 60 * 60 * 1000);
+    const eventId = `${seriesId}@${originalStart.toISOString()}`;
+    await db.insert(events).values({
+      id: eventId,
+      userId: account.userId,
+      calendarId,
+      seriesId,
+      originalStart,
+      startAt: originalStart,
+      endAt: new Date(originalStart.getTime() + 30 * 60 * 1000),
+      allDay: false,
+      tzid: "UTC",
+      floating: false,
+      title: "Standup",
+      location: null,
+      status: "confirmed",
+      transparency: "opaque",
+    });
+    await flushUserMutations(db, account.userId, [
+      {
+        id: "01SEEDREM",
+        intent: {
+          type: "setCalendarReminderDefault",
+          calendarId,
+          reminderDefault: { timed: [10], allDay: [] },
+        },
+      },
+    ]);
+    const firedId = `${eventId}:10`;
+    await db
+      .update(reminderDue)
+      .set({ status: "fired", firedAt: new Date() })
+      .where(eq(reminderDue.id, firedId));
+    return { calendarId, eventId, firedId };
+  }
+
+  it("inserts a one-off pending row and applies", async () => {
+    const { eventId, firedId } = await insertCalendarWithFiredReminder();
+
+    const outcomes = await flushUserMutations(db, account.userId, [
+      {
+        id: "01SNOOZE",
+        intent: {
+          type: "snoozeReminder",
+          reminderDueIds: [firedId],
+          snoozeUntil: { kind: "minutes", minutes: 5 },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01SNOOZE", status: "applied" }]);
+    const rows = await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId));
+    expect(rows.some((row) => row.snoozed && row.status === "pending")).toBe(true);
+  });
+
+  it("rejects a Reminder Due id from another User", async () => {
+    const { firedId } = await insertCalendarWithFiredReminder();
+    const otherAccount = await createTestMailAccount(db);
+
+    const outcomes = await flushUserMutations(db, otherAccount.userId, [
+      {
+        id: "01SNOOZEOTHER",
+        intent: {
+          type: "snoozeReminder",
+          reminderDueIds: [firedId],
+          snoozeUntil: { kind: "minutes", minutes: 5 },
+        },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01SNOOZEOTHER", status: "rejected", reason: "reminder_not_found" },
+    ]);
+  });
+
+  it("is idempotent: a retried id never snoozes twice", async () => {
+    const { eventId, firedId } = await insertCalendarWithFiredReminder();
+    const intent = {
+      type: "snoozeReminder" as const,
+      reminderDueIds: [firedId],
+      snoozeUntil: { kind: "minutes" as const, minutes: 5 as const },
+    };
+
+    await flushUserMutations(db, account.userId, [{ id: "01SNOOZEONCE", intent }]);
+    await flushUserMutations(db, account.userId, [{ id: "01SNOOZEONCE", intent }]);
+
+    const rows = await db.select().from(reminderDue).where(eq(reminderDue.eventId, eventId));
+    expect(rows.filter((row) => row.snoozed)).toHaveLength(1);
+  });
+});
+
+describe("flushUserMutations — setAnswerNotificationsEnabled (#243)", () => {
+  it("flips the User's own Preference toggle", async () => {
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01ANSWERTOGGLE", intent: { type: "setAnswerNotificationsEnabled", enabled: false } },
+    ]);
+
+    expect(outcomes).toEqual([{ id: "01ANSWERTOGGLE", status: "applied" }]);
+    const [row] = await db.select().from(users).where(eq(users.id, account.userId));
+    expect(row?.answerNotificationsEnabled).toBe(false);
   });
 });

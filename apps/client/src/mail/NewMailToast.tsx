@@ -37,7 +37,12 @@ function isNewMailToastMessage(data: unknown): data is NewMailToastMessage {
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === "new-mail-toast"
+    (data as { type?: unknown }).type === "new-mail-toast" &&
+    // #246: `calendar_reminder` gets its own toast (`CalendarReminderToast.tsx`,
+    // mounted globally in `RootLayout.tsx` since a Reminder can fire with
+    // Mail open) — its Snooze row has no room in this component's single
+    // click-to-open button, so it never reaches this one at all.
+    (data as { payload?: { kind?: unknown } }).payload?.kind !== "calendar_reminder"
   );
 }
 

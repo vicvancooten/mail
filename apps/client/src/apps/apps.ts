@@ -54,7 +54,9 @@ export const APPS: readonly AppDef[] = [
     path: "/calendar",
     name: "Calendar",
     description: "Meetings and events, alongside your mail.",
-    available: false,
+    // Real behind this since #231 — the grid and its five views, the App's
+    // first built-out screen (Notes' own #193 precedent above).
+    available: true,
     observesAccountScope: true,
   },
   {

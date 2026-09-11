@@ -8,6 +8,8 @@ import {
 } from "@tanstack/react-router";
 import { APPS_BY_KEY } from "../apps/apps.js";
 import { PlaceholderRoute } from "../apps/PlaceholderRoute.js";
+import { CalendarRoute } from "../calendar/CalendarRoute.js";
+import { validateCalendarSearch } from "../calendar/calendar-url.js";
 import { ContactsRecentlyDeleted } from "../contacts/ContactsRecentlyDeleted.js";
 import { isPhoneWidth } from "../hooks/use-phone-width.js";
 import { type FolderKey, parseFolderKey } from "../mail/folders.js";
@@ -21,7 +23,9 @@ import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
 import { contactExists } from "../store/contacts.js";
+import { eventExists } from "../store/events.js";
 import { ensureLocalCacheOpen, noteExists } from "../store/index.js";
+import { CalendarEventRoute } from "./CalendarEventRoute.js";
 import { ContactDialogRoute } from "./ContactDialogRoute.js";
 import { ContactsRoute } from "./ContactsRoute.js";
 import { MailRoute } from "./MailRoute.js";
@@ -307,10 +311,39 @@ export const contactsRecentlyDeletedRoute = createRoute({
   component: ContactsRecentlyDeleted,
 });
 
+/**
+ * `/calendar` (#231, no longer a `PlaceholderRoute`): `view` and `date` are
+ * the whole URL, so `validateSearch` falls back to
+ * `calendar-url.ts#DEFAULT_CALENDAR_VIEW`/today rather than failing the
+ * match on an unrecognized value — the same "old bookmark still lands
+ * somewhere sane" posture `mailRoute`'s own `folder` param takes above.
+ */
 export const calendarRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/calendar",
-  component: () => <PlaceholderRoute app={APPS_BY_KEY.calendar} />,
+  validateSearch: validateCalendarSearch,
+  component: CalendarRoute,
+});
+
+/**
+ * `/calendar/$eventKey` (#233): the open Event is the URL's path segment,
+ * `<seriesId>@<originalStart>` — exactly an `Event`'s own `id`
+ * (`@mail/shared#eventSchema`'s own doc comment), so `eventExists` is the
+ * whole of the lookup. `notesNoteRoute`'s own shape: a key that resolves to
+ * nothing (a wrong id, an old bookmark, an Occurrence outside the synced
+ * Event Window) redirects silently to `/calendar` rather than opening an
+ * editor with nothing to show.
+ */
+export const calendarEventRoute = createRoute({
+  getParentRoute: () => calendarRoute,
+  path: "/$eventKey",
+  beforeLoad: async ({ params }) => {
+    await ensureLocalCacheOpen();
+    if (!(await eventExists(params.eventKey))) {
+      throw redirect({ to: "/calendar" });
+    }
+  },
+  component: CalendarEventRoute,
 });
 
 export const tasksRoute = createRoute({
@@ -401,7 +434,7 @@ export const routeTree = rootRoute.addChildren([
   ]),
   contactsRoute.addChildren([contactsContactRoute, contactsNewRoute]),
   contactsRecentlyDeletedRoute,
-  calendarRoute,
+  calendarRoute.addChildren([calendarEventRoute]),
   tasksRoute,
   notesRoute.addChildren([notesNoteRoute]),
   notesRecentlyDeletedRoute,

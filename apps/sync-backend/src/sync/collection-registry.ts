@@ -1,6 +1,9 @@
-import type { CollectionDelta } from "@mail/shared";
+import type { CollectionDelta, EventDelta } from "@mail/shared";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { AnyPgTable } from "drizzle-orm/pg-core";
+import { computeEventWindow, toWireEvent } from "../calendars/event-store.js";
+import { toWireRollback } from "../calendars/rollback-store.js";
+import { ensurePersonalCalendar, toWireCalendar } from "../calendars/store.js";
 import {
   ensureLocalAddressBook,
   selectAddressBooksForConnectedAccount,
@@ -24,16 +27,19 @@ import {
 import type { Db } from "../db/client.js";
 import {
   addressBooks,
+  calendars,
   compositions,
   connectedAccounts,
   contactLinks,
   contactRollbacks,
   contacts,
   correspondents,
+  events,
   gmailLabels,
   labels,
   mailAccounts,
   notes,
+  rollbacks,
   syncTombstones,
   threads,
   users,
@@ -330,11 +336,12 @@ function connectedAccountScopedCollection<Row extends SyncRevRow, Payload>(confi
 }
 
 /**
- * The seven User-scoped collections (ADR-0011). `MailAccount` and
- * `Preference` are each a thin wrapper around `collection-sync.ts`'s own
+ * The fourteen User-scoped collections (ADR-0011, ADR-0025). `MailAccount`
+ * and `Preference` are each a thin wrapper around `collection-sync.ts`'s own
  * hand-written query — see `userScopedCollection`'s doc comment for why
- * neither goes through it. `Label` (#186), `Note` (#192, ADR-0023) and
- * `ConnectedAccount` (#200) all do: each is a plain `userId`-filtered table
+ * neither goes through it. `Label` (#186), `Note` (#192, ADR-0023),
+ * `TaskList`/`Task` (#251, ADR-0030), `ConnectedAccount` (#200), `Calendar`
+ * and `Rollback` (#229) all do: each is a plain `userId`-filtered table
  * replicating whole. `Label` moved here from `mailAccountCollectionRegistry`
  * by changing exactly its declaration; `Note` (#192) is this registry's
  * first **new** member rather than a migrated one — the same one-declaration
@@ -343,12 +350,26 @@ function connectedAccountScopedCollection<Row extends SyncRevRow, Payload>(confi
  * `db.select().from(...)` — it joins each account to its own Facets
  * (`connected-accounts/store.ts#selectConnectedAccountsForUser`), the wire
  * shape ADR-0022 asks for — but is otherwise exactly this same shape.
+ * `Event` (#229) is the one windowed member — `userScopedCollection` has no
+ * room for the window edges its delta carries alongside the ordinary
+ * fields, so it is declared by hand below the array, the same "the registry
+ * constrains declaration and dispatch, not query shape" line `Thread` sits
+ * on the other side of.
  *
  * `AddressBook`/`Contact` (#209) are this slot's own **Local** half only —
  * a mirrored book or Contact rides `connectedAccountCollectionRegistry`
  * below instead, same row shape, different scope. `AddressBook`'s
  * `selectRows` mints the Local Address Book first (`ensureLocalAddressBook`)
  * — the only member here that ever *writes* before it reads.
+ *
+ * `Calendar` and `Event` are still declared `scope: "user"` here rather than
+ * `"connectedAccount"` even though ADR-0025 gives both scopes and this merge
+ * lands the real Connected Account model (#200) onto this branch's line at
+ * last — #234 ("Google Calendar mirrors a Calendar") shipped against a
+ * null-injected placeholder for it, and wiring the genuine
+ * `connectedAccount`-scoped path (the registry/route-dispatch machinery
+ * `ScopeKind`'s doc comment above anticipates) is #235's own work, not this
+ * merge's.
  */
 export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[] = [
   {
@@ -435,13 +456,97 @@ export const userCollectionRegistry: readonly UserCollectionDescriptor<unknown>[
       selectContactLinksForUser(db, userId, cursorRev).limit(PAGE_SIZE + 1),
     toPayload: toWireContactLink,
   }),
+  userScopedCollection({
+    name: "Calendar",
+    table: calendars,
+    // `ensurePersonalCalendar` runs on every `Calendar` sync round rather
+    // than at signup or server boot: "first use" (#229's acceptance line)
+    // means the first time this collection is actually asked for, and
+    // `onConflictDoNothing` against a deterministic id makes calling it here
+    // on every round harmless.
+    selectRows: async (db, userId, cursorRev) => {
+      await ensurePersonalCalendar(db, userId);
+      return db
+        .select()
+        .from(calendars)
+        .where(and(eq(calendars.userId, userId), gt(calendars.syncRev, cursorRev)))
+        .orderBy(asc(calendars.syncRev))
+        .limit(PAGE_SIZE + 1);
+    },
+    toPayload: toWireCalendar,
+  }),
+  userScopedCollection({
+    name: "Rollback",
+    table: rollbacks,
+    selectRows: (db, userId, cursorRev) =>
+      db
+        .select()
+        .from(rollbacks)
+        .where(and(eq(rollbacks.userId, userId), gt(rollbacks.syncRev, cursorRev)))
+        .orderBy(asc(rollbacks.syncRev))
+        .limit(PAGE_SIZE + 1),
+    toPayload: toWireRollback,
+  }),
+  {
+    name: "Event",
+    scope: "user",
+    table: events,
+    toPayload: toWireEvent as (row: never) => unknown,
+    async sync(db, { userId }, token) {
+      const { rev: cursorRev, needsReset } = resolveCursor(token);
+
+      const rows = await db
+        .select()
+        .from(events)
+        .where(and(eq(events.userId, userId), gt(events.syncRev, cursorRev)))
+        .orderBy(asc(events.syncRev))
+        .limit(PAGE_SIZE + 1);
+
+      const tombstoneRows = needsReset
+        ? []
+        : await db
+            .select({ entityId: syncTombstones.entityId, syncRev: syncTombstones.syncRev })
+            .from(syncTombstones)
+            .where(
+              and(
+                isNull(syncTombstones.mailAccountId),
+                eq(syncTombstones.collection, "Event"),
+                gt(syncTombstones.syncRev, cursorRev),
+              ),
+            )
+            .orderBy(asc(syncTombstones.syncRev))
+            .limit(PAGE_SIZE + 1);
+
+      const delta = buildDelta({
+        rows,
+        tombstones: tombstoneRows,
+        cursorRev,
+        needsReset,
+        token,
+        toPayload: toWireEvent,
+      });
+      if (!delta) return null;
+
+      // Both Event Window edges travel in the sync response (#229's
+      // acceptance line, ADR-0025) so the Client can draw the window
+      // honestly — `MailAccount.indexWatermark`'s own reasoning for mail.
+      const window = computeEventWindow();
+      const withWindow: EventDelta = {
+        ...delta,
+        windowStart: window.start.toISOString(),
+        windowEnd: window.end.toISOString(),
+      };
+      return withWindow;
+    },
+  },
 ];
 
 /**
- * The seven collections `POST /sync` answers for, minus the three
- * User-scoped ones above. `Thread` keeps its own windowed query (`collection-sync.ts`)
- * rather than going through `mailAccountScopedCollection` — the registry
- * constrains declaration and dispatch, not query shape (#184).
+ * The four Mail-Account-scoped collections `POST /sync` answers for — the
+ * eight User-scoped ones above cover the rest. `Thread` keeps its own
+ * windowed query (`collection-sync.ts`) rather than going through
+ * `mailAccountScopedCollection` — the registry constrains declaration and
+ * dispatch, not query shape (#184).
  */
 export const mailAccountCollectionRegistry: readonly MailAccountCollectionDescriptor<unknown>[] = [
   {

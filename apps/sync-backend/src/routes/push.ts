@@ -12,7 +12,7 @@ import {
   deletePushSubscriptionByEndpoint,
   upsertPushSubscription,
 } from "../notifier/subscriptions.js";
-import { flushMutations } from "../sync/mutations.js";
+import { flushMutations, flushUserMutations } from "../sync/mutations.js";
 
 export interface PushRoutesOptions {
   db: Db;
@@ -71,24 +71,44 @@ export async function pushRoutes(
 
   // `POST /notifications/actions` (ADR-0015: "Notification actions ... POST
   // direct ... never through the overlay") — the service worker's Archive
-  // button posts here instead of enqueuing into the Client's local
-  // pending-mutation queue, which a service worker has no leader tab to
-  // drain. Reuses `flushMutations`'s idempotency ledger directly: the same
-  // `id` retried by a Background Sync replay is a no-op, not a double-archive.
+  // and Snooze buttons both post here instead of enqueuing into the
+  // Client's local pending-mutation queue, which a service worker has no
+  // leader tab to drain. `archive` is Mail-Account-scoped and reuses
+  // `flushMutations`'s idempotency ledger directly; `snoozeReminder` (#246,
+  // ADR-0028) is User-scoped — a Reminder Due row has no Mail Account at
+  // all — so it reuses `flushUserMutations`'s ledger instead. Either way,
+  // the same `id` retried by a Background Sync replay is a no-op, not a
+  // double-apply.
   app.post("/notifications/actions", { preHandler: app.requireAuth }, async (request, reply) => {
     const body = notificationActionRequestSchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: "invalid_request", issues: body.error.issues });
     }
     const { id, mailAccountId, intent } = body.data;
-    const account = await getMailAccountForUser(db, requireUser(request).id, mailAccountId);
-    if (!account) {
-      return reply.code(404).send({ error: "mail_account_not_found" });
+    const userId = requireUser(request).id;
+
+    if (intent.type === "archive") {
+      if (!mailAccountId) {
+        return reply.code(400).send({ error: "invalid_request" });
+      }
+      const account = await getMailAccountForUser(db, userId, mailAccountId);
+      if (!account) {
+        return reply.code(404).send({ error: "mail_account_not_found" });
+      }
+      const [outcome] = await flushMutations(db, mailAccountId, [{ id, intent }]);
+      if (!outcome) {
+        throw new Error("flushMutations returned no outcome for a single queued mutation");
+      }
+      return notificationActionResponseSchema.parse(
+        outcome.reason
+          ? { status: outcome.status, reason: outcome.reason }
+          : { status: outcome.status },
+      );
     }
 
-    const [outcome] = await flushMutations(db, mailAccountId, [{ id, intent }]);
+    const [outcome] = await flushUserMutations(db, userId, [{ id, intent }]);
     if (!outcome) {
-      throw new Error("flushMutations returned no outcome for a single queued mutation");
+      throw new Error("flushUserMutations returned no outcome for a single queued mutation");
     }
     return notificationActionResponseSchema.parse(
       outcome.reason

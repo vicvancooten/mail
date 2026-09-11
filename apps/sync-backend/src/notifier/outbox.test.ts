@@ -87,6 +87,40 @@ describe("insertOutboxEntry", () => {
   });
 });
 
+describe("listUndelivered's readyAt gate (#243)", () => {
+  it("excludes a row whose readyAt is still in the future", async () => {
+    const now = new Date("2026-01-05T09:00:00Z");
+    await insertOutboxEntry(db, {
+      userId: account.userId,
+      mailAccountId: null,
+      kind: "calendar_answer",
+      dedupKey: "evt-1:seed",
+      payload: {
+        kind: "calendar_answer",
+        eventId: "evt-1",
+        seriesId: "series-1",
+        title: "Standup",
+        answers: [],
+      },
+      readyAt: new Date(now.getTime() + 60_000),
+    });
+
+    expect(await listUndelivered(db, now)).toEqual([]);
+    expect(await listUndelivered(db, new Date(now.getTime() + 60_000))).toHaveLength(1);
+  });
+
+  it("a null readyAt is ready immediately, same as before #243", async () => {
+    await insertOutboxEntry(db, {
+      userId: account.userId,
+      mailAccountId: account.id,
+      kind: "needs_reauth",
+      dedupKey: `${account.id}:1`,
+      payload: { kind: "needs_reauth", emailAddress: account.emailAddress },
+    });
+    expect(await listUndelivered(db, new Date("2026-01-05T09:00:00Z"))).toHaveLength(1);
+  });
+});
+
 describe("markDelivered", () => {
   it("removes rows from the undelivered set once marked", async () => {
     await insertOutboxEntry(db, {
