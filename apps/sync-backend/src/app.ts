@@ -15,6 +15,8 @@ import { noopSyncHintBroker, type SyncHintBroker } from "./realtime/sync-hints.j
 import { attachmentRoutes } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { bulkTriageRoutes } from "./routes/bulk-triage.js";
+import { calendarWatchRoutes } from "./routes/calendar-watch.js";
+import { calendarRoutes } from "./routes/calendars.js";
 import { composeConfigRoutes } from "./routes/compose-config.js";
 import { connectedAccountRoutes } from "./routes/connected-accounts.js";
 import { correspondentRoutes } from "./routes/correspondents.js";
@@ -22,6 +24,7 @@ import { eventsRoutes } from "./routes/events.js";
 import { gatekeeperRoutes } from "./routes/gatekeeper.js";
 import { healthRoutes } from "./routes/health.js";
 import { instanceRoutes } from "./routes/instance.js";
+import { invitationRoutes } from "./routes/invitations.js";
 import { mailAccountRoutes } from "./routes/mail-accounts.js";
 import { messageRoutes } from "./routes/messages.js";
 import { defaultProviderAdapters, oauthSignInRoutes } from "./routes/oauth-signin.js";
@@ -172,6 +175,9 @@ export function buildApp({
   app.register(syncRoutes, { db });
   app.register(bulkTriageRoutes, { db });
   app.register(eventsRoutes, { hints: syncHints, heartbeatMs: eventsHeartbeatMs });
+  app.register(calendarWatchRoutes, { db });
+  app.register(calendarRoutes, { db });
+  app.register(invitationRoutes, { db });
   app.register(pushRoutes, { db, readVapidPublicKey: () => vapidKeys.readPublicKey() });
   app.register(instanceRoutes, { db, publicUrl, mailCredentialKey, vapidKeys, imageTag });
   app.register(correspondentRoutes, { db });

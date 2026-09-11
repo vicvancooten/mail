@@ -94,7 +94,7 @@ export async function submitComposition(
     if (sendMail) {
       await sendMail(transmitted);
     } else {
-      transport = build(account, credentialKey);
+      transport = buildSmtpTransport(account, credentialKey);
       await transport.sendMail(transmitted);
     }
   } catch (err) {
@@ -114,7 +114,8 @@ export async function submitComposition(
   return { ok: true, mime: sentCopy };
 }
 
-function build(account: MailAccountRow, credentialKey: Buffer): Transporter {
+/** The SMTP transport for one Mail Account — shared with `invitations/reply-submit.ts` (#241), which submits an iMIP `REPLY` over the same credentials rather than through a `Composition`. */
+export function buildSmtpTransport(account: MailAccountRow, credentialKey: Buffer): Transporter {
   const secret = unsealMailAccountSecret(
     account.credential,
     account.connectedAccountId,

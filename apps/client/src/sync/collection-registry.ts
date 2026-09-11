@@ -1,23 +1,29 @@
 import type { CollectionDelta } from "@mail/shared";
 import {
   type ApplyDeltaOptions,
+  applyCalendarDelta,
   applyCompositionDelta,
   applyConnectedAccountDelta,
   applyCorrespondentDelta,
+  applyEventDelta,
   applyGmailLabelDelta,
   applyLabelDelta,
   applyMailAccountDelta,
   applyNoteDelta,
   applyPreferenceDelta,
+  applyRollbackDelta,
   applyThreadDelta,
+  CALENDAR_TOKEN_KEY,
   CONNECTED_ACCOUNT_TOKEN_KEY,
   compositionTokenKey,
   correspondentTokenKey,
+  EVENT_TOKEN_KEY,
   gmailLabelTokenKey,
   LABEL_TOKEN_KEY,
   MAIL_ACCOUNT_TOKEN_KEY,
   NOTE_TOKEN_KEY,
   PREFERENCE_TOKEN_KEY,
+  ROLLBACK_TOKEN_KEY,
   threadTokenKey,
 } from "../store/server-writes.js";
 
@@ -51,7 +57,10 @@ export type CollectionTable =
   | "compositions"
   | "correspondents"
   | "notes"
-  | "connectedAccounts";
+  | "connectedAccounts"
+  | "calendars"
+  | "events"
+  | "rollbacks";
 
 type ApplyUserCollectionDelta = (
   delta: CollectionDelta<unknown>,
@@ -82,7 +91,15 @@ function asApplyMailAccountDelta<Payload>(
 
 /** A User-scoped collection: `userSyncRequestSchema`/`userSyncResponseSchema`'s `MailAccount`/`Preference`/`Label`/`Note` keys. */
 export interface UserCollectionEntry {
-  readonly wireKey: "MailAccount" | "Preference" | "Label" | "Note" | "ConnectedAccount";
+  readonly wireKey:
+    | "MailAccount"
+    | "Preference"
+    | "Label"
+    | "Note"
+    | "ConnectedAccount"
+    | "Calendar"
+    | "Event"
+    | "Rollback";
   readonly table: CollectionTable;
   readonly tokenKey: string;
   readonly apply: ApplyUserCollectionDelta;
@@ -135,6 +152,34 @@ export const USER_COLLECTIONS: readonly UserCollectionEntry[] = [
     table: "connectedAccounts",
     tokenKey: CONNECTED_ACCOUNT_TOKEN_KEY,
     apply: asApplyUserDelta(applyConnectedAccountDelta),
+  },
+  // `Calendar` and `Rollback` (#229): `Note`'s shape exactly, whole-replicated
+  // and User-scoped from the start.
+  {
+    wireKey: "Calendar",
+    table: "calendars",
+    tokenKey: CALENDAR_TOKEN_KEY,
+    apply: asApplyUserDelta(applyCalendarDelta),
+  },
+  {
+    wireKey: "Rollback",
+    table: "rollbacks",
+    tokenKey: ROLLBACK_TOKEN_KEY,
+    apply: asApplyUserDelta(applyRollbackDelta),
+  },
+  // `Event` (#229): the one windowed User-scoped collection — its delta
+  // carries `windowStart`/`windowEnd` alongside the ordinary fields, which is
+  // a strictly *wider* shape than `CollectionDelta<Event>`, so `applyEventDelta`
+  // cannot go through `asApplyUserDelta`'s generic erasure (that would need
+  // the reverse, narrowing cast). Erased by hand here instead — the one
+  // place this registry's "erase to `CollectionDelta<unknown>`" contract
+  // does not literally hold, because `sync-round.ts` hands this `apply` the
+  // full parsed `EventDelta` object, extra fields and all.
+  {
+    wireKey: "Event",
+    table: "events",
+    tokenKey: EVENT_TOKEN_KEY,
+    apply: applyEventDelta as unknown as ApplyUserCollectionDelta,
   },
 ];
 

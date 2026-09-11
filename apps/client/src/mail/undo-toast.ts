@@ -60,7 +60,11 @@ export type UndoableActionKind =
   | "deny"
   | "discard"
   | "noteDelete"
-  | "addToNotes";
+  | "addToNotes"
+  | "eventDelete"
+  | "seriesDelete"
+  | "eventMove"
+  | "invitationAnswer";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
 const MAX_STACKED_TOASTS = 2;
@@ -86,6 +90,22 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   noteDelete: { one: "Note deleted", many: (count) => `${count} Notes deleted` },
   // "Add to Notes" (#195) — `mail/MailSection.tsx`'s own `onAddToNotes` handler.
   addToNotes: { one: "Added to Notes", many: (count) => `${count} added to Notes` },
+  // Deleting one Occurrence (#233) — `calendar/EventEditorPopover.tsx`'s own
+  // `addExdate` call, undone by its real inverse `removeExdate`.
+  eventDelete: { one: "Event deleted", many: (count) => `${count} events deleted` },
+  // Deleting a whole Series (#233) — `trashSeries`, undone by `restoreSeries`
+  // within its 24-hour snapshot window.
+  seriesDelete: { one: "Event deleted", many: (count) => `${count} events deleted` },
+  // Moving an Event between Calendars (#238) — `EventEditorPopover.tsx`'s own
+  // Move picker, undone by `restoreSeries`/`trashSeries` on the two Series
+  // ids the Move touched.
+  eventMove: { one: "Event moved", many: (count) => `${count} events moved` },
+  // Answering an Invitation on a synced Calendar (#240, ADR-0027) — the
+  // Reader's invite card's own Accept/Maybe/Decline buttons, undone by
+  // answering again with the previous `responseStatus`. Never raised for a
+  // first Answer (`previousResponseStatus === "needsAction"`): neither
+  // Google nor Graph's `REPLY` shape can express that value back.
+  invitationAnswer: { one: "Answered", many: (count) => `${count} invitations answered` },
 };
 
 interface Bucket {

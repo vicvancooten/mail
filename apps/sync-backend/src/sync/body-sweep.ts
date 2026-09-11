@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import type { ImapFlow } from "imapflow";
 import type { Db } from "../db/client.js";
 import { folders, mailAccounts, messages } from "../db/schema.js";
+import { extractInvitations } from "../invitations/store.js";
 import { isGmailAccount } from "../mail-accounts/server-kind.js";
 import { fetchMessageBody, storeMessageBody } from "./bodies.js";
 import { readBodyParts } from "./body-structure.js";
@@ -81,6 +82,7 @@ export async function runBodySweepBatch(
       folderId: messages.folderId,
       uid: messages.uid,
       receivedAt: messages.receivedAt,
+      threadId: messages.threadId,
     })
     .from(messages)
     .where(and(eq(messages.mailAccountId, mailAccountId), isNull(messages.bodyFetchedAt)))
@@ -132,6 +134,22 @@ export async function runBodySweepBatch(
           // message would show up in every future batch forever and this
           // account would never reach `complete`.
           await storeMessageBody(db, row.id, body);
+          // #239, ADR-0027: this is the one place every message — not only
+          // the ones an eager ingest already covered — gets its Invitations
+          // parsed, since this sweep is what visits every message exactly
+          // once (`bodyFetchedAt IS NULL` until it does).
+          await extractInvitations(
+            db,
+            client,
+            row.uid,
+            {
+              id: row.id,
+              threadId: row.threadId,
+              mailAccountId,
+              fallbackDtstamp: row.receivedAt,
+            },
+            parts.attachments,
+          );
           processed += 1;
           if (!oldestProcessed || row.receivedAt < oldestProcessed) {
             oldestProcessed = row.receivedAt;

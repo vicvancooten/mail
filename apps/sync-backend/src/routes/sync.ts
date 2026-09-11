@@ -16,6 +16,7 @@ import {
 import { flushComposeSaves } from "../sync/compose-store.js";
 import { flushMutations, flushUserMutations } from "../sync/mutations.js";
 import { flushNoteSaves } from "../sync/note-store.js";
+import { flushSeriesSaves } from "../sync/series-save-store.js";
 
 export interface SyncRoutesOptions {
   db: Db;
@@ -75,6 +76,15 @@ export async function syncRoutes(app: FastifyInstance, { db }: SyncRoutesOptions
     const noteSaves = user?.noteSaves ?? [];
     const noteSaveResults = noteSaves.length > 0 ? await flushNoteSaves(db, userId, noteSaves) : [];
     if (noteSaveResults.length > 0) userResult.noteSaves = noteSaveResults;
+
+    // `seriesSaves` (#233) flush the same relative position `noteSaves`
+    // does — not load-bearing (no Series structural intent reads the body),
+    // same "one less thing to remember" reasoning `noteSaves`' own comment
+    // gives.
+    const seriesSaves = user?.seriesSaves ?? [];
+    const seriesSaveResults =
+      seriesSaves.length > 0 ? await flushSeriesSaves(db, userId, seriesSaves) : [];
+    if (seriesSaveResults.length > 0) userResult.seriesSaves = seriesSaveResults;
 
     // #54's User-scoped `Preference` mutations flush before its collection
     // delta is computed, same ordering reason as a Mail Account's own

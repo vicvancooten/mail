@@ -2,6 +2,7 @@ import type { PushPayload } from "@mail/shared";
 import {
   buildArchiveActionRequest,
   buildNotificationContent,
+  buildSnoozeActionRequest,
   hasVisibleClient,
   notificationClickTarget,
   notificationTargetUrl,
@@ -218,6 +219,15 @@ async function handleNotificationClick(event: NotificationEvent): Promise<void> 
     return;
   }
 
+  if (event.action === "snooze") {
+    // Only a `calendar_reminder` push ever carries this action
+    // (`push-decisions.ts#buildNotificationContent`) — a stale/mismatched
+    // click has nothing to do.
+    if (payload?.kind !== "calendar_reminder") return;
+    await handleSnoozeAction(payload);
+    return;
+  }
+
   await focusOrOpenClient(payload);
 }
 
@@ -226,6 +236,30 @@ async function handleArchiveAction(
   payload: Extract<PushPayload, { kind: "new_mail" }>,
 ): Promise<void> {
   const action = buildArchiveActionRequest(payload.mailAccountId, payload.threadId, generateUlid());
+  await postOrQueueAction(action, payload);
+}
+
+/**
+ * The OS notification's Snooze button (#246, ADR-0028): "posted to the
+ * existing notification-actions endpoint with an idempotency key and
+ * Background Sync retry exactly as Archive is" — `postOrQueueAction`'s own
+ * retry path, generalized off `handleArchiveAction` above, is that "exactly
+ * as" in code. Every event the notification named is snoozed together
+ * (`push-decisions.ts#notificationClickTarget`'s own `events[]` doc
+ * comment on why a group shares one action).
+ */
+async function handleSnoozeAction(
+  payload: Extract<PushPayload, { kind: "calendar_reminder" }>,
+): Promise<void> {
+  const reminderDueIds = payload.events.map((event) => event.reminderDueId);
+  const action = buildSnoozeActionRequest(reminderDueIds, generateUlid());
+  await postOrQueueAction(action, payload);
+}
+
+async function postOrQueueAction(
+  action: PendingNotificationAction,
+  payload: PushPayload,
+): Promise<void> {
   try {
     await postNotificationAction(action);
   } catch {
@@ -341,6 +375,20 @@ interface PendingArchiveAction {
   intent: { type: "archive"; threadId: string };
 }
 
+/** #246: the Snooze button's own shape — User-scoped, `mailAccountId` always `null` (`push-decisions.ts#buildSnoozeActionRequest`). */
+interface PendingSnoozeAction {
+  id: string;
+  mailAccountId: null;
+  intent: {
+    type: "snoozeReminder";
+    reminderDueIds: string[];
+    snoozeUntil: { kind: "minutes"; minutes: 5 | 10 | 15 } | { kind: "eventStart" };
+  };
+}
+
+/** Whichever notification action is queued for Background Sync retry — one IndexedDB store, both shapes, told apart by `intent.type` the same way `postNotificationAction`'s own request body already is. */
+type PendingNotificationAction = PendingArchiveAction | PendingSnoozeAction;
+
 function openPendingActionsDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(PENDING_ACTIONS_DB, 1);
@@ -352,7 +400,7 @@ function openPendingActionsDb(): Promise<IDBDatabase> {
   });
 }
 
-async function queuePendingAction(action: PendingArchiveAction): Promise<void> {
+async function queuePendingAction(action: PendingNotificationAction): Promise<void> {
   const db = await openPendingActionsDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -369,10 +417,10 @@ async function queuePendingAction(action: PendingArchiveAction): Promise<void> {
 async function drainPendingActions(): Promise<void> {
   const db = await openPendingActionsDb();
   try {
-    const actions = await new Promise<PendingArchiveAction[]>((resolve, reject) => {
+    const actions = await new Promise<PendingNotificationAction[]>((resolve, reject) => {
       const tx = db.transaction(PENDING_ACTIONS_STORE, "readonly");
       const request = tx.objectStore(PENDING_ACTIONS_STORE).getAll();
-      request.onsuccess = () => resolve(request.result as PendingArchiveAction[]);
+      request.onsuccess = () => resolve(request.result as PendingNotificationAction[]);
       request.onerror = () => reject(request.error);
     });
 
@@ -395,7 +443,7 @@ async function drainPendingActions(): Promise<void> {
   }
 }
 
-async function postNotificationAction(action: PendingArchiveAction): Promise<void> {
+async function postNotificationAction(action: PendingNotificationAction): Promise<void> {
   const response = await fetch("/notifications/actions", {
     method: "POST",
     credentials: "include",

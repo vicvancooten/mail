@@ -349,7 +349,7 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
-  it("the App Switcher names all five Apps as reachable links, Contacts/Calendar/Tasks marked SOON (#72, #86, #187, #193)", async () => {
+  it("the App Switcher names all five Apps as reachable links, Contacts/Tasks marked SOON, Calendar and Notes real (#72, #86, #187, #193, #231)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -362,12 +362,13 @@ describe("the app shell over a routed tree (#71)", () => {
     // The switcher expands into the comp's tab row: real `Link`s, so a
     // reserved App is a destination rather than a disabled menu entry.
     expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-    for (const name of ["Contacts", "Calendar", "Tasks"]) {
+    for (const name of ["Contacts", "Tasks"]) {
       const tab = screen.getByRole("link", { name: new RegExp(name) });
       expect(tab).toBeDefined();
       expect(tab.textContent).toContain("SOON");
     }
-    // Notes is real behind this since #193 — no SOON badge.
+    // Calendar is real behind this since #231, Notes since #193 — no SOON badge.
+    expect(screen.getByRole("link", { name: /Calendar/ }).textContent).not.toContain("SOON");
     expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
 
     await user.click(screen.getByRole("link", { name: /Contacts/ }));
@@ -929,11 +930,12 @@ describe("the app shell over a routed tree (#71)", () => {
       await user.click(screen.getByRole("button", { name: "Switch app" }));
 
       expect(screen.getByRole("link", { name: "Mail" })).toBeDefined();
-      for (const name of ["Contacts", "Calendar", "Tasks"]) {
+      for (const name of ["Contacts", "Tasks"]) {
         const tab = screen.getByRole("link", { name: new RegExp(name) });
         expect(tab).toBeDefined();
         expect(tab.textContent).toContain("SOON");
       }
+      expect(screen.getByRole("link", { name: /Calendar/ }).textContent).not.toContain("SOON");
       expect(screen.getByRole("link", { name: "Notes" }).textContent).not.toContain("SOON");
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });

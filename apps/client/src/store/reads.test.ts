@@ -773,6 +773,12 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
     expect(await readPreference()).toMatchObject({ autoAdvanceEnabled: false });
   });
 
+  it("overlays setAnswerNotificationsEnabled (#243)", async () => {
+    await enqueueUserMutation({ type: "setAnswerNotificationsEnabled", enabled: false });
+
+    expect(await readPreference()).toMatchObject({ answerNotificationsEnabled: false });
+  });
+
   it("overlays setAutoAdvance's enabled and direction together, last-queued wins", async () => {
     await enqueueUserMutation({ type: "setAutoAdvance", enabled: true, direction: "older" });
     await enqueueUserMutation({ type: "setAutoAdvance", enabled: false, direction: "newer" });
@@ -793,6 +799,7 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
             autoAdvanceDirection: "older",
             undoSendDelaySeconds: 10,
             homeTimeZone: "",
+            answerNotificationsEnabled: true,
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
         ],

@@ -1,13 +1,16 @@
 import type {
+  Calendar,
   CollectionDelta,
   Composition,
   ConnectedAccount,
   Correspondent,
+  EventDelta,
   GmailLabel,
   Label,
   MailAccount,
   Note,
   Preference,
+  Rollback,
   Thread,
 } from "@mail/shared";
 import Dexie from "dexie";
@@ -53,6 +56,12 @@ export const LABEL_TOKEN_KEY = "user:Label";
 export const NOTE_TOKEN_KEY = "user:Note";
 /** `ConnectedAccount` (#199, #200, ADR-0022): User-scoped from the start, so its token is keyed like `Note`'s. */
 export const CONNECTED_ACCOUNT_TOKEN_KEY = "user:ConnectedAccount";
+/** `Calendar` (#229): User-scoped from the start, so its token is keyed like `Note`'s. */
+export const CALENDAR_TOKEN_KEY = "user:Calendar";
+/** `Event` (#229): User-scoped on this line — see `collection-registry.ts`'s own doc comment on the deferred `connectedAccount` scope. */
+export const EVENT_TOKEN_KEY = "user:Event";
+/** `Rollback` (#229, ADR-0025): User-scoped, `Calendar`'s sibling. */
+export const ROLLBACK_TOKEN_KEY = "user:Rollback";
 
 export function threadTokenKey(mailAccountId: string): string {
   return `account:${mailAccountId}:Thread`;
@@ -284,6 +293,64 @@ export async function applyConnectedAccountDelta(
     if (upserts.length > 0) await db.connectedAccounts.bulkPut(upserts);
     if (delta.destroyed.length > 0) await db.connectedAccounts.bulkDelete(delta.destroyed);
     await db.syncState.put({ key: CONNECTED_ACCOUNT_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `Calendar` (#229). `Label`'s whole-replication shape exactly — a User has
+ * at most a handful of Calendars, same as Labels at PoC scope.
+ */
+export async function applyCalendarDelta(
+  delta: CollectionDelta<Calendar>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.calendars, db.syncState], async () => {
+    if (replace) await db.calendars.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.calendars.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.calendars.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: CALENDAR_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `Event` (#229): always empty on this line (no materialiser yet, #230), so
+ * this is `applyCalendarDelta`'s shape plus persisting the two Event Window
+ * edges the delta carries alongside the ordinary fields — the honest
+ * "what the Sync Backend has bounded this to" `ListWindow` already keeps for
+ * Thread, computed server-side here rather than trimmed client-side.
+ */
+export async function applyEventDelta(
+  delta: EventDelta,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.events, db.eventWindows, db.syncState], async () => {
+    if (replace) await db.events.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.events.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.events.bulkDelete(delta.destroyed);
+    await db.eventWindows.put({ key: "current", start: delta.windowStart, end: delta.windowEnd });
+    await db.syncState.put({ key: EVENT_TOKEN_KEY, token: delta.newState });
+  });
+}
+
+/**
+ * `Rollback` (#229, ADR-0025): `Calendar`'s sibling — always empty until
+ * #237's write-back produces a row.
+ */
+export async function applyRollbackDelta(
+  delta: CollectionDelta<Rollback>,
+  { replace }: ApplyDeltaOptions,
+): Promise<void> {
+  const db = localCache();
+  await db.transaction("rw", [db.rollbacks, db.syncState], async () => {
+    if (replace) await db.rollbacks.clear();
+    const upserts = [...delta.created, ...delta.updated];
+    if (upserts.length > 0) await db.rollbacks.bulkPut(upserts);
+    if (delta.destroyed.length > 0) await db.rollbacks.bulkDelete(delta.destroyed);
+    await db.syncState.put({ key: ROLLBACK_TOKEN_KEY, token: delta.newState });
   });
 }
 

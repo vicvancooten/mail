@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { accountScopeFacetForApp, appForPath } from "../apps/apps.js";
 import { HomeLink } from "../apps/HomeLink.js";
+import { CalendarReminderToast } from "../calendar/CalendarReminderToast.js";
+import { CalendarRollbackToast } from "../calendar/CalendarRollbackToast.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { useIsMobile } from "../hooks/use-mobile.js";
@@ -160,6 +162,19 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
         to: "/settings/connected-accounts",
         search: { account: target.connectedAccountId, facet: target.facet },
       });
+    });
+  }, [navigate]);
+
+  // A `calendar-event` click (#246, ADR-0028: "tapping opens the Event in
+  // an existing window") — mounted regardless of route, `needs-reauth`'s own
+  // sibling above, since a Reminder or Answer notification can arrive while
+  // the User is anywhere in the app, not only inside Calendar.
+  // `calendarEventRoute`'s own `beforeLoad` (`routes.tsx`) redirects silently
+  // back to `/calendar` for an id that resolves to nothing.
+  useEffect(() => {
+    return subscribeNotificationTarget((target) => {
+      if (target.kind !== "calendar-event") return;
+      void navigate({ to: "/calendar/$eventKey", params: { eventKey: target.eventId } });
     });
   }, [navigate]);
 
@@ -323,6 +338,8 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
         </div>
         {isPhoneChrome && <BottomBar pathname={pathname} ctx={activeCtx} />}
         <Toaster />
+        <CalendarRollbackToast />
+        <CalendarReminderToast />
       </div>
       <CommandPalette
         open={paletteOpen}

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ConnectedAccountFacetKind } from "@mail/shared";
-import { and, asc, inArray, isNull } from "drizzle-orm";
+import { and, asc, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { type NotifierOutboxPayload, notifierOutbox } from "../db/schema.js";
 
@@ -23,6 +23,8 @@ export interface InsertOutboxEntryInput {
   /** Unique within `kind` — see `db/schema.ts`'s doc comment for what each kind uses. */
   dedupKey: string;
   payload: NotifierOutboxPayload;
+  /** `calendar_answer` only (#243) — every other kind leaves this `null`, "ready the moment it's recorded" exactly as before. */
+  readyAt?: Date | null;
 }
 
 /**
@@ -43,18 +45,33 @@ export async function insertOutboxEntry(db: Db, input: InsertOutboxEntryInput): 
       kind: input.kind,
       dedupKey: input.dedupKey,
       payload: input.payload,
+      readyAt: input.readyAt ?? null,
     })
     .onConflictDoNothing({ target: [notifierOutbox.kind, notifierOutbox.dedupKey] })
     .returning({ id: notifierOutbox.id });
   return row !== undefined;
 }
 
-/** Every undelivered row, oldest first — `deliver.ts`'s own candidate query, across every Mail Account with anything pending. */
-export async function listUndelivered(db: Db): Promise<NotifierOutboxRow[]> {
+/**
+ * Every undelivered *and ready* row, oldest first — `deliver.ts`'s own
+ * candidate query, across every Mail Account with anything pending.
+ * `readyAt` is `null` for every kind but `calendar_answer` (#243), which is
+ * exactly "ready the instant it's recorded" — the same tolerant `OR` shape
+ * `local-answer.ts#isDue` gives a Reply.
+ */
+export async function listUndelivered(
+  db: Db,
+  now: Date = new Date(),
+): Promise<NotifierOutboxRow[]> {
   return db
     .select()
     .from(notifierOutbox)
-    .where(isNull(notifierOutbox.deliveredAt))
+    .where(
+      and(
+        isNull(notifierOutbox.deliveredAt),
+        or(isNull(notifierOutbox.readyAt), lte(notifierOutbox.readyAt, now)),
+      ),
+    )
     .orderBy(asc(notifierOutbox.createdAt));
 }
 

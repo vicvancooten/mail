@@ -637,6 +637,10 @@ export function MailSection({
           return;
         case "needs-reauth":
           return;
+        // Handled in `router/RootLayout.tsx` instead — mounted regardless
+        // of route, `needs-reauth`'s own reasoning above.
+        case "calendar-event":
+          return;
       }
     });
   }, [accountId, narrowScopeTo, reopenCompose]);
