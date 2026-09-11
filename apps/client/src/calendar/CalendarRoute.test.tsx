@@ -23,6 +23,7 @@ import {
   makeTaskList,
 } from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
+import { closeEventPanel } from "./calendar-event-panel.js";
 
 /**
  * The Calendar App's grid, over the real router (#231) — the same "whole
@@ -87,6 +88,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   localCache().close();
   resetUndoToastsForTest();
+  // `calendar-event-panel.ts`'s shared popover state lives outside React
+  // (module-level, not component state) — an open create/edit/task panel
+  // left behind by one test is still there on the very next test's fresh
+  // `render(<App />)`, seeding its Due fields from stale data before the
+  // new test even does anything. Closing it here is the same "outside
+  // React" reset this block already does for Undo toasts and Sonner's own
+  // toast store, just below.
+  closeEventPanel();
   // Sonner's own toast store lives outside React (`mail/MailSection.test.tsx`'s
   // own doc comment) — a toast this file raised but never dismissed would
   // otherwise bleed into the next test's own render.
@@ -155,6 +164,24 @@ async function seedOneCalendarAndEvent(): Promise<void> {
     }),
     { replace: false },
   );
+}
+
+/**
+ * `calendar-create.ts#openCreatePanelForDay` and `DayTimeGrid.tsx`'s own
+ * `createAt` both no-op silently when the grid's Calendars live query
+ * hasn't resolved its first snapshot yet (`defaultCalendarId` returning
+ * `null` with nothing to seed `calendarId` from) — a real, pre-existing
+ * race between a click-to-create and that query, narrow enough to miss
+ * before Tasks App added its own competing live queries (Task Lists, due
+ * Tasks) to the same render, wide enough to flake here regularly now.
+ * Retries the click itself, rather than papering over one flaky
+ * `fireEvent.click` with a longer wait for something that never fires.
+ */
+async function clickToCreate(target: () => HTMLElement | null) {
+  await waitFor(() => {
+    fireEvent.click(target() as HTMLElement);
+    expect(screen.queryByRole("button", { name: "Event" })).not.toBeNull();
+  });
 }
 
 describe("CalendarRoute (#231)", () => {
@@ -539,7 +566,7 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
     render(<App />);
     await screen.findByText("Team Standup");
 
-    fireEvent.click(document.querySelector(".calendar-all-day-cell") as HTMLElement);
+    await clickToCreate(() => document.querySelector(".calendar-all-day-cell"));
 
     expect(await screen.findByText("New event")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Event" }).getAttribute("aria-pressed")).toBe("true");
@@ -554,7 +581,7 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
     render(<App />);
     await screen.findByText("Team Standup");
 
-    fireEvent.click(document.querySelector(".calendar-all-day-cell") as HTMLElement);
+    await clickToCreate(() => document.querySelector(".calendar-all-day-cell"));
     await user.click(await screen.findByRole("button", { name: "Task" }));
 
     expect(await screen.findByText("New Task")).not.toBeNull();
@@ -574,8 +601,9 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
     render(<App />);
     await screen.findByText("Team Standup");
 
-    const [hourButton] = screen.getAllByRole("button", { name: /^Create event at/ });
-    fireEvent.click(hourButton as HTMLElement);
+    await clickToCreate(
+      () => screen.getAllByRole("button", { name: /^Create event at/ })[0] as HTMLElement,
+    );
     await user.click(await screen.findByRole("button", { name: "Task" }));
 
     expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toMatch(
@@ -596,7 +624,7 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
     render(<App />);
     await screen.findByText("Team Standup");
 
-    fireEvent.click(document.querySelector(".calendar-all-day-cell") as HTMLElement);
+    await clickToCreate(() => document.querySelector(".calendar-all-day-cell"));
     await user.click(await screen.findByRole("button", { name: "Task" }));
     await user.type(screen.getByPlaceholderText("Title"), "Buy milk");
     await user.click(screen.getByRole("button", { name: "Save" }));
