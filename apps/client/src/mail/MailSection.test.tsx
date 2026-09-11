@@ -718,6 +718,125 @@ describe("MailSection", () => {
     ).toBe("true");
   });
 
+  it("Arrow keys and j/k move DOM focus together with the selection, not just aria-selected (#275)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.keyDown(window, { key: "j" });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("option", { name: /Newer thread/ })),
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("option", { name: /Older thread/ })),
+    );
+
+    fireEvent.keyDown(window, { key: "k" });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("option", { name: /Newer thread/ })),
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("option", { name: /Newer thread/ })),
+    );
+  });
+
+  it("after Done on the focused row, focus follows Auto-advance to the row it selects — the listbox itself once nothing remains (#275)", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Newer thread");
+
+    fireEvent.keyDown(window, { key: "j" }); // selects and focuses "Newer thread"
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("option", { name: /Newer thread/ })),
+    );
+
+    fireEvent.keyDown(window, { key: "e" }); // Done — Auto-advance lands on "Older thread"
+    await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("option", { name: /Older thread/ })),
+    );
+
+    fireEvent.keyDown(window, { key: "e" }); // Done on the last Thread — nothing left to land on
+    await waitFor(() => expect(screen.queryByText("Older thread")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("listbox")));
+  });
+
+  it("two Dones dispatched before the first re-render select the Thread after both, never the removed one (#275)", async () => {
+    await seedThreeThreads();
+    stubFetch(never);
+
+    renderMail();
+    await screen.findByText("Row 1");
+    fireEvent.click(screen.getByText("Row 1"));
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /Row 1/ }).getAttribute("aria-selected")).toBe(
+        "true",
+      ),
+    );
+
+    const doneRow1 = screen.getByRole("button", { name: 'Mark "Row 1" Done' });
+    const doneRow2 = screen.getByRole("button", { name: 'Mark "Row 2" Done' });
+    // Both clicks land inside one `act`, with no re-render in between — the
+    // exact race #275 fixes: a second Triage call reading `selectedThreadId`
+    // as a stale render-time prop would see "Row 1" still selected for
+    // *both* calls and strand the final selection on "Row 2" instead of
+    // advancing past it too.
+    act(() => {
+      fireEvent.click(doneRow1);
+      fireEvent.click(doneRow2);
+    });
+
+    await waitFor(() => expect(screen.queryByText("Row 1")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Row 2")).toBeNull());
+    expect(
+      (await screen.findByRole("option", { name: /Row 3/ })).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("a late URL echo naming a Thread older than the current selection does not change the selection (#275)", async () => {
+    await seedThreeThreads();
+    stubFetch(never);
+
+    const { rerender } = renderMail({ initialThreadId: "t-1" }); // "Row 1", the newest
+    await screen.findByRole("option", { name: /Row 1/ });
+
+    fireEvent.click(screen.getByRole("option", { name: /Row 2/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /Row 2/ }).getAttribute("aria-selected")).toBe(
+        "true",
+      ),
+    );
+
+    // A stale router snapshot re-delivers an older `initialThreadId` — "Row
+    // 3" sits further down the (newest-first) list than the already-selected
+    // "Row 2" — simulating a late echo of the URL as it stood before the
+    // click above landed.
+    rerender(
+      <AuthProvider>
+        <AccountScopeHarness />
+        <PaletteHostTestProvider>
+          <MailSection initialThreadId="t-3" />
+        </PaletteHostTestProvider>
+        <Toaster />
+      </AuthProvider>,
+    );
+
+    expect(screen.getByRole("option", { name: /Row 2/ }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(screen.getByRole("option", { name: /Row 3/ }).getAttribute("aria-selected")).toBe(
+      "false",
+    );
+  });
+
   it("the row's Done control marks it Done from the pointer, without selecting the row (#75)", async () => {
     await seedTwoThreads();
     stubFetch(never);
