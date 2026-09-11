@@ -2,6 +2,9 @@ import type { BulkTriageAction, BulkTriageFolderRole } from "@mail/shared";
 import { and, eq, gte, inArray, lt } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { folders, messages, protocolWrites, threads } from "../db/schema.js";
+import { isGmailAccount } from "../mail-accounts/server-kind.js";
+import { getMailAccountServerKind } from "../mail-accounts/store.js";
+import { setGmailInboxLabel } from "./gmail-labels.js";
 import { selectInboxResidentMessageIds } from "./inbox.js";
 import { enqueueProtocolWrites } from "./protocol-writes.js";
 import { refreshThreadRollups } from "./thread-rollup.js";
@@ -110,6 +113,15 @@ export async function applyBulkTriageAction(
  * `sync/inbox.ts#selectInboxResidentMessageIds`, not a join on
  * `folders.role === "inbox"` — the same reasoning
  * `sync/mutations.ts#inboxResidentMessageIds` gives.
+ *
+ * On Gmail (#278, the same reasoning `sync/mutations.ts`'s own archive case
+ * gives) the synchronous `threads` ack above is not enough by itself: a
+ * rollup that runs before the protocol write below confirms would recompute
+ * this Thread's `folderRole`/`inInbox` straight off `messages.gmailLabels`,
+ * still carrying the pre-action `\Inbox` label, undoing the ack. Writing
+ * that removal onto the Messages here, and refreshing the rollup right
+ * after, closes the same gap for a bulk Done that `sync/mutations.ts` closes
+ * for a single-Thread one.
  */
 async function applyDone(db: Db, mailAccountId: string, threadIds: string[]): Promise<void> {
   await db
@@ -121,7 +133,12 @@ async function applyDone(db: Db, mailAccountId: string, threadIds: string[]): Pr
     db,
     inArray(messages.threadId, threadIds),
   );
+  const serverKind = await getMailAccountServerKind(db, mailAccountId);
+  if (isGmailAccount(serverKind)) {
+    await setGmailInboxLabel(db, inboxMessageIds, false);
+  }
   await enqueueProtocolWrites(db, mailAccountId, inboxMessageIds, "archive");
+  await refreshThreadRollups(db, threadIds);
 }
 
 /** Mirrors `sync/mutations.ts#applyIntent`'s `setRead: true` case, across every Message of every targeted Thread. */

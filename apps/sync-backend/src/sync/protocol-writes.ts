@@ -6,7 +6,9 @@ import { folders, messages, protocolWrites } from "../db/schema.js";
 import { isGmailAccount, type MailAccountServerKind } from "../mail-accounts/server-kind.js";
 import { getMailAccountServerKind } from "../mail-accounts/store.js";
 import { type FolderRole, findFolderByRole } from "./folders.js";
+import { setGmailInboxLabel } from "./gmail-labels.js";
 import { projectGmailThreadStatus } from "./inbox.js";
+import { refreshThreadRollups } from "./thread-rollup.js";
 
 /**
  * The write-through outbox's other half (#42, ADR-0006): `sync/mutations.ts`
@@ -49,6 +51,7 @@ export async function enqueueProtocolWrites(
 
 interface CurrentMessage {
   id: string;
+  threadId: string;
   uid: number;
   seen: boolean;
   flagged: boolean;
@@ -98,6 +101,7 @@ export async function drainProtocolWrites(
   const current = await db
     .select({
       id: messages.id,
+      threadId: messages.threadId,
       uid: messages.uid,
       seen: messages.seen,
       flagged: messages.flagged,
@@ -149,13 +153,26 @@ export async function drainProtocolWrites(
 /**
  * Whether a `archive`/`trash`/`inbox`/`junk` row's effect is already true of
  * the Message, so the drain skips it rather than re-issuing a redundant
- * `STORE`/`MOVE`. `trash`/`junk` are always real Folders, on every server,
- * so `folderRole` alone answers it. `archive`/`inbox` mean "not in the
- * Inbox"/"in the Inbox" on Gmail — read through `projectGmailThreadStatus`
+ * `STORE`/`MOVE`. `trash`/`junk` are always real Folders, on every server, so
+ * `folderRole` alone answers it — `messages.folderId` is never written until
+ * `moveBatch` below confirms the real move, so it stays trustworthy as "did
+ * this already land on the real server". `inbox` (Undo's own restore) means
+ * "in the Inbox" the same way, on Gmail read through `projectGmailThreadStatus`
  * rather than `sync/inbox.ts#isInInbox` directly, because a message actually
  * sitting in Trash/Junk can still carry a stale `\Inbox` label (that
  * function's own doc comment) and must not read as "already restored" until
  * the real move back out of Trash/Junk has happened.
+ *
+ * `archive` on Gmail is deliberately **not** answered from `msg.gmailLabels`
+ * here (#278): `sync/mutations.ts`'s archive case now writes the intended
+ * `\Inbox` removal onto the Message optimistically, at mutation-apply time —
+ * so by the time this row is even queued, `gmailLabels` already always reads
+ * "not in Inbox" and could never again distinguish "the real IMAP server
+ * confirmed this" from "nothing has told Gmail yet". `labelBatch` below
+ * always attempts the STORE for an archive row instead, the same way
+ * `flagBatch` never skips a `\Seen`/`\Flagged` write whose direction is read
+ * off an equally optimistic `messages.seen`/`flagged` value — idempotent
+ * either way, so a redundant retry costs nothing.
  */
 function isAlreadyApplied(
   serverKind: MailAccountServerKind,
@@ -163,12 +180,12 @@ function isAlreadyApplied(
   msg: CurrentMessage,
 ): boolean {
   if (kind === "trash" || kind === "junk") return msg.folderRole === kind;
-  if (kind === "archive" || kind === "inbox") {
+  if (kind === "archive") return isGmailAccount(serverKind) ? false : msg.folderRole === "archive";
+  if (kind === "inbox") {
     if (isGmailAccount(serverKind)) {
-      const inInbox = projectGmailThreadStatus(msg.folderRole, msg.gmailLabels).inInbox;
-      return kind === "archive" ? !inInbox : inInbox;
+      return projectGmailThreadStatus(msg.folderRole, msg.gmailLabels).inInbox;
     }
-    return msg.folderRole === kind;
+    return msg.folderRole === "inbox";
   }
   return false;
 }
@@ -237,7 +254,14 @@ async function drainFolder(
   // one place a Gmail `inbox` write still is one.
   if (isGmailAccount(serverKind)) {
     const { toLabel, toMove } = partitionGmailInboxRows(inboxRows, byMessageId);
-    await labelBatch(db, client, byMessageId, archiveRows, "\\Inbox", false, done);
+    // `revertOnDefiniteFailure` only ever applies to `archiveRows`: `\Inbox` was
+    // written off these Messages optimistically at mutation-apply time (#278,
+    // `sync/mutations.ts`), so a definitive rejection here is the one case with
+    // anything to undo. `toLabel` (Undo's own restore) writes no such optimistic
+    // state today, so it keeps the ordinary "leave queued, retry" shape.
+    await labelBatch(db, client, byMessageId, archiveRows, "\\Inbox", false, done, {
+      revertOnDefiniteFailure: true,
+    });
     await labelBatch(db, client, byMessageId, toLabel, "\\Inbox", true, done);
     await moveBatch(db, client, mailAccountId, "all", toMove, byMessageId, done);
   } else {
@@ -287,6 +311,17 @@ async function flagBatch(
   if (ok) for (const row of rows) done.add(row.id);
 }
 
+interface LabelBatchOptions {
+  /**
+   * Only `archiveRows` sets this (#278): its `\Inbox` removal was already
+   * written onto these Messages optimistically at mutation-apply time
+   * (`sync/mutations.ts`), so a definitive rejection here has something real
+   * to undo — see this function's own doc comment on how "definitive" is
+   * told apart from "transient" with the signal imapflow actually gives us.
+   */
+  revertOnDefiniteFailure?: boolean;
+}
+
 /**
  * Gmail's `\Inbox` label add/remove (#124, ADR-0020) — the same `STORE`
  * `flagBatch` above issues, plus `useLabels: true` so imapflow updates
@@ -297,9 +332,26 @@ async function flagBatch(
  * this call rather than be re-checked inside it.
  *
  * Updates `messages.gmailLabels` on success, the same "write back what the
- * server confirmed" shape `moveBatch` gives `folderId`/`uid` — otherwise the
- * next drain's `isAlreadyApplied` check would see a stale label set and
- * queue this account's own recent work right back onto the outbox.
+ * server confirmed" shape `moveBatch` gives `folderId`/`uid` — a no-op for
+ * `archiveRows` (already the target value since #278, per `isAlreadyApplied`'s
+ * own doc comment on why that row is never skipped instead), but still what
+ * makes `toLabel` (Undo's restore, which writes no optimistic state of its
+ * own) correct.
+ *
+ * A `false` result (#278, AC3 — "reverts only on a *definitive* protocol
+ * failure") is reachable in exactly two ways: `run()` throws before ever
+ * reaching the server — no connection, the socket already gone — which
+ * propagates straight out of `client.messageFlagsAdd`/`Remove` as a thrown
+ * error, caught by `protocol-write-loop.ts`'s own per-account try/catch, and
+ * leaves every row still queued for the next tick, the ordinary transient
+ * shape; or imapflow's own `store.js` reaches the server, gets a real `NO`/
+ * `BAD` response (or a bad local precondition, like an unselected mailbox),
+ * and resolves `false` in-band rather than throwing. That in-band `false` is
+ * the one signal left to call "definitive": nothing about a dropped
+ * connection ever produces it, since that path always throws first. Only
+ * `revertOnDefiniteFailure` rows (`archiveRows`) have an optimistic write to
+ * undo; either way the row is dequeued, since a definitive rejection is never
+ * going to succeed on a bare retry.
  */
 async function labelBatch(
   db: Db,
@@ -309,6 +361,7 @@ async function labelBatch(
   label: string,
   add: boolean,
   done: Set<string>,
+  options?: LabelBatchOptions,
 ): Promise<void> {
   if (rows.length === 0) return;
   const uids = rows
@@ -318,7 +371,23 @@ async function labelBatch(
   const ok = add
     ? await client.messageFlagsAdd(uids, [label], { uid: true, useLabels: true })
     : await client.messageFlagsRemove(uids, [label], { uid: true, useLabels: true });
-  if (!ok) return; // Failed — leave queued for the next drain pass.
+  if (!ok) {
+    if (options?.revertOnDefiniteFailure) {
+      const messageIds = rows.map((row) => row.messageId);
+      await setGmailInboxLabel(db, messageIds, true);
+      const threadIds = [
+        ...new Set(
+          messageIds.flatMap((id) => {
+            const threadId = byMessageId.get(id)?.threadId;
+            return threadId ? [threadId] : [];
+          }),
+        ),
+      ];
+      await refreshThreadRollups(db, threadIds);
+      for (const row of rows) done.add(row.id);
+    }
+    return; // Transient (no `revertOnDefiniteFailure`) — leave queued for the next drain pass.
+  }
 
   for (const row of rows) {
     const msg = byMessageId.get(row.messageId);
