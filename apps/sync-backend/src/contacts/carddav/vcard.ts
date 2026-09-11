@@ -106,7 +106,12 @@ export function parseVcard(raw: string): ParsedVcard {
         break;
       }
       case "email":
-        emails.push(typedFieldInput(params, value));
+        // No `"other"` fallback here (`typedFieldInput`'s own default for
+        // every other typed family) — an EMAIL with no `TYPE` at all is
+        // exactly the "blank label" case `splitTypedContactFields` itself
+        // defaults to `"home"` (#283), not a standard label this module
+        // should invent on its own.
+        emails.push(typedFieldInput(params, value, ""));
         break;
       case "tel":
         phones.push(typedFieldInput(params, value));
@@ -329,8 +334,14 @@ function buildTypedLine(
   property: string,
   entry: { type: string; value: string; primary: boolean },
 ): string {
-  const typeParam = entry.primary ? `${entry.type},pref` : entry.type;
-  return `${property};TYPE=${escapeVcardParam(typeParam)}:${escapeVcardText(entry.value)}`;
+  // `escapeVcardParam` only on the label itself, `,pref` appended after —
+  // escaping the two together would strip the separating comma right back
+  // out (`escapeVcardParam`'s own doc comment on why a comma can't survive
+  // inside one param token), silently merging a primary entry's own marker
+  // into its label (`"work,pref"` -> `"workpref"`) instead of keeping it a
+  // second token.
+  const typeParam = escapeVcardParam(entry.type) + (entry.primary ? ",pref" : "");
+  return `${property};TYPE=${typeParam}:${escapeVcardText(entry.value)}`;
 }
 
 /** A Custom Field of type `phone`/`website` rides its native property with an `x-`-prefixed `TYPE` (#226's own acceptance line) rather than the bundled `X-WICKET-CUSTOMFIELDS` property — a real vCard `TYPE=x-…` extension value (RFC 6350 §5.6's own `x-name` production), not a Wicket invention. */
@@ -340,7 +351,9 @@ function buildTypedXTypeLine(field: CustomField): string {
 }
 
 function buildAdrLine(address: ContactAddress): string {
-  const typeParam = address.primary ? `${address.type},pref` : address.type;
+  // Escaped before `,pref` is appended — `buildTypedLine`'s own doc comment
+  // on why the two can't be escaped together.
+  const typeParam = escapeVcardParam(address.type) + (address.primary ? ",pref" : "");
   const components = [
     "",
     "",
@@ -469,17 +482,21 @@ function splitEscapedList(value: string): string[] {
   return items;
 }
 
-function vcardTypeLabel(params: Record<string, string[]>): string {
+function vcardTypeLabel(params: Record<string, string[]>, fallback = "other"): string {
   const types = (params.type ?? []).filter((t) => t !== "pref");
-  return types[0] ?? "other";
+  return types[0] ?? fallback;
 }
 
 function hasPrefParam(params: Record<string, string[]>): boolean {
   return (params.type ?? []).includes("pref");
 }
 
-function typedFieldInput(params: Record<string, string[]>, value: string): ContactTypedFieldInput {
-  const rawLabel = vcardTypeLabel(params);
+function typedFieldInput(
+  params: Record<string, string[]>,
+  value: string,
+  fallbackLabel = "other",
+): ContactTypedFieldInput {
+  const rawLabel = vcardTypeLabel(params, fallbackLabel);
   // `TYPE=x-boat` (this module's own write side, `buildTypedXTypeLine`) round-trips
   // back to the bare label `splitTypedContactFields` checks against — an
   // `x-` prefix is this module's own extension-value marker, not part of the
@@ -582,7 +599,15 @@ function unescapeVcardText(value: string): string {
   );
 }
 
-/** Parameter values can't carry the TEXT escapes above — a value containing `,`/`;`/`:`/`"` is simply not representable unescaped as a bare `TYPE=` token, so this only ever strips characters a real label should never contain rather than attempting the (nonexistent) vCard parameter escape. */
+/**
+ * Parameter values can't carry the TEXT escapes above — a value containing
+ * `,`/`;`/`:`/`"` is simply not representable unescaped as a bare `TYPE=`
+ * token, so this only ever strips characters a real label should never
+ * contain rather than attempting the (nonexistent) vCard parameter escape.
+ * Takes exactly **one** token: a caller that needs a second token alongside
+ * it (`,pref`, say) must append that after escaping, never concatenate
+ * first — this strips every comma it's handed, `,pref`'s own included.
+ */
 function escapeVcardParam(value: string): string {
   return value.replace(/[,;:"]/g, "");
 }
