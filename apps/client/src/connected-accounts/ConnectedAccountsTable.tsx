@@ -118,6 +118,7 @@ export function ConnectedAccountsTable({
                       ))}
                       <AddFacetControl
                         facet={facet}
+                        provider={provider}
                         isOwner={isOwner}
                         connectedAccounts={connectedAccounts}
                       />
