@@ -165,8 +165,15 @@ export interface ActionContext {
    * registry's own `run` (`registry.ts`'s `open-in-new-window`) stays a
    * one-line forward to wherever this context is wired
    * (`mail/MailSection.tsx`'s own handler).
+   *
+   * `null` from the standalone Reader route itself (`router/ReaderRoute.tsx`)
+   * — that window *is* the one this action would open, so there is nowhere
+   * further for it to go. The same "absence gates availability" shape
+   * `openPicker`/`streamSkip` already use: the registry's own availability
+   * reads the `null` and the Mail overflow simply omits the entry there,
+   * rather than the action running and silently doing nothing.
    */
-  onOpenInNewWindow: (thread: CachedThread) => void;
+  onOpenInNewWindow: ((thread: CachedThread) => void) | null;
   /** Moves the selection one Thread `delta` — the list's own collapse-aware mover where one is mounted (`surface-handles.ts`), else the flat neighbour. */
   onMove: (delta: 1 | -1) => void;
   /** How many Threads the current list holds — what makes next/prev available at all. */
@@ -295,7 +302,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onOpenStream: () => {},
     onAddToNotes: () => {},
     onAddToTasks: () => {},
-    onOpenInNewWindow: () => {},
+    onOpenInNewWindow: null,
     onMove: () => {},
     threadCount: 0,
     openPicker: null,
