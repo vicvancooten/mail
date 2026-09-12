@@ -1560,24 +1560,24 @@
   flex: none;
 }
 
-/* The secondary tier (#143): Pin, Star, Label — inline, but visually
-   quieter than the primary run, since they're one click away rather than
-   competing with it (desktop only; `ThreadDetailPane` doesn't render this
-   wrapper at all on a touch-capable phone, folding the three into the More
-   menu instead). */
-.reading-actions-secondary {
+/* One of the Reader's three groups (#289: Reply, Mail, Integrations) — each
+   its own inline control(s) plus overflow, separated from its neighbours by
+   `.reading-actions-gap` above. */
+.reading-actions-group {
   display: flex;
   align-items: center;
   gap: 1px;
 }
 
-.reading-actions-secondary button {
-  opacity: 0.6;
-}
-
-.reading-actions-secondary button:hover:not(:disabled),
-.reading-actions-secondary button.on {
-  opacity: 1;
+/* Integrations' "Send to…" trigger (#289) is the one control in this row
+   that carries its own label, not just a glyph — wider than the square
+   icon-only buttons `.reading-actions button` sizes everything else to. */
+.reading-actions-group .reading-send-to {
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
 }
 
 /* The Reader's prev/next, desktop only (#155): a small floating rail beside

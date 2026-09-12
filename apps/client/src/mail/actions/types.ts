@@ -24,24 +24,26 @@ export type ActionSection = (typeof ACTION_SECTIONS)[number];
  * Sheet, which list *every* non-contextual action whether or not it can run
  * right now (#79). Menus, by contrast, never show an unavailable action.
  *
- * The three `reader-*` tags are the Reader's own tier (#143): `reader-primary`
- * (Reply, Done, Snooze, Trash) is visible on every surface; `reader-secondary`
- * (Pin, Star, Label) renders inline but quieter, desktop only; `reader-more`
- * (Read/unread, Forward, Spam, Approve, Block — #144) lives
- * in the Reader's "More" menu on every surface, joined there by the secondary
- * tier too on a touch-capable phone, where there's no room to keep it inline
- * (`ThreadDetailPane`, `registry.ts#moreReaderActions`). A new More-tier
- * action is nothing more than adding `"reader-more"` to its `surfaces` array.
+ * The Reader's own three groups (#289, replacing #143's primary/secondary/more
+ * tiers): Reply (`reader-reply-primary`/`reader-reply-overflow`), Mail
+ * (`reader-mail-primary`/`reader-mail-overflow`) and Integrations
+ * (`reader-send-to`). Each group's overflow is a dropdown built the same way
+ * (`actions/ReaderOverflowMenu.tsx`) — a new overflow action is nothing more
+ * than adding its tag to `surfaces`.
  */
 export type ActionSurface =
   /** The Thread row's hover cluster (`ThreadRow`'s reserved whitespace and `.row-actions`). */
   | "row-hover"
-  /** The Reader's inline, always-visible run — Reply, Done, Snooze, Trash. */
-  | "reader-primary"
-  /** The Reader's inline, visually quieter run — Pin, Star, Label. Desktop only; folds into the More menu on a touch-capable phone. */
-  | "reader-secondary"
-  /** The Reader's "More" menu — everything else that still needs to be reachable. */
-  | "reader-more"
+  /** The Reply group's inline primary — Reply or Reply All, whichever `chooseReplyMode` picked (`reading/reply-mode.ts`). Both `reply` and `reply-all` carry this tag; the pane renders only the one the Thread's participant count picked. */
+  | "reader-reply-primary"
+  /** The Reply group's overflow — the reply form *not* showing inline, plus Forward. */
+  | "reader-reply-overflow"
+  /** The Mail group's inline, always-visible run — Done, Snooze, Trash. */
+  | "reader-mail-primary"
+  /** The Mail group's overflow — Pin, Star, Label, Mark unread, Spam, Block, Approve. */
+  | "reader-mail-overflow"
+  /** The Integrations group's "Send to…" menu — Add to Tasks, Save to Notes. */
+  | "reader-send-to"
   /** The right-click / long-press menu on a row, the reader, a Screener row or a Draft row. */
   | "menu";
 

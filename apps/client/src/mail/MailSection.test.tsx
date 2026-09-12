@@ -427,7 +427,7 @@ describe("MailSection", () => {
     expect(document.querySelector(".split-view")).not.toBeNull();
   });
 
-  it('"Add to Notes" (#195) creates the Note at once and hands its id to onNoteCreated', async () => {
+  it('"Save to Notes" (#195, #289) creates the Note at once and hands its id to onNoteCreated', async () => {
     await seedCachedMail();
     stubFetch(never);
     const onNoteCreated = vi.fn();
@@ -435,9 +435,14 @@ describe("MailSection", () => {
     renderMail({ onNoteCreated });
     await screen.findByText("Last state");
     fireEvent.keyDown(window, { key: "j" });
-    await screen.findByRole("button", { name: "Add to Notes" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Add to Notes" }));
+    // Integrations (#289): Add to Tasks and Save to Notes are reachable only
+    // through the Reader's own "Send to…" menu now — a real pointer-event
+    // sequence to open it, same as every other Radix Dropdown trigger in
+    // this suite.
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Send "Last state" to…/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Save to Notes" }));
 
     await waitFor(() => expect(onNoteCreated).toHaveBeenCalledOnce());
     const noteId = onNoteCreated.mock.calls[0]?.[0] as string;
@@ -470,8 +475,9 @@ describe("MailSection", () => {
       renderMail();
       await screen.findByText("Last state");
       fireEvent.keyDown(window, { key: "j" });
-      await screen.findByRole("button", { name: "Add to Tasks" });
-      fireEvent.click(screen.getByRole("button", { name: "Add to Tasks" }));
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: /Send "Last state" to…/ }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Add to Tasks" }));
 
       const titleField = await screen.findByLabelText("Task title");
       expect((titleField as HTMLInputElement).value).toBe("Last state");
@@ -509,8 +515,9 @@ describe("MailSection", () => {
       renderMail();
       await screen.findByText("Last state");
       fireEvent.keyDown(window, { key: "j" });
-      await screen.findByRole("button", { name: "Add to Tasks" });
-      fireEvent.click(screen.getByRole("button", { name: "Add to Tasks" }));
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: /Send "Last state" to…/ }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Add to Tasks" }));
       await screen.findByLabelText("Task title");
 
       fireEvent.click(screen.getByRole("button", { name: "Add and mark Done" }));
@@ -720,10 +727,16 @@ describe("MailSection", () => {
       (await screen.findByRole("option", { name: /Newer thread/ })).getAttribute("aria-selected"),
     ).toBe("true");
 
-    // s stars the open Thread.
-    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
+    // s stars the open Thread — Star lives in the Mail group's overflow now
+    // (#289), so its state shows there rather than an inline button.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: /Star/ })).toBeDefined();
+    await user.keyboard("{Escape}");
     fireEvent.keyDown(window, { key: "s" });
-    expect(await screen.findByRole("button", { name: "Unstar" })).toBeDefined();
+    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: /Unstar/ })).toBeDefined();
+    await user.keyboard("{Escape}");
 
     // e archives the open Thread: it's gone from the list, and — direction
     // defaults to "older" — the next-older Thread takes over the selection.
@@ -1038,10 +1051,17 @@ describe("MailSection", () => {
     renderMail();
     // Open the older (and by date, second) Thread.
     fireEvent.click(await screen.findByText("Older thread"));
-    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
+    // Pin lives in the Mail group's overflow now (#289), not an inline
+    // button of its own — its state shows there instead.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /More actions for "Older/ }));
+    expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
+    await user.keyboard("{Escape}");
 
     fireEvent.keyDown(window, { key: "p" });
-    expect(await screen.findByRole("button", { name: "Unpin" })).toBeDefined();
+    await user.click(screen.getByRole("button", { name: /More actions for "Older/ }));
+    expect(await screen.findByRole("menuitem", { name: /Unpin/ })).toBeDefined();
+    await user.keyboard("{Escape}");
 
     // Pinned floats to the top of the list, ahead of the newer, unpinned Thread.
     const rows = await screen.findAllByRole("option");
@@ -1173,43 +1193,47 @@ describe("MailSection", () => {
   });
 });
 
-describe("Reader action hierarchy (#143)", () => {
-  it("renders Reply/Done/Snooze/Trash as primaries, Pin/Star/Label inline and quieter, and everything else in the More menu", async () => {
-    await seedTwoThreads();
+describe("Reader action bar in three groups (#289)", () => {
+  it("shows Reply All as the reply primary with two other participants, Reply with one", async () => {
+    await applyMailAccountDelta(delta({ created: [makeMailAccount("acct-1")] }), {
+      replace: false,
+    });
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("t-one-other", "acct-1", {
+            subject: "One other",
+            participants: [{ name: "Ada", address: "ada@example.test" }],
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+          makeThread("t-two-others", "acct-1", {
+            subject: "Two others",
+            participants: [
+              { name: "Ada", address: "ada@example.test" },
+              { name: "Bea", address: "bea@example.test" },
+            ],
+            lastMessageAt: minutesAfterEpoch(2),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch(never);
 
     renderMail();
-    fireEvent.click(await screen.findByText("Newer thread"));
-    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+    fireEvent.click(await screen.findByText("Two others"));
+    await screen.findByText("Two others", { selector: ".reading-subject" });
+    expect(screen.getByRole("button", { name: "Reply all" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
 
-    // The primary tier: visible on every surface (Split, List, phone, Stream).
+    fireEvent.click(await screen.findByText("One other"));
+    await screen.findByText("One other", { selector: ".reading-subject" });
     expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
-
-    // The secondary tier: inline, but visually quieter — desktop only.
-    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Apply or remove a label" })).toBeDefined();
-
-    // Read/unread (the `reader-more` tier — Forward joins it too, but only
-    // once a Message has loaded to forward, which this test doesn't wait
-    // for) is reachable *only* from the More menu, and the secondary tier
-    // doesn't also duplicate into it on desktop.
-    expect(screen.queryByRole("button", { name: /Mark as (read|unread)/ })).toBeNull();
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
-    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
-    expect(screen.queryByRole("menuitem", { name: "Pin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply all" })).toBeNull();
   });
 
-  it("on a touch-capable phone the Reader shows only the four primaries plus More, folding Pin/Star/Label into it and dropping prev/next", async () => {
-    // `useTouchCapablePhone` (#143) is phone width *and* no hover-capable
-    // pointer — matching only the phone-width query reports every other
-    // query (including the hover one) as not matching, same stub
-    // `settings-phone-integration.test.tsx` uses for the same 768px breakpoint.
-    stubMatchMedia((query) => query === "(max-width: 767px)");
+  it("shows exactly Done, Trash and Snooze in the Mail group, with the six others in its overflow", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -1217,29 +1241,90 @@ describe("Reader action hierarchy (#143)", () => {
     fireEvent.click(await screen.findByText("Newer thread"));
     await screen.findByText("Newer thread", { selector: ".reading-subject" });
 
-    expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
 
-    expect(screen.queryByRole("button", { name: "Previous thread" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Next thread" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Star" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Apply or remove a label" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mark as (read|unread)/ })).toBeNull();
 
-    // Pin and Star carry their own keycap (their registry binding), so their
-    // menu item's accessible name is the label plus the printed key — a
-    // regex, the same way `ActionMenu.test.tsx` matches a keycap-bearing
-    // item, rather than an exact string.
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
+    await user.click(await screen.findByRole("button", { name: /More actions for "Newer/ }));
     expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: /Star/ })).toBeDefined();
-    // Opening the thread marks it read asynchronously; the item's own label
-    // flips from "Mark as read" to "Mark as unread" once that settles, same
-    // race the desktop version of this menu (line 908, above) polls for.
+    expect(screen.getByRole("menuitem", { name: /Apply\/remove label/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Spam/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Block" })).toBeDefined();
+  });
+
+  it('reaches Add to Tasks and Save to Notes only through "Send to…", never as their own inline buttons', async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    expect(screen.queryByRole("button", { name: "Add to Tasks" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save to Notes" })).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Send "Newer thread" to…/ }));
+    expect(await screen.findByRole("menuitem", { name: "Add to Tasks" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Save to Notes" })).toBeDefined();
+  });
+
+  it("hides Approve for an ordinary Inbox Thread", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /More actions for "Newer/ }));
     expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Approve" })).toBeNull();
+  });
+
+  // A held Thread never appears in the Inbox's own row list at all
+  // (`store/reads.ts`'s own `!thread.heldSender` filter feeds `useThreadWindow`,
+  // which `activeSelectedThread` reads from) — there is no route through
+  // this file's own render seam to open one in the Reader. That half of
+  // this acceptance line — Approve present for a Thread under Screening
+  // Hold — is `ThreadDetailPane.test.tsx`'s own render seam instead, mounted
+  // directly with a held Thread.
+
+  it("dismisses the Mail group's overflow on Escape and on an outside click", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+
+    renderMail();
+    fireEvent.click(await screen.findByText("Newer thread"));
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Mark as unread" })).toBeNull(),
+    );
+
+    await user.click(await screen.findByRole("button", { name: /More actions for "Newer/ }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
+    // A real click on `document.body` fails userEvent's own pointer-events
+    // check once Radix's scroll lock has set it to `none` — the same
+    // dismissable-layer signal Radix listens for still fires from a bare
+    // `pointerdown`.
+    fireEvent.pointerDown(document.body);
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Mark as unread" })).toBeNull(),
+    );
   });
 });
 
@@ -1364,7 +1449,7 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
     expect(invalidateThreadMessages).toHaveBeenCalledTimes(2);
   });
 
-  it("`!` Spams the open Thread from the keyboard (user story #20), and the Reader's More menu offers all three (#143)", async () => {
+  it("`!` Spams the open Thread from the keyboard (user story #20), and the Reader's Mail overflow offers Spam and Block (#143, #289)", async () => {
     await seedTwoThreads();
     stubFetch(never);
 
@@ -1375,8 +1460,11 @@ describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
     expect(await screen.findByRole("menuitem", { name: /Spam/ })).toBeDefined();
-    expect(screen.getByRole("menuitem", { name: "Approve" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "Block" })).toBeDefined();
+    // Approve is absent here — "Newer thread" was never held (#289's own
+    // gating, exercised in full in the "action bar in three groups" suite
+    // above).
+    expect(screen.queryByRole("menuitem", { name: "Approve" })).toBeNull();
     await user.keyboard("{Escape}");
 
     fireEvent.keyDown(window, { key: "!" });
