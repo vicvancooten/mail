@@ -2,13 +2,15 @@ import type { Contact } from "@mail/shared";
 import { normalizeCorrespondentAddress } from "@mail/shared";
 import { useMemo } from "react";
 import { useContacts } from "../store/contacts.js";
+import { buildContactAddressIndex } from "./contact-address-index.js";
 
 /**
  * The Contact Card's own reverse lookup (#293) — the same normalized-address
- * match `contact-avatar.ts#buildContactPhotoIndex` already does for a photo
- * URL, just handing back the whole Contact rather than only its photo, since
- * the Card also wants the Contact's name and id (for "Open in Contacts").
- * Deliberately not `resolveLinkedContactGroups`/`unionLinkedContactFields`
+ * index `contact-avatar.ts#buildContactPhotoIndex` already builds for a photo
+ * URL (`buildContactAddressIndex`, shared by both), just handing back the
+ * whole Contact rather than only its photo, since the Card also wants the
+ * Contact's name and id (for "Open in Contacts"). Deliberately not
+ * `resolveLinkedContactGroups`/`unionLinkedContactFields`
  * (`@mail/shared/contact-links.ts`): those are the Contacts App's own "one
  * card per person" concern (ADR-0026), and no other mail surface reaches for
  * them either — `contact-avatar.ts`'s single-record-per-address lookup is
@@ -21,13 +23,8 @@ export function findContactByAddress(
   contacts: readonly Contact[],
   address: string,
 ): Contact | null {
-  const normalized = normalizeCorrespondentAddress(address);
-  for (const contact of contacts) {
-    if (contact.emails.some((email) => normalizeCorrespondentAddress(email.value) === normalized)) {
-      return contact;
-    }
-  }
-  return null;
+  const index = buildContactAddressIndex(contacts, (contact) => contact);
+  return index.get(normalizeCorrespondentAddress(address)) ?? null;
 }
 
 /**
