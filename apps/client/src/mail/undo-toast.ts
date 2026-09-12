@@ -127,6 +127,7 @@ export type UndoableActionKind =
   | "seriesDelete"
   | "eventMove"
   | "eventReschedule"
+  | "eventResize"
   | "invitationAnswer";
 
 const WINDOW_MS = BULK_TRIAGE_UNDO_WINDOW_SECONDS * 1000;
@@ -194,6 +195,14 @@ const LABELS: Record<UndoableActionKind, { one: string; many: (count: number) =>
   // exact previous start/end (or, for "this and following", the previous
   // `rrules` plus deleting the continuation Series it split off).
   eventReschedule: { one: "Event rescheduled", many: (count) => `${count} events rescheduled` },
+  // Dragging an Event chip's own top/bottom edge on the grid (#306) —
+  // `calendar/calendar-event-drag.ts#commitEventResize`, undone by writing
+  // the exact previous start/end (or, for "this and following", the
+  // previous `rrules` plus deleting the continuation Series it split off) —
+  // its own bucket, not folded into `"eventReschedule"`: resizing several
+  // chips undoes only the resizes, never an unrelated Move sitting in the
+  // same window.
+  eventResize: { one: "Event resized", many: (count) => `${count} events resized` },
   // Answering an Invitation on a synced Calendar (#240, ADR-0027) — the
   // Reader's invite card's own Accept/Maybe/Decline buttons, undone by
   // answering again with the previous `responseStatus`. Never raised for a

@@ -292,6 +292,31 @@
   cursor: grabbing;
 }
 
+/* Dragging an Occurrence's own top/bottom edge to resize it (#306) — a thin
+   strip pinned to each end of a writable chip; grabbing it dims the chip
+   the same way a move's own source dims, so the User's own pointer is
+   always the only thing that looks "live". */
+.calendar-event-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.calendar-event-resize-handle-start {
+  top: -2px;
+}
+.calendar-event-resize-handle-end {
+  bottom: -2px;
+}
+.calendar-timed-event.resizing-source {
+  opacity: 0.6;
+}
+.calendar-time-grid.resizing {
+  cursor: ns-resize;
+}
+
 /* ------------------------------------------------------------------ */
 /* Event chips                                                         */
 /* ------------------------------------------------------------------ */

@@ -10,7 +10,13 @@ import {
   today,
   weekdayLabel,
 } from "./calendar-dates.js";
-import { handleEventDrop, isDraggableCalendar, snapToQuarterHour } from "./calendar-event-drag.js";
+import {
+  type EventResizeEdge,
+  handleEventDrop,
+  handleEventResizeDrop,
+  isDraggableCalendar,
+  snapToQuarterHour,
+} from "./calendar-event-drag.js";
 import { openCreatePanel, pointAnchorRect } from "./calendar-event-panel.js";
 import { type DayBucket, eventEnd, eventStart, minutesOfDay } from "./calendar-occurrences.js";
 import { rescheduleTaskTo } from "./calendar-task-drag.js";
@@ -92,6 +98,25 @@ interface DragTracker {
   target: { dayKey: string; minutes: number } | null;
 }
 
+/**
+ * A resize's own tracker (#306), `DragTracker`'s sibling for a chip's
+ * top/bottom edge rather than its body — grabbing a handle is already
+ * unambiguous (there is nothing else a pointer-down on a 6px edge strip
+ * could mean), so there is no jitter threshold to clear the way a move's
+ * `moved` flag needs; `target` starts `null` and only ever gets set once a
+ * pointer-move actually lands inside the same day column the Occurrence's
+ * own edge started in — a resize never crosses into a different column,
+ * unlike a move.
+ */
+interface ResizeTracker {
+  pointerId: number;
+  event: Event;
+  calendar: Calendar | undefined;
+  edge: EventResizeEdge;
+  dayKey: string;
+  target: number | null;
+}
+
 /** Which day column's own rect the pointer currently sits over — nearest column wins once the pointer strays past the grid's own left/right edge, so a drag dropped past the last day column still lands on it rather than doing nothing. */
 function columnAt(
   clientX: number,
@@ -147,12 +172,18 @@ export function DayTimeGrid({
   const now = today();
   const columnRefs = useRef(new Map<string, HTMLDivElement>());
   const dragTrackerRef = useRef<DragTracker | null>(null);
+  const resizeTrackerRef = useRef<ResizeTracker | null>(null);
   const justDraggedRef = useRef(false);
   const [preview, setPreview] = useState<{
     eventId: string;
     dayKey: string;
     minutes: number;
     heightPercent: number;
+  } | null>(null);
+  const [resizePreview, setResizePreview] = useState<{
+    eventId: string;
+    edge: EventResizeEdge;
+    minutes: number;
   } | null>(null);
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>, occurrence: Event) {
@@ -210,6 +241,59 @@ export function DayTimeGrid({
     setPreview(null);
   }
 
+  /** Grabbing a chip's own top/bottom edge (#306) — `stopPropagation` so the chip's own `handlePointerDown` (a move) never also starts, the same "one gesture, one meaning" split the handle's own hit area already gives a pointer by being 6px tall. */
+  function handleResizePointerDown(
+    event: PointerEvent<HTMLDivElement>,
+    occurrence: Event,
+    edge: EventResizeEdge,
+    day: string,
+  ) {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    const calendar = calendarById.get(occurrence.calendarId);
+    if (!isDraggableCalendar(calendar)) return;
+    resizeTrackerRef.current = {
+      pointerId: event.pointerId,
+      event: occurrence,
+      calendar,
+      edge,
+      dayKey: day,
+      target: null,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleResizePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const tracker = resizeTrackerRef.current;
+    if (!tracker || tracker.pointerId !== event.pointerId) return;
+    const column = columnRefs.current.get(tracker.dayKey);
+    if (!column) return;
+    const rect = column.getBoundingClientRect();
+    const minutes = snapToQuarterHour(
+      clampMinutes(((event.clientY - rect.top) / rect.height) * MINUTES_PER_DAY),
+    );
+    tracker.target = minutes;
+    setResizePreview({ eventId: tracker.event.id, edge: tracker.edge, minutes });
+  }
+
+  function handleResizePointerUp(event: PointerEvent<HTMLDivElement>) {
+    const tracker = resizeTrackerRef.current;
+    resizeTrackerRef.current = null;
+    if (!tracker || tracker.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setResizePreview(null);
+    if (tracker.target === null) return;
+    justDraggedRef.current = true;
+    void handleEventResizeDrop(tracker.event, tracker.calendar, tracker.edge, tracker.target);
+  }
+
+  function handleResizePointerCancel(event: PointerEvent<HTMLDivElement>) {
+    const tracker = resizeTrackerRef.current;
+    if (!tracker || tracker.pointerId !== event.pointerId) return;
+    resizeTrackerRef.current = null;
+    setResizePreview(null);
+  }
+
   /** Swallows the synthetic click a real drag's own pointer-up otherwise still fires — `EventChip`'s own click-to-edit is exactly what a drag must never also trigger. */
   function handleClickCapture(event: MouseEvent<HTMLDivElement>) {
     if (!justDraggedRef.current) return;
@@ -220,7 +304,7 @@ export function DayTimeGrid({
 
   return (
     <div
-      className={`calendar-time-grid${days.length === 1 ? " single-day" : ""}${preview ? " dragging" : ""}`}
+      className={`calendar-time-grid${days.length === 1 ? " single-day" : ""}${preview ? " dragging" : ""}${resizePreview ? " resizing" : ""}`}
     >
       {days.map((day) => {
         const bucket = buckets.get(dayKey(day));
@@ -305,13 +389,30 @@ export function DayTimeGrid({
                   const calendar = calendarById.get(event.calendarId);
                   const draggable = isDraggableCalendar(calendar);
                   const isDraggingThis = preview?.eventId === event.id;
+                  const isResizingThis = resizePreview?.eventId === event.id;
+                  // While resizing (#306), the grabbed edge's own minutes
+                  // override the placement's own top/height live — the
+                  // other edge stays put, so the chip visibly grows/shrinks
+                  // from exactly the edge the User is holding, never both.
+                  let displayTop = top;
+                  let displayHeight = height;
+                  if (isResizingThis && resizePreview) {
+                    const startMinutes = minutesOfDay(eventStart(event));
+                    const endMinutes = minutesOfDay(eventEnd(event));
+                    const nextStart =
+                      resizePreview.edge === "start" ? resizePreview.minutes : startMinutes;
+                    const nextEnd =
+                      resizePreview.edge === "end" ? resizePreview.minutes : endMinutes;
+                    displayTop = (nextStart / MINUTES_PER_DAY) * 100;
+                    displayHeight = ((nextEnd - nextStart) / MINUTES_PER_DAY) * 100;
+                  }
                   return (
                     <div
                       key={event.id}
-                      className={`calendar-timed-event${isDraggingThis ? " dragging-source" : ""}${draggable ? " draggable" : ""}`}
+                      className={`calendar-timed-event${isDraggingThis ? " dragging-source" : ""}${isResizingThis ? " resizing-source" : ""}${draggable ? " draggable" : ""}`}
                       style={{
-                        top: `${top}%`,
-                        height: `${height}%`,
+                        top: `${displayTop}%`,
+                        height: `${displayHeight}%`,
                         left: `${(column / columnCount) * 100}%`,
                         width: `${100 / columnCount}%`,
                       }}
@@ -322,6 +423,24 @@ export function DayTimeGrid({
                       onClickCapture={draggable ? handleClickCapture : undefined}
                     >
                       <EventChip event={event} calendar={calendar} />
+                      {draggable ? (
+                        <>
+                          <div
+                            className="calendar-event-resize-handle calendar-event-resize-handle-start"
+                            onPointerDown={(e) => handleResizePointerDown(e, event, "start", key)}
+                            onPointerMove={handleResizePointerMove}
+                            onPointerUp={handleResizePointerUp}
+                            onPointerCancel={handleResizePointerCancel}
+                          />
+                          <div
+                            className="calendar-event-resize-handle calendar-event-resize-handle-end"
+                            onPointerDown={(e) => handleResizePointerDown(e, event, "end", key)}
+                            onPointerMove={handleResizePointerMove}
+                            onPointerUp={handleResizePointerUp}
+                            onPointerCancel={handleResizePointerCancel}
+                          />
+                        </>
+                      ) : null}
                     </div>
                   );
                 })}
