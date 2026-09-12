@@ -20,6 +20,7 @@ function makeMessage(attachments: MessageAttachment[]): Message {
     seen: true,
     flagged: false,
     attachments,
+    snippet: null,
     bodyText: "hi",
     bodyHtml: "<p>hi</p>",
     bodyIsPlainText: false,

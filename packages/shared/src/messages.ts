@@ -62,6 +62,15 @@ export const messageSchema = z.object({
    * shows there as a file.
    */
   attachments: z.array(messageAttachmentSchema),
+  /**
+   * This message's own Snippet (CONTEXT.md), derived once at the moment its
+   * body first landed (`sync/bodies.ts`) — never the Thread-level one
+   * `sync.ts#threadSchema` carries. #291's collapsed-message row reads this
+   * rather than re-deriving a preview client-side, so a collapsed older
+   * message shows the same words the Snippet's own surfaces do. Null for a
+   * message whose body hasn't been fetched yet.
+   */
+  snippet: z.string().nullable(),
   bodyText: z.string().nullable(),
   /**
    * Sanitized HTML, remote images already rewritten to signed

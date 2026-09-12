@@ -23,6 +23,7 @@ export * from "./notes.js";
 export * from "./origin.js";
 export * from "./providers.js";
 export * from "./push.js";
+export * from "./quoted-history.js";
 export * from "./reminders.js";
 export * from "./rollback.js";
 export * from "./routing.js";

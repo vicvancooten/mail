@@ -190,6 +190,7 @@ describe("buildMessageCsp", () => {
 
 describe("buildMessageDocument", () => {
   const baseOpts = {
+    quotedHtml: null,
     cidBlobUrls: new Map<string, string>(),
     imagesLoaded: false,
     nonce: "test-nonce",
@@ -278,5 +279,52 @@ describe("buildMessageDocument", () => {
       darkMode: false,
     });
     expect(doc).not.toContain("alert(document.cookie)");
+  });
+
+  // #291: quoted/forwarded history renders inside the frame itself, collapsed behind a toggle.
+  describe("quotedHtml (#291)", () => {
+    it("omits the toggle entirely for a body with no quoted history", () => {
+      const doc = buildMessageDocument({ ...baseOpts, html: "<p>hi</p>", darkMode: false });
+      // The CSS rules for both classes are always in the stylesheet; what
+      // must be absent is the elements themselves.
+      expect(doc).not.toContain('id="mail-quote-toggle"');
+      expect(doc).not.toContain('id="mail-quote-content"');
+    });
+
+    it("renders quoted history hidden by default, right after the visible body", () => {
+      const doc = buildMessageDocument({
+        ...baseOpts,
+        html: "<p>hi</p>",
+        quotedHtml: "<blockquote>older</blockquote>",
+        darkMode: false,
+      });
+      expect(doc).toContain("<p>hi</p>");
+      expect(doc).toContain('id="mail-quote-content" hidden');
+      expect(doc).toContain("<blockquote>older</blockquote>");
+      expect(doc.indexOf("<p>hi</p>")).toBeLessThan(doc.indexOf('id="mail-quote-toggle"'));
+    });
+
+    it("sanitizes the quoted half the same way as the visible half", () => {
+      const doc = buildMessageDocument({
+        ...baseOpts,
+        html: "<p>hi</p>",
+        quotedHtml: `<blockquote>older<script>alert(1)</script></blockquote>`,
+        darkMode: false,
+      });
+      expect(doc).not.toContain("<script>alert(1)</script>");
+      expect(doc).toContain("older");
+    });
+
+    it("carries the toggle script and the CSS that keeps it hidden against a sender reset", () => {
+      const doc = buildMessageDocument({
+        ...baseOpts,
+        html: "<p>hi</p>",
+        quotedHtml: "<blockquote>older</blockquote>",
+        darkMode: false,
+      });
+      expect(doc).toContain('id="mail-quote-toggle"');
+      expect(doc).toContain("Show quoted text");
+      expect(doc).toContain(".mail-quote-content[hidden]{display:none!important;}");
+    });
   });
 });
