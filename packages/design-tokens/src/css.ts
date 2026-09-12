@@ -1,4 +1,4 @@
-import { phoneBreakpoint } from "./breakpoints.js";
+import { phoneBreakpoint, splitMinimum } from "./breakpoints.js";
 import {
   type AvatarTileKey,
   type AvatarTileTheme,
@@ -79,6 +79,12 @@ ${tileDeclarations(lightAvatarTiles, "  ")}
      literal \`767px\`/\`768px\` pair matching this same number, not derived
      from it at build time. */
   --breakpoint-phone: ${phoneBreakpoint}px;
+  /* The split minimum (#296) — see \`breakpoints.ts\`. Documented here for CSS
+     authors, same "can't feed a custom property to a media query" stance
+     \`--breakpoint-phone\` above takes: the fallback below this width is a
+     component swap (Split view to List view), not a Split-internal layout
+     rule, so no media query in the Client currently reads this number. */
+  --split-minimum: ${splitMinimum}px;
 ${shadowDeclarations(lightShadow, "  ")}
 }
 
