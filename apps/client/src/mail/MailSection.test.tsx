@@ -1110,7 +1110,7 @@ describe("MailSection", () => {
     await screen.findByText("Newer thread");
 
     fireEvent.click(screen.getByRole("button", { name: /Snooze "Newer thread"/ }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Later today" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Later today/ }));
 
     await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
     expect(screen.getByText("Older thread")).toBeDefined();
@@ -1127,7 +1127,7 @@ describe("MailSection", () => {
     await screen.findByText("Newer thread");
 
     fireEvent.click(screen.getByRole("button", { name: /Snooze "Newer thread"/ }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Later today" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Later today/ }));
     await waitFor(() => expect(screen.queryByText("Newer thread")).toBeNull());
 
     const queued = await listQueuedMutations("acct-1");

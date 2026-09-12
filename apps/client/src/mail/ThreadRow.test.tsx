@@ -186,7 +186,7 @@ describe("ThreadRow — the Snooze control", () => {
     expect(onSnooze).not.toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByRole("menu", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Later today" })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: /^Later today/ })).not.toBeNull();
   });
 
   it("picking a preset calls onSnooze with an ISO instant and closes the popover", () => {
@@ -196,7 +196,7 @@ describe("ThreadRow — the Snooze control", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Later today" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Later today/ }));
 
     expect(onSnooze).toHaveBeenCalledTimes(1);
     const [until] = onSnooze.mock.calls[0] as [string];

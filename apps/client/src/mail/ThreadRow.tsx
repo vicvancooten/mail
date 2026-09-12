@@ -177,8 +177,8 @@ export function ThreadRow({
   hoverCapable?: boolean;
   /** This row's own roving-tabindex slot (#275): `true` puts it in the Tab order (`tabIndex={0}`), `false` takes it out (`-1`) — `VirtualizedThreadList` sets this for exactly one row at a time. Defaults `true` so a caller rendering a single row with no list around it (`ThreadRow.test.tsx`) keeps today's always-tabbable behavior. */
   tabbable?: boolean;
-  /** Region Settings (#304) — `formatRowTime`'s own locale/zone. Optional: a caller with no Region Settings read above it (most unit tests) keeps today's browser-default row time. */
-  region?: Pick<RegionFormatSettings, "locale" | "timeZone">;
+  /** Region Settings (#304) — `formatRowTime`'s own locale/zone, plus `clockFormat` for `SnoozeMenu`'s preset/custom times. Optional: a caller with no Region Settings read above it (most unit tests) keeps today's browser-default row time. */
+  region?: Pick<RegionFormatSettings, "locale" | "clockFormat" | "timeZone">;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -402,6 +402,7 @@ export function ThreadRow({
                           setSnoozeMenuOpen(false);
                         }}
                         onClose={() => setSnoozeMenuOpen(false)}
+                        region={region}
                       />
                     </PopoverContent>
                   </Popover>

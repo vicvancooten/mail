@@ -343,6 +343,7 @@ export function ThreadDetailPane({
                               setSnoozeMenuOpen(false);
                             }}
                             onClose={() => setSnoozeMenuOpen(false)}
+                            region={region}
                           />
                         </PopoverContent>
                       </Popover>
