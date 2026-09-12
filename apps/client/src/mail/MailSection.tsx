@@ -36,7 +36,7 @@ import {
   THREAD_PAGE_SIZE,
   useConnectedAccounts,
   useDraftCompositions,
-  useGmailLabels,
+  useGmailLabelsByAccount,
   useLabels,
   useMailAccounts,
   usePreference,
@@ -321,7 +321,14 @@ export function MailSection({
   // section's own "only for Gmail Mail Accounts" rule a plain empty-list
   // check, the same way the Labels section already hides itself when there
   // are none.
-  const gmailLabels = useGmailLabels(accountId) ?? [];
+  //
+  // Read across the whole Account Scope (#297), not just the primary
+  // account: with several Gmail Mail Accounts in Scope, the sidebar shows
+  // one independently collapsible Gmail Labels section per account
+  // (`Sidebar.tsx`'s own per-account sections), the same "grouped by
+  // account, not merged" shape `screenerAccountGroups` above already gives
+  // the Screener.
+  const gmailLabelGroups = useGmailLabelsByAccount(accountScope) ?? [];
   const gmailLabelFilter = filter.kind === "gmailLabel" ? filter.labelId : null;
 
   // Report label/Thread selection to whoever asked (`onLocationChange`) —
@@ -1308,7 +1315,7 @@ export function MailSection({
             labels={labelsForPicker}
             labelFilter={labelFilter}
             onSelectLabel={selectLabelFilter}
-            gmailLabels={gmailLabels}
+            gmailLabelGroups={gmailLabelGroups}
             gmailLabelFilter={gmailLabelFilter}
             onSelectGmailLabel={selectGmailLabelFilter}
             onCompose={openCompose}
