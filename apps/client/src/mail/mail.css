@@ -3161,7 +3161,7 @@ button.search-chip-toggle.on {
 
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
      becomes a `Sheet` bottom sheet instead (#93) — opened from the phone
-     bottom bar's own Folders button now (#155, `router/BottomBar.tsx`),
+     phone Dock's own Folders tile now (#155, #298, `router/Dock.tsx`),
      not an in-body toggle floating over the list. */
   .side-nav-desktop {
     display: none;
