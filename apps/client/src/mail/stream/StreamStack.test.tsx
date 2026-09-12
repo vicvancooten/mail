@@ -125,29 +125,27 @@ describe("StreamStack (#105)", () => {
     expect(screen.queryByText("Snippet t-older")).toBeNull();
   });
 
-  it("renders the same Reader action hierarchy Split/List do, plus its own Skip button (#143, #105: 'Stream is not a second design')", async () => {
+  it("renders the same Reader action bar Split/List do, plus its own Skip button (#289, #105: 'Stream is not a second design')", async () => {
     await seedTwoThreads();
     renderStream();
     await screen.findByText("Newer thread");
 
-    // The primary tier — Reply, Done, Snooze, Trash — same as every surface.
+    // The Reply and Mail groups' own inline runs — same as every surface.
     expect(screen.getByRole("button", { name: "Reply" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Done — archive this thread" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Snooze" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Move to trash" })).toBeDefined();
 
-    // Skip stays Stream's own button, not a registry tier.
+    // Skip stays Stream's own button, not a registry group.
     expect(screen.getByRole("button", { name: /Skip/ })).toBeDefined();
 
-    // The secondary tier — Pin, Star, Label — inline and quieter, same as
-    // Split/List at desktop width; Read/unread and Forward reach through the
-    // same More menu every surface gets.
-    expect(screen.getByRole("button", { name: "Pin" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Star" })).toBeDefined();
+    // Pin, Star, Label, Read/unread and Forward all reach through the Mail
+    // group's overflow (#289) — same on Stream as on Split/List.
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /More actions for "Newer/ }));
-    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
-    expect(screen.queryByRole("menuitem", { name: /Pin/ })).toBeNull();
+    expect(await screen.findByRole("menuitem", { name: /Pin/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /Star/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeDefined();
   });
 
   it("'e' Dones the top card and the next one slides up", async () => {
@@ -278,13 +276,18 @@ describe("StreamStack (#105)", () => {
     expect(await listQueuedMutations("acct-1")).toEqual([]);
   });
 
-  it('"Add to Notes" (#195) works from the top card, the same real wiring Mail\'s own reader gets — not a stub', async () => {
+  it('"Save to Notes" (#195, #289) works from the top card, the same real wiring Mail\'s own reader gets — not a stub', async () => {
     await seedTwoThreads();
     const onNoteCreated = vi.fn();
     renderStream(() => {}, onNoteCreated);
     await screen.findByText("Newer thread");
 
-    fireEvent.click(screen.getByRole("button", { name: "Add to Notes" }));
+    // Integrations (#289): reachable only through the Reader's own
+    // "Send to…" menu now — a real pointer-event sequence to open it, same
+    // as every other Radix Dropdown trigger in this suite.
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Send "Newer thread" to…/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Save to Notes" }));
 
     await waitFor(() => expect(onNoteCreated).toHaveBeenCalledOnce());
     expect(await screen.findByText("Added to Notes")).toBeDefined();
