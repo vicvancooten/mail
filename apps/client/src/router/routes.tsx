@@ -17,6 +17,7 @@ import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";
 import { NotificationsPage } from "../settings/NotificationsPage.js";
+import { RegionSettingsSection } from "../settings/RegionSettingsSection.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
@@ -180,6 +181,13 @@ export const settingsGeneralRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/general",
   component: GeneralSection,
+});
+
+/** Region Settings (#303): language and region, clock, first day of week, Calendar's default view, and Home Time Zone — its own destination in `SettingsLayout`'s nav, the same "one bounded pane" shape every other Settings sub-route already has. */
+export const settingsRegionRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/region",
+  component: RegionSettingsSection,
 });
 
 export const settingsThisDeviceRoute = createRoute({
@@ -519,6 +527,7 @@ export const routeTree = rootRoute.addChildren([
   settingsRoute.addChildren([
     settingsIndexRoute,
     settingsGeneralRoute,
+    settingsRegionRoute,
     settingsThisDeviceRoute,
     settingsConnectedAccountsRoute,
     settingsMailAccountsRoute,

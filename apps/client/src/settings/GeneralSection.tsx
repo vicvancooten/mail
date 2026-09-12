@@ -13,22 +13,16 @@ import {
 import { enqueueUserMutation, usePreference } from "../store/index.js";
 
 /**
- * Every IANA zone this browser knows, for the Home Time Zone picker (#189).
- * `Intl.supportedValuesOf` is the platform's own zone database — no bundled
- * list to keep in sync with tzdata, and never a network round trip.
- */
-const TIME_ZONES = Intl.supportedValuesOf("timeZone");
-
-/** A placeholder Select value for the brief window before `use-seed-home-time-zone.ts` seeds a real zone — never a real IANA zone name, and disabled so it can never be chosen. */
-const DETECTING_TIME_ZONE = "__detecting__";
-
-/**
  * Settings' General page (#99): the User-scoped, synced `Preference` fields —
- * Auto-advance on/off + direction, the Undo Send delay, and the Home Time
- * Zone (#189). Split out of the old monolithic `SettingsSection` (#71-era),
- * which stacked this alongside Device Preferences and per-account controls
- * in one long scroll; this page carries only what actually follows the User
- * to another device.
+ * Auto-advance on/off + direction and the Undo Send delay. Split out of the
+ * old monolithic `SettingsSection` (#71-era), which stacked this alongside
+ * Device Preferences and per-account controls in one long scroll; this page
+ * carries only what actually follows the User to another device.
+ *
+ * Home Time Zone (#189) lived here until #303 (Region Settings): every date
+ * or time reading is now one section (`RegionSettingsSection.tsx`)'s
+ * concern, "no longer shown separately" here per that ticket's own
+ * acceptance line.
  *
  * Every control writes through the Optimistic Action queue
  * (`enqueueUserMutation`) and reads back through `usePreference`'s `base ⊕
@@ -65,10 +59,6 @@ export function GeneralSection() {
 
   const changeUndoSendDelay = useCallback((undoSendDelaySeconds: UndoSendDelaySeconds) => {
     void enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds });
-  }, []);
-
-  const changeHomeTimeZone = useCallback((homeTimeZone: string) => {
-    void enqueueUserMutation({ type: "setHomeTimeZone", homeTimeZone });
   }, []);
 
   return (
@@ -118,37 +108,6 @@ export function GeneralSection() {
                 {UNDO_SEND_DELAY_OPTIONS.map((seconds) => (
                   <SelectItem key={seconds} value={String(seconds)}>
                     {seconds === 0 ? "off" : `${seconds}s`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="home-time-zone">Home Time Zone</Label>
-            <Select
-              value={preference.homeTimeZone === "" ? DETECTING_TIME_ZONE : preference.homeTimeZone}
-              onValueChange={(value) => {
-                if (value === DETECTING_TIME_ZONE) return;
-                changeHomeTimeZone(value);
-              }}
-            >
-              <SelectTrigger id="home-time-zone" className="w-fit">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {/* Seeding (`use-seed-home-time-zone.ts`) races the first paint here on a
-                    brand-new device — a disabled placeholder item keeps the Select's own
-                    value valid (Radix disallows an empty string) rather than silently
-                    snapping to whatever zone sorts first while it settles. */}
-                {preference.homeTimeZone === "" && (
-                  <SelectItem value={DETECTING_TIME_ZONE} disabled>
-                    Detecting…
-                  </SelectItem>
-                )}
-                {TIME_ZONES.map((zone) => (
-                  <SelectItem key={zone} value={zone}>
-                    {zone}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -21,6 +21,7 @@ import { gatekeeperSenderSchema } from "./gatekeeper.js";
 import { mailAccountSchema, remoteImagesSettingSchema } from "./mail-accounts.js";
 import { noteDocumentSchema, noteSchema } from "./notes.js";
 import { snoozeUntilSchema } from "./push.js";
+import { calendarViewSchema, clockFormatSchema, firstDayOfWeekSchema } from "./region-settings.js";
 import { reminderDefaultSchema } from "./reminders.js";
 import { rollbackSchema } from "./rollback.js";
 import { seriesSaveOutcomeSchema, seriesSaveSchema } from "./series.js";
@@ -416,6 +417,20 @@ export const preferenceSchema = z.object({
   autoAdvanceDirection: autoAdvanceDirectionSchema,
   undoSendDelaySeconds: undoSendDelaySchema,
   homeTimeZone: z.string(),
+  /**
+   * Region Settings (#303, `region-settings.ts`'s own doc comment): language
+   * and region as a BCP-47 tag, `REGION_LOCALE_UNSET` ("") until the
+   * signing-in device seeds it from `navigator.language` — the same
+   * "sentinel, not a server-side default" posture `homeTimeZone` above
+   * already takes.
+   */
+  regionLocale: z.string(),
+  /** Region Settings' clock style (#303) — `region-settings.ts#clockFormatSchema`'s own doc comment. */
+  clockFormat: clockFormatSchema,
+  /** Region Settings' first day of the week (#303) — `region-settings.ts#firstDayOfWeekSchema`'s own doc comment. */
+  firstDayOfWeek: firstDayOfWeekSchema,
+  /** Region Settings' Calendar default view (#303) — `region-settings.ts#calendarViewSchema`'s own doc comment; `calendar-url.ts#resolveCalendarView` falls back to this once no `?view=` is on the URL. */
+  defaultCalendarView: calendarViewSchema,
   /** The Contacts App's own sort order (#211): first name or last name first — see `contacts.ts#contactsSortOrderSchema`'s own doc comment. */
   contactsSortOrder: contactsSortOrderSchema,
   /**
@@ -480,6 +495,18 @@ export const userMutationIntentSchema = z.discriminatedUnion("type", [
    * the `REQUEST` through.
    */
   z.object({ type: z.literal("setAnswerNotificationsEnabled"), enabled: z.boolean() }),
+  /**
+   * Region Settings (#303): four absolute sets, the same posture as
+   * `setHomeTimeZone`/`setContactsSortOrder` above — one field each, latest
+   * pick wins. `setRegionLocale` carries a raw BCP-47 tag the same way
+   * `setHomeTimeZone` carries a raw IANA zone: the Client only ever sends a
+   * locale its own picker offered (`RegionSettingsSection.tsx`), never a
+   * User-typed string.
+   */
+  z.object({ type: z.literal("setRegionLocale"), regionLocale: z.string().min(1) }),
+  z.object({ type: z.literal("setClockFormat"), clockFormat: clockFormatSchema }),
+  z.object({ type: z.literal("setFirstDayOfWeek"), firstDayOfWeek: firstDayOfWeekSchema }),
+  z.object({ type: z.literal("setDefaultCalendarView"), defaultCalendarView: calendarViewSchema }),
   /**
    * A Note's structural actions (#192, ADR-0023; `pinNote`/`unpinNote` joined
    * in #193): ordinary Optimistic Action intents on the User-scoped queue,

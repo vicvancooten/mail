@@ -72,6 +72,13 @@ describe("calendar-occurrences (#231)", () => {
     expect(bucket?.timed.map((event) => event.id)).toEqual(["e-early", "e-late"]);
   });
 
+  it("a real-instant Event reads its hour in the Home Time Zone, not the device's own (#303)", () => {
+    // 2026-09-08T23:30:00Z is already Sep 9 at 08:30 in Tokyo.
+    const event = makeTestEvent({ start: "2026-09-08T23:30:00.000Z" });
+    const tokyo = eventStart(event, "Asia/Tokyo");
+    expect(tokyo).toEqual({ year: 2026, month: 9, day: 9, hour: 8, minute: 30 });
+  });
+
   it("bucketEventsByDay files an all-day Occurrence separately from timed ones", () => {
     const allDay = makeTestEvent({
       id: "e-allday",

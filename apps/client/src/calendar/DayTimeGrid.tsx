@@ -1,4 +1,5 @@
-import type { Calendar, Event, Task } from "@mail/shared";
+import type { Calendar, Event, RegionFormatSettings, Task } from "@mail/shared";
+import { formatHourLabel } from "@mail/shared";
 import { type MouseEvent, type PointerEvent, useRef, useState } from "react";
 import { CalendarDayCell } from "./CalendarDayCell.js";
 import { defaultCalendarId, openCreatePanelForDay } from "./calendar-create.js";
@@ -28,14 +29,9 @@ const DEFAULT_NEW_EVENT_DURATION_MS = 60 * 60 * 1000;
 
 const MINUTES_PER_DAY = 24 * 60;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-const HOUR_LABEL = new Intl.DateTimeFormat(undefined, { hour: "numeric" });
 
 /** How far a pointer has to travel before a chip's own pointer-down counts as a drag (#305) rather than the click `EventChip` already opens its editor with — a few px of jitter on an ordinary click must never start one. */
 const DRAG_THRESHOLD_PX = 4;
-
-function hourLabel(hour: number): string {
-  return HOUR_LABEL.format(new Date(2000, 0, 1, hour));
-}
 
 function clampMinutes(minutes: number): number {
   return Math.min(Math.max(minutes, 0), MINUTES_PER_DAY - 1);
@@ -56,11 +52,11 @@ interface TimedPlacement {
  * side-by-side overlaps, rather than letting two overlapping meetings
  * render fully on top of each other.
  */
-function layoutTimedEvents(events: readonly Event[]): TimedPlacement[] {
+function layoutTimedEvents(events: readonly Event[], timeZone: string): TimedPlacement[] {
   const items = events
     .map((event) => {
-      const start = minutesOfDay(eventStart(event));
-      const rawEnd = minutesOfDay(eventEnd(event));
+      const start = minutesOfDay(eventStart(event, timeZone));
+      const rawEnd = minutesOfDay(eventEnd(event, timeZone));
       const end = Math.max(rawEnd > start ? rawEnd : start + 30, start + 15);
       return { event, start, end };
     })
@@ -161,6 +157,7 @@ export function DayTimeGrid({
   taskBuckets,
   calendarById,
   onOpenDay,
+  region,
 }: {
   days: readonly CivilDate[];
   buckets: ReadonlyMap<string, DayBucket>;
@@ -168,8 +165,11 @@ export function DayTimeGrid({
   taskBuckets?: ReadonlyMap<string, Task[]>;
   calendarById: ReadonlyMap<string, Calendar>;
   onOpenDay: (date: CivilDate) => void;
+  /** Region Settings + Home Time Zone (#303) — the hour rail, the weekday heading and every `EventChip`'s own time label all route through this. */
+  region: RegionFormatSettings;
 }) {
   const now = today();
+  const locale = region.locale || undefined;
   const columnRefs = useRef(new Map<string, HTMLDivElement>());
   const dragTrackerRef = useRef<DragTracker | null>(null);
   const resizeTrackerRef = useRef<ResizeTracker | null>(null);
@@ -308,13 +308,13 @@ export function DayTimeGrid({
     >
       {days.map((day) => {
         const bucket = buckets.get(dayKey(day));
-        const placements = layoutTimedEvents(bucket?.timed ?? []);
+        const placements = layoutTimedEvents(bucket?.timed ?? [], region.timeZone);
         const isToday = isSameDay(day, now);
         const key = dayKey(day);
         return (
           <div key={key} className="calendar-time-grid-day">
             <div className={`calendar-time-grid-day-heading${isToday ? " today" : ""}`}>
-              <span className="calendar-weekday-label">{weekdayLabel(day)}</span>
+              <span className="calendar-weekday-label">{weekdayLabel(day, locale)}</span>
               <span className="calendar-day-number">{day.day}</span>
             </div>
             <CalendarDayCell
@@ -336,6 +336,7 @@ export function DayTimeGrid({
                   event={event}
                   calendar={calendarById.get(event.calendarId)}
                   variant="all-day"
+                  region={region}
                 />
               ))}
               {(taskBuckets?.get(key) ?? []).map((task) => (
@@ -346,7 +347,7 @@ export function DayTimeGrid({
               <div className="calendar-time-gutter">
                 {HOURS.map((hour) => (
                   <div key={hour} className="calendar-hour-label">
-                    {hourLabel(hour)}
+                    {formatHourLabel(hour, region)}
                   </div>
                 ))}
               </div>
@@ -377,7 +378,7 @@ export function DayTimeGrid({
                     <button
                       key={hour}
                       type="button"
-                      aria-label={`Create event at ${hourLabel(hour)}`}
+                      aria-label={`Create event at ${formatHourLabel(hour, region)}`}
                       className="calendar-hour-row"
                       onClick={(event: MouseEvent<HTMLButtonElement>) =>
                         createAt(event.clientX, event.clientY)
@@ -397,8 +398,8 @@ export function DayTimeGrid({
                   let displayTop = top;
                   let displayHeight = height;
                   if (isResizingThis && resizePreview) {
-                    const startMinutes = minutesOfDay(eventStart(event));
-                    const endMinutes = minutesOfDay(eventEnd(event));
+                    const startMinutes = minutesOfDay(eventStart(event, region.timeZone));
+                    const endMinutes = minutesOfDay(eventEnd(event, region.timeZone));
                     const nextStart =
                       resizePreview.edge === "start" ? resizePreview.minutes : startMinutes;
                     const nextEnd =
@@ -422,7 +423,7 @@ export function DayTimeGrid({
                       onPointerCancel={draggable ? handlePointerCancel : undefined}
                       onClickCapture={draggable ? handleClickCapture : undefined}
                     >
-                      <EventChip event={event} calendar={calendar} />
+                      <EventChip event={event} calendar={calendar} region={region} />
                       {draggable ? (
                         <>
                           <div

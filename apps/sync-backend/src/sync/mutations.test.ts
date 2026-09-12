@@ -2011,6 +2011,32 @@ describe("flushUserMutations — setAnswerNotificationsEnabled (#243)", () => {
   });
 });
 
+describe("flushUserMutations — Region Settings (#303)", () => {
+  it("writes each Region Settings field as an absolute set", async () => {
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01REGIONLOCALE", intent: { type: "setRegionLocale", regionLocale: "nl-NL" } },
+      { id: "01CLOCKFORMAT", intent: { type: "setClockFormat", clockFormat: "24" } },
+      { id: "01FIRSTDAY", intent: { type: "setFirstDayOfWeek", firstDayOfWeek: "sunday" } },
+      {
+        id: "01DEFAULTVIEW",
+        intent: { type: "setDefaultCalendarView", defaultCalendarView: "month" },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01REGIONLOCALE", status: "applied" },
+      { id: "01CLOCKFORMAT", status: "applied" },
+      { id: "01FIRSTDAY", status: "applied" },
+      { id: "01DEFAULTVIEW", status: "applied" },
+    ]);
+    const [row] = await db.select().from(users).where(eq(users.id, account.userId));
+    expect(row?.regionLocale).toBe("nl-NL");
+    expect(row?.clockFormat).toBe("24");
+    expect(row?.firstDayOfWeek).toBe("sunday");
+    expect(row?.defaultCalendarView).toBe("month");
+  });
+});
+
 /**
  * Task and Task List structural intents (#251, ADR-0030): `flushUserMutations`'s
  * own dispatch, the Note describe block above's exact template — same

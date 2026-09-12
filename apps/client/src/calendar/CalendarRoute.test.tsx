@@ -10,6 +10,7 @@ import {
   applyCalendarDelta,
   applyConnectedAccountDelta,
   applyEventDelta,
+  applyPreferenceDelta,
   applyTaskDelta,
   applyTaskListDelta,
 } from "../store/server-writes.js";
@@ -188,6 +189,38 @@ async function seedOneDueTask(overrides: Parameters<typeof makeTask>[3] = {}): P
           dueDate: "2026-09-08T00:00:00.000Z",
           ...overrides,
         }),
+      ],
+    }),
+    { replace: false },
+  );
+}
+
+/** Region Settings (#303) — the Preference fields the tests below flip away from their defaults. */
+async function seedPreference(
+  overrides: Partial<{
+    clockFormat: "auto" | "12" | "24";
+    firstDayOfWeek: "monday" | "sunday";
+    defaultCalendarView: "day" | "workweek" | "week" | "month" | "year";
+  }>,
+): Promise<void> {
+  await applyPreferenceDelta(
+    delta({
+      created: [
+        {
+          id: USER,
+          autoAdvanceEnabled: true,
+          autoAdvanceDirection: "older",
+          undoSendDelaySeconds: 10,
+          homeTimeZone: "UTC",
+          regionLocale: "en-US",
+          clockFormat: "auto",
+          firstDayOfWeek: "monday",
+          defaultCalendarView: "week",
+          contactsSortOrder: "given",
+          answerNotificationsEnabled: true,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          ...overrides,
+        },
       ],
     }),
     { replace: false },
@@ -900,5 +933,45 @@ describe("Read-only Calendars (#282)", () => {
     expect((screen.getByPlaceholderText("Title") as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+});
+
+describe("Region Settings on the Calendar grid (#303)", () => {
+  it("switching to a 24-hour clock changes the grid's hour labels", async () => {
+    await seedPreference({ clockFormat: "24" });
+    stubFetch();
+
+    render(<App />);
+
+    // The Week view's own hour rail — midnight reads "12 AM" with the
+    // default `"auto"` clock, "00" once Region Settings forces 24-hour (one
+    // per day column, so `findAllByText` rather than `findByText`).
+    expect((await screen.findAllByText("00")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("12 AM")).toBeNull();
+  });
+
+  it("setting first day to Sunday changes the week grid's first column", async () => {
+    await seedPreference({ firstDayOfWeek: "sunday" });
+    stubFetch();
+
+    const { container } = render(<App />);
+
+    // 2026-09-08 (the URL's own `?date=`) is a Tuesday; Sunday-first Week
+    // starts on 2026-09-06 rather than Monday-first's 2026-09-07.
+    await waitFor(() => {
+      const firstColumn = container.querySelector(".calendar-time-grid-day .calendar-day-number");
+      expect(firstColumn?.textContent).toBe("6");
+    });
+  });
+
+  it("the default view opens on Calendar entry with no ?view= on the URL", async () => {
+    await seedPreference({ defaultCalendarView: "month" });
+    stubFetch();
+    history.replaceState(null, "", "/calendar");
+
+    render(<App />);
+
+    const monthButton = await screen.findByRole("button", { name: "Month" });
+    await waitFor(() => expect(monthButton.getAttribute("aria-pressed")).toBe("true"));
   });
 });
