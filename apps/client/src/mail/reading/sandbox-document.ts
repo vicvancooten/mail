@@ -181,6 +181,39 @@ function rewriteCssUrls(css: string, state: ImageReferenceState): string {
 }
 
 /**
+ * #290: a slow image should never read as a missing one. Every `<img>` left
+ * with a real `src` after the substitution pass above — a resolved `cid:`
+ * blob or an opted-in remote fetch, the two cases with actual network
+ * latency — is wrapped in a `<span class="mail-image-shimmer">` that shows a
+ * pulsing placeholder until the sandboxed document's own load/error listener
+ * (`IMAGE_LOAD_SCRIPT`/`IMAGE_ERROR_SCRIPT` below) clears it. The blocked
+ * pixel (`BLOCKED_IMAGE_PLACEHOLDER`) and an unresolved `cid:` (its `src`
+ * attribute was already removed above) never reach here — neither one is
+ * ever slow, so there is nothing for a shimmer to cover. Any `width`/
+ * `height` the sender's own markup gave the `<img>` is copied onto the
+ * wrapper, so the placeholder holds the right amount of space and the page
+ * doesn't jump once the real image paints; with neither attribute the
+ * wrapper falls back to a fixed minimum box (its own CSS, `buildMessageDocument`).
+ */
+function wrapImagesForShimmer(wrapper: Element): void {
+  const doc = wrapper.ownerDocument;
+  for (const img of wrapper.querySelectorAll("img")) {
+    const src = img.getAttribute("src");
+    if (!src || src === BLOCKED_IMAGE_PLACEHOLDER) continue;
+
+    const placeholder = doc.createElement("span");
+    placeholder.className = "mail-image-shimmer";
+    const width = img.getAttribute("width");
+    const height = img.getAttribute("height");
+    if (width) placeholder.style.width = /^\d+$/.test(width) ? `${width}px` : width;
+    if (height) placeholder.style.height = /^\d+$/.test(height) ? `${height}px` : height;
+
+    img.replaceWith(placeholder);
+    placeholder.appendChild(img);
+  }
+}
+
+/**
  * Runs the client-side sanitize pass and substitutes every image reference
  * for this render: `cid:` → `blob:` where resolved (a broken-image
  * placeholder otherwise — never a network request), and a proxied remote
@@ -219,6 +252,8 @@ export function sanitizeAndSubstitute(html: string, state: ImageReferenceState):
       img.setAttribute("src", BLOCKED_IMAGE_PLACEHOLDER);
     }
   }
+
+  wrapImagesForShimmer(wrapper);
 
   for (const el of wrapper.querySelectorAll("[style]")) {
     const style = el.getAttribute("style");
@@ -307,6 +342,23 @@ parent.postMessage({type:"mail-link-click",href:a.getAttribute("href")},__MAIL_T
 })();`;
 
 /**
+ * #290: clears a `mail-image-shimmer` wrapper (`wrapImagesForShimmer` above)
+ * the moment its image reports success — `load` never bubbles either, so
+ * this listens on the same capturing phase as the error handler below.
+ * Never fires for anything `wrapImagesForShimmer` chose not to wrap (the
+ * blocked pixel, an unresolved `cid:`), so there's no shimmer to clear
+ * there in the first place.
+ */
+const IMAGE_LOAD_SCRIPT = `(function(){
+document.addEventListener("load",function(event){
+var img=event.target;
+if(!img||img.tagName!=="IMG")return;
+var wrap=img.parentElement;
+if(wrap&&wrap.classList&&wrap.classList.contains("mail-image-shimmer"))wrap.classList.remove("mail-image-shimmer");
+},true);
+})();`;
+
+/**
  * A visible error state for a remote image that fails to load once "Load
  * remote images" is on (ADR-0018's acceptance box: "a failing image shows a
  * message") — today a broken `<img>` just leaves a hole, `alt` text only if
@@ -315,17 +367,21 @@ parent.postMessage({type:"mail-link-click",href:a.getAttribute("href")},__MAIL_T
  * it anywhere in the tree without an individual listener per `<img>`. Never
  * fires for a blocked image (its `src` is a same-document placeholder, not
  * a network request) or an unresolved `cid:` one (its `src` attribute is
- * removed entirely) — both already render as nothing, deliberately.
+ * removed entirely) — both already render as nothing, deliberately. Also
+ * clears the `mail-image-shimmer` wrapper (#290) the failed image was
+ * sitting in, the same way the load handler above does for a success.
  */
 const IMAGE_ERROR_SCRIPT = `(function(){
 document.addEventListener("error",function(event){
 var img=event.target;
 if(!img||img.tagName!=="IMG"||img.dataset.mailImageFailed)return;
 img.dataset.mailImageFailed="1";
+var wrap=img.parentElement&&img.parentElement.classList&&img.parentElement.classList.contains("mail-image-shimmer")?img.parentElement:null;
 var note=document.createElement("span");
 note.className="mail-image-error";
 note.textContent=img.alt?"Image failed to load: "+img.alt:"Image failed to load";
 img.replaceWith(note);
+if(wrap)wrap.classList.remove("mail-image-shimmer");
 },true);
 })();`;
 
@@ -379,10 +435,16 @@ img{max-width:100%;height:auto;}
 table{max-width:100%;}
 .mail-image-error{display:inline-block;padding:2px 6px;border:1px solid #d0d0d0;border-radius:4px;
   background:#f5f5f5;color:#666;font-size:12px;font-style:italic;}
+.mail-image-shimmer{position:relative;display:inline-block;overflow:hidden;vertical-align:top;
+  min-width:40px;min-height:40px;background:#e8e8e8;}
+.mail-image-shimmer::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.65) 50%,rgba(255,255,255,0) 100%);
+  animation:mail-image-shimmer-sweep 1.2s ease-in-out infinite;}
+@keyframes mail-image-shimmer-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
 ${invertCss}
 </style>
 </head><body>
 <div${invert ? ' class="mail-invert"' : ""}>${body}</div>
-<script nonce="${opts.nonce}">${resizeScript}${opts.linkBridge ? linkBridgeScript : ""}${IMAGE_ERROR_SCRIPT}</script>
+<script nonce="${opts.nonce}">${resizeScript}${opts.linkBridge ? linkBridgeScript : ""}${IMAGE_LOAD_SCRIPT}${IMAGE_ERROR_SCRIPT}</script>
 </body></html>`;
 }

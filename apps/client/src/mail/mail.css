@@ -1434,27 +1434,32 @@
   transition: transform 0.2s ease;
 }
 
-/* The Width decision (#98, grill Q10): the reading header centers at the
-   same 74ch column as the Snippet and a plain-text body, regardless of how
-   wide the HTML body below it fills the pane — `max-width` plus centering,
-   not the padding alone, so it stays a readable column at wide Split-pane
-   widths too. */
+/* #290: the fixed action bar — back button and the toolbar's run of icon
+   buttons — is now the *only* pinned chrome in the pane. Subject,
+   participants and everything below live in `.reading-body`'s scrolling
+   document instead, so this no longer centers on the 74ch column itself;
+   `.reading-heading` (inside the body) does that instead. */
 .reading-header {
   flex: none;
-  max-width: 74ch;
-  margin-inline: auto;
-  padding: 28px 34px 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .reading-topline {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
 }
 
+/* The Width decision (#98, grill Q10): the subject/meta column centers at
+   the same 74ch column as the Snippet and a plain-text body, regardless of
+   how wide the HTML body below it fills the pane — `max-width` plus
+   centering, not the padding alone, so it stays a readable column at wide
+   Split-pane widths too. */
 .reading-heading {
-  flex: 1;
-  min-width: 0;
+  max-width: 74ch;
+  margin-inline: auto;
+  padding-top: 24px;
 }
 
 .reading-eyebrow {
@@ -1505,6 +1510,11 @@
   align-items: center;
   gap: 1px;
   flex: none;
+  /* Pushes the action run to the far edge of the bar regardless of whether
+     the back button (only present when there's a list to return to) is
+     rendered before it (#290: the bar no longer has a subject to hold this
+     space open on its own). */
+  margin-left: auto;
 }
 
 .reading-actions button {
@@ -1638,7 +1648,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 18px;
+  max-width: 74ch;
+  margin: 18px auto 0;
   padding-bottom: 22px;
 }
 
@@ -1686,17 +1697,18 @@
 
 /* The Reader's Task chips (#259) — one per open Task whose Thread Link
    field names this Thread, `ReaderTaskChips.tsx`'s own doc comment. Same
-   74ch column and side padding `.reading-header` centers itself on, so the
-   row lines up under the subject rather than under the wider message body
-   below it; absent entirely (no margin, no padding) when there are no open
-   Tasks, since the component itself renders nothing then. */
+   74ch column `.reading-heading` centers itself on (the side inset now
+   comes from the parent `.reading-body`'s own padding, not from here), so
+   the row lines up under the subject rather than under the wider message
+   body below it; absent entirely (no margin, no padding) when there are no
+   open Tasks, since the component itself renders nothing then. */
 .reader-task-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   max-width: 74ch;
   margin: 0 auto;
-  padding: 0 34px 18px;
+  padding: 0 0 18px;
   list-style: none;
 }
 
@@ -1753,18 +1765,22 @@
   color: var(--color-ink-faint);
 }
 
-/* The reply composer at rest (the comp's `.reply-hint`): a filled bar across
-   the foot of the pane naming who it would answer, rather than an empty
-   editor holding the page open. */
+/* The reply composer at rest (the comp's `.reply-hint`): a filled bar
+   naming who it would answer, rather than an empty editor holding the page
+   open. Part of the scrolling document since #290 — the last block of it,
+   not pinned to the foot of the pane — so its width and inset come from
+   the parent `.reading-body`'s own padding, and it needs only the top gap
+   that separates it from the last Message plus room for the safe area at
+   the true bottom of the scroll. */
 .reply-hint {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: none;
-  width: calc(100% - 68px);
-  margin: 0 34px 30px;
-  margin-bottom: max(30px, env(safe-area-inset-bottom));
+  width: 100%;
+  margin-top: 14px;
   padding: 14px 17px;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-field);
@@ -3042,24 +3058,16 @@ button.search-chip-toggle.on {
     display: flex;
   }
 
-  /* #138: the desktop-only 74ch reading column and the non-wrapping action
-     row both assume width the phone doesn't have. The header goes full
-     width, and the action row drops to its own line below the subject so
-     the subject gets one full line before it has to truncate — wrapping
-     further within itself if even that line runs short. */
+  /* #138: the header is now just the fixed action bar (#290 moved the
+     subject/meta into the scrolling body below), so it only needs the
+     phone's tighter side padding — no more wrapping the action row onto
+     its own line under a subject that isn't here any more. */
   .reading-header {
-    max-width: none;
-    padding: 16px 16px 0;
+    padding: 8px 16px;
   }
 
-  .reading-topline {
-    flex-wrap: wrap;
-  }
-
-  .reading-actions {
-    flex: 1 1 100%;
-    flex-wrap: wrap;
-    margin-top: 8px;
+  .reading-heading {
+    padding-top: 16px;
   }
 
   .reading-body {
@@ -3074,9 +3082,7 @@ button.search-chip-toggle.on {
   }
 
   .reply-hint {
-    width: calc(100% - 32px);
-    margin: 0 16px 16px;
-    margin-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
   }
 
   .screener {
@@ -3599,11 +3605,13 @@ button.search-chip-toggle.on {
   }
 }
 
-/* The Reader's invite card (#240, ADR-0027): pinned above the Messages, one
-   per Thread per UID — `ThreadDetailPane.tsx`'s own placement. */
+/* The Reader's invite card (#240, ADR-0027): above the Messages, one per
+   Thread per UID — `ThreadDetailPane.tsx`'s own placement. Part of the
+   scrolling document since #290; the side inset comes from the parent
+   `.reading-body`'s own padding, not from here. */
 .invite-card {
   flex: none;
-  margin: 0 34px 16px;
+  margin: 0 0 16px;
   padding: 14px 16px;
   border-radius: var(--radius-panel);
   background: var(--color-field);
