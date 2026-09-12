@@ -2,6 +2,7 @@ import type { Contact } from "@mail/shared";
 import { normalizeCorrespondentAddress } from "@mail/shared";
 import { useMemo } from "react";
 import { useContacts } from "../store/contacts.js";
+import { buildContactAddressIndex } from "./contact-address-index.js";
 import { contactPhotoSrc } from "./contact-photo.js";
 
 /**
@@ -15,22 +16,12 @@ import { contactPhotoSrc } from "./contact-photo.js";
  * every caller here only ever wants `Avatar`'s `photoUrl` prop, and building
  * the same-origin URL once (`contactPhotoSrc`) up front means a lookup miss
  * (no Contact, or a Contact with no photo) and a lookup hit are both a single
- * `Map#get`, with no `null` photo ever taking up a slot in the index.
+ * `Map#get`, with no `null` photo ever taking up a slot in the index —
+ * `buildContactAddressIndex`'s `valueFor` returning `undefined` for a
+ * photo-less Contact is what keeps it out of the index.
  */
 export function buildContactPhotoIndex(contacts: readonly Contact[]): Map<string, string> {
-  const index = new Map<string, string>();
-  for (const contact of contacts) {
-    const photoSrc = contactPhotoSrc(contact);
-    if (!photoSrc) continue;
-    for (const email of contact.emails) {
-      const normalized = normalizeCorrespondentAddress(email.value);
-      // First Contact declaring an address wins a rare duplicate — same
-      // "no signal for which is right, just be deterministic" posture as
-      // `recipients.ts#mergeContactsIntoCorrespondents`.
-      if (!index.has(normalized)) index.set(normalized, photoSrc);
-    }
-  }
-  return index;
+  return buildContactAddressIndex(contacts, (contact) => contactPhotoSrc(contact) ?? undefined);
 }
 
 /** `null` for an unmatched address, or a matched Contact with no photo — both read as "still initials-only" by every `Avatar` caller. */
