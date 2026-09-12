@@ -28,6 +28,7 @@ import { usePaletteHost } from "../command-palette/PaletteHostContext.js";
 import { ShortcutSheet } from "../command-palette/ShortcutSheet.js";
 import { folderToView } from "../folders.js";
 import { RollbackToast } from "../RollbackToast.js";
+import { openReaderWindow } from "../reader-window.js";
 import type { MailtoLink } from "../reading/mailto.js";
 import { useThreadMessages } from "../reading/useThreadMessages.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
@@ -387,6 +388,7 @@ export function StreamStack({
       onOpenStream: () => {},
       onAddToNotes,
       onAddToTasks: onOpenAddToTasksSheet,
+      onOpenInNewWindow: (thread) => openReaderWindow(thread.id),
       onMove: () => {},
       threadCount: 0,
       openPicker: topThreadSnapshot ? (which) => currentReaderHandle()?.openPicker(which) : null,

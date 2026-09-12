@@ -26,6 +26,7 @@ export function SplitView({
   selectedThreadId,
   selectedThreadOverride,
   onSelect,
+  onOpenSheet,
   onClearSelection,
   onLoadMore,
   triage,
@@ -44,6 +45,8 @@ export function SplitView({
   /** Shows this Thread in the pane instead of looking `selectedThreadId` up in `threads` — the Command Palette's "Enter opens the top hit" (#100): the list pane stays whatever it already was while the pane shows a hit that may not belong to it. */
   selectedThreadOverride?: CachedThread | null;
   onSelect: (id: string) => void;
+  /** Double-clicking a row opens the Reader Sheet (#292) — `MailSection`'s own Dialog, mounted independently of this view's `selectedThread`, so opening and closing it never touches this list at all. */
+  onOpenSheet?: (id: string) => void;
   onClearSelection: () => void;
   onLoadMore?: () => void;
   triage: Triage;
@@ -76,6 +79,7 @@ export function SplitView({
           complete={complete}
           selectedThreadId={selectedThreadId}
           onSelect={onSelect}
+          onOpenSheet={onOpenSheet}
           onLoadMore={onLoadMore}
           triage={triage}
           initialScrollThreadId={initialScrollThreadId}

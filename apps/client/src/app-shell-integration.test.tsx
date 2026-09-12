@@ -1243,6 +1243,34 @@ describe("the app shell over a routed tree (#71)", () => {
   });
 });
 
+describe("the standalone Reader route (#292)", () => {
+  it("renders only the Reader — no Hub header, no App Switcher, no list", async () => {
+    await seedTwoThreads();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/reader/t1");
+    render(<App />);
+
+    expect(await screen.findByText("Newer thread", { selector: ".reading-subject" })).toBeDefined();
+    expect(screen.queryByLabelText("Switch app")).toBeNull();
+    expect(screen.queryByLabelText("Search commands and mail")).toBeNull();
+    expect(screen.queryByText("Older thread")).toBeNull();
+  });
+
+  it("the shortcut registry still works — `e` archives the open Thread straight off the keyboard", async () => {
+    await seedTwoThreads();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/reader/t1");
+    render(<App />);
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    fireEvent.keyDown(window, { key: "e" });
+
+    expect(await screen.findByText("Done", { exact: false })).toBeDefined();
+  });
+});
+
 /** A Note document whose only block is a paragraph carrying `text` — the grid's own derived title and preview both read straight off this. */
 function noteParagraph(text: string) {
   return [

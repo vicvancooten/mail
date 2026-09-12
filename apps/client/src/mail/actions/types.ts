@@ -156,6 +156,17 @@ export interface ActionContext {
    * sheet's open state and the Thread it's about.
    */
   onAddToTasks: (thread: CachedThread) => void;
+  /**
+   * "Open in new window" (#292): a real browser window, not a route change
+   * — `window.open` against the standalone Reader route
+   * (`router/ReaderRoute.tsx`, `/mail/reader/$threadId`), so the Thread stays
+   * open there while the User works elsewhere in this one. Takes the Thread
+   * directly, same shape as `onAddToNotes`/`onAddToTasks` above, so the
+   * registry's own `run` (`registry.ts`'s `open-in-new-window`) stays a
+   * one-line forward to wherever this context is wired
+   * (`mail/MailSection.tsx`'s own handler).
+   */
+  onOpenInNewWindow: (thread: CachedThread) => void;
   /** Moves the selection one Thread `delta` — the list's own collapse-aware mover where one is mounted (`surface-handles.ts`), else the flat neighbour. */
   onMove: (delta: 1 | -1) => void;
   /** How many Threads the current list holds — what makes next/prev available at all. */
@@ -284,6 +295,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onOpenStream: () => {},
     onAddToNotes: () => {},
     onAddToTasks: () => {},
+    onOpenInNewWindow: () => {},
     onMove: () => {},
     threadCount: 0,
     openPicker: null,

@@ -121,6 +121,7 @@ export {
   useScreenerSenders,
   useSearchPrefilter,
   useSearchResultThreads,
+  useThread,
   useThreadWindow,
 } from "./reads.js";
 export {

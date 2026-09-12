@@ -1007,6 +1007,26 @@ export async function readRecentThreadsForLinking(
     .slice(0, limit);
 }
 
+/**
+ * One Thread by id, with the same pending-mutation overlay every other read
+ * here gets (ADR-0010) — the standalone Reader route's own lookup (#292,
+ * `router/ReaderRoute.tsx`), which has no `useThreadWindow` folder page to
+ * find it in, just a bare id off the URL. `undefined` while the query is
+ * still in flight (`useLiveQuery`'s own first-render value), `null` once
+ * it's resolved and nothing in the Local Cache has that id — the route
+ * tells those two apart to show "still loading" only for the first.
+ */
+export function useThread(threadId: string | null): CachedThread | null | undefined {
+  return useLiveQuery(async () => {
+    if (!threadId) return null;
+    const db = localCache();
+    const thread = await db.threads.get(threadId);
+    if (!thread) return null;
+    const [overlaid] = await overlayPendingMutations(db, [thread]);
+    return overlaid ?? null;
+  }, [threadId]);
+}
+
 /** The Contact Card's own "recent Threads" list (#293) default cap — a peek, not a history tab (`MailHistoryTab.tsx` already owns the full, paginated, server-backed one). */
 const RECENT_THREADS_FOR_SENDER_LIMIT = 3;
 

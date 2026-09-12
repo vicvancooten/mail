@@ -140,6 +140,28 @@ describe("the Action registry", () => {
     expect(onAddToTasks).toHaveBeenCalledWith(thread);
   });
 
+  it('"Open in new window" (#292) forwards the Thread to ctx.onOpenInNewWindow, nothing else, and is Reader-mail-overflow only', () => {
+    const onOpenInNewWindow = vi.fn();
+    const thread = makeThread();
+    const ctx = withThread(noopActionContext({ onOpenInNewWindow }), thread);
+    const action = ACTIONS.find((candidate) => candidate.id === "open-in-new-window");
+
+    expect(action?.surfaces).toEqual(["reader-mail-overflow"]);
+    expect(action?.availability(ctx)).toEqual({ available: true });
+    action?.run(ctx);
+
+    expect(onOpenInNewWindow).toHaveBeenCalledTimes(1);
+    expect(onOpenInNewWindow).toHaveBeenCalledWith(thread);
+
+    expect(mailOverflowActions(ctx).map((candidate) => candidate.id)).toContain(
+      "open-in-new-window",
+    );
+    expect(action?.availability(noopActionContext())).toEqual({
+      available: false,
+      reason: expect.any(String),
+    });
+  });
+
   it("flips its own label with the state it toggles", () => {
     const starred = withThread(noopActionContext(), makeThread({ starred: true }));
     const star = ACTIONS.find((action) => action.id === "star");

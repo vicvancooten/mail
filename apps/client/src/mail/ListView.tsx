@@ -19,6 +19,7 @@ export function ListView({
   complete,
   selectedThreadId,
   onSelect,
+  onOpenSheet,
   onBack,
   onLoadMore,
   triage,
@@ -35,6 +36,8 @@ export function ListView({
   complete: boolean;
   selectedThreadId: string | null;
   onSelect: (id: string) => void;
+  /** Double-clicking a row opens the Reader Sheet (#292) over the list rather than swapping to the full-screen pane this view mode otherwise would on a single click — `SplitView`'s own doc comment on the prop. */
+  onOpenSheet?: (id: string) => void;
   onBack: () => void;
   onLoadMore?: () => void;
   triage: Triage;
@@ -76,6 +79,7 @@ export function ListView({
       complete={complete}
       selectedThreadId={selectedThreadId}
       onSelect={onSelect}
+      onOpenSheet={onOpenSheet}
       onLoadMore={onLoadMore}
       triage={triage}
       initialScrollThreadId={initialScrollThreadId}

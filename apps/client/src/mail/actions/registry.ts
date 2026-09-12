@@ -6,6 +6,7 @@ import {
   ChevronUp,
   Clock,
   CornerUpLeft,
+  ExternalLink,
   Flag,
   Forward,
   Keyboard,
@@ -259,6 +260,24 @@ export const ACTIONS: readonly Action[] = [
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.toggleRead(ctx.thread.id);
+    },
+  },
+  // "Open in new window" (#292): the Mail group's overflow, unbound like
+  // Read/unread and Forward just above/below — reachable only from the
+  // Reader's own overflow (not the row menu: a row isn't "open" anywhere to
+  // duplicate into a second window). Opens the standalone Reader route
+  // (`router/ReaderRoute.tsx`) in a real browser window, so the User can
+  // keep this Thread open while working elsewhere in this one.
+  {
+    id: "open-in-new-window",
+    label: "Open in new window",
+    icon: ExternalLink,
+    section: "Navigation",
+    binding: null,
+    surfaces: ["reader-mail-overflow"],
+    availability: needsThread,
+    run: (ctx) => {
+      if (ctx.thread) ctx.onOpenInNewWindow(ctx.thread);
     },
   },
   replyAction("reply", "Reply", "reply", "R", "r", Reply, [
