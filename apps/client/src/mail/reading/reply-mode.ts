@@ -1,3 +1,4 @@
+import type { MailAccount } from "@mail/shared";
 import type { CachedThread } from "../../store/index.js";
 
 /** Matches `compose/reply.ts`'s own `normalizedAddress` — trim and lowercase, so a self-address comparison is case- and whitespace-insensitive the same way reply-all's own recipient filtering already is. */
@@ -22,6 +23,20 @@ export function otherParticipantCount(
   return thread.participants.filter(
     (participant) => normalizedAddress(participant.address) !== self,
   ).length;
+}
+
+/**
+ * `chooseReplyMode`'s own `selfAddress` (#289): the Mail Account that owns
+ * `thread` (`thread.mailAccountId`), resolved against whatever `useMailAccounts()`
+ * currently holds. `null` for the same reasons `otherParticipantCount` above
+ * already tolerates a `null` self address — a fresh sync, an account
+ * mid-removal, or `mailAccounts` itself not yet loaded.
+ */
+export function selfAddressFor(
+  mailAccounts: readonly MailAccount[] | null | undefined,
+  thread: Pick<CachedThread, "mailAccountId">,
+): string | null {
+  return mailAccounts?.find((account) => account.id === thread.mailAccountId)?.emailAddress ?? null;
 }
 
 /**

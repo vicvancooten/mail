@@ -29,7 +29,7 @@ import { LabelPicker } from "./LabelPicker.js";
 import { ReaderTaskChips } from "./ReaderTaskChips.js";
 import { MessageList } from "./reading/MessageList.js";
 import type { MailtoLink } from "./reading/mailto.js";
-import { chooseReplyMode } from "./reading/reply-mode.js";
+import { chooseReplyMode, selfAddressFor } from "./reading/reply-mode.js";
 import { useInvitationCards } from "./reading/useInvitationCards.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { SnoozeMenu } from "./SnoozeMenu.js";
@@ -116,8 +116,7 @@ export function ThreadDetailPane({
   // (`message.mailAccountId`/`thread.mailAccountId`), not Account Scope's
   // primary account.
   const mailAccounts = useMailAccounts();
-  const selfAddress =
-    mailAccounts?.find((account) => account.id === thread.mailAccountId)?.emailAddress ?? null;
+  const selfAddress = selfAddressFor(mailAccounts, thread);
   const replyMode = chooseReplyMode(thread, selfAddress);
   const replyPrimaryId = replyMode === "replyAll" ? "reply-all" : "reply";
   const { messages } = useThreadMessages(thread.id);

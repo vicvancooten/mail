@@ -53,6 +53,7 @@ import type { Action, ActionChoice, ActionContext, ActionSurface } from "./types
 
 const NO_THREAD = "Nothing selected — pick a Thread first.";
 const NO_MESSAGE = "No message loaded to reply to yet.";
+const ALREADY_STANDALONE = "This Thread is already open in its own window.";
 export const NO_PICKER = "Open the Thread first — its picker lives in the reading pane.";
 
 const available = { available: true } as const;
@@ -267,7 +268,10 @@ export const ACTIONS: readonly Action[] = [
   // Reader's own overflow (not the row menu: a row isn't "open" anywhere to
   // duplicate into a second window). Opens the standalone Reader route
   // (`router/ReaderRoute.tsx`) in a real browser window, so the User can
-  // keep this Thread open while working elsewhere in this one.
+  // keep this Thread open while working elsewhere in this one. Unavailable
+  // from inside that same standalone window (`onOpenInNewWindow` is `null`
+  // there) — that window *is* the one this action would open, so the
+  // overflow simply omits it rather than the action quietly doing nothing.
   {
     id: "open-in-new-window",
     label: "Open in new window",
@@ -275,9 +279,13 @@ export const ACTIONS: readonly Action[] = [
     section: "Navigation",
     binding: null,
     surfaces: ["reader-mail-overflow"],
-    availability: needsThread,
+    availability: (ctx) => {
+      if (!ctx.thread) return unavailable(NO_THREAD);
+      if (!ctx.onOpenInNewWindow) return unavailable(ALREADY_STANDALONE);
+      return available;
+    },
     run: (ctx) => {
-      if (ctx.thread) ctx.onOpenInNewWindow(ctx.thread);
+      if (ctx.thread) ctx.onOpenInNewWindow?.(ctx.thread);
     },
   },
   replyAction("reply", "Reply", "reply", "R", "r", Reply, [

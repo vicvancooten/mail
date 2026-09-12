@@ -162,6 +162,20 @@ describe("the Action registry", () => {
     });
   });
 
+  it('"Open in new window" (#292) is unavailable — and omitted from the Mail overflow — with a Thread in hand but no handler, the standalone Reader route\'s own shape (`router/ReaderRoute.tsx`)', () => {
+    const thread = makeThread();
+    const ctx = withThread(noopActionContext({ onOpenInNewWindow: null }), thread);
+    const action = ACTIONS.find((candidate) => candidate.id === "open-in-new-window");
+
+    expect(action?.availability(ctx)).toEqual({
+      available: false,
+      reason: expect.any(String),
+    });
+    expect(mailOverflowActions(ctx).map((candidate) => candidate.id)).not.toContain(
+      "open-in-new-window",
+    );
+  });
+
   it("flips its own label with the state it toggles", () => {
     const starred = withThread(noopActionContext(), makeThread({ starred: true }));
     const star = ACTIONS.find((action) => action.id === "star");
