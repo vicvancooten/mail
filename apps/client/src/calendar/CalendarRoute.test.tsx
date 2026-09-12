@@ -8,6 +8,7 @@ import { resetUndoToastsForTest } from "../mail/undo-toast.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
 import {
   applyCalendarDelta,
+  applyConnectedAccountDelta,
   applyEventDelta,
   applyTaskDelta,
   applyTaskListDelta,
@@ -18,6 +19,7 @@ import {
   delta,
   eventDelta,
   makeCalendar,
+  makeConnectedAccount,
   makeEvent,
   makeTask,
   makeTaskList,
@@ -700,6 +702,82 @@ const READ_ONLY_CAPABILITIES = {
  * cover the pure filtering rules; this proves the whole grid actually wires
  * up to them.
  */
+/**
+ * Account Scope narrows the grid (#300's own acceptance line: "narrowing
+ * Account Scope to one account narrows events shown to that account's
+ * calendars plus Local ones"). The Hub's own Scope is a Device Preference
+ * (`mail/device-preferences.ts#ACCOUNT_SCOPE_KEY`) — writing it straight to
+ * `localStorage` here is the same shortcut `useAccountScope.test.ts` takes
+ * to avoid driving the Hub's own picker UI for a grid-only assertion.
+ */
+describe("Account Scope narrows the Calendar grid (#300)", () => {
+  it("keeps Local Events and one in-Scope account's, hiding an out-of-Scope account's", async () => {
+    await applyConnectedAccountDelta(
+      delta({
+        created: [
+          makeConnectedAccount("acct-google-connected", {
+            provider: "google",
+            facets: [{ kind: "calendar", status: "active" }],
+          }),
+          makeConnectedAccount("acct-ms-connected", {
+            provider: "microsoft",
+            facets: [{ kind: "calendar", status: "active" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyCalendarDelta(
+      delta({
+        created: [
+          makeCalendar("cal-personal", USER, { name: "Personal" }),
+          makeCalendar("cal-google", USER, {
+            name: "Work",
+            origin: { type: "connectedAccount", connectedAccountId: "acct-google-connected" },
+            isDefault: false,
+          }),
+          makeCalendar("cal-ms", USER, {
+            name: "Team",
+            origin: { type: "connectedAccount", connectedAccountId: "acct-ms-connected" },
+            isDefault: false,
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyEventDelta(
+      eventDelta({
+        created: [
+          makeEvent("e-local", "cal-personal", {
+            title: "Local Standup",
+            start: "2026-09-08T09:00:00.000Z",
+            end: "2026-09-08T09:30:00.000Z",
+          }),
+          makeEvent("e-google", "cal-google", {
+            title: "Google Sync",
+            start: "2026-09-08T10:00:00.000Z",
+            end: "2026-09-08T10:30:00.000Z",
+          }),
+          makeEvent("e-ms", "cal-ms", {
+            title: "Teams Sync",
+            start: "2026-09-08T11:00:00.000Z",
+            end: "2026-09-08T11:30:00.000Z",
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+    localStorage.setItem("mail.devicePref.accountScope", JSON.stringify(["acct-google-connected"]));
+    stubFetch();
+
+    render(<App />);
+
+    expect(await screen.findByText("Local Standup")).toBeDefined();
+    expect(await screen.findByText("Google Sync")).toBeDefined();
+    expect(screen.queryByText("Teams Sync")).toBeNull();
+  });
+});
+
 describe("Read-only Calendars (#282)", () => {
   it("shows the read-only flag next to a reader-access Calendar in the slide-over", async () => {
     await applyCalendarDelta(
