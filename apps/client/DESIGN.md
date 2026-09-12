@@ -591,6 +591,11 @@ used selectively rather than uniformly:
   `<Toaster />` in `RootLayout`.
 - **Popover** — Snooze and label-picker menus off the reading pane's own action row
   (`ThreadDetailPane.tsx`).
+- **Hover Card** (#293, `components/ui/hover-card.tsx`) — the Reader's Contact Card, off the
+  sender avatar (`contacts/SenderContactCard.tsx`): open on hover with Radix's own short
+  delay where the pointer can hover, and on tap (this component's own controlled `open`,
+  handed to the primitive the same way `AccountScope.tsx`'s toggle already does) where it
+  can't.
 - **Context Menu** — the Thread List's right-click action menu (`actions/ActionMenu.tsx`),
   with the full submenu/checkbox/shortcut vocabulary.
 - **Sheet** — the phone's folder rail (`mail/Sidebar.tsx`) and the Group Header's phone
