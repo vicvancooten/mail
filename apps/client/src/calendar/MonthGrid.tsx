@@ -1,4 +1,4 @@
-import type { Calendar, Event, Task } from "@mail/shared";
+import type { Calendar, Event, RegionFormatSettings, Task } from "@mail/shared";
 import { CalendarDayCell } from "./CalendarDayCell.js";
 import { openCreatePanelForDay } from "./calendar-create.js";
 import { type CivilDate, dayKey, isSameDay, today, weekdayLabel } from "./calendar-dates.js";
@@ -26,6 +26,7 @@ export function MonthGrid({
   taskBuckets,
   calendarById,
   onOpenDay,
+  region,
 }: {
   anchorMonth: number;
   days: readonly CivilDate[];
@@ -34,16 +35,19 @@ export function MonthGrid({
   taskBuckets?: ReadonlyMap<string, Task[]>;
   calendarById: ReadonlyMap<string, Calendar>;
   onOpenDay: (date: CivilDate) => void;
+  /** Region Settings + Home Time Zone (#303) — the weekday heading and every `EventChip`'s own time label route through it. */
+  region: RegionFormatSettings;
 }) {
   const now = today();
   const weekdayHeadings = days.slice(0, 7);
+  const locale = region.locale || undefined;
 
   return (
     <div className="calendar-month-grid">
       <div className="calendar-month-grid-weekdays">
         {weekdayHeadings.map((day) => (
           <div key={dayKey(day)} className="calendar-month-weekday">
-            {weekdayLabel(day)}
+            {weekdayLabel(day, locale)}
           </div>
         ))}
       </div>
@@ -102,6 +106,7 @@ export function MonthGrid({
                         event={chip.event}
                         calendar={calendarById.get(chip.event.calendarId)}
                         variant="block"
+                        region={region}
                       />
                     ) : (
                       <TaskChip key={chip.task.id} task={chip.task} variant="block" />

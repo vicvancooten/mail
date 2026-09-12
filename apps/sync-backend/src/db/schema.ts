@@ -118,6 +118,27 @@ export const users = pgTable("users", {
    */
   homeTimeZone: text("home_time_zone").notNull().default(""),
   /**
+   * Region Settings (#303, `@mail/shared#region-settings.ts`'s own doc
+   * comment): the rest of `Preference` again, `homeTimeZone`'s own posture —
+   * `""` is "not seeded yet" (`REGION_LOCALE_UNSET`), seeded from the
+   * signing-in device's own `navigator.language`, never a server-side guess.
+   */
+  regionLocale: text("region_locale").notNull().default(""),
+  /** Region Settings' clock style (#303): `"auto"` reads the resolved locale's own convention. */
+  clockFormat: text("clock_format", { enum: ["auto", "12", "24"] })
+    .notNull()
+    .default("auto"),
+  /** Region Settings' first day of the week (#303): Monday (ISO-8601) until the User picks Sunday. */
+  firstDayOfWeek: text("first_day_of_week", { enum: ["monday", "sunday"] })
+    .notNull()
+    .default("monday"),
+  /** Region Settings' Calendar default view (#303): `calendar-url.ts#DEFAULT_CALENDAR_VIEW`'s own default, Week, until the User picks another. */
+  defaultCalendarView: text("default_calendar_view", {
+    enum: ["day", "workweek", "week", "month", "year"],
+  })
+    .notNull()
+    .default("week"),
+  /**
    * The Contacts App's own sort order (#211, `@mail/shared#contactsSortOrderSchema`):
    * `Preference`'s rest again, same posture as `homeTimeZone` above —
    * "given" (first name first) is the default until the User picks

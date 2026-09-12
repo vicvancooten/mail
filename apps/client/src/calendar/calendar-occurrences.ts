@@ -1,4 +1,5 @@
 import type { Event } from "@mail/shared";
+import { civilInstantInZone } from "@mail/shared";
 import { addDays, type CivilDate, compareCivilDates, dayKey } from "./calendar-dates.js";
 
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
@@ -11,12 +12,14 @@ interface CivilInstant extends CivilDate {
 /**
  * An `Event`'s `start`/`end` read as the grid actually needs to place them
  * (ADR-0025, `events.ts`'s own doc comment): a plain timed Event
- * (`!allDay && !floating`) carries a real UTC instant, converted to the
- * viewer's own current zone; an all-day or floating Event is wall clock
- * already — its digits are the civil date/time to render verbatim, never
- * run through `Date`'s own UTC→local conversion a second time.
+ * (`!allDay && !floating`) carries a real UTC instant, converted to
+ * `timeZone` (the Home Time Zone, #303 — `""` for the viewer's own current
+ * zone, `region-settings.ts#civilInstantInZone`'s own doc comment); an
+ * all-day or floating Event is wall clock already — its digits are the
+ * civil date/time to render verbatim, never run through a zone conversion
+ * at all.
  */
-function civilInstant(iso: string, wallClock: boolean): CivilInstant {
+function civilInstant(iso: string, wallClock: boolean, timeZone: string): CivilInstant {
   if (wallClock) {
     const match = ISO_RE.exec(iso);
     if (!match) return { year: 1970, month: 1, day: 1, hour: 0, minute: 0 };
@@ -28,22 +31,16 @@ function civilInstant(iso: string, wallClock: boolean): CivilInstant {
       minute: Number(match[5]),
     };
   }
-  const asDate = new Date(iso);
-  return {
-    year: asDate.getFullYear(),
-    month: asDate.getMonth() + 1,
-    day: asDate.getDate(),
-    hour: asDate.getHours(),
-    minute: asDate.getMinutes(),
-  };
+  return civilInstantInZone(iso, timeZone);
 }
 
-export function eventStart(event: Event): CivilInstant {
-  return civilInstant(event.start, event.allDay || event.floating);
+/** `timeZone` (#303, Home Time Zone) defaults to `""` — the viewer's own current zone, same as before this ticket threaded it through. */
+export function eventStart(event: Event, timeZone = ""): CivilInstant {
+  return civilInstant(event.start, event.allDay || event.floating, timeZone);
 }
 
-export function eventEnd(event: Event): CivilInstant {
-  return civilInstant(event.end, event.allDay || event.floating);
+export function eventEnd(event: Event, timeZone = ""): CivilInstant {
+  return civilInstant(event.end, event.allDay || event.floating, timeZone);
 }
 
 /**
@@ -55,9 +52,9 @@ export function eventEnd(event: Event): CivilInstant {
  * day (a genuinely multi-day all-day span), never for the ordinary
  * single-day case.
  */
-export function eventDayKeys(event: Event): string[] {
-  const start = eventStart(event);
-  const end = eventEnd(event);
+export function eventDayKeys(event: Event, timeZone = ""): string[] {
+  const start = eventStart(event, timeZone);
+  const end = eventEnd(event, timeZone);
   const startDate: CivilDate = start;
   let endDate: CivilDate = end;
   const endsAtMidnight = end.hour === 0 && end.minute === 0;
@@ -81,8 +78,8 @@ export interface DayBucket {
   timed: Event[];
 }
 
-/** Buckets `events` by the day key(s) they touch, timed Occurrences sorted by start time then title — the grid's one read of "what renders on this cell". */
-export function bucketEventsByDay(events: readonly Event[]): Map<string, DayBucket> {
+/** Buckets `events` by the day key(s) they touch, timed Occurrences sorted by start time then title — the grid's one read of "what renders on this cell". `timeZone` (#303, Home Time Zone) decides which day a real-instant Event's start/end land on; default `""` is the viewer's own current zone, unchanged from before this ticket. */
+export function bucketEventsByDay(events: readonly Event[], timeZone = ""): Map<string, DayBucket> {
   const byDay = new Map<string, DayBucket>();
   function bucketFor(key: string): DayBucket {
     let bucket = byDay.get(key);
@@ -95,10 +92,10 @@ export function bucketEventsByDay(events: readonly Event[]): Map<string, DayBuck
   for (const event of events) {
     if (event.status === "cancelled") continue;
     if (event.allDay) {
-      for (const key of eventDayKeys(event)) bucketFor(key).allDay.push(event);
+      for (const key of eventDayKeys(event, timeZone)) bucketFor(key).allDay.push(event);
       continue;
     }
-    for (const key of eventDayKeys(event)) bucketFor(key).timed.push(event);
+    for (const key of eventDayKeys(event, timeZone)) bucketFor(key).timed.push(event);
   }
   for (const bucket of byDay.values()) {
     bucket.timed.sort((left, right) => {

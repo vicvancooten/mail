@@ -668,6 +668,30 @@ async function applyUserIntent(
         .set({ answerNotificationsEnabled: intent.enabled, updatedAt: new Date() })
         .where(eq(users.id, userId));
       return { ok: true };
+    case "setRegionLocale":
+      await db
+        .update(users)
+        .set({ regionLocale: intent.regionLocale, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
+    case "setClockFormat":
+      await db
+        .update(users)
+        .set({ clockFormat: intent.clockFormat, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
+    case "setFirstDayOfWeek":
+      await db
+        .update(users)
+        .set({ firstDayOfWeek: intent.firstDayOfWeek, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
+    case "setDefaultCalendarView":
+      await db
+        .update(users)
+        .set({ defaultCalendarView: intent.defaultCalendarView, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      return { ok: true };
     case "setContactsSortOrder":
       await db
         .update(users)

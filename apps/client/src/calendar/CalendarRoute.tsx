@@ -1,3 +1,4 @@
+import type { RegionFormatSettings } from "@mail/shared";
 import { Outlet } from "@tanstack/react-router";
 import { PanelLeft } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -6,7 +7,7 @@ import { deriveCalendarScope, useAccountScope } from "../mail/useAccountScope.js
 import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
-import { useConnectedAccounts } from "../store/index.js";
+import { useConnectedAccounts, usePreference } from "../store/index.js";
 import { useAllTasks } from "../store/tasks.js";
 import "./calendar.css";
 import { CalendarSlideOver } from "./CalendarSlideOver.js";
@@ -36,22 +37,25 @@ import { MonthGrid } from "./MonthGrid.js";
 import { TaskPopover } from "./TaskPopover.js";
 import { YearGrid } from "./YearGrid.js";
 
-const HEADING = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
-
-function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDate[]): string {
+function headingFor(
+  view: CalendarView,
+  date: CivilDate,
+  days: readonly CivilDate[],
+  locale: string | undefined,
+): string {
   switch (view) {
     case "day":
-      return dayHeadingLabel(date);
+      return dayHeadingLabel(date, locale);
     case "workweek":
     case "week": {
       const first = days[0] ?? date;
       const last = days[days.length - 1] ?? date;
       return first.month === last.month
-        ? `${monthHeadingLabel(first)}`
-        : `${HEADING.format(new Date(first.year, first.month - 1, 1))} – ${HEADING.format(new Date(last.year, last.month - 1, 1))}`;
+        ? `${monthHeadingLabel(first, locale)}`
+        : `${monthHeadingLabel(first, locale)} – ${monthHeadingLabel(last, locale)}`;
     }
     case "month":
-      return monthHeadingLabel(date);
+      return monthHeadingLabel(date, locale);
     case "year":
       return String(date.year);
   }
@@ -91,9 +95,29 @@ function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDat
 export function CalendarRoute() {
   const search = calendarRoute.useSearch();
   const navigate = calendarRoute.useNavigate();
-  const view = resolveCalendarView(search);
+
+  // Region Settings (#303): Default View decides which view Calendar opens
+  // on with no `?view=` on the URL, First Day of the Week decides Week/Work
+  // Week/Month's own first column, and locale/clock/Home Time Zone feed
+  // every date/time this screen renders through the grid components below —
+  // `preference` is `undefined` only for the first frame or two before
+  // `usePreference()`'s live query resolves, so every one of these falls
+  // back to `resolveCalendarView`/`daysForView`'s own defaults until then.
+  const preference = usePreference();
+  const view = resolveCalendarView(search, preference?.defaultCalendarView);
   const date = resolveCalendarDate(search);
-  const days = useMemo(() => daysForView(view, date), [view, date]);
+  const days = useMemo(
+    () => daysForView(view, date, preference?.firstDayOfWeek),
+    [view, date, preference?.firstDayOfWeek],
+  );
+  const region: RegionFormatSettings = useMemo(
+    () => ({
+      locale: preference?.regionLocale ?? "",
+      clockFormat: preference?.clockFormat ?? "auto",
+      timeZone: preference?.homeTimeZone ?? "",
+    }),
+    [preference?.regionLocale, preference?.clockFormat, preference?.homeTimeZone],
+  );
 
   const calendars = useCalendars() ?? [];
   const range = useMemo(() => civilDateRangeToIso(days), [days]);
@@ -136,7 +160,10 @@ export function CalendarRoute() {
       ),
     [events, hiddenCalendarIds, scopedCalendarIds],
   );
-  const buckets = useMemo(() => bucketEventsByDay(visibleEvents), [visibleEvents]);
+  const buckets = useMemo(
+    () => bucketEventsByDay(visibleEvents, region.timeZone),
+    [visibleEvents, region.timeZone],
+  );
 
   function goTo(nextView: CalendarView, nextDate: CivilDate) {
     void navigate({ search: calendarSearchFor(nextView, nextDate), replace: true });
@@ -175,7 +202,9 @@ export function CalendarRoute() {
               ›
             </button>
           </div>
-          <h2 className="calendar-heading">{headingFor(view, date, days)}</h2>
+          <h2 className="calendar-heading">
+            {headingFor(view, date, days, region.locale || undefined)}
+          </h2>
         </div>
         <CalendarViewSwitcher view={view} onChange={(nextView) => goTo(nextView, date)} />
       </header>
@@ -196,6 +225,7 @@ export function CalendarRoute() {
             taskBuckets={taskBuckets}
             calendarById={calendarById}
             onOpenDay={(target) => goTo("day", target)}
+            region={region}
           />
         ) : null}
         {view === "month" ? (
@@ -206,6 +236,7 @@ export function CalendarRoute() {
             taskBuckets={taskBuckets}
             calendarById={calendarById}
             onOpenDay={(target) => goTo("day", target)}
+            region={region}
           />
         ) : null}
         {view === "year" ? (
@@ -214,6 +245,8 @@ export function CalendarRoute() {
             buckets={buckets}
             onOpenDay={(target) => goTo("day", target)}
             onOpenMonth={(target) => goTo("month", target)}
+            firstDayOfWeek={preference?.firstDayOfWeek}
+            locale={region.locale || undefined}
           />
         ) : null}
       </div>

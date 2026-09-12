@@ -1,3 +1,4 @@
+import type { FirstDayOfWeek } from "@mail/shared";
 import {
   type CivilDate,
   dayKey,
@@ -23,11 +24,17 @@ export function YearGrid({
   buckets,
   onOpenDay,
   onOpenMonth,
+  firstDayOfWeek,
+  locale,
 }: {
   anchor: CivilDate;
   buckets: ReadonlyMap<string, DayBucket>;
   onOpenDay: (date: CivilDate) => void;
   onOpenMonth: (date: CivilDate) => void;
+  /** First Day of the Week (#303) — each mini-month's own leading blanks. Default Monday, same as `calendar-dates.ts#isoWeekday`'s own default. */
+  firstDayOfWeek?: FirstDayOfWeek;
+  /** Region Settings' language and region (#303) — each mini-month's own heading. */
+  locale?: string;
 }) {
   const now = today();
   const months = Array.from({ length: 12 }, (_, index) =>
@@ -44,6 +51,8 @@ export function YearGrid({
           buckets={buckets}
           onOpenDay={onOpenDay}
           onOpenMonth={onOpenMonth}
+          firstDayOfWeek={firstDayOfWeek}
+          locale={locale}
         />
       ))}
     </div>
@@ -56,14 +65,18 @@ function MiniMonth({
   buckets,
   onOpenDay,
   onOpenMonth,
+  firstDayOfWeek,
+  locale,
 }: {
   month: CivilDate;
   now: CivilDate;
   buckets: ReadonlyMap<string, DayBucket>;
   onOpenDay: (date: CivilDate) => void;
   onOpenMonth: (date: CivilDate) => void;
+  firstDayOfWeek?: FirstDayOfWeek;
+  locale?: string;
 }) {
-  const leadingBlanks = isoWeekday(month);
+  const leadingBlanks = isoWeekday(month, firstDayOfWeek);
   const totalDays = daysInMonth(month);
   const monthKey = dayKey(month);
   const cells: { key: string; date: CivilDate | null }[] = [
@@ -84,7 +97,7 @@ function MiniMonth({
         className="calendar-mini-month-heading"
         onClick={() => onOpenMonth(month)}
       >
-        {monthLabel(month)}
+        {monthLabel(month, locale)}
       </button>
       <div className="calendar-mini-month-grid">
         {cells.map(({ key, date }) =>

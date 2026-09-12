@@ -1,4 +1,5 @@
-import type { Calendar, Event, Task } from "@mail/shared";
+import type { Calendar, Event, RegionFormatSettings, Task } from "@mail/shared";
+import { formatHourLabel } from "@mail/shared";
 import type { MouseEvent } from "react";
 import { CalendarDayCell } from "./CalendarDayCell.js";
 import { defaultCalendarId, openCreatePanelForDay } from "./calendar-create.js";
@@ -14,11 +15,6 @@ const DEFAULT_NEW_EVENT_DURATION_MS = 60 * 60 * 1000;
 
 const MINUTES_PER_DAY = 24 * 60;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-const HOUR_LABEL = new Intl.DateTimeFormat(undefined, { hour: "numeric" });
-
-function hourLabel(hour: number): string {
-  return HOUR_LABEL.format(new Date(2000, 0, 1, hour));
-}
 
 interface TimedPlacement {
   event: Event;
@@ -35,11 +31,11 @@ interface TimedPlacement {
  * side-by-side overlaps, rather than letting two overlapping meetings
  * render fully on top of each other.
  */
-function layoutTimedEvents(events: readonly Event[]): TimedPlacement[] {
+function layoutTimedEvents(events: readonly Event[], timeZone: string): TimedPlacement[] {
   const items = events
     .map((event) => {
-      const start = minutesOfDay(eventStart(event));
-      const rawEnd = minutesOfDay(eventEnd(event));
+      const start = minutesOfDay(eventStart(event, timeZone));
+      const rawEnd = minutesOfDay(eventEnd(event, timeZone));
       const end = Math.max(rawEnd > start ? rawEnd : start + 30, start + 15);
       return { event, start, end };
     })
@@ -82,6 +78,7 @@ export function DayTimeGrid({
   taskBuckets,
   calendarById,
   onOpenDay,
+  region,
 }: {
   days: readonly CivilDate[];
   buckets: ReadonlyMap<string, DayBucket>;
@@ -89,19 +86,22 @@ export function DayTimeGrid({
   taskBuckets?: ReadonlyMap<string, Task[]>;
   calendarById: ReadonlyMap<string, Calendar>;
   onOpenDay: (date: CivilDate) => void;
+  /** Region Settings + Home Time Zone (#303) — the hour rail, the weekday heading and every `EventChip`'s own time label all route through this. */
+  region: RegionFormatSettings;
 }) {
   const now = today();
+  const locale = region.locale || undefined;
 
   return (
     <div className={`calendar-time-grid${days.length === 1 ? " single-day" : ""}`}>
       {days.map((day) => {
         const bucket = buckets.get(dayKey(day));
-        const placements = layoutTimedEvents(bucket?.timed ?? []);
+        const placements = layoutTimedEvents(bucket?.timed ?? [], region.timeZone);
         const isToday = isSameDay(day, now);
         return (
           <div key={dayKey(day)} className="calendar-time-grid-day">
             <div className={`calendar-time-grid-day-heading${isToday ? " today" : ""}`}>
-              <span className="calendar-weekday-label">{weekdayLabel(day)}</span>
+              <span className="calendar-weekday-label">{weekdayLabel(day, locale)}</span>
               <span className="calendar-day-number">{day.day}</span>
             </div>
             <CalendarDayCell
@@ -123,6 +123,7 @@ export function DayTimeGrid({
                   event={event}
                   calendar={calendarById.get(event.calendarId)}
                   variant="all-day"
+                  region={region}
                 />
               ))}
               {(taskBuckets?.get(dayKey(day)) ?? []).map((task) => (
@@ -133,7 +134,7 @@ export function DayTimeGrid({
               <div className="calendar-time-gutter">
                 {HOURS.map((hour) => (
                   <div key={hour} className="calendar-hour-label">
-                    {hourLabel(hour)}
+                    {formatHourLabel(hour, region)}
                   </div>
                 ))}
               </div>
@@ -160,7 +161,7 @@ export function DayTimeGrid({
                     <button
                       key={hour}
                       type="button"
-                      aria-label={`Create event at ${hourLabel(hour)}`}
+                      aria-label={`Create event at ${formatHourLabel(hour, region)}`}
                       className="calendar-hour-row"
                       onClick={(event: MouseEvent<HTMLButtonElement>) =>
                         createAt(event.clientX, event.clientY)
@@ -179,7 +180,11 @@ export function DayTimeGrid({
                       width: `${100 / columnCount}%`,
                     }}
                   >
-                    <EventChip event={event} calendar={calendarById.get(event.calendarId)} />
+                    <EventChip
+                      event={event}
+                      calendar={calendarById.get(event.calendarId)}
+                      region={region}
+                    />
                   </div>
                 ))}
               </CalendarDayCell>

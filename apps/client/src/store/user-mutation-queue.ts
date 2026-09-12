@@ -51,6 +51,10 @@ function coalesceKey(intent: UserMutationIntent): {
     case "setAutoAdvance":
     case "setUndoSendDelay":
     case "setHomeTimeZone":
+    case "setRegionLocale":
+    case "setClockFormat":
+    case "setFirstDayOfWeek":
+    case "setDefaultCalendarView":
     case "setContactsSortOrder":
     case "setAnswerNotificationsEnabled":
       return { type: intent.type, targetId: intent.type, value: true };

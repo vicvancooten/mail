@@ -1,3 +1,4 @@
+import { type CalendarView, DEFAULT_CALENDAR_VIEW, type FirstDayOfWeek } from "@mail/shared";
 import {
   addDays,
   addMonths,
@@ -17,11 +18,15 @@ import {
  * like an entity id — restoring `/calendar?view=week&date=2026-09-08`
  * recomputes the grid from scratch rather than resolving a stored "view
  * state" row.
+ *
+ * `CalendarView` and `DEFAULT_CALENDAR_VIEW` are `@mail/shared#region-
+ * settings.ts`'s own declarations now (#303: the Sync Backend needs the same
+ * enum for Region Settings' Default View field) — both re-exported here so
+ * every existing `./calendar-url.js` import of them keeps working unchanged.
  */
 export const CALENDAR_VIEWS = ["day", "workweek", "week", "month", "year"] as const;
-export type CalendarView = (typeof CALENDAR_VIEWS)[number];
-
-export const DEFAULT_CALENDAR_VIEW: CalendarView = "week";
+export type { CalendarView };
+export { DEFAULT_CALENDAR_VIEW };
 
 export interface CalendarSearch {
   view?: CalendarView;
@@ -40,28 +45,43 @@ export function validateCalendarSearch(search: Record<string, unknown>): Calenda
   };
 }
 
-export function resolveCalendarView(search: CalendarSearch): CalendarView {
-  return search.view ?? DEFAULT_CALENDAR_VIEW;
+/**
+ * `search.view` wins when the URL names one explicitly (a shared link, or
+ * `goTo` after the User switches views mid-session); otherwise Region
+ * Settings' own Default View (#303, `defaultView`) is what "the default view
+ * opens on Calendar entry" (#303's acceptance line) means — falling further
+ * back to `DEFAULT_CALENDAR_VIEW` only for the brief window before
+ * `usePreference()` resolves.
+ */
+export function resolveCalendarView(
+  search: CalendarSearch,
+  defaultView: CalendarView = DEFAULT_CALENDAR_VIEW,
+): CalendarView {
+  return search.view ?? defaultView;
 }
 
 export function resolveCalendarDate(search: CalendarSearch): CivilDate {
   return parseDayKey(search.date) ?? today();
 }
 
-/** The visible date range for a view, anchored on `date` — the grid components' one source of "which days to render". */
-export function daysForView(view: CalendarView, date: CivilDate): CivilDate[] {
+/** The visible date range for a view, anchored on `date` — the grid components' one source of "which days to render". `firstDayOfWeek` (#303) decides Week/Work Week/Month's own first column, default Monday. */
+export function daysForView(
+  view: CalendarView,
+  date: CivilDate,
+  firstDayOfWeek?: FirstDayOfWeek,
+): CivilDate[] {
   switch (view) {
     case "day":
       return [date];
     case "workweek":
-      return dayRange(startOfWeek(date), 5);
+      return dayRange(startOfWeek(date, firstDayOfWeek), 5);
     case "week":
-      return dayRange(startOfWeek(date), 7);
+      return dayRange(startOfWeek(date, firstDayOfWeek), 7);
     case "month": {
       // A full 6-week grid so every month reads as a stable rectangle
       // (`MonthGrid.tsx`'s own doc comment on why a short month still gets
       // leading/trailing days from its neighbours).
-      const gridStart = startOfWeek(startOfMonth(date));
+      const gridStart = startOfWeek(startOfMonth(date), firstDayOfWeek);
       return dayRange(gridStart, 42);
     }
     case "year":

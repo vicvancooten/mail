@@ -12,11 +12,15 @@ import {
   DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
+  DEFAULT_CALENDAR_VIEW,
+  DEFAULT_CLOCK_FORMAT,
   DEFAULT_CONTACTS_SORT_ORDER,
+  DEFAULT_FIRST_DAY_OF_WEEK,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   HOME_TIME_ZONE_UNSET,
   normalizeCorrespondentAddress,
   normalizeSenderAddress,
+  REGION_LOCALE_UNSET,
   senderDomain,
 } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -153,6 +157,10 @@ function defaultPreference(): Preference {
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: HOME_TIME_ZONE_UNSET,
+    regionLocale: REGION_LOCALE_UNSET,
+    clockFormat: DEFAULT_CLOCK_FORMAT,
+    firstDayOfWeek: DEFAULT_FIRST_DAY_OF_WEEK,
+    defaultCalendarView: DEFAULT_CALENDAR_VIEW,
     contactsSortOrder: DEFAULT_CONTACTS_SORT_ORDER,
     answerNotificationsEnabled: DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
     updatedAt: new Date(0).toISOString(),
@@ -194,6 +202,18 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
         break;
       case "setHomeTimeZone":
         overlaid = { ...overlaid, homeTimeZone: intent.homeTimeZone };
+        break;
+      case "setRegionLocale":
+        overlaid = { ...overlaid, regionLocale: intent.regionLocale };
+        break;
+      case "setClockFormat":
+        overlaid = { ...overlaid, clockFormat: intent.clockFormat };
+        break;
+      case "setFirstDayOfWeek":
+        overlaid = { ...overlaid, firstDayOfWeek: intent.firstDayOfWeek };
+        break;
+      case "setDefaultCalendarView":
+        overlaid = { ...overlaid, defaultCalendarView: intent.defaultCalendarView };
         break;
       case "setContactsSortOrder":
         overlaid = { ...overlaid, contactsSortOrder: intent.contactsSortOrder };
