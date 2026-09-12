@@ -1,5 +1,6 @@
 import type { Calendar } from "@mail/shared";
 import { useEffect, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -174,23 +175,19 @@ function CalendarSettingsForm({ calendar }: { calendar: Calendar }) {
         </Label>
 
         <Label className="flex items-center gap-2">
-          <Input
-            type="checkbox"
-            className="h-4 w-4"
+          <Checkbox
             checked={!hiddenCalendarIds.has(calendar.id)}
-            onChange={() => toggleHidden(calendar.id)}
+            onCheckedChange={() => toggleHidden(calendar.id)}
           />
           Shown on this device
         </Label>
 
         <Label className="flex items-center gap-2">
-          <Input
-            type="checkbox"
-            className="h-4 w-4"
+          <Checkbox
             checked={calendar.isDefault}
             disabled={calendar.isDefault}
-            onChange={(event) => {
-              if (!event.target.checked) return;
+            onCheckedChange={(checked) => {
+              if (checked !== true) return;
               void enqueueUserMutation({ type: "setDefaultCalendar", calendarId: calendar.id });
             }}
           />
@@ -198,15 +195,13 @@ function CalendarSettingsForm({ calendar }: { calendar: Calendar }) {
         </Label>
 
         <Label className="flex items-center gap-2">
-          <Input
-            type="checkbox"
-            className="h-4 w-4"
+          <Checkbox
             checked={calendar.remindersEnabled}
-            onChange={(event) =>
+            onCheckedChange={(checked) =>
               void enqueueUserMutation({
                 type: "setCalendarRemindersEnabled",
                 calendarId: calendar.id,
-                enabled: event.target.checked,
+                enabled: checked === true,
               })
             }
           />
