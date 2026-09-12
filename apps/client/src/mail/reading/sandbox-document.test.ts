@@ -119,6 +119,40 @@ describe("sanitizeAndSubstitute", () => {
     expect(out).toContain("color");
     expect(out).not.toContain("expression(");
   });
+
+  // #290: a slow image should never look like a missing one.
+  it("wraps a resolved cid: image in a shimmer placeholder", () => {
+    const out = sanitizeAndSubstitute(`<img src="cid:logo@example" width="120" height="40">`, {
+      cidBlobUrls: new Map([["logo@example", "blob:http://localhost/abc-123"]]),
+      imagesLoaded: false,
+    });
+    expect(out).toContain('<span class="mail-image-shimmer"');
+    expect(out).toContain('style="width: 120px; height: 40px;"');
+    expect(out).toContain('src="blob:http://localhost/abc-123"');
+  });
+
+  it("wraps an opted-in remote image in a shimmer placeholder", () => {
+    const src = "/messages/m1/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc";
+    const out = sanitizeAndSubstitute(`<img src="${src}">`, {
+      cidBlobUrls: new Map(),
+      imagesLoaded: true,
+    });
+    expect(out).toContain('<span class="mail-image-shimmer">');
+  });
+
+  it("never wraps the blocked-image placeholder pixel — it never has anything slow to cover", () => {
+    const out = sanitizeAndSubstitute(
+      `<img src="/messages/m1/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">`,
+      noImages,
+    );
+    expect(out).not.toContain("mail-image-shimmer");
+    expect(out).toContain(`src="${BLOCKED_IMAGE_PLACEHOLDER}"`);
+  });
+
+  it("never wraps an unresolved cid: image — its src was already dropped", () => {
+    const out = sanitizeAndSubstitute(`<img src="cid:missing@example">`, noImages);
+    expect(out).not.toContain("mail-image-shimmer");
+  });
 });
 
 describe("hasProxiedImages", () => {
@@ -198,6 +232,25 @@ describe("buildMessageDocument", () => {
     const doc = buildMessageDocument({ ...baseOpts, html: "<p>hello</p>", darkMode: false });
     expect(doc).toContain("mail-image-error");
     expect(doc).toContain('"error"');
+  });
+
+  // #290: every image is wrapped with a placeholder that is removed on load or error.
+  it("carries the shimmer placeholder's CSS and a load handler that clears it, alongside the error handler", () => {
+    const doc = buildMessageDocument({
+      ...baseOpts,
+      html: `<img src="cid:logo@example" width="120" height="40">`,
+      cidBlobUrls: new Map([["logo@example", "blob:http://localhost/abc-123"]]),
+      darkMode: false,
+    });
+    expect(doc).toContain(".mail-image-shimmer{");
+    expect(doc).toContain('<span class="mail-image-shimmer"');
+    expect(doc).toContain('"load"');
+    expect(doc).toContain('classList.contains("mail-image-shimmer")');
+    // Both handlers register, in a stable order, alongside the resize script.
+    const loadIndex = doc.indexOf('"load"');
+    const errorIndex = doc.indexOf('"error"');
+    expect(loadIndex).toBeGreaterThan(-1);
+    expect(errorIndex).toBeGreaterThan(loadIndex);
   });
 
   it("applies the double-invert wrapper only when dark mode is on and the sender hasn't opted out", () => {
