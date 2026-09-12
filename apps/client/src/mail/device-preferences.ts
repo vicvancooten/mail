@@ -647,6 +647,64 @@ export function useHiddenCalendarIds(): [ReadonlySet<string>, (calendarId: strin
 }
 
 /**
+ * Collapsed sidebar sections (#297, `mail#294` Wave 3): every section of the
+ * mail rail — Folders, Labels, and each Gmail Mail Account's own Gmail
+ * Labels section — folds away independently, keyed by section id:
+ * `"folders"`, `"labels"`, or `gmailLabels:<mailAccountId>` for a
+ * per-account section (`Sidebar.tsx`'s own key-building). Device-local by
+ * the same reasoning as the rest of this file: which sections you've folded
+ * away on a phone means nothing about a desktop, so this deliberately never
+ * syncs.
+ *
+ * Un-collapsing removes the key rather than writing "0" —
+ * `writeGroupCollapsed`'s own reasoning, above. Reactive with one shared
+ * listener `Set` for every key (`useTaskCompletedOpen`'s own shape): a write
+ * for any section id notifies every mounted subscriber, cheap since each one
+ * just re-checks its own key's snapshot.
+ */
+const SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX = "mail.devicePref.sidebarSectionCollapsed.";
+
+export function readSidebarSectionCollapsed(sectionId: string): boolean {
+  return readStorage(SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX + sectionId) === "1";
+}
+
+const sidebarSectionCollapsedListeners = new Set<() => void>();
+
+export function writeSidebarSectionCollapsed(sectionId: string, collapsed: boolean): void {
+  if (collapsed) {
+    writeStorage(SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX + sectionId, "1");
+  } else {
+    try {
+      globalThis.localStorage?.removeItem(SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX + sectionId);
+    } catch {
+      // Best-effort; see module docstring.
+    }
+  }
+  for (const listener of sidebarSectionCollapsedListeners) listener();
+}
+
+function subscribeSidebarSectionCollapsed(listener: () => void): () => void {
+  sidebarSectionCollapsedListeners.add(listener);
+  return () => sidebarSectionCollapsedListeners.delete(listener);
+}
+
+/** Reactive pair for one sidebar section's collapsed state — read and written by `mail/Sidebar.tsx`'s own section headers, on desktop and the phone sheet alike. */
+export function useSidebarSectionCollapsed(
+  sectionId: string,
+): [boolean, (collapsed: boolean) => void] {
+  const collapsed = useSyncExternalStore(
+    subscribeSidebarSectionCollapsed,
+    () => readSidebarSectionCollapsed(sectionId),
+    () => false,
+  );
+  const setCollapsed = useCallback(
+    (next: boolean) => writeSidebarSectionCollapsed(sectionId, next),
+    [sectionId],
+  );
+  return [collapsed, setCollapsed];
+}
+
+/**
  * Whether due Tasks show on the Calendar's grid (#260, moved onto this
  * module in #272 — it lived as its own `calendar/calendar-task-visibility.ts`
  * idiom until then) — `readHiddenCalendarIds`'s own reasoning applied to the

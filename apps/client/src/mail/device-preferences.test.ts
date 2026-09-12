@@ -5,6 +5,7 @@ import {
   readAccountScope,
   readCommandUsage,
   readGroupCollapsed,
+  readSidebarSectionCollapsed,
   readTaskBoardMode,
   readTaskCompletedOpen,
   readTaskSwimlane,
@@ -12,12 +13,14 @@ import {
   resolveAccountScope,
   useListDensity,
   useSidebarCollapsed,
+  useSidebarSectionCollapsed,
   useTaskBoardMode,
   useTaskCompletedOpen,
   useTaskSwimlane,
   useViewMode,
   writeAccountScope,
   writeGroupCollapsed,
+  writeSidebarSectionCollapsed,
   writeTaskBoardMode,
   writeTaskSwimlane,
 } from "./device-preferences.js";
@@ -151,6 +154,53 @@ describe("useViewMode / useListDensity / useSidebarCollapsed", () => {
 
     expect(a.result.current[0]).toBe(true);
     expect(b.result.current[0]).toBe(true);
+  });
+});
+
+/**
+ * Collapsed sidebar sections (#297): keyed by section id, "folders",
+ * "labels", or `gmailLabels:<mailAccountId>` for a per-account section —
+ * `Sidebar.test.tsx` exercises the same behavior end to end through the rail
+ * headers themselves.
+ */
+describe("readSidebarSectionCollapsed / writeSidebarSectionCollapsed", () => {
+  it("defaults to expanded when nothing is stored", () => {
+    expect(readSidebarSectionCollapsed("folders")).toBe(false);
+  });
+
+  it("round-trips a collapsed section — persists per device and survives reload", () => {
+    writeSidebarSectionCollapsed("folders", true);
+    expect(readSidebarSectionCollapsed("folders")).toBe(true);
+  });
+
+  it("keys state per section id — collapsing one section leaves another untouched", () => {
+    writeSidebarSectionCollapsed("folders", true);
+    expect(readSidebarSectionCollapsed("labels")).toBe(false);
+  });
+
+  it("keys per-account sections by account — collapsing one account's Gmail Labels leaves another's untouched", () => {
+    writeSidebarSectionCollapsed("gmailLabels:acct-1", true);
+    expect(readSidebarSectionCollapsed("gmailLabels:acct-2")).toBe(false);
+  });
+
+  it("un-collapsing clears the stored key rather than leaving a false behind", () => {
+    writeSidebarSectionCollapsed("folders", true);
+    writeSidebarSectionCollapsed("folders", false);
+    expect(readSidebarSectionCollapsed("folders")).toBe(false);
+    expect(localStorage.getItem("mail.devicePref.sidebarSectionCollapsed.folders")).toBeNull();
+  });
+
+  it("useSidebarSectionCollapsed: a write from one subscriber reaches another instantly, keyed by section id", () => {
+    const a = renderHook(() => useSidebarSectionCollapsed("labels"));
+    const b = renderHook(() => useSidebarSectionCollapsed("labels"));
+    const other = renderHook(() => useSidebarSectionCollapsed("folders"));
+    expect(a.result.current[0]).toBe(false);
+
+    act(() => a.result.current[1](true));
+
+    expect(a.result.current[0]).toBe(true);
+    expect(b.result.current[0]).toBe(true);
+    expect(other.result.current[0]).toBe(false);
   });
 });
 

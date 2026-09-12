@@ -209,6 +209,35 @@
   font-size: 11px;
 }
 
+/* A sidebar section's header (#297): the "Folders"/"Labels"/"Gmail labels"
+   heading is a real button now, toggling that section's own collapse — reset
+   to a plain block below `.nav-heading`'s own type so it reads exactly as it
+   did before this ticket, just clickable and keyboard-operable. */
+.nav-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-section-chevron {
+  flex: none;
+  color: var(--color-ink-faint);
+  transition: transform var(--dur-press) var(--ease);
+}
+
+/* Collapsed: the chevron points at the section rather than away from it —
+   the "collapsed indication" the acceptance criteria asks for, since the
+   section's rows themselves are gone from the DOM while this is true. */
+.nav-section[data-collapsed="true"] .nav-section-chevron {
+  transform: rotate(-90deg);
+}
+
 .nav-item {
   display: flex;
   align-items: center;
