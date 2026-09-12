@@ -9,9 +9,11 @@ import { setSessionUserId } from "../store/session.js";
 import { makeCalendar, makeEvent } from "../test-support/mail-fixtures.js";
 import {
   commitEventMove,
+  commitEventResize,
   isDraggableCalendar,
   resolveDraggedInstant,
   resolveDroppedOccurrence,
+  resolveResizedOccurrence,
   snapToQuarterHour,
 } from "./calendar-event-drag.js";
 
@@ -58,11 +60,9 @@ vi.mock("../api/calendars.js", async (importOriginal) => {
  * takes), so a caller that wants to read the Local Cache back has to let its
  * `saveSeriesBody` write actually land first.
  */
-async function clickUndo(): Promise<void> {
-  const call = toastFn.mock.calls
-    .filter(([, opts]) => opts.id === "undo-toast-eventReschedule")
-    .pop();
-  if (!call) throw new Error("no eventReschedule toast raised");
+async function clickUndo(toastKind = "eventReschedule"): Promise<void> {
+  const call = toastFn.mock.calls.filter(([, opts]) => opts.id === `undo-toast-${toastKind}`).pop();
+  if (!call) throw new Error(`no ${toastKind} toast raised`);
   call[1].action?.onClick();
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -444,6 +444,281 @@ describe("commitEventMove — scope 'thisAndFollowing' (#305)", () => {
       "thisAndFollowing",
     );
     await clickUndo();
+
+    const oldSeries = await readSeries("series-1");
+    expect(oldSeries?.rrules).toEqual(["FREQ=DAILY"]);
+  });
+});
+
+describe("resolveResizedOccurrence (#306)", () => {
+  it("resolves null on a read-only Calendar", async () => {
+    const event = makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+    });
+    const readOnly = makeCalendar(CALENDAR, USER, {
+      capabilities: { ...LOCAL_CALENDAR_CAPABILITIES, writable: false },
+    });
+    const resized = await resolveResizedOccurrence(event, readOnly, "end", 10 * 60);
+    expect(resized).toBeNull();
+  });
+
+  it("resolves null when the resize lands back on the same instant", async () => {
+    await localCache().seriesCache.put(baseSeries({ floating: true }));
+    const event = makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+      floating: true,
+    });
+    const calendar = makeCalendar(CALENDAR, USER);
+    const resized = await resolveResizedOccurrence(event, calendar, "end", 9 * 60 + 30);
+    expect(resized).toBeNull();
+  });
+
+  it("dragging the bottom edge changes only the end", async () => {
+    await localCache().seriesCache.put(baseSeries({ floating: true }));
+    const event = makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+      floating: true,
+    });
+    const calendar = makeCalendar(CALENDAR, USER);
+    const resized = await resolveResizedOccurrence(event, calendar, "end", 10 * 60);
+    expect(resized?.nextStartIso).toBe("2026-06-01T09:00:00.000Z");
+    expect(resized?.nextEndIso).toBe("2026-06-01T10:00:00.000Z");
+  });
+
+  it("dragging the top edge changes only the start", async () => {
+    await localCache().seriesCache.put(baseSeries({ floating: true }));
+    const event = makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+      floating: true,
+    });
+    const calendar = makeCalendar(CALENDAR, USER);
+    const resized = await resolveResizedOccurrence(event, calendar, "start", 8 * 60);
+    expect(resized?.nextStartIso).toBe("2026-06-01T08:00:00.000Z");
+    expect(resized?.nextEndIso).toBe("2026-06-01T09:30:00.000Z");
+  });
+
+  it("clamps the bottom edge to a minimum one-slot (15 minute) duration", async () => {
+    await localCache().seriesCache.put(baseSeries({ floating: true }));
+    const event = makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+      floating: true,
+    });
+    const calendar = makeCalendar(CALENDAR, USER);
+    // Dragged the bottom edge up past the top edge entirely — clamps to the floor.
+    const resized = await resolveResizedOccurrence(event, calendar, "end", 0);
+    expect(resized?.nextStartIso).toBe("2026-06-01T09:00:00.000Z");
+    expect(resized?.nextEndIso).toBe("2026-06-01T09:15:00.000Z");
+  });
+
+  it("clamps the top edge to a minimum one-slot (15 minute) duration", async () => {
+    await localCache().seriesCache.put(baseSeries({ floating: true }));
+    const event = makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+      floating: true,
+    });
+    const calendar = makeCalendar(CALENDAR, USER);
+    // Dragged the top edge down past the bottom edge entirely — clamps to the floor.
+    const resized = await resolveResizedOccurrence(event, calendar, "start", 23 * 60);
+    expect(resized?.nextStartIso).toBe("2026-06-01T09:15:00.000Z");
+    expect(resized?.nextEndIso).toBe("2026-06-01T09:30:00.000Z");
+  });
+});
+
+describe("commitEventResize — scope 'this' (#306)", () => {
+  function occurrence() {
+    return makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+    });
+  }
+
+  it("adds an override carrying the new end, leaving the Series' own durationMs alone", async () => {
+    const series = baseSeries({ rrules: ["FREQ=DAILY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-01T09:00:00.000Z",
+        nextEndIso: "2026-06-01T10:00:00.000Z",
+      },
+      "this",
+    );
+
+    const saved = await readSeries("series-1");
+    expect(saved?.durationMs).toBe(series.durationMs);
+    expect(saved?.overrides).toEqual([
+      {
+        id: expect.any(String),
+        seriesId: "series-1",
+        originalStart: "2026-06-01T09:00:00.000Z",
+        start: "2026-06-01T09:00:00.000Z",
+        end: "2026-06-01T10:00:00.000Z",
+        title: null,
+        location: null,
+      },
+    ]);
+  });
+
+  it("Undo restores the Series to having no override at all", async () => {
+    const series = baseSeries({ rrules: ["FREQ=DAILY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-01T09:00:00.000Z",
+        nextEndIso: "2026-06-01T10:00:00.000Z",
+      },
+      "this",
+    );
+    await clickUndo("eventResize");
+
+    const saved = await readSeries("series-1");
+    expect(saved?.overrides).toEqual([]);
+  });
+});
+
+describe("commitEventResize — scope 'all' (#306)", () => {
+  function occurrence() {
+    return makeEvent("series-1@2026-06-01T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-01T09:00:00.000Z",
+      start: "2026-06-01T09:00:00.000Z",
+      end: "2026-06-01T09:30:00.000Z",
+    });
+  }
+
+  it("writes the new durationMs onto the Series, dtstart unchanged for a bottom-edge resize", async () => {
+    const series = baseSeries({ rrules: ["FREQ=WEEKLY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-01T09:00:00.000Z",
+        nextEndIso: "2026-06-01T10:00:00.000Z",
+      },
+      "all",
+    );
+
+    const saved = await readSeries("series-1");
+    expect(saved?.dtstart).toBe(series.dtstart);
+    expect(saved?.durationMs).toBe(60 * 60 * 1000);
+  });
+
+  it("shifts dtstart and writes the new durationMs for a top-edge resize", async () => {
+    const series = baseSeries({ rrules: ["FREQ=WEEKLY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-01T08:00:00.000Z",
+        nextEndIso: "2026-06-01T09:30:00.000Z",
+      },
+      "all",
+    );
+
+    const saved = await readSeries("series-1");
+    expect(saved?.dtstart).toBe("2026-06-01T08:00:00.000Z");
+    expect(saved?.durationMs).toBe(90 * 60 * 1000);
+  });
+
+  it("Undo restores the Series' original dtstart and durationMs", async () => {
+    const series = baseSeries({ rrules: ["FREQ=WEEKLY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-01T08:00:00.000Z",
+        nextEndIso: "2026-06-01T09:30:00.000Z",
+      },
+      "all",
+    );
+    await clickUndo("eventResize");
+
+    const saved = await readSeries("series-1");
+    expect(saved?.dtstart).toBe(series.dtstart);
+    expect(saved?.durationMs).toBe(series.durationMs);
+  });
+});
+
+describe("commitEventResize — scope 'thisAndFollowing' (#306)", () => {
+  function occurrence() {
+    return makeEvent("series-1@2026-06-03T09:00:00.000Z", CALENDAR, {
+      seriesId: "series-1",
+      originalStart: "2026-06-03T09:00:00.000Z",
+      start: "2026-06-03T09:00:00.000Z",
+      end: "2026-06-03T09:30:00.000Z",
+    });
+  }
+
+  it("caps the old Series and creates a continuation carrying the resized durationMs", async () => {
+    const series = baseSeries({ rrules: ["FREQ=DAILY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-03T09:00:00.000Z",
+        nextEndIso: "2026-06-03T10:00:00.000Z",
+      },
+      "thisAndFollowing",
+    );
+
+    const oldSeries = await readSeries("series-1");
+    expect(oldSeries?.rrules[0]).toContain("UNTIL=20260603T085959Z");
+    expect(oldSeries?.durationMs).toBe(series.durationMs);
+
+    const allSeries = await localCache().seriesCache.toArray();
+    const continuation = allSeries.find((s) => s.id !== "series-1");
+    expect(continuation?.dtstart).toBe("2026-06-03T09:00:00.000Z");
+    expect(continuation?.durationMs).toBe(60 * 60 * 1000);
+    expect(continuation?.rrules).toEqual(["FREQ=DAILY"]);
+  });
+
+  it("Undo restores the old Series' own rrules and deletes the continuation", async () => {
+    const series = baseSeries({ rrules: ["FREQ=DAILY"] });
+    await localCache().seriesCache.put(series);
+
+    await commitEventResize(
+      {
+        event: occurrence(),
+        series,
+        nextStartIso: "2026-06-03T09:00:00.000Z",
+        nextEndIso: "2026-06-03T10:00:00.000Z",
+      },
+      "thisAndFollowing",
+    );
+    await clickUndo("eventResize");
 
     const oldSeries = await readSeries("series-1");
     expect(oldSeries?.rrules).toEqual(["FREQ=DAILY"]);

@@ -13,8 +13,22 @@ import type { DraggedOccurrence } from "./calendar-event-drag.js";
  * Only ever set for a *recurring* drop (`rrules.length > 0`) — a non-recurring
  * Series has nothing to choose between, so its caller commits the "all"
  * scope directly and never touches this store at all.
+ *
+ * `kind` (#306) is the only thing distinguishing a resized drop from a moved
+ * one once it reaches this store — both resolve to the exact same
+ * `DraggedOccurrence` shape (an absolute next start/end), so `EventMoveScopeDialog.tsx`
+ * reads it to pick the right copy and the right commit (`commitEventMove` vs
+ * `commitEventResize`) rather than this module growing a second, near-identical
+ * store.
  */
-let pending: DraggedOccurrence | null = null;
+export type EventScopePromptKind = "move" | "resize";
+
+export interface PendingEventScopePrompt {
+  kind: EventScopePromptKind;
+  dropped: DraggedOccurrence;
+}
+
+let pending: PendingEventScopePrompt | null = null;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -26,16 +40,19 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function getSnapshot(): DraggedOccurrence | null {
+function getSnapshot(): PendingEventScopePrompt | null {
   return pending;
 }
 
-export function usePendingEventMove(): DraggedOccurrence | null {
+export function usePendingEventMove(): PendingEventScopePrompt | null {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-export function openEventMoveScopePrompt(dropped: DraggedOccurrence): void {
-  pending = dropped;
+export function openEventMoveScopePrompt(
+  dropped: DraggedOccurrence,
+  kind: EventScopePromptKind = "move",
+): void {
+  pending = { kind, dropped };
   emit();
 }
 

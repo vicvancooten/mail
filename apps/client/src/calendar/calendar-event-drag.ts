@@ -12,7 +12,13 @@ import {
 } from "../store/series.js";
 import type { CivilDate } from "./calendar-dates.js";
 import { openEventMoveScopePrompt } from "./calendar-event-move-panel.js";
-import { type CivilInstant, civilInstantToIso, eventStart } from "./calendar-occurrences.js";
+import {
+  type CivilInstant,
+  civilInstantToIso,
+  eventEnd,
+  eventStart,
+  minutesOfDay,
+} from "./calendar-occurrences.js";
 import { withUntil } from "./recurrence.js";
 
 /**
@@ -122,6 +128,77 @@ export async function resolveDroppedOccurrence(
   return { event, series, nextStartIso, nextEndIso };
 }
 
+/** Which edge of a timed Occurrence's own chip a resize drag grabbed (#306) — the bottom edge changes the end, the top edge changes the start. */
+export type EventResizeEdge = "start" | "end";
+
+/** #306's own acceptance line: "resize cannot make an event shorter than one slot" — one slot is the same fifteen minutes `snapToQuarterHour` already snaps every drag to. */
+export const MIN_EVENT_DURATION_MINUTES = 15;
+
+/**
+ * Resolves a chip's resize-edge drop into the same absolute-write shape
+ * `resolveDroppedOccurrence` already hands `commitEventMove` (#306, reusing
+ * #305's own pointer machinery) — `null` for a no-op resize or a Calendar
+ * that isn't writable (`isDraggableCalendar`, re-checked here for the same
+ * staleness reason `resolveDroppedOccurrence` already documents). Only ever
+ * called from Day/Week's own timed grid (`DayTimeGrid.tsx`), so both edges
+ * stay inside the Occurrence's own civil day — there is no "resize across
+ * midnight" here, the same way #305's own resize-less move never needed one
+ * either.
+ */
+export async function resolveResizedOccurrence(
+  event: Event,
+  calendar: Calendar | undefined,
+  edge: EventResizeEdge,
+  targetMinutes: number,
+): Promise<DraggedOccurrence | null> {
+  if (!isDraggableCalendar(calendar)) return null;
+  const wallClock = event.allDay || event.floating;
+  const start = eventStart(event);
+  const end = eventEnd(event);
+  const startMinutes = minutesOfDay(start);
+  const endMinutes = minutesOfDay(end);
+
+  const nextStartMinutes =
+    edge === "start"
+      ? Math.min(targetMinutes, endMinutes - MIN_EVENT_DURATION_MINUTES)
+      : startMinutes;
+  const nextEndMinutes =
+    edge === "end"
+      ? Math.max(targetMinutes, startMinutes + MIN_EVENT_DURATION_MINUTES)
+      : endMinutes;
+  if (nextStartMinutes === startMinutes && nextEndMinutes === endMinutes) return null;
+
+  const nextStart = resolveDraggedInstant(start, start, nextStartMinutes);
+  const nextEnd = resolveDraggedInstant(end, start, nextEndMinutes);
+  const nextStartIso = civilInstantToIso(nextStart, wallClock);
+  const nextEndIso = civilInstantToIso(nextEnd, wallClock);
+  const series = await hydrateSeries(event.calendarId, event.seriesId);
+  return { event, series, nextStartIso, nextEndIso };
+}
+
+/**
+ * The whole resize-drop's own entry point (#306), `handleEventDrop`'s exact
+ * counterpart for a resize instead of a move: resolves the drop and either
+ * commits it immediately as `"all"` for a non-recurring Series, or opens the
+ * same scope prompt `handleEventDrop` opens, tagged `"resize"` so
+ * `EventMoveScopeDialog.tsx` calls `commitEventResize` rather than
+ * `commitEventMove` once the User picks a scope.
+ */
+export async function handleEventResizeDrop(
+  event: Event,
+  calendar: Calendar | undefined,
+  edge: EventResizeEdge,
+  targetMinutes: number,
+): Promise<void> {
+  const resized = await resolveResizedOccurrence(event, calendar, edge, targetMinutes);
+  if (!resized) return;
+  if (resized.series.rrules.length === 0) {
+    await commitEventResize(resized, "all");
+    return;
+  }
+  openEventMoveScopePrompt(resized, "resize");
+}
+
 /** Every `SeriesBodyFields` a write keeps unchanged, read straight off the cached Series — every scope below only ever overrides the handful of fields its own write actually means to change. */
 function unchangedFields(series: CachedSeries): SeriesBodyFields {
   return {
@@ -218,6 +295,98 @@ export async function commitEventMove(
   });
 
   announceUndoableAction("eventReschedule", () => {
+    void saveSeriesBody(series.id, series.calendarId, { ...base, rrules: series.rrules });
+    void trashSeries(continuationId);
+  });
+}
+
+/**
+ * Commits a resized drag (#306), `commitEventMove`'s own sibling — a resize
+ * moves at most one edge, so `nextStartIso`/`nextEndIso` already carry
+ * everything each branch below needs, exactly the way a move's did. The one
+ * real difference: a resize changes the Occurrence's own *duration*, so
+ * "all" and "this and following" write `durationMs` alongside `dtstart`
+ * (nothing to write there for a move, whose `unchangedFields` duration is
+ * already right) — "this" needs no such change, since an override always
+ * carries its own explicit start/end regardless of which drag produced it.
+ * Always announces its own Undo (#306's own acceptance line: "Undo from the
+ * toast restores the original duration") with a real inverse, the same
+ * "not a re-fetch" shape `commitEventMove` already uses.
+ */
+export async function commitEventResize(
+  dropped: DraggedOccurrence,
+  scope: EventDragScope,
+): Promise<void> {
+  const { event, series, nextStartIso, nextEndIso } = dropped;
+  const base = unchangedFields(series);
+  const nextDurationMs = new Date(nextEndIso).getTime() - new Date(nextStartIso).getTime();
+
+  if (scope === "this") {
+    const previousOverride = series.overrides.find((o) => o.originalStart === event.originalStart);
+    const others = base.overrides.filter((o) => o.originalStart !== event.originalStart);
+    const overrideId = previousOverride?.id ?? newOverrideId();
+    await saveSeriesBody(series.id, series.calendarId, {
+      ...base,
+      overrides: [
+        ...others,
+        {
+          id: overrideId,
+          originalStart: event.originalStart,
+          start: nextStartIso,
+          end: nextEndIso,
+          title: previousOverride?.title ?? null,
+          location: previousOverride?.location ?? null,
+        },
+      ],
+    });
+    announceUndoableAction("eventResize", () => {
+      void saveSeriesBody(series.id, series.calendarId, {
+        ...base,
+        overrides: previousOverride ? [...others, previousOverride] : others,
+      });
+    });
+    return;
+  }
+
+  if (scope === "all") {
+    const deltaMs = new Date(nextStartIso).getTime() - new Date(event.start).getTime();
+    const nextDtstart = new Date(new Date(series.dtstart).getTime() + deltaMs).toISOString();
+    await saveSeriesBody(series.id, series.calendarId, {
+      ...base,
+      dtstart: nextDtstart,
+      durationMs: nextDurationMs,
+    });
+    announceUndoableAction("eventResize", () => {
+      void saveSeriesBody(series.id, series.calendarId, {
+        ...base,
+        dtstart: series.dtstart,
+        durationMs: series.durationMs,
+      });
+    });
+    return;
+  }
+
+  // "thisAndFollowing" (#306): the same cap-and-split `commitEventMove`
+  // already does, except the continuation's own `durationMs` carries the
+  // resize forward too.
+  const cutover = new Date(event.originalStart);
+  cutover.setSeconds(cutover.getSeconds() - 1);
+  const cappedRrules = withUntil(series.rrules, cutover, series.allDay);
+  await saveSeriesBody(series.id, series.calendarId, { ...base, rrules: cappedRrules });
+
+  const continuationId = newSeriesId();
+  await createSeries(continuationId, series.calendarId);
+  await saveSeriesBody(continuationId, series.calendarId, {
+    ...base,
+    dtstart: nextStartIso,
+    durationMs: nextDurationMs,
+    rrules: series.rrules,
+    rdates: [],
+    exdates: [],
+    overrides: [],
+  });
+
+  announceUndoableAction("eventResize", () => {
     void saveSeriesBody(series.id, series.calendarId, { ...base, rrules: series.rrules });
     void trashSeries(continuationId);
   });
