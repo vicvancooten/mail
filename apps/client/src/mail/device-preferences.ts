@@ -23,6 +23,16 @@
  * reach every mounted subscriber the same instant, so the two surfaces can
  * never drift out of sync (the reason this ticket exists: `SettingsSection`
  * used to have no reactive subscription to these at all).
+ *
+ * Despite the `mail/` path (legacy from #54, the first Device Preference
+ * this file ever held — not a scope boundary), this is the Client's one
+ * Device Preference module (#272): every App's per-device settings route
+ * through here, Tasks' own three below and Calendar's hidden-Calendar
+ * set/"show Tasks on grid" toward the bottom included. The one exception is
+ * Appearance (`theme/device-theme.ts`) — it has to run and paint before the
+ * rest of the bundle even loads (`main.tsx` calls it at the top level,
+ * ahead of React), so it keeps its own tiny read/write pair rather than
+ * importing this module and dragging the rest of the Client in with it.
  */
 
 import { useCallback, useSyncExternalStore } from "react";
@@ -390,6 +400,16 @@ export function writeScreenerViewed(mailAccountId: string): void {
  * the same reasoning as the rest of this file: which groups you've folded
  * away means something different on a phone than on a laptop, so this
  * deliberately never syncs.
+ *
+ * Reactive since #272, but not through a per-label `use*` pair like
+ * `useViewMode`/`useListDensity` above — `VirtualizedThreadList.tsx` has
+ * every group's header mounted at once, keyed by a label list it doesn't
+ * know ahead of a render, so a hook per label doesn't fit. Instead
+ * `useGroupCollapsedVersion` below is a version counter any write bumps:
+ * mounting it is what makes a write to *any* label re-render every
+ * subscriber, while `readGroupCollapsed` itself stays the plain, ungated
+ * read `items`'s `useMemo` already keyed off a local re-render counter —
+ * only where that counter comes from moved.
  */
 const GROUP_COLLAPSED_KEY_PREFIX = "mail.devicePref.groupCollapsed.";
 
@@ -397,17 +417,36 @@ export function readGroupCollapsed(label: string): boolean {
   return readStorage(GROUP_COLLAPSED_KEY_PREFIX + label) === "1";
 }
 
+let groupCollapsedVersion = 0;
+const groupCollapsedListeners = new Set<() => void>();
+
 /** Un-collapsing removes the key rather than writing "0" — a label with no key and one written false both read back as "not collapsed", so there's no reason to keep growing storage past what's actually folded away. */
 export function writeGroupCollapsed(label: string, collapsed: boolean): void {
   if (collapsed) {
     writeStorage(GROUP_COLLAPSED_KEY_PREFIX + label, "1");
-    return;
+  } else {
+    try {
+      globalThis.localStorage?.removeItem(GROUP_COLLAPSED_KEY_PREFIX + label);
+    } catch {
+      // Best-effort; see module docstring.
+    }
   }
-  try {
-    globalThis.localStorage?.removeItem(GROUP_COLLAPSED_KEY_PREFIX + label);
-  } catch {
-    // Best-effort; see module docstring.
-  }
+  groupCollapsedVersion += 1;
+  for (const listener of groupCollapsedListeners) listener();
+}
+
+function subscribeGroupCollapsed(listener: () => void): () => void {
+  groupCollapsedListeners.add(listener);
+  return () => groupCollapsedListeners.delete(listener);
+}
+
+/** The reactive half of the pair above — see the doc comment there. `VirtualizedThreadList.tsx` reads this once per render purely to subscribe; its return value (a version, not a label's state) exists only so `useSyncExternalStore` has something that changes to compare. */
+export function useGroupCollapsedVersion(): number {
+  return useSyncExternalStore(
+    subscribeGroupCollapsed,
+    () => groupCollapsedVersion,
+    () => 0,
+  );
 }
 
 /**
@@ -532,4 +571,170 @@ export function useTaskCompletedOpen(viewId: string): [boolean, (open: boolean) 
   );
   const setOpen = useCallback((next: boolean) => writeTaskCompletedOpen(viewId, next), [viewId]);
   return [open, setOpen];
+}
+
+/**
+ * Per-Calendar show/hide (#231's acceptance line: "per-Calendar show/hide as
+ * a Device Preference"; moved onto this module in #272 — it lived as its own
+ * `calendar/calendar-visibility.ts` idiom until then) — which Calendars
+ * aren't shown on this device's grid, the same reasoning as view mode,
+ * density and Account Scope above: which Calendars you're looking at right
+ * now means something different on each device, so this deliberately never
+ * syncs. Stored as the *hidden* set rather than the shown one, so a
+ * newly-discovered Calendar (a fresh mirror, a newly created Local one)
+ * defaults to visible without this module needing to learn about it first.
+ *
+ * Cached on the raw stored string the same way `readAccountScope` above is
+ * — `useSyncExternalStore` needs a snapshot that's referentially stable
+ * across calls when nothing changed, and a bare `JSON.parse` never gives it
+ * that.
+ */
+const HIDDEN_CALENDARS_KEY = "calendar.devicePref.hiddenCalendarIds";
+
+function parseHiddenCalendarIds(stored: string | null): ReadonlySet<string> {
+  if (!stored) return EMPTY_CALENDAR_SET;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((entry): entry is string => typeof entry === "string"))
+      : EMPTY_CALENDAR_SET;
+  } catch {
+    return EMPTY_CALENDAR_SET;
+  }
+}
+
+const EMPTY_CALENDAR_SET: ReadonlySet<string> = new Set();
+
+let cachedHiddenRaw: string | null | undefined;
+let cachedHiddenParsed: ReadonlySet<string> = EMPTY_CALENDAR_SET;
+
+export function readHiddenCalendarIds(): ReadonlySet<string> {
+  const stored = readStorage(HIDDEN_CALENDARS_KEY);
+  if (stored !== cachedHiddenRaw) {
+    cachedHiddenRaw = stored;
+    cachedHiddenParsed = parseHiddenCalendarIds(stored);
+  }
+  return cachedHiddenParsed;
+}
+
+const hiddenCalendarIdsListeners = new Set<() => void>();
+
+export function writeHiddenCalendarIds(hidden: ReadonlySet<string>): void {
+  writeStorage(HIDDEN_CALENDARS_KEY, JSON.stringify([...hidden]));
+  for (const listener of hiddenCalendarIdsListeners) listener();
+}
+
+function subscribeHiddenCalendarIds(listener: () => void): () => void {
+  hiddenCalendarIdsListeners.add(listener);
+  return () => hiddenCalendarIdsListeners.delete(listener);
+}
+
+/** Reactive pair for the hidden-Calendar set — read by every grid view, written by `CalendarSlideOver.tsx`'s toggles. */
+export function useHiddenCalendarIds(): [ReadonlySet<string>, (calendarId: string) => void] {
+  const hidden = useSyncExternalStore(
+    subscribeHiddenCalendarIds,
+    readHiddenCalendarIds,
+    () => EMPTY_CALENDAR_SET,
+  );
+  const toggle = useCallback((calendarId: string) => {
+    const current = readHiddenCalendarIds();
+    const next = new Set(current);
+    if (next.has(calendarId)) next.delete(calendarId);
+    else next.add(calendarId);
+    writeHiddenCalendarIds(next);
+  }, []);
+  return [hidden, toggle];
+}
+
+/**
+ * Collapsed sidebar sections (#297, `mail#294` Wave 3): every section of the
+ * mail rail — Folders, Labels, and each Gmail Mail Account's own Gmail
+ * Labels section — folds away independently, keyed by section id:
+ * `"folders"`, `"labels"`, or `gmailLabels:<mailAccountId>` for a
+ * per-account section (`Sidebar.tsx`'s own key-building). Device-local by
+ * the same reasoning as the rest of this file: which sections you've folded
+ * away on a phone means nothing about a desktop, so this deliberately never
+ * syncs.
+ *
+ * Un-collapsing removes the key rather than writing "0" —
+ * `writeGroupCollapsed`'s own reasoning, above. Reactive with one shared
+ * listener `Set` for every key (`useTaskCompletedOpen`'s own shape): a write
+ * for any section id notifies every mounted subscriber, cheap since each one
+ * just re-checks its own key's snapshot.
+ */
+const SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX = "mail.devicePref.sidebarSectionCollapsed.";
+
+export function readSidebarSectionCollapsed(sectionId: string): boolean {
+  return readStorage(SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX + sectionId) === "1";
+}
+
+const sidebarSectionCollapsedListeners = new Set<() => void>();
+
+export function writeSidebarSectionCollapsed(sectionId: string, collapsed: boolean): void {
+  if (collapsed) {
+    writeStorage(SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX + sectionId, "1");
+  } else {
+    try {
+      globalThis.localStorage?.removeItem(SIDEBAR_SECTION_COLLAPSED_KEY_PREFIX + sectionId);
+    } catch {
+      // Best-effort; see module docstring.
+    }
+  }
+  for (const listener of sidebarSectionCollapsedListeners) listener();
+}
+
+function subscribeSidebarSectionCollapsed(listener: () => void): () => void {
+  sidebarSectionCollapsedListeners.add(listener);
+  return () => sidebarSectionCollapsedListeners.delete(listener);
+}
+
+/** Reactive pair for one sidebar section's collapsed state — read and written by `mail/Sidebar.tsx`'s own section headers, on desktop and the phone sheet alike. */
+export function useSidebarSectionCollapsed(
+  sectionId: string,
+): [boolean, (collapsed: boolean) => void] {
+  const collapsed = useSyncExternalStore(
+    subscribeSidebarSectionCollapsed,
+    () => readSidebarSectionCollapsed(sectionId),
+    () => false,
+  );
+  const setCollapsed = useCallback(
+    (next: boolean) => writeSidebarSectionCollapsed(sectionId, next),
+    [sectionId],
+  );
+  return [collapsed, setCollapsed];
+}
+
+/**
+ * Whether due Tasks show on the Calendar's grid (#260, moved onto this
+ * module in #272 — it lived as its own `calendar/calendar-task-visibility.ts`
+ * idiom until then) — `readHiddenCalendarIds`'s own reasoning applied to the
+ * slide-over's single "Tasks" row rather than a per-Calendar one: which
+ * overlay you're looking at right now means something different on each
+ * device. Stored as a plain boolean, not a hidden-set — there is exactly one
+ * row to show/hide, not one per Task List (the ticket's own "Tasks are not a
+ * Calendar and never get one's colour or a colour picker").
+ */
+const SHOW_TASKS_ON_GRID_KEY = "calendar.devicePref.showTasksOnGrid";
+
+/** Defaults to shown — a User who has never touched the toggle sees due Tasks on the grid. */
+export function readShowTasksOnGrid(): boolean {
+  return readStorage(SHOW_TASKS_ON_GRID_KEY) !== "false";
+}
+
+const showTasksOnGridListeners = new Set<() => void>();
+
+export function writeShowTasksOnGrid(show: boolean): void {
+  writeStorage(SHOW_TASKS_ON_GRID_KEY, String(show));
+  for (const listener of showTasksOnGridListeners) listener();
+}
+
+function subscribeShowTasksOnGrid(listener: () => void): () => void {
+  showTasksOnGridListeners.add(listener);
+  return () => showTasksOnGridListeners.delete(listener);
+}
+
+/** Reactive pair for the "Tasks" row's show/hide toggle. */
+export function useShowTasksOnGrid(): [boolean, (show: boolean) => void] {
+  const show = useSyncExternalStore(subscribeShowTasksOnGrid, readShowTasksOnGrid, () => true);
+  return [show, writeShowTasksOnGrid];
 }

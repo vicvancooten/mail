@@ -1,5 +1,6 @@
 import type { ProviderHealth } from "@mail/shared";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchInstanceInfo } from "../api/instance.js";
 import { AddFacetControl } from "../connected-accounts/AddFacetControl.js";
@@ -10,13 +11,12 @@ import {
 } from "../connected-accounts/account-focus.js";
 import { ConnectedAccountsTable } from "../connected-accounts/ConnectedAccountsTable.js";
 import { SignatureEditor } from "../mail-accounts/SignatureEditor.js";
-import {
-  clearSignInOutcome,
-  readSignInOutcome,
-  type SignInOutcome,
-} from "../mail-accounts/sign-in-outcome.js";
+import { clearSignInOutcome, readSignInOutcome } from "../mail-accounts/sign-in-outcome.js";
 import { rootRoute } from "../router/routes.js";
 import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
+
+/** A later sign-in's own outcome replaces an earlier one still showing, rather than stacking. */
+const SIGN_IN_OUTCOME_TOAST_ID = "sign-in-outcome-toast";
 
 /**
  * Settings' Connected Accounts page (#201, replacing `MailAccountsPage` in
@@ -52,7 +52,6 @@ export function ConnectedAccountsPage() {
   const { user } = rootRoute.useRouteContext();
   const isOwner = user.role === "owner";
 
-  const [signInOutcome, setSignInOutcome] = useState<SignInOutcome | null>(null);
   const [focus, setFocus] = useState<AccountFocus | null>(null);
   // Provider Health (#205, ADR-0022): Owner-only, so never fetched for a
   // Member — `GET /instance/health` itself 403s them anyway
@@ -63,10 +62,19 @@ export function ConnectedAccountsPage() {
   // The two query-string arrivals this page has to read once and then
   // scrub (#116's `?oauth=`, #201/#204's own `?account=&facet=`) — both
   // plain `window.location`/`history`, per each helper's own doc comment.
+  // The outcome (#285) renders through the same Sonner surface every other
+  // toast in the Client does (`components/ui/sonner.tsx`, mounted once in
+  // `RootLayout`), rather than the page's own dismissible paragraph — a
+  // toast is visible the instant the redirect lands, whichever Settings
+  // section a User was last on, and clears itself instead of waiting to be
+  // dismissed by hand. `succeeded` (`sign-in-outcome.ts`) picks the variant:
+  // the Toaster's own `icons` map (`sonner.tsx`) already has a distinct
+  // glyph for each.
   useEffect(() => {
     const outcome = readSignInOutcome(window.location.search);
     if (outcome) {
-      setSignInOutcome(outcome);
+      const raise = outcome.succeeded ? toast.success : toast.error;
+      raise(outcome.message, { id: SIGN_IN_OUTCOME_TOAST_ID });
       clearSignInOutcome();
     }
     const accountFocus = readAccountFocus(window.location.search);
@@ -95,15 +103,6 @@ export function ConnectedAccountsPage() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-      {signInOutcome && (
-        <p role="status" className="text-sm text-muted-foreground">
-          {signInOutcome.message}{" "}
-          <button type="button" onClick={() => setSignInOutcome(null)}>
-            Dismiss
-          </button>
-        </p>
-      )}
-
       <Card>
         <CardHeader>
           {/* `CardTitle` renders a plain `div` (`components/ui/card.tsx`'s own

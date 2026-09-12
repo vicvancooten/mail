@@ -8,6 +8,11 @@ import { type SyncLoopHandle, startSyncLoop } from "./sync-loop.js";
  * loop for as long as the component is mounted. Deliberately returns
  * nothing: the UI renders from the cache (ADR-0010), never from what this
  * happens to be doing.
+ *
+ * Called exactly once, from `router/RootLayout.tsx` (#285) — the Client
+ * shell's own concern, not any one App surface's, so it runs for as long as
+ * the Client is open regardless of which route is current and never
+ * restarts on navigation between Apps.
  */
 export function useLocalCacheSync(): void {
   const { handleUnauthorized } = useAuth();

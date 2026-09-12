@@ -58,6 +58,19 @@ describe("googlePersonToContactFields", () => {
     ]);
   });
 
+  it('keeps a Google email with an arbitrary type, and defaults a type-less one to "home" (#283)', () => {
+    const fields = googlePersonToContactFields({
+      emailAddresses: [
+        { value: "kid@school.example", type: "school" },
+        { value: "solo@example.com" },
+      ],
+    });
+    expect(fields.emails).toEqual([
+      { id: "g:emailAddresses:0", type: "school", value: "kid@school.example", primary: false },
+      { id: "g:emailAddresses:1", type: "home", value: "solo@example.com", primary: false },
+    ]);
+  });
+
   it("projects an address's modelled sub-fields only, dropping poBox/countryCode from the returned shape", () => {
     const fields = googlePersonToContactFields({
       addresses: [

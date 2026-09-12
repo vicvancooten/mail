@@ -1,3 +1,4 @@
+export { phoneBreakpoint, splitMinimum } from "./breakpoints.js";
 export {
   type AvatarTile,
   type AvatarTileKey,

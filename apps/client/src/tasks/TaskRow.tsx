@@ -1,5 +1,6 @@
 import type { Task } from "@mail/shared";
 import type { DragEvent } from "react";
+import { useRegionFormatSettings } from "../store/index.js";
 import { TaskEditor } from "./TaskEditor.js";
 import { TaskThreadLinkChip } from "./TaskThreadLinkChip.js";
 import { formatDueDate, formatDueTime, isOverdue } from "./task-due.js";
@@ -135,10 +136,11 @@ export function TaskDueChip({
   completed: boolean;
 }) {
   const overdue = !completed && isOverdue(dueDate);
+  const region = useRegionFormatSettings();
   return (
     <span className={`task-due-chip${overdue ? " task-due-chip--overdue" : ""}`}>
-      {formatDueDate(dueDate)}
-      {dueTime ? ` ${formatDueTime(dueTime)}` : ""}
+      {formatDueDate(dueDate, region)}
+      {dueTime ? ` ${formatDueTime(dueTime, region)}` : ""}
     </span>
   );
 }

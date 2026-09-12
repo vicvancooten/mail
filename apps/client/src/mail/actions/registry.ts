@@ -6,6 +6,7 @@ import {
   ChevronUp,
   Clock,
   CornerUpLeft,
+  ExternalLink,
   Flag,
   Forward,
   Keyboard,
@@ -52,6 +53,7 @@ import type { Action, ActionChoice, ActionContext, ActionSurface } from "./types
 
 const NO_THREAD = "Nothing selected — pick a Thread first.";
 const NO_MESSAGE = "No message loaded to reply to yet.";
+const ALREADY_STANDALONE = "This Thread is already open in its own window.";
 export const NO_PICKER = "Open the Thread first — its picker lives in the reading pane.";
 
 const available = { available: true } as const;
@@ -133,7 +135,7 @@ export const ACTIONS: readonly Action[] = [
     label: "Compose",
     icon: PenSquare,
     section: "Compose",
-    binding: { keys: ["c"], display: "C", preventDefault: true },
+    binding: { keys: ["c"], display: "C" },
     surfaces: [],
     availability: () => available,
     run: (ctx) => ctx.onCompose(),
@@ -148,7 +150,7 @@ export const ACTIONS: readonly Action[] = [
     icon: CheckCircle2,
     section: "Triage",
     binding: { keys: ["e"], display: "E" },
-    surfaces: ["row-hover", "reader-primary", "menu"],
+    surfaces: ["row-hover", "reader-mail-primary", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.archive(ctx.thread.id);
@@ -160,7 +162,7 @@ export const ACTIONS: readonly Action[] = [
     icon: Clock,
     section: "Triage",
     binding: { keys: ["h"], display: "H" },
-    surfaces: ["row-hover", "reader-primary", "menu"],
+    surfaces: ["row-hover", "reader-mail-primary", "menu"],
     availability: needsThread,
     needsPicker: "snooze",
     // The keyboard and the Palette open a picker (the reading pane's own
@@ -176,7 +178,7 @@ export const ACTIONS: readonly Action[] = [
     icon: Tag,
     section: "Triage",
     binding: { keys: ["L"], display: "L" },
-    surfaces: ["reader-secondary", "menu"],
+    surfaces: ["reader-mail-overflow", "menu"],
     availability: needsThread,
     needsPicker: "label",
     run: (ctx) => ctx.openPicker?.("label"),
@@ -188,7 +190,7 @@ export const ACTIONS: readonly Action[] = [
     icon: Pin,
     section: "Triage",
     binding: { keys: ["p"], display: "P" },
-    surfaces: ["row-hover", "reader-secondary", "menu"],
+    surfaces: ["row-hover", "reader-mail-overflow", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.togglePin(ctx.thread.id);
@@ -200,43 +202,43 @@ export const ACTIONS: readonly Action[] = [
     icon: Star,
     section: "Triage",
     binding: { keys: ["s"], display: "S" },
-    surfaces: ["reader-secondary", "menu"],
+    surfaces: ["reader-mail-overflow", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.toggleStar(ctx.thread.id);
     },
   },
-  // "Add to Notes" (#195): the Reader's own bridge into Notes — creates a
-  // Note at once (no intermediate sheet, unlike "Add to Tasks" right below,
-  // which opens one). Reader-secondary/menu only, matching Label's own
-  // surfaces: there is no row-hover cluster control for this any more than
-  // there is one for Label. Declared after Pin/Star (not beside Label, where
-  // #195 first placed it) so the Palette's own registry-order "most-used"
-  // fallback (#148) still surfaces the original five core Triage actions —
-  // Compose, Done, Snooze, Label, Pin — before this newer one.
+  // "Save to Notes" (#195, relabeled by #289's Integrations group — still
+  // `id: "add-to-notes"`, every wire/registry reference to it is by id, not
+  // label): the Reader's own bridge into Notes — creates a Note at once (no
+  // intermediate sheet, unlike "Add to Tasks" right below, which opens one).
+  // `reader-send-to`/menu only: reachable from the Reader solely through its
+  // "Send to…" menu (#289), not a row-hover cluster control of its own any
+  // more than Label has one.
   {
     id: "add-to-notes",
-    label: "Add to Notes",
+    label: "Save to Notes",
     icon: NotebookText,
     section: "Triage",
     binding: null,
-    surfaces: ["reader-secondary", "menu"],
+    surfaces: ["reader-send-to", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.onAddToNotes(ctx.thread);
     },
   },
-  // "Add to Tasks" (#258): beside "Add to Notes", same surfaces — except
-  // `run` only opens the sheet that asks for a Task List and a Due
-  // (`mail/AddToTasksSheet.tsx`) rather than committing at once, since a Due
-  // is the point of a Task and the Reader has no other place to ask for one.
+  // "Add to Tasks" (#258): beside "Save to Notes" in the same "Send to…"
+  // menu (#289) — `run` only opens the sheet that asks for a Task List and a
+  // Due (`mail/AddToTasksSheet.tsx`) rather than committing at once, since a
+  // Due is the point of a Task and the Reader has no other place to ask for
+  // one.
   {
     id: "add-to-tasks",
     label: "Add to Tasks",
     icon: ListTodo,
     section: "Triage",
     binding: null,
-    surfaces: ["reader-secondary", "menu"],
+    surfaces: ["reader-send-to", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.onAddToTasks(ctx.thread);
@@ -255,22 +257,58 @@ export const ACTIONS: readonly Action[] = [
     icon: MailOpen,
     section: "Triage",
     binding: null,
-    surfaces: ["reader-more", "menu"],
+    surfaces: ["reader-mail-overflow", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.toggleRead(ctx.thread.id);
     },
   },
-  replyAction("reply", "Reply", "reply", "R", "r", Reply, ["reader-primary", "menu"]),
-  replyAction("reply-all", "Reply all", "replyAll", "A", "a", ReplyAll, ["menu"]),
-  replyAction("forward", "Forward", "forward", "F", "f", Forward, ["reader-more", "menu"]),
+  // "Open in new window" (#292): the Mail group's overflow, unbound like
+  // Read/unread and Forward just above/below — reachable only from the
+  // Reader's own overflow (not the row menu: a row isn't "open" anywhere to
+  // duplicate into a second window). Opens the standalone Reader route
+  // (`router/ReaderRoute.tsx`) in a real browser window, so the User can
+  // keep this Thread open while working elsewhere in this one. Unavailable
+  // from inside that same standalone window (`onOpenInNewWindow` is `null`
+  // there) — that window *is* the one this action would open, so the
+  // overflow simply omits it rather than the action quietly doing nothing.
+  {
+    id: "open-in-new-window",
+    label: "Open in new window",
+    icon: ExternalLink,
+    section: "Navigation",
+    binding: null,
+    surfaces: ["reader-mail-overflow"],
+    availability: (ctx) => {
+      if (!ctx.thread) return unavailable(NO_THREAD);
+      if (!ctx.onOpenInNewWindow) return unavailable(ALREADY_STANDALONE);
+      return available;
+    },
+    run: (ctx) => {
+      if (ctx.thread) ctx.onOpenInNewWindow?.(ctx.thread);
+    },
+  },
+  replyAction("reply", "Reply", "reply", "R", "r", Reply, [
+    "reader-reply-primary",
+    "reader-reply-overflow",
+    "menu",
+  ]),
+  replyAction("reply-all", "Reply all", "replyAll", "A", "a", ReplyAll, [
+    "reader-reply-primary",
+    "reader-reply-overflow",
+    "menu",
+  ]),
+  replyAction("forward", "Forward", "forward", "F", "f", Forward, [
+    "reader-reply-overflow",
+    "menu",
+  ]),
   {
     id: "trash",
     label: "Move to Trash",
     icon: Trash2,
     section: "Triage",
-    binding: { keys: ["#", "Backspace", "Delete"], display: "#", preventDefault: true },
-    surfaces: ["reader-primary", "menu"],
+    binding: { keys: ["#", "Backspace", "Delete"], display: "#" },
+    surfaces: ["reader-mail-primary", "menu"],
     destructive: true,
     availability: needsThread,
     run: (ctx) => {
@@ -289,8 +327,8 @@ export const ACTIONS: readonly Action[] = [
     label: "Spam",
     icon: Flag,
     section: "Triage",
-    binding: { keys: ["!"], display: "!", preventDefault: true },
-    surfaces: ["reader-more", "menu"],
+    binding: { keys: ["!"], display: "!" },
+    surfaces: ["reader-mail-overflow", "menu"],
     destructive: true,
     availability: needsThread,
     run: (ctx) => {
@@ -303,20 +341,26 @@ export const ACTIONS: readonly Action[] = [
     icon: Ban,
     section: "Triage",
     binding: null,
-    surfaces: ["reader-more", "menu"],
+    surfaces: ["reader-mail-overflow", "menu"],
     destructive: true,
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.blockSender(ctx.thread.id);
     },
   },
+  // Available on any Inbox Thread — the row menu and the Palette show this
+  // regardless of whether the Thread was ever held (#144, unchanged by
+  // #289). The Reader's own Mail overflow additionally requires Screening
+  // Hold (`mailOverflowActions` below), since #289 wants Approve *absent*
+  // from an ordinary open Thread — that extra rule lives in the Reader's own
+  // helper, not here, so it never touches the row menu or the Palette.
   {
     id: "approve-sender",
     label: "Approve",
     icon: Check,
     section: "Triage",
     binding: null,
-    surfaces: ["reader-more", "menu"],
+    surfaces: ["reader-mail-overflow", "menu"],
     availability: needsThread,
     run: (ctx) => {
       if (ctx.thread) ctx.triage.approveSender(ctx.thread.id);
@@ -328,7 +372,7 @@ export const ACTIONS: readonly Action[] = [
     label: "Next thread",
     icon: ChevronDown,
     section: "Navigation",
-    binding: { keys: ["j", "ArrowDown", "l", "ArrowRight"], display: "J", preventDefault: true },
+    binding: { keys: ["j", "ArrowDown", "l", "ArrowRight"], display: "J" },
     surfaces: [],
     availability: (ctx) =>
       ctx.threadCount > 0 ? available : unavailable("Nothing in this list yet."),
@@ -339,7 +383,7 @@ export const ACTIONS: readonly Action[] = [
     label: "Previous thread",
     icon: ChevronUp,
     section: "Navigation",
-    binding: { keys: ["k", "ArrowUp", "ArrowLeft"], display: "K", preventDefault: true },
+    binding: { keys: ["k", "ArrowUp", "ArrowLeft"], display: "K" },
     surfaces: [],
     availability: (ctx) =>
       ctx.threadCount > 0 ? available : unavailable("Nothing in this list yet."),
@@ -406,7 +450,7 @@ export const ACTIONS: readonly Action[] = [
     label: "Search",
     icon: Search,
     section: "Search",
-    binding: { keys: ["/"], display: "/", preventDefault: true },
+    binding: { keys: ["/"], display: "/" },
     surfaces: [],
     availability: () => available,
     run: (ctx) => ctx.onFocusSearch(),
@@ -416,7 +460,7 @@ export const ACTIONS: readonly Action[] = [
     label: "Command palette",
     icon: Search,
     section: "Search",
-    binding: { keys: ["k"], display: "⌘K", meta: true, preventDefault: true },
+    binding: { keys: ["k"], display: "⌘K", meta: true },
     surfaces: [],
     availability: () => available,
     run: (ctx) => ctx.onOpenPalette(),
@@ -427,7 +471,7 @@ export const ACTIONS: readonly Action[] = [
     label: "Keyboard shortcuts",
     icon: Keyboard,
     section: "Help",
-    binding: { keys: ["?"], display: "?", preventDefault: true },
+    binding: { keys: ["?"], display: "?" },
     surfaces: [],
     availability: () => available,
     run: (ctx) => ctx.onOpenShortcutSheet(),
@@ -555,18 +599,12 @@ export function actionById(id: string): Action | undefined {
   return ACTIONS.find((action) => action.id === id);
 }
 
-/** Ids tagged for one Reader tier, regardless of whether any one of them can run right now — the tier's own *shape* (#143), computed once from the static registry rather than per render. `ThreadDetailPane`'s hand-rendered primary and secondary buttons key their presence on these two sets (Reply's `disabled` state still comes from `availability`, same as always); the More menu, by contrast, filters by availability too (`moreReaderActions`), the way every menu does. */
-function readerTierIds(surface: "reader-primary" | "reader-secondary"): ReadonlySet<string> {
-  return new Set(
-    ACTIONS.filter((action) => action.surfaces.includes(surface)).map((action) => action.id),
-  );
-}
-
-/** Reply, Done, Snooze, Trash — the ids `ThreadDetailPane` always renders inline, on every surface. */
-export const PRIMARY_READER_ACTION_IDS: ReadonlySet<string> = readerTierIds("reader-primary");
-
-/** Pin, Star, Label — the ids `ThreadDetailPane` renders inline on desktop, and folds into the More menu on a touch-capable phone. */
-export const SECONDARY_READER_ACTION_IDS: ReadonlySet<string> = readerTierIds("reader-secondary");
+/** Ids tagged for the Mail group's inline run, regardless of whether any one of them can run right now — the group's own *shape* (#289), computed once from the static registry rather than per render. `ThreadDetailPane`'s hand-rendered Done/Snooze/Trash buttons key their presence on this set (each one's own `disabled` still comes from `availability`, same as always). */
+export const READER_MAIL_PRIMARY_IDS: ReadonlySet<string> = new Set(
+  ACTIONS.filter((action) => action.surfaces.includes("reader-mail-primary")).map(
+    (action) => action.id,
+  ),
+);
 
 /** Every non-contextual action, in registry order — what the Palette and the Shortcut Sheet list, available or not. */
 export function globalActions(): readonly Action[] {
@@ -590,28 +628,27 @@ export function surfaceActions(
   );
 }
 
-/** The Reader's inline primary run (#143) — Reply, Done, Snooze, Trash: visible on every surface (Split, List, phone, Stream). */
-export function primaryReaderActions(ctx: ActionContext): readonly Action[] {
-  return surfaceActions(ctx, "reader-primary");
-}
-
-/** The Reader's inline secondary run (#143) — Pin, Star, Label: rendered by `ThreadDetailPane` only where `moreReaderActions`'s own `includeSecondary` is false (desktop). */
-export function secondaryReaderActions(ctx: ActionContext): readonly Action[] {
-  return surfaceActions(ctx, "reader-secondary");
+/** The Reply group's overflow (#289) — whichever of Reply/Reply All isn't the inline primary, plus Forward. `primaryId` is `chooseReplyMode`'s pick (`reading/reply-mode.ts`) — the id this Thread is already showing inline, so the overflow never lists the same action twice. */
+export function replyOverflowActions(ctx: ActionContext, primaryId: string): readonly Action[] {
+  return surfaceActions(ctx, "reader-reply-overflow").filter((action) => action.id !== primaryId);
 }
 
 /**
- * The Reader's "More" menu (#143) — the `reader-more` tier (Read/unread,
- * Forward, Spam, Approve, Block — #144) on every surface,
- * joined by the secondary tier too (Pin, Star, Label) on a touch-capable
- * phone, where the inline run has nowhere to sit (`ThreadDetailPane`'s own
- * phone check). A new More-tier action needs nothing here — it only needs
- * `"reader-more"` in its own `surfaces`.
+ * The Mail group's overflow (#289) — Pin, Star, Label, Mark unread, Spam,
+ * Block, and Approve, the last narrowed further than its own `availability`:
+ * Approve is reachable from any Inbox Thread's row menu and the Palette
+ * (#144, unchanged), but the Reader's own Mail overflow should show it only
+ * for a Thread under Screening Hold (#289's own acceptance line) — a
+ * Reader-only rule, so it's filtered here rather than in `approve-sender`'s
+ * shared `availability`.
  */
-export function moreReaderActions(
-  ctx: ActionContext,
-  { includeSecondary }: { includeSecondary: boolean },
-): readonly Action[] {
-  const more = surfaceActions(ctx, "reader-more");
-  return includeSecondary ? [...secondaryReaderActions(ctx), ...more] : more;
+export function mailOverflowActions(ctx: ActionContext): readonly Action[] {
+  return surfaceActions(ctx, "reader-mail-overflow").filter(
+    (action) => action.id !== "approve-sender" || ctx.thread?.heldSender != null,
+  );
+}
+
+/** The Integrations group's "Send to…" menu (#289) — Add to Tasks and Save to Notes, its only two entries. */
+export function sendToActions(ctx: ActionContext): readonly Action[] {
+  return surfaceActions(ctx, "reader-send-to");
 }

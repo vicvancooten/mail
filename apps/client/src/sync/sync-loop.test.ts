@@ -71,6 +71,24 @@ function start(options: Parameters<typeof startSyncLoop>[0]): SyncLoopHandle {
   return loop;
 }
 
+/** A `post` whose rounds stay in flight until the test resolves them one at a time, oldest first. */
+function controllableSync() {
+  const calls: SyncRequest[] = [];
+  const resolvers: (() => void)[] = [];
+  const post = (request: SyncRequest): Promise<SyncResponse> => {
+    calls.push(request);
+    return new Promise((resolve) => {
+      resolvers.push(() => resolve({ user: {}, mailAccounts: {}, connectedAccounts: {} }));
+    });
+  };
+  return {
+    post,
+    calls,
+    /** Resolves the oldest still-pending round. */
+    resolveNext: () => resolvers.shift()?.(),
+  };
+}
+
 describe("the sync loop", () => {
   it("syncs once on cold boot and again on the visible interval", async () => {
     const { post, calls } = countingSync();
@@ -133,6 +151,33 @@ describe("the sync loop", () => {
     await settle();
 
     expect(calls).toHaveLength(2);
+  });
+
+  it("starts a second round as soon as the first frees up when a request lands mid-round, rather than waiting for the interval (#276)", async () => {
+    const { post, calls, resolveNext } = controllableSync();
+    const loop = start({ post, locks: createFakeLockManager() });
+    await settle();
+
+    expect(calls).toHaveLength(1); // the cold-boot round is still in flight
+
+    // A second Done issued while the first round is still syncing.
+    loop.requestSync();
+    await settle();
+    expect(calls).toHaveLength(1); // not sent yet — the round in flight hasn't freed up
+
+    resolveNext(); // frees the first round
+    await settle();
+
+    expect(calls).toHaveLength(2); // the second round started immediately, no 30s wait
+
+    resolveNext();
+    await settle();
+
+    // Nothing else requested — back to waiting for the interval.
+    await advance(29_000);
+    expect(calls).toHaveLength(2);
+    await advance(1_000);
+    expect(calls).toHaveLength(3);
   });
 
   it("rate-limits visibility triggers so alt-tabbing cannot hammer the endpoint", async () => {
@@ -236,7 +281,18 @@ describe("realtime Sync Hints (#52, ADR-0015)", () => {
     es.instances[0]?.fireHint();
     await settle();
 
-    expect(calls).toHaveLength(2);
+    // At least one more round, immediately rather than on the 30s interval.
+    // Exactly one extra round isn't guaranteed on the leader tab: its own
+    // `connectHints` callback fires `requestSync` directly *and* its
+    // `subscribeHints` channel (a separate `BroadcastChannel` object on the
+    // same name, `sse.ts`) receives the very relay that call sends, so one
+    // hint can flip the request flag twice. Since #276, a request landing
+    // while the previous round is still in flight starts another round
+    // immediately rather than waiting out the interval (correct — a second
+    // Done issued mid-round must reach the Sync Backend promptly too), so
+    // that second flip can now surface as a third round instead of being
+    // silently absorbed into the sleep the way it used to be.
+    expect(calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("opens exactly one EventSource across two tabs, and hands it to the new leader when the first stops", async () => {

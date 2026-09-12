@@ -82,23 +82,31 @@ function authResponses(role: "owner" | "member" = "owner"): Record<string, () =>
   };
 }
 
+/** Returns the stubbed `fetch` itself (#285) — a call-count seam for tests that need to prove the sync loop started, or started only once. */
 function stubFetch(mailAccounts: MailAccount[] = [], role: "owner" | "member" = "owner") {
   const authResponsesForRole = authResponses(role);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const auth = authResponsesForRole[url];
-      if (auth) return Promise.resolve(auth());
-      // `/sync` never resolves — every assertion here reads the seeded
-      // Local Cache, never a round trip (ADR-0010).
-      if (url === "/sync") return new Promise<Response>(() => {});
-      // `MailAccountsSection` (Settings) reads this directly, not the Local
-      // Cache — unrelated to the seeded Threads above.
-      if (url === "/mail-accounts") return Promise.resolve(jsonResponse({ mailAccounts }));
-      throw new Error(`Unexpected fetch: ${url}`);
-    }),
-  );
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const auth = authResponsesForRole[url];
+    if (auth) return Promise.resolve(auth());
+    // `/sync` never resolves — every assertion here reads the seeded
+    // Local Cache, never a round trip (ADR-0010).
+    if (url === "/sync") return new Promise<Response>(() => {});
+    // `MailAccountsSection` (Settings) reads this directly, not the Local
+    // Cache — unrelated to the seeded Threads above.
+    if (url === "/mail-accounts") return Promise.resolve(jsonResponse({ mailAccounts }));
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** How many times the sync loop has actually reached out to `/sync` so far. */
+function syncFetchCount(fetchMock: ReturnType<typeof stubFetch>): number {
+  return fetchMock.mock.calls.filter(([input]) => {
+    const url = typeof input === "string" ? input : input.toString();
+    return url === "/sync";
+  }).length;
 }
 
 beforeEach(async () => {
@@ -387,6 +395,32 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/contacts");
   });
 
+  it("at desktop width, the App Switcher toggle carries its own sizing class rather than a structural position, and shows a next-App peek (#280)", async () => {
+    await seedOneThread();
+    stubFetch();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    // The hidden measuring row is a real sibling *before* the toggle cell in
+    // the DOM, so a selector keyed to structural position (`:first-child`)
+    // never actually matched the toggle — this only stays fixed as long as
+    // the toggle cell keeps its own class, regardless of where the
+    // measuring row sits. jsdom computes no layout, so this asserts the
+    // class-based seam the CSS rule now keys on, not the rendered width
+    // itself (verified separately in a real browser per the ticket).
+    const toggleCell = document.querySelector(".switcher-cell-toggle");
+    expect(toggleCell).not.toBeNull();
+    expect(toggleCell?.parentElement?.firstElementChild).not.toBe(toggleCell);
+
+    // The collapsed toggle's discovery hint: exactly one decorative peek of
+    // the next App's mark, not a persistent row of icons.
+    const switcherButton = screen.getByRole("button", { name: "Switch app" });
+    const peeks = switcherButton.querySelectorAll(".app-tile-peek");
+    expect(peeks).toHaveLength(1);
+    expect(peeks[0]?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("at phone width, the App Switcher opens as a sheet and closes by outside pointer or Escape (#136)", async () => {
     await seedOneThread();
     stubFetch();
@@ -428,7 +462,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("at phone width, the header sheds to search and avatar and the bottom bar carries Folders, the App Switcher and Compose (#155)", async () => {
+  it("at phone width, the header sheds to search and avatar and the Dock carries the App Switcher tile plus Mail's two declared controls (#155, #298)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -439,37 +473,102 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByText("Routed thread");
 
-      // The home mark, the header's own App Switcher instance and the
-      // appearance toggle are gone from the tree entirely — a real
-      // conditional (#155), not CSS-only visibility, so there's exactly
-      // one "Switch app" control to find, not a duplicate.
-      expect(screen.queryByLabelText("Wicket home")).toBeNull();
+      // The header's own App Switcher instance and the appearance toggle
+      // are gone from the tree entirely — a real conditional (#155), not
+      // CSS-only visibility, so there's exactly one "Switch app" control to
+      // find, not a duplicate. The home mark itself stays (#286,
+      // `CONTEXT.md`'s own Hub entry): the phone top bar keeps it at its
+      // leading edge rather than dropping it alongside the controls the
+      // Dock picks up instead.
+      expect(screen.getByLabelText("Wicket home")).toBeDefined();
       expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
       expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
 
-      // The bottom bar itself: Folders, the App Switcher (captioned with
-      // the current App's name, "Mail" — its accessible name stays "Switch
-      // app" either way, the same one the header's own skin carries), and
-      // Compose — scoped to the bar itself, since jsdom (unlike a real
-      // browser) never hides the desktop folder rail's own same-named
-      // Compose pill for a width it can't apply `mail.css`'s CSS against.
-      const bottomBar = screen.getByRole("navigation", {
-        name: "Folders, switch app, and compose",
+      // The Dock itself: Folders and Compose either side of the switcher
+      // tile — Mail's own two declared controls (`apps/apps.ts#AppDef.dockControls`)
+      // — the switcher tile captioned with the current App's name, "Mail"
+      // (its accessible name stays "Switch app" either way, the same one
+      // the header's own skin carries) — scoped to the Dock itself, since
+      // jsdom (unlike a real browser) never hides the desktop folder rail's
+      // own same-named Compose pill for a width it can't apply `mail.css`'s
+      // CSS against.
+      const dock = screen.getByRole("navigation", {
+        name: "Folders, switch app, and Compose",
       });
-      expect(within(bottomBar).getByRole("button", { name: "Folders" })).toBeDefined();
-      expect(within(bottomBar).getByText("Mail")).toBeDefined();
-      expect(within(bottomBar).getByRole("button", { name: "Compose" })).toBeDefined();
+      expect(within(dock).getByRole("button", { name: "Folders" })).toBeDefined();
+      expect(within(dock).getByText("Mail")).toBeDefined();
+      expect(within(dock).getByRole("button", { name: "Compose" })).toBeDefined();
 
       // Folders opens the same Sheet the desktop rail's entries live in.
-      await user.click(within(bottomBar).getByRole("button", { name: "Folders" }));
+      await user.click(within(dock).getByRole("button", { name: "Folders" }));
       expect(await screen.findByRole("dialog")).toBeDefined();
       expect(screen.getByRole("button", { name: "Screener" })).toBeDefined();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).toBeNull();
 
-      // Compose opens the Composer from the bottom bar directly.
-      await user.click(within(bottomBar).getByRole("button", { name: "Compose" }));
+      // Compose opens the Composer from the Dock directly.
+      await user.click(within(dock).getByRole("button", { name: "Compose" }));
       expect(await screen.findByPlaceholderText("Subject")).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("at phone width, an App with fewer declared Dock controls shows fewer tiles (#298)", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+
+    try {
+      render(<App />);
+      await screen.findByRole("button", { name: "Switch app" });
+
+      // Contacts hasn't declared any Dock controls yet
+      // (`apps/apps.ts#APPS`'s own `contacts` entry) — the Dock renders only
+      // the switcher tile for it, no empty Folders/Compose placeholders.
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+      await user.click(screen.getByRole("link", { name: /Contacts/ }));
+      await screen.findByLabelText("Contacts");
+
+      const dock = screen.getByRole("navigation", { name: "switch app" });
+      expect(within(dock).queryByRole("button", { name: "Folders" })).toBeNull();
+      expect(within(dock).queryByRole("button", { name: "Compose" })).toBeNull();
+      expect(within(dock).getByRole("button", { name: "Switch app" })).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("at phone width, the home mark navigates to the current App's own root, not always /mail (#286)", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", "u1", { name: "Groceries", order: 0 })] }),
+      { replace: false },
+    );
+    await applyTaskDelta(
+      delta({ created: [makeTask("t1", "u1", "list-1", { title: "Buy milk" })] }),
+      {
+        replace: false,
+      },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/tasks/t1");
+
+    try {
+      render(<App />);
+      await screen.findByRole("heading", { name: "Groceries" });
+
+      await user.click(screen.getByLabelText("Wicket home"));
+
+      // Home lands on Tasks' own root (`/tasks`), not `/mail` — the mark's
+      // `to` is the current App's own path (`RootLayout.tsx`'s
+      // `currentApp?.path`), not a hardcoded destination.
+      await waitFor(() => {
+        expect(location.pathname).toBe("/tasks");
+      });
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -851,6 +950,79 @@ describe("the app shell over a routed tree (#71)", () => {
     await waitFor(() => expect(screen.getByLabelText("Username")).toBeDefined());
   });
 
+  it("navigating straight to a Settings route starts the sync loop (#285)", async () => {
+    const fetchMock = stubFetch();
+
+    // No stop at `/mail` first — the whole point of #285 is that a User who
+    // lands directly on Settings gets the sync loop too, not just the nine
+    // App surfaces that used to start it themselves.
+    history.replaceState(null, "", "/settings/general");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "General", level: 2 })).toBeDefined();
+    await waitFor(() => expect(syncFetchCount(fetchMock)).toBeGreaterThan(0));
+  });
+
+  it("navigating between Apps never restarts the sync loop (#285)", async () => {
+    await seedOneThread();
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+    await waitFor(() => expect(syncFetchCount(fetchMock)).toBeGreaterThan(0));
+    const countAtMail = syncFetchCount(fetchMock);
+
+    // The shell (`router/RootLayout.tsx`) never unmounts across these —
+    // only its `<Outlet/>` swaps — so the sync loop's own effect never
+    // tears down and reruns the way it would if each App started it.
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: "Contacts" }));
+    await screen.findByLabelText("Contacts");
+
+    await user.click(screen.getByRole("button", { name: "Switch app" }));
+    await user.click(screen.getByRole("link", { name: /Notes/ }));
+    await screen.findByLabelText("Notes");
+
+    expect(syncFetchCount(fetchMock)).toBe(countAtMail);
+  });
+
+  it("returning from a Provider sign-in renders a toast and, once the delta lands, highlights the new Connected Account (#285)", async () => {
+    stubFetch();
+
+    // The backend's own redirect (`routes/oauth-signin.ts#finish`) carries
+    // both the outcome and, for `signed_in`, the new Connected Account's own
+    // focus pair — the same `?account=&facet=` shape the needs-reauth deep
+    // link above lands on, at the pre-#201 address old links still carry.
+    history.replaceState(
+      null,
+      "",
+      "/settings/mail-accounts?oauth=signed_in&account=acct-1-connected&facet=mail",
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByText("Signed in. The new Mail Account is syncing now."),
+    ).toBeDefined();
+    expect(location.pathname).toBe("/settings/connected-accounts");
+
+    // Nothing to highlight yet — the new Connected Account hasn't synced
+    // down into the Local Cache.
+    expect(screen.queryByText("acct-1@example.test")).toBeNull();
+
+    await applyConnectedAccountDelta(
+      delta({ created: [makeConnectedAccount("acct-1-connected")] }),
+      { replace: false },
+    );
+
+    // Once the delta lands, its Facet Badge renders and — being the
+    // redirect's own focus target — opens its Popover immediately, the same
+    // "scroll to and open" the needs-reauth deep link gets: the identity
+    // now appears twice (the Badge itself, plus the open Popover's title).
+    expect(await screen.findAllByText("acct-1@example.test")).toHaveLength(2);
+    expect(screen.getByText("Connected.")).toBeDefined();
+  });
+
   it("the placeholder Apps are real, reachable routes", async () => {
     await seedOneThread();
     stubFetch();
@@ -918,7 +1090,7 @@ describe("the app shell over a routed tree (#71)", () => {
     ).toBeDefined();
   });
 
-  it("the App Switcher opens a phone sheet naming all five Apps below 700px (#187, #193, #211, #231, #252)", async () => {
+  it("the App Switcher opens a phone sheet naming all five Apps below the phone breakpoint (#187, #193, #211, #231, #252)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -932,7 +1104,7 @@ describe("the app shell over a routed tree (#71)", () => {
       await screen.findByText("Routed thread");
 
       // The desktop's inline-expanding tab row isn't in the tree at all at
-      // this width — `useIsMobile` mounts the sheet trigger instead, not a
+      // this width — `useIsPhoneWidth` mounts the sheet trigger instead, not a
       // CSS rule hiding the desktop row (`AppSwitcher.tsx`'s own doc comment
       // on why the two share one accessible name and can't both be mounted
       // at once).
@@ -1096,6 +1268,34 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(await screen.findByLabelText("Search commands and mail")).toBeDefined();
       expect(screen.getByRole("option", { name: /Compose/ })).toBeDefined();
     });
+  });
+});
+
+describe("the standalone Reader route (#292)", () => {
+  it("renders only the Reader — no Hub header, no App Switcher, no list", async () => {
+    await seedTwoThreads();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/reader/t1");
+    render(<App />);
+
+    expect(await screen.findByText("Newer thread", { selector: ".reading-subject" })).toBeDefined();
+    expect(screen.queryByLabelText("Switch app")).toBeNull();
+    expect(screen.queryByLabelText("Search commands and mail")).toBeNull();
+    expect(screen.queryByText("Older thread")).toBeNull();
+  });
+
+  it("the shortcut registry still works — `e` archives the open Thread straight off the keyboard", async () => {
+    await seedTwoThreads();
+    stubFetch();
+
+    history.replaceState(null, "", "/mail/reader/t1");
+    render(<App />);
+    await screen.findByText("Newer thread", { selector: ".reading-subject" });
+
+    fireEvent.keyDown(window, { key: "e" });
+
+    expect(await screen.findByText("Done", { exact: false })).toBeDefined();
   });
 });
 

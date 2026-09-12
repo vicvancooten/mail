@@ -159,6 +159,10 @@ export function toWirePreference(row: typeof users.$inferSelect): Preference {
       ? (row.undoSendDelaySeconds as Preference["undoSendDelaySeconds"])
       : DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: row.homeTimeZone,
+    regionLocale: row.regionLocale,
+    clockFormat: row.clockFormat,
+    firstDayOfWeek: row.firstDayOfWeek,
+    defaultCalendarView: row.defaultCalendarView,
     contactsSortOrder: row.contactsSortOrder,
     answerNotificationsEnabled: row.answerNotificationsEnabled,
     updatedAt: row.updatedAt.toISOString(),

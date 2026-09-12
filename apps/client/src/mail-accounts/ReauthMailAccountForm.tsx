@@ -1,4 +1,7 @@
 import { type FormEvent, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ApiError } from "../api/auth.js";
 import { reauthMailAccount } from "../api/mail-accounts.js";
 
@@ -41,26 +44,34 @@ export function ReauthMailAccountForm({
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <label htmlFor={`reauth-username-${mailAccountId}`}>Username</label>
-      <input
-        id={`reauth-username-${mailAccountId}`}
-        value={username}
-        onChange={(event) => setUsername(event.target.value)}
-        required
-      />
-      <label htmlFor={`reauth-password-${mailAccountId}`}>Password</label>
-      <input
-        id={`reauth-password-${mailAccountId}`}
-        type="password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        required
-      />
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`reauth-username-${mailAccountId}`}>Username</Label>
+        <Input
+          id={`reauth-username-${mailAccountId}`}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          required
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`reauth-password-${mailAccountId}`}>Password</Label>
+        <Input
+          id={`reauth-password-${mailAccountId}`}
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <Button type="submit" disabled={submitting}>
         Reconnect
-      </button>
+      </Button>
     </form>
   );
 }

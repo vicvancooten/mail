@@ -33,6 +33,12 @@ describe("calendar-url (#231)", () => {
     expect(resolveCalendarDate({ date: "2026-09-08" })).toEqual(DATE);
   });
 
+  it("resolveCalendarView opens Region Settings' own Default View once no ?view= is on the URL (#303)", () => {
+    expect(resolveCalendarView({}, "month")).toBe("month");
+    // An explicit `?view=` still wins over the Preference default.
+    expect(resolveCalendarView({ view: "day" }, "month")).toBe("day");
+  });
+
   it("daysForView hands back the right span for each view", () => {
     expect(daysForView("day", DATE)).toEqual([DATE]);
     expect(daysForView("workweek", DATE)).toHaveLength(5);
@@ -45,6 +51,12 @@ describe("calendar-url (#231)", () => {
     const days = daysForView("week", DATE).map(dayKey);
     expect(days.at(0)).toBe("2026-09-07");
     expect(days.at(6)).toBe("2026-09-13");
+  });
+
+  it("First Day of the Week (#303) moves Week's own first column to Sunday", () => {
+    const days = daysForView("week", DATE, "sunday").map(dayKey);
+    expect(days.at(0)).toBe("2026-09-06");
+    expect(days.at(6)).toBe("2026-09-12");
   });
 
   it("Month's grid always includes the 1st and last day of the anchor month", () => {

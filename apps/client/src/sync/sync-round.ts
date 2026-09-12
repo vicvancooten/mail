@@ -17,6 +17,7 @@ import {
   toWireComposeSave,
 } from "../store/compositions.js";
 import { readMailAccounts, reconcileCacheSchema } from "../store/index.js";
+import { localCache } from "../store/local-cache.js";
 import { listQueuedMutations, resolveMutationOutcomes } from "../store/mutation-queue.js";
 import {
   listQueuedSeriesSaves,
@@ -108,55 +109,32 @@ export async function runSyncRound(post: PostSync = postSync): Promise<SyncRound
       unreadInboxCount = response.user.unreadInboxCount;
     }
 
+    let hasMore: boolean;
     if (pages === 1) {
-      await applyMutationOutcomes(request, response);
-      await applyComposeSaveOutcomes(request, response);
-      await applyUserMutationOutcomes(request, response);
-      await applyDocumentSaveOutcomes(request, response);
-      await applySeriesSaveOutcomes(request, response);
-    }
-
-    let hasMore = false;
-
-    for (const collection of USER_COLLECTIONS) {
-      const delta = response.user[collection.wireKey];
-      if (!delta) continue;
-      changed = true;
-      hasMore ||= delta.hasMore;
-      await collection.apply(delta, {
-        replace: startsReplay(replaysStarted, collection.tokenKey, delta.reset),
+      // The ADR-0010 amendment: dequeuing the Optimistic Actions this round
+      // just flushed and writing the collection deltas that reflect them
+      // (a Done Thread's row leaving the Inbox, chief among them) must
+      // commit as one Local Cache transaction. Committing them separately
+      // shows `base` alone for a frame — the acknowledged pending row is
+      // already gone but its delta has not landed yet — and a Done Thread
+      // reappears until the next write. `db.tables` covers every table
+      // either side touches, so every nested `db.transaction(...)` call
+      // inside these functions joins this one instead of committing on its
+      // own (Dexie transactions are reentrant across a shared table set).
+      const result = await localCache().transaction("rw", localCache().tables, async () => {
+        await applyMutationOutcomes(request, response);
+        await applyComposeSaveOutcomes(request, response);
+        await applyUserMutationOutcomes(request, response);
+        await applyDocumentSaveOutcomes(request, response);
+        await applySeriesSaveOutcomes(request, response);
+        return applyPageDeltas(response, replaysStarted);
       });
-    }
-
-    for (const [mailAccountId, collections] of Object.entries(response.mailAccounts)) {
-      for (const collection of MAIL_ACCOUNT_COLLECTIONS) {
-        const delta = collections[collection.wireKey];
-        if (!delta) continue;
-        changed = true;
-        hasMore ||= delta.hasMore;
-        await collection.apply(mailAccountId, delta, {
-          replace: startsReplay(replaysStarted, collection.tokenKey(mailAccountId), delta.reset),
-        });
-      }
-    }
-
-    // `AddressBook`/`Contact` (#209) — the same per-scope dispatch as the
-    // Mail Account loop above, applied to a Connected Account's own slot
-    // instead.
-    for (const [connectedAccountId, collections] of Object.entries(response.connectedAccounts)) {
-      for (const collection of CONNECTED_ACCOUNT_COLLECTIONS) {
-        const delta = collections[collection.wireKey];
-        if (!delta) continue;
-        changed = true;
-        hasMore ||= delta.hasMore;
-        await collection.apply(connectedAccountId, delta, {
-          replace: startsReplay(
-            replaysStarted,
-            collection.tokenKey(connectedAccountId),
-            delta.reset,
-          ),
-        });
-      }
+      hasMore = result.hasMore;
+      if (result.changed) changed = true;
+    } else {
+      const result = await applyPageDeltas(response, replaysStarted);
+      hasMore = result.hasMore;
+      if (result.changed) changed = true;
     }
 
     // A first-ever boot learns its Mail Accounts (and, since #209, Connected
@@ -295,6 +273,68 @@ async function applyComposeSaveOutcomes(
     if (!outcomes || outcomes.length === 0) continue;
     await resolveComposeSaveOutcomes(mailAccountId, queued, outcomes);
   }
+}
+
+interface PageDeltaResult {
+  /** True when the Sync Backend says there is more of at least one collection to page through. */
+  hasMore: boolean;
+  /** True when at least one collection in this page carried a change. */
+  changed: boolean;
+}
+
+/**
+ * Applies one page's collection deltas — every scope's own dispatch through
+ * `collection-registry.ts` — and reports whether to keep paging. Factored out
+ * of `runSyncRound` so the first page's call can run inside the one
+ * transaction `applyMutationOutcomes` also writes to (the ADR-0010 amendment,
+ * see the call site), while a later page of a large bootstrap still applies
+ * its own deltas the ordinary way.
+ */
+async function applyPageDeltas(
+  response: SyncResponse,
+  replaysStarted: Set<string>,
+): Promise<PageDeltaResult> {
+  let hasMore = false;
+  let changed = false;
+
+  for (const collection of USER_COLLECTIONS) {
+    const delta = response.user[collection.wireKey];
+    if (!delta) continue;
+    changed = true;
+    hasMore ||= delta.hasMore;
+    await collection.apply(delta, {
+      replace: startsReplay(replaysStarted, collection.tokenKey, delta.reset),
+    });
+  }
+
+  for (const [mailAccountId, collections] of Object.entries(response.mailAccounts)) {
+    for (const collection of MAIL_ACCOUNT_COLLECTIONS) {
+      const delta = collections[collection.wireKey];
+      if (!delta) continue;
+      changed = true;
+      hasMore ||= delta.hasMore;
+      await collection.apply(mailAccountId, delta, {
+        replace: startsReplay(replaysStarted, collection.tokenKey(mailAccountId), delta.reset),
+      });
+    }
+  }
+
+  // `AddressBook`/`Contact` (#209) — the same per-scope dispatch as the
+  // Mail Account loop above, applied to a Connected Account's own slot
+  // instead.
+  for (const [connectedAccountId, collections] of Object.entries(response.connectedAccounts)) {
+    for (const collection of CONNECTED_ACCOUNT_COLLECTIONS) {
+      const delta = collections[collection.wireKey];
+      if (!delta) continue;
+      changed = true;
+      hasMore ||= delta.hasMore;
+      await collection.apply(connectedAccountId, delta, {
+        replace: startsReplay(replaysStarted, collection.tokenKey(connectedAccountId), delta.reset),
+      });
+    }
+  }
+
+  return { hasMore, changed };
 }
 
 function startsReplay(started: Set<string>, key: string, reset: true | undefined): boolean {

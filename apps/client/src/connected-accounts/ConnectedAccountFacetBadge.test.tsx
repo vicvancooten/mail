@@ -3,9 +3,17 @@ import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { localCache, openLocalCache } from "../store/local-cache.js";
-import { applyConnectedAccountAddressBookDelta } from "../store/server-writes.js";
+import {
+  applyCalendarDelta,
+  applyConnectedAccountAddressBookDelta,
+} from "../store/server-writes.js";
 import { setSessionUserId } from "../store/session.js";
-import { delta, makeAddressBook, makeConnectedAccount } from "../test-support/mail-fixtures.js";
+import {
+  delta,
+  makeAddressBook,
+  makeCalendar,
+  makeConnectedAccount,
+} from "../test-support/mail-fixtures.js";
 import { ConnectedAccountFacetBadge } from "./ConnectedAccountFacetBadge.js";
 
 const USER = "user-1";
@@ -73,5 +81,52 @@ describe("the Contacts Facet cell's Popover", () => {
     await userEvent.click(screen.getByText(account.identity));
 
     expect(screen.queryByText(/No address books found/i)).toBeNull();
+  });
+});
+
+/**
+ * The Calendar Facet's own checklist (#301, #235's own acceptance line:
+ * "the checklist lives in the Calendar Facet cell's Popover") — mounted for
+ * the Calendar Facet only, the same seam as the Contacts Facet's own
+ * checklist above.
+ */
+describe("the Calendar Facet cell's Popover", () => {
+  it("renders the Calendar checklist for the Calendar Facet", async () => {
+    await applyCalendarDelta(
+      delta({
+        created: [
+          makeCalendar("cal-1", USER, {
+            name: "Work",
+            origin: { type: "connectedAccount", connectedAccountId: CONNECTED_ACCOUNT_ID },
+            mirrored: true,
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const account = makeConnectedAccount(CONNECTED_ACCOUNT_ID, {
+      facets: [{ kind: "calendar", status: "active" }],
+    });
+    render(
+      <ConnectedAccountFacetBadge account={account} facet="calendar" mailAccount={null} isOwner />,
+    );
+
+    await userEvent.click(screen.getByText(account.identity));
+
+    expect(await screen.findByLabelText("Work")).toBeDefined();
+  });
+
+  it("never renders the Calendar checklist for the Mail Facet", async () => {
+    const account = makeConnectedAccount(CONNECTED_ACCOUNT_ID, {
+      facets: [{ kind: "mail", status: "active" }],
+    });
+    render(
+      <ConnectedAccountFacetBadge account={account} facet="mail" mailAccount={null} isOwner />,
+    );
+
+    await userEvent.click(screen.getByText(account.identity));
+
+    expect(screen.queryByText(/No calendars found/i)).toBeNull();
   });
 });

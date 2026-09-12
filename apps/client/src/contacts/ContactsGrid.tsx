@@ -13,7 +13,6 @@ import { useAddressBooks } from "../store/address-books.js";
 import { duplicateCandidatesInScope, useContactLinks } from "../store/contact-links.js";
 import { copyContact, deleteContact, useContacts } from "../store/contacts.js";
 import { useConnectedAccounts, useMailAccounts, usePreference } from "../store/index.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { AddressBookFilter } from "./AddressBookFilter.js";
 import { ContactBookCopyDialog } from "./ContactBookCopyDialog.js";
 import { ContactCard } from "./ContactCard.js";
@@ -29,10 +28,10 @@ type ContactsAppTab = "contacts" | "mailed";
  * `/contacts`'s own content (#211, the winning Card directory from #174): one
  * grid across every Address Book in Account Scope — the Address Book is a
  * filter chip above the grid, never a separate screen
- * (`AddressBookFilter.tsx`'s own doc comment). `NotesGrid.tsx`'s own shape:
- * `useLocalCacheSync()` is called here, not assumed from an ancestor, since
- * a User landing straight on `/contacts` still needs both the cache open and
- * the sync loop running.
+ * (`AddressBookFilter.tsx`'s own doc comment). The sync loop itself is the
+ * Client shell's own concern now (#285, `router/RootLayout.tsx`), not this
+ * component's — a User landing straight on `/contacts` still gets it, since
+ * the shell runs regardless of which route is current.
  *
  * "People you've mailed" (#218) is a tab on this same list, not a second
  * screen — the tab strip below switches between the card grid and
@@ -40,7 +39,6 @@ type ContactsAppTab = "contacts" | "mailed";
  * its always-present `<Outlet/>` for the Person Page dialog.
  */
 export function ContactsGrid() {
-  useLocalCacheSync();
   const contacts = useContacts();
   const contactLinks = useContactLinks();
   const addressBooks = useAddressBooks();

@@ -4,8 +4,8 @@ import type { CachedThread } from "../../store/index.js";
 import {
   ACTIONS,
   globalActions,
+  mailOverflowActions,
   menuActions,
-  moreReaderActions,
   surfaceActions,
 } from "./registry.js";
 import { actionLabel, noopActionContext, withGroup, withThread } from "./types.js";
@@ -140,6 +140,42 @@ describe("the Action registry", () => {
     expect(onAddToTasks).toHaveBeenCalledWith(thread);
   });
 
+  it('"Open in new window" (#292) forwards the Thread to ctx.onOpenInNewWindow, nothing else, and is Reader-mail-overflow only', () => {
+    const onOpenInNewWindow = vi.fn();
+    const thread = makeThread();
+    const ctx = withThread(noopActionContext({ onOpenInNewWindow }), thread);
+    const action = ACTIONS.find((candidate) => candidate.id === "open-in-new-window");
+
+    expect(action?.surfaces).toEqual(["reader-mail-overflow"]);
+    expect(action?.availability(ctx)).toEqual({ available: true });
+    action?.run(ctx);
+
+    expect(onOpenInNewWindow).toHaveBeenCalledTimes(1);
+    expect(onOpenInNewWindow).toHaveBeenCalledWith(thread);
+
+    expect(mailOverflowActions(ctx).map((candidate) => candidate.id)).toContain(
+      "open-in-new-window",
+    );
+    expect(action?.availability(noopActionContext())).toEqual({
+      available: false,
+      reason: expect.any(String),
+    });
+  });
+
+  it('"Open in new window" (#292) is unavailable — and omitted from the Mail overflow — with a Thread in hand but no handler, the standalone Reader route\'s own shape (`router/ReaderRoute.tsx`)', () => {
+    const thread = makeThread();
+    const ctx = withThread(noopActionContext({ onOpenInNewWindow: null }), thread);
+    const action = ACTIONS.find((candidate) => candidate.id === "open-in-new-window");
+
+    expect(action?.availability(ctx)).toEqual({
+      available: false,
+      reason: expect.any(String),
+    });
+    expect(mailOverflowActions(ctx).map((candidate) => candidate.id)).not.toContain(
+      "open-in-new-window",
+    );
+  });
+
   it("flips its own label with the state it toggles", () => {
     const starred = withThread(noopActionContext(), makeThread({ starred: true }));
     const star = ACTIONS.find((action) => action.id === "star");
@@ -219,20 +255,37 @@ describe("the Action registry", () => {
 });
 
 describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
-  it("puts all three in the Reader's More menu, unavailable with nothing selected", () => {
-    const withoutThread = moreReaderActions(noopActionContext(), { includeSecondary: false });
+  it("puts Spam and Block in the Reader's Mail overflow, unavailable with nothing selected", () => {
+    const withoutThread = mailOverflowActions(noopActionContext());
     expect(withoutThread.map((action) => action.id)).not.toContain("spam");
 
     const ctx = withThread(noopActionContext(), makeThread());
-    const ids = moreReaderActions(ctx, { includeSecondary: false }).map((action) => action.id);
+    const ids = mailOverflowActions(ctx).map((action) => action.id);
     expect(ids).toContain("spam");
     expect(ids).toContain("block-sender");
-    expect(ids).toContain("approve-sender");
+    // Approve is menu-only from an ordinary (not-held) Thread's Mail
+    // overflow (#289) — see the dedicated Screening Hold test below.
+    expect(ids).not.toContain("approve-sender");
+  });
+
+  it("shows Approve in the Reader's Mail overflow only once the Thread is under Screening Hold (#289)", () => {
+    const notHeld = withThread(noopActionContext(), makeThread({ heldSender: null }));
+    expect(mailOverflowActions(notHeld).map((action) => action.id)).not.toContain("approve-sender");
+
+    const held = withThread(
+      noopActionContext(),
+      makeThread({ heldSender: "someone@example.test" }),
+    );
+    expect(mailOverflowActions(held).map((action) => action.id)).toContain("approve-sender");
+
+    // The row's own right-click menu and the Palette are unchanged (#144):
+    // Approve is reachable there regardless of Screening Hold.
+    expect(menuActions(notHeld).map((action) => action.id)).toContain("approve-sender");
   });
 
   it("binds `!` to Spam alone (user story #20) — Approve and Block are menu/Palette-only", () => {
     const spam = ACTIONS.find((action) => action.id === "spam");
-    expect(spam?.binding).toEqual({ keys: ["!"], display: "!", preventDefault: true });
+    expect(spam?.binding).toEqual({ keys: ["!"], display: "!" });
     const block = ACTIONS.find((action) => action.id === "block-sender");
     const approve = ACTIONS.find((action) => action.id === "approve-sender");
     expect(block?.binding).toBeNull();

@@ -16,9 +16,11 @@ import {
   runBulkTriageBatch,
   undoBulkTriageBatch,
 } from "../api/bulk-triage.js";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
+import { useIsBelowSplitMinimum } from "../hooks/use-split-minimum-width.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   type CachedThread,
@@ -35,17 +37,17 @@ import {
   THREAD_PAGE_SIZE,
   useConnectedAccounts,
   useDraftCompositions,
-  useGmailLabels,
+  useGmailLabelsByAccount,
   useLabels,
   useMailAccounts,
   usePreference,
+  useRegionFormatSettings,
   useScreenerSenders,
   useTaskLists,
   useThreadWindow,
 } from "../store/index.js";
 import { generateUlid } from "../store/ulid.js";
 import { requestSyncNow } from "../sync/sync-loop.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { type AddToTasksResult, AddToTasksSheet } from "./AddToTasksSheet.js";
 import { ActionsProvider, useActionKeyboard } from "./actions/ActionsProvider.js";
 import { publishActiveMailHost } from "./actions/active-mail-host.js";
@@ -67,6 +69,7 @@ import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
+import { openReaderWindow } from "./reader-window.js";
 import type { MailtoLink } from "./reading/mailto.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { Sidebar } from "./Sidebar.js";
@@ -77,6 +80,7 @@ import { scrollRestoreKey } from "./scroll-restore.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { wrapSearchTriage } from "./search/useSearchState.js";
+import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { threadLinkSnapshot } from "./thread-link-snapshot.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { announceUndoableAction } from "./undo-toast.js";
@@ -219,7 +223,6 @@ export function MailSection({
   /** The Reader's Task chips (#259, `ReaderTaskChips.tsx`'s own doc comment) — `router/MailRoute.tsx`'s navigation to `/tasks/:taskId`; same no-op-default, router-agnostic posture as `onOpenStream`. */
   onOpenTask?: (taskId: string) => void;
 } = {}) {
-  useLocalCacheSync();
   const mailAccounts = useMailAccounts();
   const connectedAccounts = useConnectedAccounts();
 
@@ -230,6 +233,20 @@ export function MailSection({
   // criterion ("changing density in Settings updates the list immediately").
   const [viewMode] = useViewMode();
   const [density] = useListDensity();
+  // The split minimum (#296, `hooks/use-split-minimum-width.ts`): below
+  // ~920px neither pane in Split has room to be itself, so the rendered
+  // layout falls back to list-then-Reader while `viewMode` itself (the
+  // stored Device Preference) stays untouched — widening the window past
+  // the token restores Split with no further action from the User.
+  const belowSplitMinimum = useIsBelowSplitMinimum();
+  // The fallback itself (#296): the stored `viewMode` preference is never
+  // rewritten — only what gets rendered changes, so widening the window
+  // back past the split minimum restores Split with no further action from
+  // the User. Shared by both of this component's own Split/List switches
+  // (the plain Thread list below, and `SearchResultsView`'s own, which
+  // renders the same `.split-view`/`.split-list`/`.split-pane` shape) so
+  // neither can drift out of sync with the other.
+  const effectiveViewMode = belowSplitMinimum ? "list" : viewMode;
   // Account Scope (#73, repointed at Connected Accounts in #207): the
   // Hub's own Scope, `deriveMailAccountScope`d down to the Thread list's own
   // accounts — a Connected Account with no Mail Facet in Scope contributes
@@ -256,6 +273,15 @@ export function MailSection({
   // previous value in a ref" pattern React's own docs describe.
   const lastSelectedThreadIdRef = useRef<string | null>(initialThreadId);
   if (selectedThreadId) lastSelectedThreadIdRef.current = selectedThreadId;
+  // #275: a plain mirror of `selectedThreadId`, read by the `initialThreadId`
+  // reconciliation effect below — that effect's own deps array can only ever
+  // be `[initialThreadId]` (a re-run on every unrelated `selectedThreadId`
+  // change would defeat the Back/Forward-only reasoning its doc comment
+  // gives), so it needs a ref rather than the state value itself to see the
+  // *current* selection instead of whichever one was live when the effect
+  // last re-subscribed.
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  selectedThreadIdRef.current = selectedThreadId;
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
   // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`): the
   // Screener is one of these entries too, so `screenerOpen` below is derived
@@ -285,6 +311,12 @@ export function MailSection({
   const preference = usePreference();
   const autoAdvanceEnabled = preference?.autoAdvanceEnabled ?? DEFAULT_AUTO_ADVANCE_ENABLED;
   const direction = preference?.autoAdvanceDirection ?? DEFAULT_AUTO_ADVANCE_DIRECTION;
+  // Region Settings (#304): the same First Day of the Week/locale the Time
+  // Group ladder (`time-groups.ts`) and its bulk-Triage inversion
+  // (`group-target.ts`) both read, so a group header's own range always
+  // bounds the same Threads its label claims to.
+  const firstDayOfWeek = preference?.firstDayOfWeek;
+  const region = useRegionFormatSettings();
   // Filter-by-label (#43, unified with Gmail Labels in the #126 post-merge
   // fix): "a label filter behaves as a view, bounded window like any
   // other" — one discriminated union rather than two parallel optional
@@ -311,7 +343,14 @@ export function MailSection({
   // section's own "only for Gmail Mail Accounts" rule a plain empty-list
   // check, the same way the Labels section already hides itself when there
   // are none.
-  const gmailLabels = useGmailLabels(accountId) ?? [];
+  //
+  // Read across the whole Account Scope (#297), not just the primary
+  // account: with several Gmail Mail Accounts in Scope, the sidebar shows
+  // one independently collapsible Gmail Labels section per account
+  // (`Sidebar.tsx`'s own per-account sections), the same "grouped by
+  // account, not merged" shape `screenerAccountGroups` above already gives
+  // the Screener.
+  const gmailLabelGroups = useGmailLabelsByAccount(accountScope) ?? [];
   const gmailLabelFilter = filter.kind === "gmailLabel" ? filter.labelId : null;
 
   // Report label/Thread selection to whoever asked (`onLocationChange`) —
@@ -359,6 +398,19 @@ export function MailSection({
   // duplicate history entry (#140).
   useEffect(() => {
     if (initialThreadId === reportedThreadIdRef.current) return;
+    // #275: a late URL echo — the router re-delivering a search-param
+    // snapshot that predates a selection Auto-advance already moved forward
+    // locally — must not undo that move just because it happens to land
+    // after it. Genuine Back/Forward always moves to a Thread whose position
+    // isn't *behind* (older than, a higher index in the newest-first list)
+    // the one already selected wins; a Thread this list hasn't loaded yet
+    // (`indexOf` misses, `-1`) is never treated as "behind" either — there's
+    // no ordering to compare it against.
+    const currentIndex = selectedThreadIdRef.current
+      ? idsRef.current.indexOf(selectedThreadIdRef.current)
+      : -1;
+    const incomingIndex = initialThreadId ? idsRef.current.indexOf(initialThreadId) : -1;
+    if (currentIndex !== -1 && incomingIndex > currentIndex) return;
     reportedThreadIdRef.current = initialThreadId;
     urlDrivenRef.current = true;
     setSelectedThreadId(initialThreadId);
@@ -684,6 +736,12 @@ export function MailSection({
 
   const threads = page?.threads ?? [];
   const ids = useMemo(() => threads.map((thread) => thread.id), [threads]);
+  // #275: read by the `initialThreadId` reconciliation effect above (a plain
+  // ref, same reasoning as `selectedThreadIdRef` — that effect can only ever
+  // depend on `[initialThreadId]`) to tell a genuine Back/Forward move from a
+  // late URL echo naming a Thread older than the one already selected.
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
 
   // The filter-by-label picker's data source (#43): the synced `Label`
   // collection, plus any id the currently loaded page's Threads carry that
@@ -766,14 +824,14 @@ export function MailSection({
   const requestGroupCount = useCallback(
     (label: string) => {
       if (!bulkFolderRole || requestedCountLabels.current.has(label)) return;
-      const range = groupDateRange(label);
+      const range = groupDateRange(label, new Date(), firstDayOfWeek, region);
       if (!range) return;
       requestedCountLabels.current.add(label);
       void countBulkTriageTarget(bulkTriageTarget(accountScope, bulkFolderRole, range))
         .then((response) => setGroupCounts((current) => ({ ...current, [label]: response.count })))
         .catch(() => requestedCountLabels.current.delete(label));
     },
-    [bulkFolderRole, accountScope],
+    [bulkFolderRole, accountScope, firstDayOfWeek, region],
   );
 
   const accountEmailById = useMemo(
@@ -793,7 +851,7 @@ export function MailSection({
   const runGroupBulkAction = useCallback(
     (label: string, action: BulkTriageAction) => {
       if (!bulkFolderRole || accountScope.length === 0) return;
-      const range = groupDateRange(label);
+      const range = groupDateRange(label, new Date(), firstDayOfWeek, region);
       if (!range) return; // Pinned/Undated: the cluster never renders for these (`VirtualizedThreadList`), so this is only a defensive no-op.
       const target = bulkTriageTarget(accountScope, bulkFolderRole, range);
 
@@ -808,7 +866,12 @@ export function MailSection({
               .filter(
                 (thread) =>
                   !thread.pinned &&
-                  timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now) === label,
+                  timeGroupLabel(
+                    thread.lastMessageAt ?? thread.firstMessageAt,
+                    now,
+                    firstDayOfWeek,
+                    region,
+                  ) === label,
               )
               .map((thread) => thread.id)
           : [];
@@ -879,7 +942,7 @@ export function MailSection({
           });
         });
     },
-    [bulkFolderRole, accountScope, threads, describeRejectedAccount],
+    [bulkFolderRole, accountScope, threads, describeRejectedAccount, firstDayOfWeek, region],
   );
 
   const groupBulk: GroupBulkController | undefined = bulkFolderRole
@@ -986,6 +1049,20 @@ export function MailSection({
   // (opening one while the other's up just replaces it, no stacking logic
   // needed).
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
+  // The Reader Sheet (#292): a Dialog over the list, opened by double-
+  // clicking a row, independent of `selectedThreadId`/`viewMode` — Split's
+  // side-by-side pane and List's full-screen swap both already open a
+  // Thread on a single click, so the Sheet's whole point ("reading without
+  // the list beside it") is a second, overlay-only way in that never
+  // touches either. Closing it (Escape, the Dialog's own close button, or
+  // an outside click — Radix's default `Dialog` dismissal, unchanged here)
+  // is nothing but `setSheetThreadId(null)`: the list underneath was never
+  // unmounted, selected into, or scrolled, so there is nothing to restore.
+  const [sheetThreadId, setSheetThreadId] = useState<string | null>(null);
+  const sheetThread = useMemo(
+    () => (sheetThreadId ? (threads.find((thread) => thread.id === sheetThreadId) ?? null) : null),
+    [sheetThreadId, threads],
+  );
   // "Add to Tasks" (#258): the sheet's own open state and the Thread it's
   // about — `null` while closed, same "the sheet owns nothing but its own
   // draft" split `AddToTasksSheet.tsx`'s own doc comment draws. Task Lists
@@ -997,7 +1074,7 @@ export function MailSection({
 
   // The phone folder Sheet (#155): controlled from here now rather than
   // `Sidebar.tsx`'s own uncontrolled `openMobile`, so the bottom bar's
-  // Folders button (`router/BottomBar.tsx`, reached through the Action
+  // Folders button (`router/Dock.tsx`, reached through the Action
   // registry's `onOpenFolders` below) can open it from outside Mail's own
   // rendered rail.
   const [foldersOpen, setFoldersOpen] = useState(false);
@@ -1196,6 +1273,7 @@ export function MailSection({
       onOpenStream,
       onAddToNotes,
       onAddToTasks: onOpenAddToTasksSheet,
+      onOpenInNewWindow: (thread) => openReaderWindow(thread.id),
       onMove: moveSelection,
       threadCount: activeIds.length,
       openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -1264,7 +1342,7 @@ export function MailSection({
             labels={labelsForPicker}
             labelFilter={labelFilter}
             onSelectLabel={selectLabelFilter}
-            gmailLabels={gmailLabels}
+            gmailLabelGroups={gmailLabelGroups}
             gmailLabelFilter={gmailLabelFilter}
             onSelectGmailLabel={selectGmailLabelFilter}
             onCompose={openCompose}
@@ -1279,7 +1357,7 @@ export function MailSection({
               <Screener accountScope={accountScope} onClose={closeScreener} />
             ) : search.active ? (
               <SearchResultsView
-                viewMode={viewMode}
+                viewMode={effectiveViewMode}
                 state={search}
                 triage={searchTriage}
                 onReply={openReply}
@@ -1321,13 +1399,14 @@ export function MailSection({
                   mailAccounts?.filter((account) => accountScope.includes(account.id)) ?? []
                 }
               />
-            ) : viewMode === "split" ? (
+            ) : effectiveViewMode === "split" ? (
               <SplitView
                 threads={visibleThreads}
                 ids={visibleIds}
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
+                onOpenSheet={setSheetThreadId}
                 onClearSelection={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
@@ -1346,6 +1425,7 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
+                onOpenSheet={setSheetThreadId}
                 onBack={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
@@ -1366,6 +1446,33 @@ export function MailSection({
         <NewMailToast />
         <NotificationOfferBanner />
         <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+        {/* The Reader Sheet (#292): a large Dialog over the list — the
+            shared `Dialog` primitive, so Escape and an outside click both
+            dismiss it for free (Radix's own default, unchanged here). Mounted
+            only while `sheetThread` resolves (`sheetThreadId` naming a Thread
+            `threads` still has); `key={sheetThread.id}` gives each Thread its
+            own fresh `ThreadDetailPane` mount, the same reason every other
+            host of this pane renders it keyed. No `onBack`: the Sheet has no
+            list of its own to hand a back pill to, and its own Dialog close
+            button already reads as "close" on top of the real one underneath. */}
+        {sheetThread && (
+          <Dialog open onOpenChange={(open) => (open ? undefined : setSheetThreadId(null))}>
+            <DialogContent className="reader-sheet">
+              {/* No visible title bar over the Reader itself (it already
+                  shows the subject) — an accessible name is still owed to
+                  the dialog, `NoteDialog.tsx`'s own posture. */}
+              <DialogTitle className="sr-only">{sheetThread.subject || "(no subject)"}</DialogTitle>
+              <ThreadDetailPane
+                key={sheetThread.id}
+                thread={sheetThread}
+                triage={triage}
+                onReply={openReply}
+                onMailtoLink={openMailto}
+                onOpenTask={onOpenTask}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
         <AddToTasksSheet
           open={addToTasksThread !== null}
           thread={addToTasksThread}

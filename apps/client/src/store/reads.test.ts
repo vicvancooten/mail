@@ -13,10 +13,12 @@ import { localCache, openLocalCache } from "./local-cache.js";
 import { enqueueMutation } from "./mutation-queue.js";
 import {
   readGmailLabels,
+  readGmailLabelsForScope,
   readLabels,
   readMailAccounts,
   readPreference,
   readRecentThreadsForLinking,
+  readRecentThreadsForSender,
   readThreadWindow,
   THREAD_PAGE_SIZE,
 } from "./reads.js";
@@ -362,6 +364,94 @@ describe("readRecentThreadsForLinking (#195, the Thread Link picker)", () => {
     );
 
     expect(await readRecentThreadsForLinking(2)).toHaveLength(2);
+  });
+});
+
+describe("readRecentThreadsForSender (#293, the Reader's Contact Card)", () => {
+  it("finds Threads carrying the normalized address anywhere in participants, newest first", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("older", "acct-1", {
+            participants: [{ name: "Ada", address: "Ada@Example.test" }],
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+          makeThread("newer", "acct-1", {
+            participants: [{ name: "Ada", address: "ada@example.test" }],
+            lastMessageAt: minutesAfterEpoch(5),
+          }),
+          makeThread("unrelated", "acct-1", {
+            participants: [{ name: "Bob", address: "bob@example.test" }],
+            lastMessageAt: minutesAfterEpoch(9),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForSender("ada@example.test");
+
+    expect(threads.map((thread) => thread.id)).toEqual(["newer", "older"]);
+  });
+
+  it("excludes Trash and Junk, the same rule every other cross-folder read follows", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("kept", "acct-1"),
+          makeThread("trashed", "acct-1", { folderRole: "trash" }),
+          makeThread("junked", "acct-1", { folderRole: "junk" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForSender("ada@example.test");
+
+    expect(threads.map((thread) => thread.id)).toEqual(["kept"]);
+  });
+
+  it("excludes the Thread the Card is opened from", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("open", "acct-1", { lastMessageAt: minutesAfterEpoch(5) }),
+          makeThread("other", "acct-1", { lastMessageAt: minutesAfterEpoch(1) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForSender("ada@example.test", {
+      excludeThreadId: "open",
+    });
+
+    expect(threads.map((thread) => thread.id)).toEqual(["other"]);
+  });
+
+  it("caps at the given limit", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: Array.from({ length: 5 }, (_, index) =>
+          makeThread(`t${index}`, "acct-1", { lastMessageAt: minutesAfterEpoch(index) }),
+        ),
+      }),
+      { replace: false },
+    );
+
+    expect(await readRecentThreadsForSender("ada@example.test", { limit: 2 })).toHaveLength(2);
+  });
+
+  it("reads no Threads at all for a null address", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    expect(await readRecentThreadsForSender(null)).toEqual([]);
   });
 });
 
@@ -723,6 +813,57 @@ describe("readGmailLabels (#126, ADR-0020)", () => {
   });
 });
 
+describe("readGmailLabelsForScope (#297, the sidebar's per-account sections)", () => {
+  it("groups Gmail Labels by account, in Scope order, omitting an in-Scope account with none", async () => {
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Zeta"), "acct-1", { name: "Zeta", path: "Zeta" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-2",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-2", "Work"), "acct-2", { name: "Work", path: "Work" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { emailAddress: "one@example.test" }),
+          makeMailAccount("acct-2", { emailAddress: "two@example.test" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const groups = await readGmailLabelsForScope(["acct-1", "acct-2", "acct-3"]);
+
+    expect(groups).toEqual([
+      expect.objectContaining({
+        mailAccountId: "acct-1",
+        accountEmail: "one@example.test",
+        labels: expect.arrayContaining([expect.objectContaining({ name: "Zeta" })]),
+      }),
+      expect.objectContaining({
+        mailAccountId: "acct-2",
+        accountEmail: "two@example.test",
+        labels: expect.arrayContaining([expect.objectContaining({ name: "Work" })]),
+      }),
+    ]);
+  });
+
+  it("is empty for an empty Scope", async () => {
+    expect(await readGmailLabelsForScope([])).toEqual([]);
+  });
+});
+
 describe("readMailAccounts", () => {
   it("orders by createdAt so the first account is stable across reloads", async () => {
     await applyMailAccountDelta(
@@ -799,6 +940,10 @@ describe("readPreference — base ⊕ pending overlay (#54)", () => {
             autoAdvanceDirection: "older",
             undoSendDelaySeconds: 10,
             homeTimeZone: "",
+            regionLocale: "",
+            clockFormat: "auto",
+            firstDayOfWeek: "monday",
+            defaultCalendarView: "week",
             contactsSortOrder: "given",
             answerNotificationsEnabled: true,
             updatedAt: "2026-01-01T00:00:00.000Z",

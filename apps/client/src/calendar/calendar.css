@@ -3,8 +3,8 @@
    `--dur-*`/`--ease*` tokens (`index.css`) throughout; nothing here invents
    a new duration or curve. The phone layout is a single CSS breakpoint
    collapse of the same markup, matching every other Split/List switch in
-   the app (`shell.css`'s own 701px line) — never a second route or a
-   second component tree. */
+   the app (the app's one 768px phone breakpoint, #273) — never a second
+   route or a second component tree. */
 
 .calendar-app {
   display: flex;
@@ -268,9 +268,53 @@
   padding: 1px 3px;
   box-sizing: border-box;
   overflow: hidden;
-  /* Inert — opening an Occurrence is a later ticket's own screen; this
-     grid only ever reads (#231's own acceptance line). */
   cursor: default;
+}
+
+/* Dragging to move an Occurrence (#305) — a writable Calendar's own chip
+   grabs; the source chip dims while its own ghost tracks the pointer's
+   snapped drop target, never the other way round. */
+.calendar-timed-event.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+.calendar-timed-event.dragging-source {
+  opacity: 0.35;
+}
+.calendar-timed-event.calendar-timed-event-ghost {
+  pointer-events: none;
+  opacity: 0.7;
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-accent) 18%, var(--color-surface));
+}
+.calendar-time-grid.dragging {
+  cursor: grabbing;
+}
+
+/* Dragging an Occurrence's own top/bottom edge to resize it (#306) — a thin
+   strip pinned to each end of a writable chip; grabbing it dims the chip
+   the same way a move's own source dims, so the User's own pointer is
+   always the only thing that looks "live". */
+.calendar-event-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.calendar-event-resize-handle-start {
+  top: -2px;
+}
+.calendar-event-resize-handle-end {
+  bottom: -2px;
+}
+.calendar-timed-event.resizing-source {
+  opacity: 0.6;
+}
+.calendar-time-grid.resizing {
+  cursor: ns-resize;
 }
 
 /* ------------------------------------------------------------------ */
@@ -531,6 +575,19 @@
   padding-left: 5px;
 }
 
+/* Dragging a chip to another day (#305) — `calendar-timed-event`'s own
+   grab/dim pair, Month's own day-only drop. */
+.calendar-month-chip-drag.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+.calendar-month-chip-drag.dragging-source {
+  opacity: 0.35;
+}
+.calendar-month-grid.dragging {
+  cursor: grabbing;
+}
+
 /* ------------------------------------------------------------------ */
 /* Year view                                                            */
 /* ------------------------------------------------------------------ */
@@ -616,6 +673,46 @@
   padding: 0 16px 16px;
 }
 
+/* Grouping by Connected Account (#300) — Local first, then each account. */
+.calendar-slide-over-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.calendar-slide-over-group + .calendar-slide-over-group {
+  margin-top: 10px;
+}
+
+.calendar-slide-over-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-muted);
+}
+
+.calendar-slide-over-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-slide-over-group-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-hover);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-ink-muted);
+}
+
 .calendar-slide-over-row {
   display: flex;
   align-items: center;
@@ -667,6 +764,12 @@
   flex-shrink: 0;
 }
 
+/* #282: the read-only flag next to a reader-access mirror's own name. */
+.calendar-slide-over-readonly-icon {
+  flex-shrink: 0;
+  color: var(--color-ink-muted);
+}
+
 .calendar-slide-over-empty {
   padding: 0 16px;
   font-size: 13px;
@@ -682,7 +785,7 @@
 /* Phone: same views, one column (#231's own acceptance line)          */
 /* ------------------------------------------------------------------ */
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .calendar-toolbar {
     flex-wrap: wrap;
   }
@@ -848,6 +951,13 @@
 .calendar-event-editor-custom-recurrence {
   font-size: 12.5px;
   color: var(--color-ink-faint);
+  margin: 0;
+}
+
+/* #282: the read-only note on a mirrored, reader-access Calendar's own Event. */
+.calendar-event-editor-readonly-note {
+  font-size: 12.5px;
+  color: var(--color-ink-muted);
   margin: 0;
 }
 

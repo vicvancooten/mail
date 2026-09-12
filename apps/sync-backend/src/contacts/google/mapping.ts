@@ -125,12 +125,13 @@ function projectName(person: GooglePerson | Record<string, unknown>): ContactNam
 function projectTypedSingleValue(
   person: GooglePerson | Record<string, unknown>,
   family: string,
+  fallbackType = "other",
 ): { id: string; type: string; value: string; primary: boolean }[] {
   return rawFamily(person, family).map((entry, index) => {
     const raw = entry as Record<string, unknown>;
     return {
       id: syntheticEntryId(family, index),
-      type: asString(raw.type) ?? "other",
+      type: asString(raw.type) ?? fallbackType,
       value: asString(raw.value) ?? "",
       primary: isPrimary(raw),
     };
@@ -207,7 +208,11 @@ export function googlePersonToContactFields(
 ): ContactWritableFields {
   return {
     name: projectName(person),
-    emails: projectTypedSingleValue(person, "emailAddresses") as ContactEmail[],
+    // "home" rather than the other families' "other" fallback (#283) — a
+    // Google email is never demoted to a Custom Field regardless of its
+    // `type`, and a `type`-less entry defaults its label the same way a
+    // blank one does anywhere else this app reads an email from.
+    emails: projectTypedSingleValue(person, "emailAddresses", "home") as ContactEmail[],
     phones: projectTypedSingleValue(person, "phoneNumbers") as ContactPhone[],
     addresses: projectAddresses(person),
     websites: projectTypedSingleValue(person, "urls") as ContactWebsite[],

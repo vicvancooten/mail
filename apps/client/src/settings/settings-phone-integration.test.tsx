@@ -65,7 +65,7 @@ afterEach(async () => {
 
 describe("Settings at phone width (#135)", () => {
   it("renders the section list, no rail, at /settings", async () => {
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     stubFetch();
     const history = createMemoryHistory({ initialEntries: ["/settings"] });
 
@@ -79,7 +79,7 @@ describe("Settings at phone width (#135)", () => {
   });
 
   it("opening a section renders it full-width with a Back control back to the list", async () => {
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     stubFetch();
     const history = createMemoryHistory({ initialEntries: ["/settings"] });
     const user = userEvent.setup();
@@ -99,7 +99,7 @@ describe("Settings at phone width (#135)", () => {
   });
 
   it("every existing settings section is reachable this way", async () => {
-    stubMatchMedia((query) => query === "(max-width: 700px)");
+    stubMatchMedia((query) => query === "(max-width: 767px)");
     stubFetch();
     const history = createMemoryHistory({ initialEntries: ["/settings"] });
     const user = userEvent.setup();
@@ -135,5 +135,57 @@ describe("Settings at phone width (#135)", () => {
     // The rail's other links stay on screen beside the section — no Back control here.
     expect(screen.getByRole("link", { name: /This device/ })).toBeDefined();
     expect(screen.queryByRole("link", { name: "Back to Settings" })).toBeNull();
+  });
+
+  /**
+   * #273's own acceptance box: "at any window width the Hub chrome and the
+   * Mail layout agree on whether they are on a phone" — one `matchMedia`
+   * stub now drives both `SettingsLayout`'s own `isPhoneWidth` (the section
+   * list/detail seam above) and `RootLayout`/`AppSwitcher`'s
+   * `useIsPhoneWidth` (the Hub's header-vs-bottom-bar chrome), since both
+   * read the same `hooks/use-phone-width.ts` this ticket unified them onto.
+   * Before this ticket the second hook (`hooks/use-mobile.ts`) read a
+   * different breakpoint, so a stub at exactly this app's own 700px number
+   * left the Hub chrome still reading desktop while Settings had already
+   * switched to its phone shape.
+   */
+  it("below the token, the Hub chrome (bottom bar, no header Switch app row) and Settings' phone list/detail seam both render", async () => {
+    stubMatchMedia((query) => query === "(max-width: 767px)");
+    stubFetch();
+    const history = createMemoryHistory({ initialEntries: ["/settings"] });
+
+    render(<App history={history} />);
+
+    // Settings' own phone shape: the section list, no rail.
+    expect(await screen.findByRole("link", { name: /General/ })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Back to Settings" })).toBeNull();
+
+    // The Hub's phone chrome: the bottom bar is mounted, and the header's
+    // inline App Switcher is not — `RootLayout.tsx`'s `isPhoneChrome`. The
+    // Home mark itself stays at the top bar's leading edge on phone too
+    // (#286), unlike the switcher instance the Dock picks up instead.
+    expect(
+      screen.getByRole("navigation", { name: "Folders, switch app, and Compose" }),
+    ).toBeDefined();
+    expect(screen.getByLabelText("Wicket home")).toBeDefined();
+  });
+
+  it("at or above the token, the desktop header (Home mark, inline App Switcher, no bottom bar) and Settings' rail both render", async () => {
+    stubMatchMedia(() => false);
+    stubFetch();
+    const history = createMemoryHistory({ initialEntries: ["/settings"] });
+
+    render(<App history={history} />);
+
+    // Settings' own desktop shape: redirected to General, rail still shown.
+    expect(await screen.findByRole("heading", { name: "General" })).toBeDefined();
+    expect(screen.getByRole("link", { name: /This device/ })).toBeDefined();
+
+    // The Hub's desktop chrome: Home mark and inline switcher present, no
+    // bottom bar.
+    expect(screen.getByLabelText("Wicket home")).toBeDefined();
+    expect(
+      screen.queryByRole("navigation", { name: "Folders, switch app, and Compose" }),
+    ).toBeNull();
   });
 });

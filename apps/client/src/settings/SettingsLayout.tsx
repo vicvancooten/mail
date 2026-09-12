@@ -3,6 +3,7 @@ import {
   AtSign,
   Bell,
   ChevronLeft,
+  Globe,
   Lock,
   Monitor,
   Server,
@@ -53,6 +54,7 @@ import "./settings.css";
 
 const NAV_ITEMS = [
   { to: "/settings/general", label: "General", Icon: SlidersHorizontal },
+  { to: "/settings/region", label: "Region Settings", Icon: Globe },
   { to: "/settings/this-device", label: "This device", Icon: Monitor },
   { to: "/settings/connected-accounts", label: "Connected Accounts", Icon: AtSign },
   { to: "/settings/gatekeeper", label: "Gatekeeper", Icon: ShieldCheck },

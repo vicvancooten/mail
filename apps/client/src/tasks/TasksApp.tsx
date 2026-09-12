@@ -1,5 +1,4 @@
 import { useTaskLists } from "../store/index.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./tasks.css";
 import { TaskListView } from "./TaskListView.js";
 import { TasksSearchResults } from "./TasksSearchResults.js";
@@ -66,7 +65,6 @@ export function TasksApp({
   /** Opens one matching Task from `TasksSearchResults`, `/tasks/:taskId`'s own "expanded on its List" (same route a Palette hit opens). */
   onOpenTask?: (taskId: string) => void;
 }) {
-  useLocalCacheSync();
   const taskLists = useTaskLists();
   const selected = (taskLists ?? []).find((list) => list.id === selectedTaskListId) ?? null;
   const showingMain = Boolean(query) || selected !== null || selectedView !== null;

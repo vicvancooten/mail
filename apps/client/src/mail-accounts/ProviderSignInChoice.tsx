@@ -1,5 +1,6 @@
 import type { ProviderAvailability, RegisteredProvider } from "@mail/shared";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { fetchProviderAvailability, startProviderSignIn } from "../api/oauth-signin.js";
 import { PROVIDER_LABEL } from "./provider-labels.js";
 import { describeProviderUnavailable } from "./provider-unavailable.js";
@@ -19,17 +20,30 @@ import { describeProviderUnavailable } from "./provider-unavailable.js";
  * attempt server-side and the browser navigates full-page to the Provider,
  * coming back to `/settings/mail-accounts?oauth=…` — which is why this
  * component has no success state of its own to render.
+ *
+ * #299: `providers` narrows which Provider rows render at all — the "Google"
+ * and "Microsoft" table rows each open this scoped to just their own
+ * Provider (`showOther={false}`, so neither the other Provider nor "Other"
+ * appears), rather than the full three-way choice `AddMailAccountForm`'s own
+ * generic door still opens with every argument left at its default.
  */
 export function ProviderSignInChoice({
   isOwner,
   onChooseOther,
   navigate = (url) => window.location.assign(url),
+  providers = ["google", "microsoft"],
+  showOther = true,
 }: {
   /** The Owner is the one who *can* fix an unregistered Provider, so they get a link instead of "ask the Owner". */
   isOwner: boolean;
-  onChooseOther: () => void;
+  /** Required only when `showOther` (the default) leaves "Other" on screen. */
+  onChooseOther?: () => void;
   /** The one step that leaves the app. Injectable because jsdom's own `location.assign` can be neither called nor redefined. */
   navigate?: (url: string) => void;
+  /** Which Provider rows to render — defaults to both. A single-Provider control (a table row's own "+") narrows this to just its own Provider. */
+  providers?: readonly RegisteredProvider[];
+  /** Whether the "Other" (IMAP) door renders at all — off for a single-Provider control, which has no "other provider" to offer. */
+  showOther?: boolean;
 }) {
   const [availability, setAvailability] = useState<ProviderAvailability[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,21 +77,28 @@ export function ProviderSignInChoice({
     }
   }
 
-  return (
-    <div>
-      <h3>Add a Mail Account</h3>
-      {availability === null && !error && <p>Loading…</p>}
-      {error && <p role="alert">{error}</p>}
+  const shownAvailability = availability?.filter((entry) => providers.includes(entry.provider));
 
-      {availability?.map((entry) => (
-        <div key={entry.provider}>
-          <button
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-medium text-foreground">Add a Mail Account</h3>
+      {availability === null && !error && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+
+      {shownAvailability?.map((entry) => (
+        <div key={entry.provider} className="flex flex-col gap-1">
+          <Button
             type="button"
+            variant="outline"
             disabled={!entry.available || startingProvider !== null}
             onClick={() => void handleSignIn(entry.provider)}
           >
             Sign in with {PROVIDER_LABEL[entry.provider]}
-          </button>
+          </Button>
           {!entry.available &&
             (() => {
               // Schema guarantee: `unavailableReason` is non-null exactly when `available` is false.
@@ -87,7 +108,7 @@ export function ProviderSignInChoice({
                 isOwner,
               );
               return (
-                <p>
+                <p className="text-sm text-muted-foreground">
                   {unavailable.message}{" "}
                   {unavailable.ownerHref && (
                     <a href={unavailable.ownerHref}>set it up on the Instance page</a>
@@ -98,10 +119,21 @@ export function ProviderSignInChoice({
         </div>
       ))}
 
-      <button type="button" onClick={onChooseOther} disabled={startingProvider !== null}>
-        Other
-      </button>
-      <p>Any other mailbox — we'll look up its server settings from the address.</p>
+      {showOther && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onChooseOther}
+            disabled={startingProvider !== null}
+          >
+            Other
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            Any other mailbox — we'll look up its server settings from the address.
+          </p>
+        </>
+      )}
     </div>
   );
 }

@@ -209,6 +209,35 @@
   font-size: 11px;
 }
 
+/* A sidebar section's header (#297): the "Folders"/"Labels"/"Gmail labels"
+   heading is a real button now, toggling that section's own collapse — reset
+   to a plain block below `.nav-heading`'s own type so it reads exactly as it
+   did before this ticket, just clickable and keyboard-operable. */
+.nav-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-section-chevron {
+  flex: none;
+  color: var(--color-ink-faint);
+  transition: transform var(--dur-press) var(--ease);
+}
+
+/* Collapsed: the chevron points at the section rather than away from it —
+   the "collapsed indication" the acceptance criteria asks for, since the
+   section's rows themselves are gone from the DOM while this is true. */
+.nav-section[data-collapsed="true"] .nav-section-chevron {
+  transform: rotate(-90deg);
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -360,10 +389,10 @@
    `overflow-y: auto` above never actually triggers once this applies —
    both children always compute to the pane's full `height: 100%`, so the
    real scrolling stays inside `ThreadDetailPane`'s own `.reading-body`,
-   untouched by this. Scoped to the same ≥701px breakpoint as every other
-   Split/List switch, so the ≤700px "one pane, no rail" phone shape below is
-   unaffected. */
-@media (min-width: 701px) {
+   untouched by this. Scoped to the same ≥768px breakpoint as every other
+   Split/List switch (the app's one phone breakpoint, #273), so the ≤767px
+   "one pane, no rail" phone shape below is unaffected. */
+@media (min-width: 768px) {
   .split-pane {
     display: flex;
     align-items: stretch;
@@ -619,6 +648,18 @@
   color: var(--color-ink);
 }
 
+/* A collapsed group's own at-rest tell (#295): `.bulk-actions` (including
+ * its own Collapse/Expand button) stays hover-only, same as ever — this is
+ * a separate, non-interactive glyph so "this group is folded" reads without
+ * arming anything. `GroupHeaderCluster` renders it only while collapsed
+ * *and* unarmed — armed, the real Expand control (or, touch, the overflow
+ * Sheet) already says the same thing, so showing both would be redundant. */
+.group-collapsed-indicator {
+  flex: none;
+  color: var(--color-ink-faint);
+  margin-left: 4px;
+}
+
 /* Touch's own entry to Done all / Mark all read / Collapse (#97's grill
    decision: "no hover — an always-visible small overflow button... opens a
    Sheet"), and #134's touch alternative to the rail/bulk-actions above:
@@ -696,6 +737,29 @@
   to {
     opacity: 0;
     transform: translateX(16px);
+  }
+}
+
+/* ---------- manual Collapse's own leave/enter (#295) ---------------------
+ * A header click reuses the exact same stagger cadence and duration as the
+ * Done-all bulk clear above — "leaving" reads identically whichever action
+ * caused it — and adds the mirror image for Expand: rows fade/slide *in*
+ * rather than only ever out. `VirtualizedThreadList` sets `--group-clear-
+ * index` the same way for both; `data-clearing`/`data-entering` are never
+ * both true on one row. */
+.thread-list [data-entering="true"] {
+  animation: group-row-enter var(--dur-leave) var(--ease) both;
+  animation-delay: calc(var(--group-clear-index, 0) * 45ms);
+}
+
+@keyframes group-row-enter {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -868,11 +932,14 @@
     transform var(--dur-fast) var(--ease);
 }
 
-/* Armed is real component state (`ThreadRow`'s `data-armed`) driven by
-   hover, focus, or arriving on the row with j/k (#66, #75) — never a bare
-   `:hover` rule, so the same "what's armed" question has one answer for a
-   future native Client's touch/keyboard model too. */
-.thread-row[data-armed="true"] .done-btn,
+/* Done is keyed off its own, narrower `data-done-armed` (#295) — hover,
+   focus, or the two forced-arm cases, but never `selected` alone: the
+   open/selected Thread must not sit with a permanent check at rest, only
+   `data-armed`'s broader set (which does include `selected`) still governs
+   the row-time/row-actions reveal below. Never a bare `:hover` rule either
+   way, so the same "what's armed" question has one answer for a future
+   native Client's touch/keyboard model too. */
+.thread-row[data-done-armed="true"] .done-btn,
 .thread-row .done-btn:focus-visible {
   opacity: 1;
   pointer-events: auto;
@@ -1334,6 +1401,18 @@
   color: var(--color-ink);
 }
 
+/* Each preset's own computed time (#304, Region Settings), pushed to the row's
+   trailing edge rather than crowding the label. */
+.snooze-menu-list button {
+  justify-content: space-between;
+}
+
+.snooze-preset-time {
+  color: var(--color-ink-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .label-toggle.on {
   background: var(--color-accent-soft);
   color: var(--color-accent);
@@ -1356,6 +1435,14 @@
   padding-top: 0;
 }
 
+.snooze-menu-custom-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .snooze-menu-custom input,
 .label-picker-new input {
   flex: 1;
@@ -1370,6 +1457,15 @@
   font-size: 13px;
   outline: none;
   transition: background var(--dur-press) var(--ease);
+}
+
+/* The custom picker's own live preview (#304, Region Settings) — the parsed
+   `<input type="datetime-local">` value, read back in the viewer's own
+   locale/clock rather than the input's fixed browser-chrome rendering. */
+.snooze-menu-custom-preview {
+  padding: 0 2px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
 }
 
 .snooze-menu-custom input:focus,
@@ -1434,27 +1530,32 @@
   transition: transform 0.2s ease;
 }
 
-/* The Width decision (#98, grill Q10): the reading header centers at the
-   same 74ch column as the Snippet and a plain-text body, regardless of how
-   wide the HTML body below it fills the pane — `max-width` plus centering,
-   not the padding alone, so it stays a readable column at wide Split-pane
-   widths too. */
+/* #290: the fixed action bar — back button and the toolbar's run of icon
+   buttons — is now the *only* pinned chrome in the pane. Subject,
+   participants and everything below live in `.reading-body`'s scrolling
+   document instead, so this no longer centers on the 74ch column itself;
+   `.reading-heading` (inside the body) does that instead. */
 .reading-header {
   flex: none;
-  max-width: 74ch;
-  margin-inline: auto;
-  padding: 28px 34px 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .reading-topline {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
 }
 
+/* The Width decision (#98, grill Q10): the subject/meta column centers at
+   the same 74ch column as the Snippet and a plain-text body, regardless of
+   how wide the HTML body below it fills the pane — `max-width` plus
+   centering, not the padding alone, so it stays a readable column at wide
+   Split-pane widths too. */
 .reading-heading {
-  flex: 1;
-  min-width: 0;
+  max-width: 74ch;
+  margin-inline: auto;
+  padding-top: 24px;
 }
 
 .reading-eyebrow {
@@ -1505,6 +1606,11 @@
   align-items: center;
   gap: 1px;
   flex: none;
+  /* Pushes the action run to the far edge of the bar regardless of whether
+     the back button (only present when there's a list to return to) is
+     rendered before it (#290: the bar no longer has a subject to hold this
+     space open on its own). */
+  margin-left: auto;
 }
 
 .reading-actions button {
@@ -1560,29 +1666,29 @@
   flex: none;
 }
 
-/* The secondary tier (#143): Pin, Star, Label — inline, but visually
-   quieter than the primary run, since they're one click away rather than
-   competing with it (desktop only; `ThreadDetailPane` doesn't render this
-   wrapper at all on a touch-capable phone, folding the three into the More
-   menu instead). */
-.reading-actions-secondary {
+/* One of the Reader's three groups (#289: Reply, Mail, Integrations) — each
+   its own inline control(s) plus overflow, separated from its neighbours by
+   `.reading-actions-gap` above. */
+.reading-actions-group {
   display: flex;
   align-items: center;
   gap: 1px;
 }
 
-.reading-actions-secondary button {
-  opacity: 0.6;
-}
-
-.reading-actions-secondary button:hover:not(:disabled),
-.reading-actions-secondary button.on {
-  opacity: 1;
+/* Integrations' "Send to…" trigger (#289) is the one control in this row
+   that carries its own label, not just a glyph — wider than the square
+   icon-only buttons `.reading-actions button` sizes everything else to. */
+.reading-actions-group .reading-send-to {
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
 }
 
 /* The Reader's prev/next, desktop only (#155): a small floating rail beside
    the pane, `.split-pane`'s own flex sibling of `ThreadDetailPane` (see
-   `.split-pane`'s ≥701px rule above) — vertically centered rather than
+   `.split-pane`'s ≥768px rule above) — vertically centered rather than
    stretched full height, so it reads as a floating control and not a
    second sidebar. Hidden by default; a touch-capable phone has swipe
    instead (#150), and List's single pane has no "beside" to float this in
@@ -1593,7 +1699,7 @@
   display: none;
 }
 
-@media (min-width: 701px) {
+@media (min-width: 768px) {
   .reader-neighbor-rail {
     display: flex;
     flex-direction: column;
@@ -1638,7 +1744,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 18px;
+  max-width: 74ch;
+  margin: 18px auto 0;
   padding-bottom: 22px;
 }
 
@@ -1684,19 +1791,117 @@
   color: var(--color-ink-faint);
 }
 
+/* The Contact Card's own trigger (#293, `SenderContactCard.tsx`) — a bare
+   `button` around the reading avatar, reset back to looking like the plain
+   avatar it wraps; `.reading-meta .mail-avatar` above still sizes the tile
+   itself regardless of this extra wrapper. */
+.sender-contact-card-trigger {
+  display: inline-flex;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.sender-contact-card-trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* The Contact Card's own content (#293) — positioning, portal, background
+   and shadow are the shared `HoverCard` primitive's own (`components/ui/
+   hover-card.tsx`, this ticket's own addition to the shared-primitive
+   vocabulary); this only lays out what's inside it. */
+.sender-contact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sender-contact-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sender-contact-card-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sender-contact-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sender-contact-card-address {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sender-contact-card-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: var(--hairline) solid var(--color-border);
+  list-style: none;
+}
+
+.sender-contact-card-thread {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.sender-contact-card-thread-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+
+.sender-contact-card-thread-time {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.sender-contact-card-empty {
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: var(--hairline) solid var(--color-border);
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+}
+
 /* The Reader's Task chips (#259) — one per open Task whose Thread Link
    field names this Thread, `ReaderTaskChips.tsx`'s own doc comment. Same
-   74ch column and side padding `.reading-header` centers itself on, so the
-   row lines up under the subject rather than under the wider message body
-   below it; absent entirely (no margin, no padding) when there are no open
-   Tasks, since the component itself renders nothing then. */
+   74ch column `.reading-heading` centers itself on (the side inset now
+   comes from the parent `.reading-body`'s own padding, not from here), so
+   the row lines up under the subject rather than under the wider message
+   body below it; absent entirely (no margin, no padding) when there are no
+   open Tasks, since the component itself renders nothing then. */
 .reader-task-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   max-width: 74ch;
   margin: 0 auto;
-  padding: 0 34px 18px;
+  padding: 0 0 18px;
   list-style: none;
 }
 
@@ -1753,18 +1958,22 @@
   color: var(--color-ink-faint);
 }
 
-/* The reply composer at rest (the comp's `.reply-hint`): a filled bar across
-   the foot of the pane naming who it would answer, rather than an empty
-   editor holding the page open. */
+/* The reply composer at rest (the comp's `.reply-hint`): a filled bar
+   naming who it would answer, rather than an empty editor holding the page
+   open. Part of the scrolling document since #290 — the last block of it,
+   not pinned to the foot of the pane — so its width and inset come from
+   the parent `.reading-body`'s own padding, and it needs only the top gap
+   that separates it from the last Message plus room for the safe area at
+   the true bottom of the scroll. */
 .reply-hint {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: none;
-  width: calc(100% - 68px);
-  margin: 0 34px 30px;
-  margin-bottom: max(30px, env(safe-area-inset-bottom));
+  width: 100%;
+  margin-top: 14px;
   padding: 14px 17px;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-field);
@@ -1841,6 +2050,64 @@
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* #291: a collapsed older Message — read, not the newest — shrinks to one
+   row: sender, date and its own Snippet, in place of the header + sandboxed
+   body + attachments + reply row an expanded one carries. The whole row is
+   the click target that expands it. */
+.message-item-collapsed {
+  padding: 0;
+}
+
+.message-item-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.message-item-summary:hover {
+  background: var(--color-hover);
+}
+
+.message-item-summary-chevron {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+
+.message-item-summary-sender {
+  flex: none;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.message-item-summary-date {
+  flex: none;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.message-item-summary-snippet {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* #47: per-Message Reply / Reply All / Forward — the quiet control
@@ -2979,20 +3246,18 @@ button.search-chip-toggle.on {
    (`router/shell.css`'s own `.app-viewport` reservation, `RootLayout.tsx`'s
    `isPhoneChrome`), so the list's box never actually reaches the safe area
    any more there. A flat gap instead of double-counting it — breathing
-   room before the bar, not a second helping of the same inset. Its own
-   query, matching `isPhoneChrome`'s 768px exactly rather than this file's
-   other 700px breakpoint below, since it's the bottom bar's presence this
-   is compensating for, not the Split/List switch. */
+   room before the bar, not a second helping of the same inset. One query
+   now covers this and the Split/List switch below it too — both used to
+   sit at different numbers (`isPhoneChrome`'s 768px vs. this file's own
+   700px) before #273 unified the app on one 768px phone breakpoint. */
 @media (max-width: 767px) {
   .thread-list {
     padding-bottom: 12px;
   }
-}
 
-@media (max-width: 700px) {
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
      becomes a `Sheet` bottom sheet instead (#93) — opened from the phone
-     bottom bar's own Folders button now (#155, `router/BottomBar.tsx`),
+     phone Dock's own Folders tile now (#155, #298, `router/Dock.tsx`),
      not an in-body toggle floating over the list. */
   .side-nav-desktop {
     display: none;
@@ -3044,24 +3309,16 @@ button.search-chip-toggle.on {
     display: flex;
   }
 
-  /* #138: the desktop-only 74ch reading column and the non-wrapping action
-     row both assume width the phone doesn't have. The header goes full
-     width, and the action row drops to its own line below the subject so
-     the subject gets one full line before it has to truncate — wrapping
-     further within itself if even that line runs short. */
+  /* #138: the header is now just the fixed action bar (#290 moved the
+     subject/meta into the scrolling body below), so it only needs the
+     phone's tighter side padding — no more wrapping the action row onto
+     its own line under a subject that isn't here any more. */
   .reading-header {
-    max-width: none;
-    padding: 16px 16px 0;
+    padding: 8px 16px;
   }
 
-  .reading-topline {
-    flex-wrap: wrap;
-  }
-
-  .reading-actions {
-    flex: 1 1 100%;
-    flex-wrap: wrap;
-    margin-top: 8px;
+  .reading-heading {
+    padding-top: 16px;
   }
 
   .reading-body {
@@ -3076,9 +3333,7 @@ button.search-chip-toggle.on {
   }
 
   .reply-hint {
-    width: calc(100% - 32px);
-    margin: 0 16px 16px;
-    margin-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
   }
 
   .screener {
@@ -3586,7 +3841,7 @@ button.search-chip-toggle.on {
    the same overlay as desktop, just edge to edge: at this width there is
    nowhere else for a modal dialog to sit that wouldn't clip against the
    keyboard. */
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .command-palette-backdrop {
     padding: 0;
   }
@@ -3601,11 +3856,13 @@ button.search-chip-toggle.on {
   }
 }
 
-/* The Reader's invite card (#240, ADR-0027): pinned above the Messages, one
-   per Thread per UID — `ThreadDetailPane.tsx`'s own placement. */
+/* The Reader's invite card (#240, ADR-0027): above the Messages, one per
+   Thread per UID — `ThreadDetailPane.tsx`'s own placement. Part of the
+   scrolling document since #290; the side inset comes from the parent
+   `.reading-body`'s own padding, not from here. */
 .invite-card {
   flex: none;
-  margin: 0 34px 16px;
+  margin: 0 0 16px;
   padding: 14px 16px;
   border-radius: var(--radius-panel);
   background: var(--color-field);
@@ -3709,4 +3966,37 @@ button.search-chip-toggle.on {
 .invite-card-actions button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* The Reader Sheet (#292): a large Dialog over the list — "large" per its
+   own acceptance line, `note-dialog`'s own sizing (`notes/notes.css`) widened
+   further, since the Reader's fixed action bar plus a full scrolling message
+   list needs more room than a Note's editor. `.thread-detail` itself is
+   `height: 100%; min-height: 0` (above) — this is only the bounded box it
+   needs to fill. */
+.reader-sheet {
+  max-width: min(960px, calc(100% - 2rem));
+  height: calc(100% - 4rem);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* The standalone Reader window (#292, `router/ReaderRoute.tsx`) — no
+   `.app-shell` ancestor to give `.thread-detail`'s own `height: 100%` a
+   real box (`router/RootLayout.tsx`'s bare-chrome carve-out skips it
+   entirely for this one path), so this is that box instead: the whole
+   window, the same `100dvh` `.app-shell` itself uses. */
+.reader-standalone {
+  height: 100dvh;
+  background: var(--color-bg);
+}
+
+.reader-standalone-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-muted);
 }

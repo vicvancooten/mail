@@ -11,10 +11,12 @@ import {
   formatWindowEdge,
   isoWeekday,
   isSameDay,
+  monthLabel,
   parseDayKey,
   startOfMonth,
   startOfWeek,
   startOfYear,
+  weekdayLabel,
 } from "./calendar-dates.js";
 
 const D = (year: number, month: number, day: number): CivilDate => ({ year, month, day });
@@ -54,6 +56,13 @@ describe("calendar-dates (#231)", () => {
 
   it("startOfWeek anchors on the Monday", () => {
     expect(startOfWeek(D(2026, 9, 10))).toEqual(D(2026, 9, 7));
+  });
+
+  it("isoWeekday/startOfWeek anchor on Sunday once Region Settings picks it (#303)", () => {
+    // 2026-09-06 is a Sunday.
+    expect(isoWeekday(D(2026, 9, 6), "sunday")).toBe(0);
+    expect(isoWeekday(D(2026, 9, 12), "sunday")).toBe(6);
+    expect(startOfWeek(D(2026, 9, 10), "sunday")).toEqual(D(2026, 9, 6));
   });
 
   it("startOfMonth and startOfYear anchor on day/month 1", () => {
@@ -97,5 +106,10 @@ describe("calendar-dates (#231)", () => {
 
   it("formatWindowEdge reads as a short month/day label", () => {
     expect(formatWindowEdge("2026-06-08T00:00:00.000Z")).toMatch(/Jun/);
+  });
+
+  it("weekdayLabel/monthLabel honour Region Settings' own locale (#303)", () => {
+    expect(weekdayLabel(D(2026, 9, 7), "nl-NL")).toMatch(/ma/i);
+    expect(monthLabel(D(2026, 9, 7), "nl-NL")).toMatch(/september/i);
   });
 });

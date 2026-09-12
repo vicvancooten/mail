@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
 import { ThreadRow } from "./ThreadRow.js";
@@ -124,6 +125,26 @@ describe("ThreadRow — the Done control", () => {
     expect(screen.getByRole("option").getAttribute("data-armed")).toBe("true");
   });
 
+  it("keeps the Done check hidden at rest for the open/selected Thread — #295: selection is not an arming trigger for Done", () => {
+    render(
+      <ThreadRow thread={makeThread()} selected={true} onSelect={() => {}} onArchive={() => {}} />,
+    );
+    const row = screen.getByRole("option");
+    // `data-armed` (the broader cluster — row-time/row-actions reveal)
+    // still reads true for a selected row; `data-done-armed` (the Done
+    // check's own, narrower trigger) must not.
+    expect(row.getAttribute("data-armed")).toBe("true");
+    expect(row.getAttribute("data-done-armed")).toBe("false");
+
+    fireEvent.mouseEnter(row);
+    expect(row.getAttribute("data-done-armed")).toBe("true");
+    fireEvent.mouseLeave(row);
+    expect(row.getAttribute("data-done-armed")).toBe("false");
+
+    fireEvent.focus(screen.getByRole("button", { name: 'Mark "Quarterly numbers" Done' }));
+    expect(row.getAttribute("data-done-armed")).toBe("true");
+  });
+
   it("the Done control keeps a real accessible name reachable by keyboard even while unarmed", () => {
     render(
       <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onArchive={() => {}} />,
@@ -165,7 +186,7 @@ describe("ThreadRow — the Snooze control", () => {
     expect(onSnooze).not.toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByRole("menu", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Later today" })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: /^Later today/ })).not.toBeNull();
   });
 
   it("picking a preset calls onSnooze with an ISO instant and closes the popover", () => {
@@ -175,7 +196,7 @@ describe("ThreadRow — the Snooze control", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Later today" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Later today/ }));
 
     expect(onSnooze).toHaveBeenCalledTimes(1);
     const [until] = onSnooze.mock.calls[0] as [string];
@@ -226,5 +247,46 @@ describe("ThreadRow — hoverCapable (#134)", () => {
     );
     expect(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
     expect(screen.getByRole("button", { name: 'Pin "Quarterly numbers"' })).not.toBeNull();
+  });
+});
+
+/**
+ * The Reader Sheet's own gesture (#292): double-clicking a row opens it.
+ * `onSelect` still fires exactly once for the pair — off the first click,
+ * the same as an ordinary single click always has — not twice: the second
+ * click's own `event.detail` (`2`) is `onDoubleClick`'s alone to answer,
+ * never a second select.
+ */
+describe("ThreadRow — opening the Reader Sheet (#292)", () => {
+  it("double-click calls onOpenSheet once and onSelect exactly once (not twice)", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onOpenSheet = vi.fn();
+    render(
+      <ThreadRow
+        thread={makeThread()}
+        selected={false}
+        onSelect={onSelect}
+        onOpenSheet={onOpenSheet}
+        onArchive={() => {}}
+      />,
+    );
+
+    await user.dblClick(screen.getByText("Quarterly numbers"));
+
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits onOpenSheet's wiring for a caller with no Sheet to open — double-click still just selects once", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <ThreadRow thread={makeThread()} selected={false} onSelect={onSelect} onArchive={() => {}} />,
+    );
+
+    await user.dblClick(screen.getByText("Quarterly numbers"));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });

@@ -321,6 +321,7 @@ function toWireMessage(
     // entry. `isRealAttachment` is what the attachment panel filters
     // through — that is a rendering concern, not a wire-shape one.
     attachments: row.attachments,
+    snippet: row.snippet,
     bodyText: row.bodyText,
     bodyHtml:
       row.bodyHtml === null

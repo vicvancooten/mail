@@ -111,6 +111,45 @@ describe("CalendarSettingsSheet (#236)", () => {
     });
   });
 
+  it("toggles Shown on this device through the shared Checkbox primitive", async () => {
+    const user = userEvent.setup();
+    const calendar = makeCalendar("cal-1", USER, {});
+    render(<CalendarSettingsSheet calendar={calendar} onOpenChange={() => {}} />);
+
+    const shownCheckbox = screen.getByRole("checkbox", { name: "Shown on this device" });
+    expect(shownCheckbox.getAttribute("data-slot")).toBe("checkbox");
+    expect(shownCheckbox.getAttribute("aria-checked")).toBe("true");
+
+    await user.click(shownCheckbox);
+
+    expect(shownCheckbox.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("toggles Reminders through the shared Checkbox primitive", async () => {
+    const user = userEvent.setup();
+    const calendar = makeCalendar("cal-1", USER, { remindersEnabled: true });
+    render(<CalendarSettingsSheet calendar={calendar} onOpenChange={() => {}} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Reminders" }));
+
+    expect(enqueueUserMutation).toHaveBeenCalledWith({
+      type: "setCalendarRemindersEnabled",
+      calendarId: "cal-1",
+      enabled: false,
+    });
+  });
+
+  it("renders the already-default calendar's checkbox as checked and disabled", () => {
+    const calendar = makeCalendar("cal-1", USER, { isDefault: true });
+    render(<CalendarSettingsSheet calendar={calendar} onOpenChange={() => {}} />);
+
+    const defaultCheckbox = screen.getByRole("checkbox", {
+      name: "Default calendar for new Events",
+    });
+    expect(defaultCheckbox.getAttribute("aria-checked")).toBe("true");
+    expect(defaultCheckbox).toHaveProperty("disabled", true);
+  });
+
   it("does not offer a Mail account for a mirrored Calendar", () => {
     const calendar = makeCalendar("cal-1", USER, {
       origin: { type: "connectedAccount", connectedAccountId: "acct-1" },

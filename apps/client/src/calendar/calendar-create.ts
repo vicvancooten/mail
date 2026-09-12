@@ -2,10 +2,33 @@ import type { Calendar } from "@mail/shared";
 import type { CivilDate } from "./calendar-dates.js";
 import { openCreatePanel, type PanelAnchorRect } from "./calendar-event-panel.js";
 
-/** The create popover's own default destination Calendar — the current User's default, or just the first one when none is marked default. Shared by every grid's click-to-create entry point: `DayTimeGrid.tsx`'s hour rows, its all-day row, and `MonthGrid.tsx`'s day cells. */
+/**
+ * The create popover's own default destination Calendar — the current
+ * User's default, or just the first one when none is marked default.
+ * Shared by every grid's click-to-create entry point: `DayTimeGrid.tsx`'s
+ * hour rows, its all-day row, and `MonthGrid.tsx`'s day cells.
+ *
+ * Read-only Calendars (#282: a reader-access mirror, e.g. a holiday or
+ * shared team Calendar) are never a candidate here — `mutations.ts`'s own
+ * `calendar_not_writable` rejection means a click that landed on one would
+ * only ever open a popover whose eventual Save silently rolls back. `null`
+ * when every Calendar this User has is read-only, the same "nothing to
+ * create into" the caller already handles.
+ */
 export function defaultCalendarId(calendarById: ReadonlyMap<string, Calendar>): string | null {
-  const all = [...calendarById.values()];
-  return (all.find((calendar) => calendar.isDefault) ?? all[0])?.id ?? null;
+  const writable = creatableCalendars([...calendarById.values()]);
+  return (writable.find((calendar) => calendar.isDefault) ?? writable[0])?.id ?? null;
+}
+
+/**
+ * Every Calendar an Event can actually be created into or moved onto (#282)
+ * — a read-only mirror is never offered, the same `capabilities.writable`
+ * gate `defaultCalendarId` already applies, reused wherever
+ * `EventEditorPopover.tsx` builds its own create/move picker list rather
+ * than each computing the filter separately.
+ */
+export function creatableCalendars(calendars: readonly Calendar[]): Calendar[] {
+  return calendars.filter((calendar) => calendar.capabilities.writable);
 }
 
 /**

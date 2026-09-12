@@ -1,7 +1,8 @@
-import type { GmailLabel, Label } from "@mail/shared";
+import type { Label } from "@mail/shared";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
+  ChevronDown,
   Clock,
   FolderOpen,
   Inbox,
@@ -15,6 +16,7 @@ import {
   Tag,
   Trash2,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import {
   Sheet,
   SheetContent,
@@ -30,7 +32,8 @@ import {
   useSidebar,
 } from "../components/ui/sidebar.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
-import { useSidebarCollapsed } from "./device-preferences.js";
+import type { GmailLabelAccountGroup } from "../store/index.js";
+import { useSidebarCollapsed, useSidebarSectionCollapsed } from "./device-preferences.js";
 import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
 
 /**
@@ -70,12 +73,25 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  *
  * On phone this isn't a permanent rail at all: it's a `Sheet` bottom sheet
  * (#93). Its own in-body toggle is gone as of #155 — the phone bottom bar's
- * Folders button opens it now (`router/BottomBar.tsx`, via the Action
+ * Folders button opens it now (`router/Dock.tsx`, via the Action
  * registry's `onOpenFolders`), the same "one persistent place to reach a
  * thing" move the bottom bar makes for Compose and the App Switcher too.
  * `foldersOpen`/`onFoldersOpenChange` (optional) let a caller control the
  * Sheet from outside; omitted, it falls back to `SidebarProvider`'s own
  * uncontrolled `openMobile` state, unchanged from before this ticket.
+ *
+ * Every section below — Folders, Labels, and each Gmail Mail Account's own
+ * Gmail Labels — is independently collapsible (#297): `SidebarSection`'s own
+ * header button toggles it, folding away its content while the header (and
+ * a chevron reading the collapsed state) stays put. Collapse state is a
+ * Device Preference keyed per section id
+ * (`device-preferences.ts#useSidebarSectionCollapsed`) — a per-account
+ * section is keyed by that account's Mail Account id, so two Gmail accounts
+ * fold away independently. `RailContents` renders once for both the desktop
+ * rail and the phone sheet, so the phone sheet gets identical behavior for
+ * free. This is purely a rendering choice: it never changes which Labels or
+ * Gmail Labels the Client fetches or syncs (`MailSection.tsx` reads all of
+ * them regardless of what's currently folded away).
  */
 
 const FOLDER_ICONS: Record<FolderKey, LucideIcon> = {
@@ -95,8 +111,8 @@ interface SidebarProps {
   labels: Label[];
   labelFilter: string | null;
   onSelectLabel: (labelId: string) => void;
-  /** A Gmail Mail Account's own Labels (#126, ADR-0020) — empty for every other account, which is what makes the section below hide itself the same way the Labels one already does. */
-  gmailLabels: GmailLabel[];
+  /** One group per Gmail Mail Account that actually has Gmail Labels (#126, ADR-0020; grouped by account since #297) — empty when Account Scope has no Gmail account with any synced yet, which is what makes every section below hide itself the same way the Labels one already does. */
+  gmailLabelGroups: GmailLabelAccountGroup[];
   gmailLabelFilter: string | null;
   onSelectGmailLabel: (labelId: string) => void;
   onCompose: () => void;
@@ -106,13 +122,59 @@ interface SidebarProps {
   onOpenStream: () => void;
 }
 
+/**
+ * One collapsible sidebar section (#297): a header button that toggles
+ * `sectionId`'s own Device Preference and folds `children` away while
+ * leaving the header — plus its chevron's collapsed indication — in place.
+ * A real `<button>`, so Tabbing to it and pressing Space/Enter toggles it
+ * exactly like a click (the acceptance criteria's "keyboard toggling
+ * works") with no extra key handling needed.
+ *
+ * `railCollapsed` is the *rail's* own icon-only collapse
+ * (`useSidebarCollapsed`, unrelated Device Preference) — while that's on,
+ * `.nav-heading` (and so this header) is already hidden by CSS, and a
+ * section folded away underneath it must not also hide the destinations
+ * it collapses to icons for. So a section's content stays visible whenever
+ * the rail itself is icon-collapsed, regardless of its own collapsed
+ * preference — only on an expanded rail (or the phone sheet, which is
+ * never icon-collapsed) does collapsing a section actually hide its rows.
+ */
+function SidebarSection({
+  sectionId,
+  label,
+  railCollapsed,
+  children,
+}: {
+  sectionId: string;
+  label: string;
+  railCollapsed: boolean;
+  children: ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useSidebarSectionCollapsed(sectionId);
+  const contentVisible = railCollapsed || !collapsed;
+  return (
+    <div className="nav-section" data-collapsed={!contentVisible}>
+      <button
+        type="button"
+        className="nav-heading nav-section-toggle"
+        onClick={() => setCollapsed(!collapsed)}
+        aria-expanded={contentVisible}
+      >
+        <ChevronDown size={12} className="nav-section-chevron" aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+      {contentVisible ? children : null}
+    </div>
+  );
+}
+
 function RailContents({
   folder,
   onSelectFolder,
   labels,
   labelFilter,
   onSelectLabel,
-  gmailLabels,
+  gmailLabelGroups,
   gmailLabelFilter,
   onSelectGmailLabel,
   onCompose,
@@ -143,30 +205,31 @@ function RailContents({
         <Layers size={15} />
         {collapsed ? null : <span className="nav-label">Stream</span>}
       </button>
-      <SidebarMenu className="nav-list">
-        {FOLDER_ORDER.map((key) => {
-          const count = key === "screener" ? screenerCount : key === "drafts" ? draftsCount : 0;
-          const active = labelFilter === null && gmailLabelFilter === null && folder === key;
-          const Icon = FOLDER_ICONS[key];
-          return (
-            <SidebarMenuItem key={key}>
-              <SidebarMenuButton
-                className={`nav-item${active ? " active" : ""}`}
-                isActive={active}
-                tooltip={FOLDER_LABELS[key]}
-                onClick={() => onSelectFolder(key)}
-              >
-                <Icon size={15} />
-                <span className="nav-label">{FOLDER_LABELS[key]}</span>
-                {count > 0 ? <span className="nav-count tabular">{count}</span> : null}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          );
-        })}
-      </SidebarMenu>
+      <SidebarSection sectionId="folders" label="Folders" railCollapsed={collapsed}>
+        <SidebarMenu className="nav-list">
+          {FOLDER_ORDER.map((key) => {
+            const count = key === "screener" ? screenerCount : key === "drafts" ? draftsCount : 0;
+            const active = labelFilter === null && gmailLabelFilter === null && folder === key;
+            const Icon = FOLDER_ICONS[key];
+            return (
+              <SidebarMenuItem key={key}>
+                <SidebarMenuButton
+                  className={`nav-item${active ? " active" : ""}`}
+                  isActive={active}
+                  tooltip={FOLDER_LABELS[key]}
+                  onClick={() => onSelectFolder(key)}
+                >
+                  <Icon size={15} />
+                  <span className="nav-label">{FOLDER_LABELS[key]}</span>
+                  {count > 0 ? <span className="nav-count tabular">{count}</span> : null}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+        </SidebarMenu>
+      </SidebarSection>
       {labels.length > 0 ? (
-        <>
-          <p className="nav-heading">Labels</p>
+        <SidebarSection sectionId="labels" label="Labels" railCollapsed={collapsed}>
           <SidebarMenu className="nav-list">
             {labels.map((label) => (
               <SidebarMenuItem key={label.id}>
@@ -182,13 +245,24 @@ function RailContents({
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
-        </>
+        </SidebarSection>
       ) : null}
-      {gmailLabels.length > 0 ? (
-        <>
-          <p className="nav-heading">Gmail labels</p>
+      {gmailLabelGroups.map((group) => (
+        <SidebarSection
+          key={group.mailAccountId}
+          sectionId={`gmailLabels:${group.mailAccountId}`}
+          // A single in-Scope Gmail account keeps the plain heading a Sidebar
+          // has always shown (`Sidebar.test.tsx`'s own assertions); once a
+          // second one is in Scope, each section's own heading says whose
+          // Gmail Labels it holds, the same "grouped by account" call the
+          // Screener already makes for held senders.
+          label={
+            gmailLabelGroups.length > 1 ? `Gmail labels — ${group.accountEmail}` : "Gmail labels"
+          }
+          railCollapsed={collapsed}
+        >
           <SidebarMenu className="nav-list">
-            {gmailLabels.map((label) => (
+            {group.labels.map((label) => (
               <SidebarMenuItem key={label.id}>
                 <SidebarMenuButton
                   className={`nav-item${gmailLabelFilter === label.id ? " active" : ""}`}
@@ -202,8 +276,8 @@ function RailContents({
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
-        </>
-      ) : null}
+        </SidebarSection>
+      ))}
     </>
   );
 }
@@ -269,9 +343,9 @@ function MobileSheet(props: SidebarProps) {
 /**
  * Both render unconditionally — visibility between the desktop rail and the
  * phone bottom sheet is `mail.css`'s own narrow-viewport breakpoint
- * (`max-width: 700px`, matching every other Split/List layout switch in the
- * app), not `useIsMobile`'s generic 768px: a JS/CSS breakpoint mismatch
- * would leave a dead zone with no way to open either.
+ * (`max-width: 767px`, matching every other Split/List layout switch in the
+ * app, and the app's one 768px phone breakpoint, #273): a JS/CSS breakpoint
+ * mismatch would leave a dead zone with no way to open either.
  */
 function SidebarBody(props: SidebarProps) {
   return (

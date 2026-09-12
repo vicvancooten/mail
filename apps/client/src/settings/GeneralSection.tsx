@@ -1,22 +1,28 @@
 import type { AutoAdvanceDirection, UndoSendDelaySeconds } from "@mail/shared";
 import { UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
 import { useCallback } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { enqueueUserMutation, usePreference } from "../store/index.js";
 
 /**
- * Every IANA zone this browser knows, for the Home Time Zone picker (#189).
- * `Intl.supportedValuesOf` is the platform's own zone database — no bundled
- * list to keep in sync with tzdata, and never a network round trip.
- */
-const TIME_ZONES = Intl.supportedValuesOf("timeZone");
-
-/**
  * Settings' General page (#99): the User-scoped, synced `Preference` fields —
- * Auto-advance on/off + direction, the Undo Send delay, and the Home Time
- * Zone (#189). Split out of the old monolithic `SettingsSection` (#71-era),
- * which stacked this alongside Device Preferences and per-account controls
- * in one long scroll; this page carries only what actually follows the User
- * to another device.
+ * Auto-advance on/off + direction and the Undo Send delay. Split out of the
+ * old monolithic `SettingsSection` (#71-era), which stacked this alongside
+ * Device Preferences and per-account controls in one long scroll; this page
+ * carries only what actually follows the User to another device.
+ *
+ * Home Time Zone (#189) lived here until #303 (Region Settings): every date
+ * or time reading is now one section (`RegionSettingsSection.tsx`)'s
+ * concern, "no longer shown separately" here per that ticket's own
+ * acceptance line.
  *
  * Every control writes through the Optimistic Action queue
  * (`enqueueUserMutation`) and reads back through `usePreference`'s `base ⊕
@@ -55,10 +61,6 @@ export function GeneralSection() {
     void enqueueUserMutation({ type: "setUndoSendDelay", undoSendDelaySeconds });
   }, []);
 
-  const changeHomeTimeZone = useCallback((homeTimeZone: string) => {
-    void enqueueUserMutation({ type: "setHomeTimeZone", homeTimeZone });
-  }, []);
-
   return (
     <section className="settings-page">
       <h2>General</h2>
@@ -67,63 +69,50 @@ export function GeneralSection() {
           `usePreference()`'s live query resolves (`store/reads.ts`'s own
           doc comment). */}
       {preference && (
-        <section>
-          <label>
-            <input
-              type="checkbox"
+        <section className="flex flex-col gap-4">
+          <Label className="flex items-center gap-2">
+            <Checkbox
               checked={preference.autoAdvanceEnabled}
-              onChange={(event) => changeAutoAdvanceEnabled(event.target.checked)}
+              onCheckedChange={(checked) => changeAutoAdvanceEnabled(checked === true)}
             />
             Auto-advance after archive/trash
-          </label>
+          </Label>
 
-          <label>
-            Auto-advance direction
-            <select
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="auto-advance-direction">Auto-advance direction</Label>
+            <Select
               value={preference.autoAdvanceDirection}
               disabled={!preference.autoAdvanceEnabled}
-              onChange={(event) =>
-                changeAutoAdvanceDirection(event.target.value as AutoAdvanceDirection)
-              }
+              onValueChange={(value) => changeAutoAdvanceDirection(value as AutoAdvanceDirection)}
             >
-              <option value="older">Older</option>
-              <option value="newer">Newer</option>
-            </select>
-          </label>
+              <SelectTrigger id="auto-advance-direction" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="older">Older</SelectItem>
+                <SelectItem value="newer">Newer</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <label>
-            Undo Send delay
-            <select
-              value={preference.undoSendDelaySeconds}
-              onChange={(event) =>
-                changeUndoSendDelay(Number(event.target.value) as UndoSendDelaySeconds)
-              }
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="undo-send-delay">Undo Send delay</Label>
+            <Select
+              value={String(preference.undoSendDelaySeconds)}
+              onValueChange={(value) => changeUndoSendDelay(Number(value) as UndoSendDelaySeconds)}
             >
-              {UNDO_SEND_DELAY_OPTIONS.map((seconds) => (
-                <option key={seconds} value={seconds}>
-                  {seconds === 0 ? "off" : `${seconds}s`}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Home Time Zone
-            <select
-              value={preference.homeTimeZone}
-              onChange={(event) => changeHomeTimeZone(event.target.value)}
-            >
-              {/* Seeding (`use-seed-home-time-zone.ts`) races the first paint here on a
-                  brand-new device — an empty option keeps the `<select>` valid rather than
-                  silently snapping to whatever zone sorts first while it settles. */}
-              {preference.homeTimeZone === "" && <option value="">Detecting…</option>}
-              {TIME_ZONES.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="undo-send-delay" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UNDO_SEND_DELAY_OPTIONS.map((seconds) => (
+                  <SelectItem key={seconds} value={String(seconds)}>
+                    {seconds === 0 ? "off" : `${seconds}s`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </section>
       )}
     </section>

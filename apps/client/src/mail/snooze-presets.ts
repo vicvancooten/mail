@@ -1,3 +1,11 @@
+import {
+  civilInstantInZone,
+  formatRegionDate,
+  formatRegionTime,
+  REGION_LOCALE_UNSET,
+  type RegionFormatSettings,
+} from "@mail/shared";
+
 /**
  * Snooze's preset times (#76: "a small set of preset times plus a custom
  * pick"). Each preset is a pure function of `now` — never a hand-picked
@@ -50,3 +58,45 @@ export const SNOOZE_PRESETS: readonly SnoozePreset[] = [
   { label: "Tomorrow", until: (now) => nextDayAt(now, MORNING_HOUR) },
   { label: "Next week", until: (now) => nextWeekdayAt(now, /* Monday */ 1, MORNING_HOUR) },
 ];
+
+/** No Region Settings passed in: the viewer's own browser default locale/clock, same as before this ticket. */
+const DEFAULT_REGION: Pick<RegionFormatSettings, "locale" | "clockFormat" | "timeZone"> = {
+  locale: REGION_LOCALE_UNSET,
+  clockFormat: "auto",
+  timeZone: "",
+};
+
+/**
+ * A preset/custom snooze instant, for display next to its button (#304): the
+ * clock reads in `region`'s own locale/clock format, same as every other
+ * Mail date/time surface this ticket touched. Same-day-as-`now` *in
+ * `region`'s own time zone* (`civilInstantInZone`, not the device's own
+ * getters — otherwise the day boundary this picks could disagree with the
+ * very zone `formatRegionTime` below reads back) shows a bare time ("11:00
+ * PM"/"23:00"); anything further out earns a weekday and date ahead of it
+ * ("Mon, Jun 22, 8:00 AM") — `task-due.ts#formatUpcomingDayHeading`'s own "a
+ * group scanned at a glance earns more context than a single row" call,
+ * applied to one row's own snooze target instead of a whole day group.
+ */
+export function formatSnoozeUntil(
+  until: Date,
+  now: Date,
+  region: Pick<RegionFormatSettings, "locale" | "clockFormat" | "timeZone"> = DEFAULT_REGION,
+): string {
+  const iso = until.toISOString();
+  const time = formatRegionTime(iso, region);
+  const untilCivil = civilInstantInZone(iso, region.timeZone);
+  const nowCivil = civilInstantInZone(now.toISOString(), region.timeZone);
+  const sameLocalDay =
+    untilCivil.year === nowCivil.year &&
+    untilCivil.month === nowCivil.month &&
+    untilCivil.day === nowCivil.day;
+  if (sameLocalDay) return time;
+  const date = formatRegionDate(iso, region, {
+    year: undefined,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  return `${date}, ${time}`;
+}

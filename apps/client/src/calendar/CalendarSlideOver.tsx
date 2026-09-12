@@ -1,6 +1,6 @@
-import type { Calendar } from "@mail/shared";
-import { SettingsIcon } from "lucide-react";
-import { useState } from "react";
+import type { Calendar, ConnectedAccount } from "@mail/shared";
+import { LockIcon, SettingsIcon } from "lucide-react";
+import { useMemo, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -8,7 +8,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet.js";
+import { PROVIDER_TABLE_LABEL } from "../connected-accounts/provider-table.js";
 import { CalendarSettingsSheet } from "./CalendarSettingsSheet.js";
+import { groupCalendarsByAccount } from "./calendar-groups.js";
 
 /**
  * The Calendar list slide-over (#231's own acceptance line: "No persistent
@@ -21,13 +23,22 @@ import { CalendarSettingsSheet } from "./CalendarSettingsSheet.js";
  * only the phone.
  *
  * Beneath the Calendars sits one more row, "Tasks" (#260) — its own
- * show/hide toggle over `calendar-task-visibility.ts`'s Device Preference,
+ * show/hide toggle over `mail/device-preferences.ts`'s Device Preference,
  * never a Calendar so it never gets a colour picker or a settings gear.
+ *
+ * The list groups by where each Calendar comes from (#300): a Local group
+ * first, then one group per Connected Account with its own Provider badge
+ * (`calendar-groups.ts#groupCalendarsByAccount`) — every Calendar, whether
+ * or not the Hub's Account Scope currently narrows to it, since toggling a
+ * Calendar's per-device visibility here is a different question from which
+ * accounts the grid is currently scoped to (`CalendarRoute.tsx` narrows
+ * *that*).
  */
 export function CalendarSlideOver({
   open,
   onOpenChange,
   calendars,
+  connectedAccounts,
   hiddenCalendarIds,
   onToggle,
   showTasks,
@@ -36,6 +47,8 @@ export function CalendarSlideOver({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   calendars: readonly Calendar[];
+  /** Grouping (#300): which Connected Account each mirrored Calendar's own group is labelled and badged for. */
+  connectedAccounts: readonly ConnectedAccount[];
   hiddenCalendarIds: ReadonlySet<string>;
   onToggle: (calendarId: string) => void;
   /** The "Tasks" row's own show/hide state (#260) — a Device Preference, never a Calendar. */
@@ -49,6 +62,15 @@ export function CalendarSlideOver({
   // for its own confirm dialog.
   const [settingsCalendar, setSettingsCalendar] = useState<Calendar | null>(null);
 
+  // Local first, then one group per Connected Account (#300's own acceptance
+  // line) — `groupCalendarsByAccount` does the grouping, this just renders
+  // each group's header (a badge for every Connected Account group, none for
+  // Local) above its own rows.
+  const groups = useMemo(
+    () => groupCalendarsByAccount(calendars, connectedAccounts),
+    [calendars, connectedAccounts],
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="calendar-slide-over">
@@ -57,33 +79,58 @@ export function CalendarSlideOver({
           <SheetDescription>Show or hide a Calendar on the grid.</SheetDescription>
         </SheetHeader>
         <div className="calendar-slide-over-list">
-          {calendars.length === 0 ? (
+          {groups.length === 0 ? (
             <p className="calendar-slide-over-empty">No Calendars yet.</p>
           ) : (
-            calendars.map((calendar) => (
-              <div key={calendar.id} className="calendar-slide-over-row">
-                <label htmlFor={`cal-vis-${calendar.id}`} className="calendar-slide-over-row-main">
-                  <input
-                    id={`cal-vis-${calendar.id}`}
-                    type="checkbox"
-                    checked={!hiddenCalendarIds.has(calendar.id)}
-                    onChange={() => onToggle(calendar.id)}
-                  />
-                  <span
-                    aria-hidden="true"
-                    className="calendar-slide-over-swatch"
-                    style={{ backgroundColor: calendar.color }}
-                  />
-                  <span className="calendar-slide-over-name">{calendar.name}</span>
-                </label>
-                <button
-                  type="button"
-                  className="calendar-slide-over-settings-button"
-                  aria-label={`${calendar.name} settings`}
-                  onClick={() => setSettingsCalendar(calendar)}
-                >
-                  <SettingsIcon aria-hidden="true" size={14} />
-                </button>
+            groups.map((group) => (
+              <div key={group.key} className="calendar-slide-over-group">
+                <div className="calendar-slide-over-group-header">
+                  <span className="calendar-slide-over-group-label">{group.label}</span>
+                  {group.provider ? (
+                    <span className="calendar-slide-over-group-badge">
+                      {PROVIDER_TABLE_LABEL[group.provider]}
+                    </span>
+                  ) : null}
+                </div>
+                {group.calendars.map((calendar) => (
+                  <div key={calendar.id} className="calendar-slide-over-row">
+                    <label
+                      htmlFor={`cal-vis-${calendar.id}`}
+                      className="calendar-slide-over-row-main"
+                    >
+                      <input
+                        id={`cal-vis-${calendar.id}`}
+                        type="checkbox"
+                        checked={!hiddenCalendarIds.has(calendar.id)}
+                        onChange={() => onToggle(calendar.id)}
+                      />
+                      <span
+                        aria-hidden="true"
+                        className="calendar-slide-over-swatch"
+                        style={{ backgroundColor: calendar.color }}
+                      />
+                      <span className="calendar-slide-over-name">{calendar.name}</span>
+                      {!calendar.capabilities.writable ? (
+                        // #282: a reader-access mirror (a holiday or shared team
+                        // Calendar) — shown, never hidden, but flagged so a User
+                        // never wonders why a click into it never offered a create.
+                        <LockIcon
+                          aria-label="Read-only"
+                          className="calendar-slide-over-readonly-icon"
+                          size={12}
+                        />
+                      ) : null}
+                    </label>
+                    <button
+                      type="button"
+                      className="calendar-slide-over-settings-button"
+                      aria-label={`${calendar.name} settings`}
+                      onClick={() => setSettingsCalendar(calendar)}
+                    >
+                      <SettingsIcon aria-hidden="true" size={14} />
+                    </button>
+                  </div>
+                ))}
               </div>
             ))
           )}

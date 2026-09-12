@@ -66,6 +66,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     seen: false,
     flagged: false,
     attachments: [],
+    snippet: null,
     bodyText: "First contact",
     bodyHtml: "<p>First contact</p>",
     bodyIsPlainText: false,

@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 
 /**
- * jsdom has no `matchMedia` at all (`hooks/use-mobile.ts`'s own doc
+ * jsdom has no `matchMedia` at all (`hooks/use-phone-width.ts`'s own doc
  * comment), so any `matchMedia`-driven hook (`hooks/use-phone-width.ts`,
  * `theme/device-theme.ts`'s system-dark read) needs one stubbed in to run
  * under a test. This fakes just enough of `MediaQueryList` for either: a

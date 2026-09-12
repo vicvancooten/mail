@@ -1,3 +1,5 @@
+import { DEFAULT_FIRST_DAY_OF_WEEK, type FirstDayOfWeek } from "@mail/shared";
+
 /**
  * Plain-date arithmetic for the Calendar App's five views (#231). No date
  * library: every operation here is a civil (year, month, day) triple with
@@ -7,8 +9,15 @@
  * (`materialiser.ts`'s own Luxon stays a sync-backend-only tool; nothing
  * here needs RFC 5545 expansion, only calendar-grid bucketing).
  *
- * Weeks start Monday (ISO-8601) — a routine call with no stated User
- * preference to read instead; see this ticket's closing report.
+ * Weeks start Monday by default (ISO-8601) — Region Settings' own First Day
+ * of the Week (#303) overrides it: every function below that cares takes a
+ * `FirstDayOfWeek` parameter defaulting to Monday, so a caller with no
+ * Preference yet on hand (a still-loading `usePreference()`) gets the same
+ * behaviour this ticket found here.
+ *
+ * Every label-producing function below also takes an optional BCP-47
+ * `locale` (Region Settings' language and region, #303) — omitted, `Intl`
+ * picks the viewer's own browser default, same as before this ticket.
  */
 
 export interface CivilDate {
@@ -75,13 +84,27 @@ export function compareCivilDates(left: CivilDate, right: CivilDate): number {
   return dayKey(left) < dayKey(right) ? -1 : dayKey(left) > dayKey(right) ? 1 : 0;
 }
 
-/** Monday=0 .. Sunday=6, unlike `Date.getDay()`'s Sunday=0 — every week in this App starts Monday. */
-export function isoWeekday(date: CivilDate): number {
-  return (toDateObject(date).getDay() + 6) % 7;
+/**
+ * How many days `date` sits after this week's own first day: 0..6, with
+ * `firstDayOfWeek` itself landing on 0 — Monday=0..Sunday=6 for the ISO-8601
+ * default, or Sunday=0..Saturday=6 once Region Settings picks Sunday (#303).
+ * `Date.getDay()`'s own Sunday=0..Saturday=6 is neither of these on its own,
+ * which is why every grid computes its "which column" through this rather
+ * than `getDay()` directly.
+ */
+export function isoWeekday(
+  date: CivilDate,
+  firstDayOfWeek: FirstDayOfWeek = DEFAULT_FIRST_DAY_OF_WEEK,
+): number {
+  const day = toDateObject(date).getDay();
+  return firstDayOfWeek === "sunday" ? day : (day + 6) % 7;
 }
 
-export function startOfWeek(date: CivilDate): CivilDate {
-  return addDays(date, -isoWeekday(date));
+export function startOfWeek(
+  date: CivilDate,
+  firstDayOfWeek: FirstDayOfWeek = DEFAULT_FIRST_DAY_OF_WEEK,
+): CivilDate {
+  return addDays(date, -isoWeekday(date, firstDayOfWeek));
 }
 
 export function startOfMonth(date: CivilDate): CivilDate {
@@ -105,34 +128,55 @@ export function isSameDay(left: CivilDate, right: CivilDate): boolean {
   return left.year === right.year && left.month === right.month && left.day === right.day;
 }
 
-const WEEKDAY_LABEL = new Intl.DateTimeFormat(undefined, { weekday: "short" });
-const MONTH_LABEL = new Intl.DateTimeFormat(undefined, { month: "long" });
-const MONTH_SHORT_LABEL = new Intl.DateTimeFormat(undefined, { month: "short" });
-const DAY_HEADING_LABEL = new Intl.DateTimeFormat(undefined, {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-});
-const MONTH_HEADING_LABEL = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
+/**
+ * One cached `Intl.DateTimeFormat` per (kind, locale) pair — a handful of
+ * distinct combinations ever appear in one session (one Region Settings
+ * locale, five label kinds), so this never grows unbounded the way building
+ * a fresh formatter on every one of a Month/Year grid's ~40 day cells would.
+ */
+const LABEL_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
-export function weekdayLabel(date: CivilDate): string {
-  return WEEKDAY_LABEL.format(toDateObject(date));
+function labelFormatter(
+  kind: "weekday" | "month" | "monthShort" | "dayHeading" | "monthHeading",
+  locale: string | undefined,
+): Intl.DateTimeFormat {
+  const key = `${kind}:${locale ?? ""}`;
+  let formatter = LABEL_FORMATTERS.get(key);
+  if (!formatter) {
+    const options: Intl.DateTimeFormatOptions =
+      kind === "weekday"
+        ? { weekday: "short" }
+        : kind === "month"
+          ? { month: "long" }
+          : kind === "monthShort"
+            ? { month: "short" }
+            : kind === "dayHeading"
+              ? { weekday: "long", month: "long", day: "numeric" }
+              : { month: "long", year: "numeric" };
+    formatter = new Intl.DateTimeFormat(locale, options);
+    LABEL_FORMATTERS.set(key, formatter);
+  }
+  return formatter;
 }
 
-export function monthLabel(date: CivilDate): string {
-  return MONTH_LABEL.format(toDateObject(date));
+export function weekdayLabel(date: CivilDate, locale?: string): string {
+  return labelFormatter("weekday", locale).format(toDateObject(date));
 }
 
-export function monthShortLabel(date: CivilDate): string {
-  return MONTH_SHORT_LABEL.format(toDateObject(date));
+export function monthLabel(date: CivilDate, locale?: string): string {
+  return labelFormatter("month", locale).format(toDateObject(date));
 }
 
-export function dayHeadingLabel(date: CivilDate): string {
-  return DAY_HEADING_LABEL.format(toDateObject(date));
+export function monthShortLabel(date: CivilDate, locale?: string): string {
+  return labelFormatter("monthShort", locale).format(toDateObject(date));
 }
 
-export function monthHeadingLabel(date: CivilDate): string {
-  return MONTH_HEADING_LABEL.format(toDateObject(date));
+export function dayHeadingLabel(date: CivilDate, locale?: string): string {
+  return labelFormatter("dayHeading", locale).format(toDateObject(date));
+}
+
+export function monthHeadingLabel(date: CivilDate, locale?: string): string {
+  return labelFormatter("monthHeading", locale).format(toDateObject(date));
 }
 
 /**

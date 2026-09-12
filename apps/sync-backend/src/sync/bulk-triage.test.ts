@@ -253,6 +253,41 @@ describe("applyBulkTriageAction", () => {
     const outbox = await db.select().from(protocolWrites);
     expect(outbox).toHaveLength(0);
   });
+
+  it('"done" on a Gmail account strips \\Inbox off the Message so the batch survives a rollup before the protocol drain (#278)', async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const allMailId = randomUUID();
+    await db.insert(folders).values({
+      id: allMailId,
+      mailAccountId: gmailAccount.id,
+      path: "[Gmail]/All Mail",
+      name: "All Mail",
+      role: "all",
+    });
+    const threadId = await resolveThread(db, {
+      mailAccountId: gmailAccount.id,
+      threadingIds: [randomUUID()],
+      subject: "Test",
+      receivedAt: JAN_1,
+    });
+    await db.insert(messages).values({
+      id: randomUUID(),
+      mailAccountId: gmailAccount.id,
+      threadId,
+      folderId: allMailId,
+      uid: 1,
+      subject: "Test",
+      sentAt: JAN_1,
+      receivedAt: JAN_1,
+      gmailLabels: ["\\Inbox"],
+    });
+
+    await applyBulkTriageAction(db, gmailAccount.id, "done", [threadId]);
+
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).toEqual([]);
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+  });
 });
 
 describe("undoBulkTriageAction", () => {

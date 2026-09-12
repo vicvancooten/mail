@@ -84,6 +84,7 @@ export default defineConfig({
       "./src/test-support/virtualization.ts",
       "./src/test-support/dom-polyfills.ts",
       "./src/test-support/testing-library-config.ts",
+      "./src/test-support/flush-focus-scope-timers.ts",
     ],
     // Node >=22.4 ships its own global `localStorage`/`sessionStorage`
     // (behind --experimental-webstorage, on by default on recent 22.x).

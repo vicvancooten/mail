@@ -2,7 +2,7 @@ import type { MailAccount } from "@mail/shared";
 import { Command as CommandPrimitive } from "cmdk";
 import { Search, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { CachedThread } from "../../store/index.js";
+import { type CachedThread, useRegionFormatSettings } from "../../store/index.js";
 import type { ActionContext } from "../actions/types.js";
 import { readCommandUsage, recordCommandUsage } from "../device-preferences.js";
 import type { ViewOrigin } from "../search/scope.js";
@@ -324,9 +324,11 @@ export function CommandPalette({
     }
   }
 
+  const region = useRegionFormatSettings();
+
   if (!open) return null;
 
-  const watermark = showHits ? formatIndexWatermark(search.indexWatermark) : null;
+  const watermark = showHits ? formatIndexWatermark(search.indexWatermark, region) : null;
 
   function commandRow(command: PaletteCommand) {
     const row: PaletteRow = { kind: "command", command };

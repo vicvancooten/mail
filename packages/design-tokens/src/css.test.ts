@@ -21,8 +21,11 @@ describe("buildTokensCss", () => {
     expect(root).toContain("--radius-panel: 16px;");
     expect(root).toContain("--radius-pill: 999px;");
     expect(root).toContain("--hairline: 1px;");
+    expect(root).toContain("--breakpoint-phone: 768px;");
+    expect(root).toContain("--split-minimum: 920px;");
     expect(root).toContain("--shadow-overlay:");
     expect(root).toContain("--shadow-header:");
+    expect(root).toContain("--shadow-header-flush:");
     expect(root).toContain("--shadow-card:");
   });
 

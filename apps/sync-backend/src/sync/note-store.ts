@@ -51,27 +51,29 @@ export async function flushNoteSaves(
  * rather than overwritten — the one guard this function keeps despite
  * "never rejects", since silently handing one User's Note id to another's
  * content is not the kind of write ADR-0023 is describing.
+ *
+ * A single `onConflictDoUpdate` (not this file's own `select` then branch on
+ * `insert`/`update`, which raced: two Clients saving the same *brand-new*
+ * `note-1` concurrently could both see "no existing row" and both try to
+ * `insert`, the second hitting the primary key and turning "never rejects"
+ * into an uncaught 500) — the ownership guard above rides along as
+ * `setWhere`, so a same-User conflict updates and a different-User one
+ * leaves the existing row untouched, same as before, just atomic.
  */
 async function applyOne(db: Db, userId: string, save: NoteSave): Promise<DocumentSaveOutcome> {
-  const [existing] = await db
-    .select({ userId: notes.userId })
-    .from(notes)
-    .where(eq(notes.id, save.id))
-    .limit(1);
-
-  if (!existing) {
-    await db.insert(notes).values({
+  await db
+    .insert(notes)
+    .values({
       id: save.id,
       userId,
       document: save.document,
       labelIds: [],
+    })
+    .onConflictDoUpdate({
+      target: notes.id,
+      set: { document: save.document, updatedAt: new Date() },
+      setWhere: eq(notes.userId, userId),
     });
-  } else if (existing.userId === userId) {
-    await db
-      .update(notes)
-      .set({ document: save.document, updatedAt: new Date() })
-      .where(eq(notes.id, save.id));
-  }
 
   return { collection: "Note", id: save.id, saveId: save.saveId, status: "applied" };
 }

@@ -1,4 +1,9 @@
-import type { InvitationCard as InvitationCardData } from "@mail/shared";
+import {
+  formatRegionDate,
+  formatRegionTime,
+  type InvitationCard as InvitationCardData,
+  type RegionFormatSettings,
+} from "@mail/shared";
 import { AlertTriangle, CalendarClock } from "lucide-react";
 import { useState } from "react";
 import {
@@ -9,6 +14,7 @@ import {
 } from "../api/invitations.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
+import { useRegionFormatSettings } from "../store/index.js";
 import { moveSeries, newSeriesId } from "../store/series.js";
 import { announceUndoableAction } from "./undo-toast.js";
 
@@ -74,12 +80,14 @@ export function InviteCard({ card, threadId }: { card: InvitationCardData; threa
   const calendars = useCalendars();
   const localCalendars = calendars?.filter((calendar) => calendar.origin.type === "local") ?? [];
 
+  const region = useRegionFormatSettings();
   const cancelled = card.kind === "cancellation" || card.match?.cancelled === true;
   const title = card.vevent?.title || "(no title)";
   const when = formatWhen(
     card.vevent?.start ?? null,
     card.vevent?.end ?? null,
     card.vevent?.allDay ?? false,
+    region,
   );
 
   const conflicts = useConflictCount(
@@ -283,18 +291,22 @@ export function InviteCard({ card, threadId }: { card: InvitationCardData; threa
   );
 }
 
-function formatWhen(start: string | null, end: string | null, allDay: boolean): string | null {
+function formatWhen(
+  start: string | null,
+  end: string | null,
+  allDay: boolean,
+  region: RegionFormatSettings,
+): string | null {
   if (!start) return null;
-  const startDate = new Date(start);
-  const dateFormat: Intl.DateTimeFormatOptions = {
+  const dateOptions: Intl.DateTimeFormatOptions = {
     weekday: "short",
     month: "short",
     day: "numeric",
+    year: undefined,
   };
-  const timeFormat: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
-  if (allDay) return startDate.toLocaleDateString(undefined, dateFormat);
-  const datePart = startDate.toLocaleDateString(undefined, dateFormat);
-  const startTime = startDate.toLocaleTimeString(undefined, timeFormat);
-  const endTime = end ? new Date(end).toLocaleTimeString(undefined, timeFormat) : null;
+  if (allDay) return formatRegionDate(start, region, dateOptions);
+  const datePart = formatRegionDate(start, region, dateOptions);
+  const startTime = formatRegionTime(start, region);
+  const endTime = end ? formatRegionTime(end, region) : null;
   return endTime ? `${datePart} · ${startTime}–${endTime}` : `${datePart} · ${startTime}`;
 }

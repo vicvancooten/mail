@@ -1,6 +1,7 @@
+import type { RegionFormatSettings } from "@mail/shared";
 import { useState } from "react";
 import type { CachedThread } from "../store/index.js";
-import { SNOOZE_PRESETS } from "./snooze-presets.js";
+import { formatSnoozeUntil, SNOOZE_PRESETS } from "./snooze-presets.js";
 
 /**
  * The Snooze row cluster control's popover (#76): "a small set of preset
@@ -18,13 +19,22 @@ export function SnoozeMenu({
   thread,
   onSnooze,
   onClose,
+  region,
 }: {
   thread: CachedThread;
   onSnooze: (until: string) => void;
   onClose: () => void;
+  /** Region Settings (#304) — `formatSnoozeUntil`'s own locale/clock/zone for each preset's time and the custom picker's preview. Optional: a caller with no Region Settings read above it (most unit tests) keeps today's browser-default clock. */
+  region?: Pick<RegionFormatSettings, "locale" | "clockFormat" | "timeZone">;
 }) {
   const [customValue, setCustomValue] = useState("");
   const subjectLabel = thread.subject || "(no subject)";
+  const now = new Date();
+  const customParsed = customValue ? new Date(customValue) : null;
+  const customPreview =
+    customParsed && !Number.isNaN(customParsed.getTime())
+      ? formatSnoozeUntil(customParsed, now, region)
+      : null;
 
   function commit(until: Date) {
     onSnooze(until.toISOString());
@@ -32,10 +42,8 @@ export function SnoozeMenu({
   }
 
   function submitCustom() {
-    if (!customValue) return;
-    const parsed = new Date(customValue);
-    if (Number.isNaN(parsed.getTime())) return;
-    commit(parsed);
+    if (!customParsed || Number.isNaN(customParsed.getTime())) return;
+    commit(customParsed);
   }
 
   return (
@@ -54,7 +62,10 @@ export function SnoozeMenu({
         {SNOOZE_PRESETS.map((preset) => (
           <li key={preset.label}>
             <button type="button" role="menuitem" onClick={() => commit(preset.until(new Date()))}>
-              {preset.label}
+              <span className="snooze-preset-label">{preset.label}</span>
+              <span className="snooze-preset-time">
+                {formatSnoozeUntil(preset.until(now), now, region)}
+              </span>
             </button>
           </li>
         ))}
@@ -66,12 +77,17 @@ export function SnoozeMenu({
           submitCustom();
         }}
       >
-        <input
-          type="datetime-local"
-          value={customValue}
-          onChange={(event) => setCustomValue(event.target.value)}
-          aria-label="Custom snooze time"
-        />
+        <div className="snooze-menu-custom-field">
+          <input
+            type="datetime-local"
+            value={customValue}
+            onChange={(event) => setCustomValue(event.target.value)}
+            aria-label="Custom snooze time"
+          />
+          {customPreview ? (
+            <span className="snooze-menu-custom-preview">{customPreview}</span>
+          ) : null}
+        </div>
         <button type="submit" disabled={!customValue}>
           Snooze
         </button>

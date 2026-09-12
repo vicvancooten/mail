@@ -81,6 +81,34 @@ describe("buildContactWritableFields", () => {
     expect(fields.customFields).toEqual([]);
   });
 
+  it("keeps a Custom-labelled email as an email instead of demoting it (#283)", () => {
+    const form = {
+      ...EMPTY_CONTACT_FORM_STATE,
+      emails: [{ id: "e1", type: "School", value: "kid@school.example", primary: true }],
+    };
+
+    const fields = buildContactWritableFields(form);
+
+    expect(fields.emails).toEqual([
+      { id: "e1", type: "School", value: "kid@school.example", primary: true },
+    ]);
+    expect(fields.customFields).toEqual([]);
+  });
+
+  it('defaults a blank email label to "home" instead of demoting it (#283)', () => {
+    const form = {
+      ...EMPTY_CONTACT_FORM_STATE,
+      emails: [{ id: "e1", type: "", value: "kid@school.example", primary: true }],
+    };
+
+    const fields = buildContactWritableFields(form);
+
+    expect(fields.emails).toEqual([
+      { id: "e1", type: "home", value: "kid@school.example", primary: true },
+    ]);
+    expect(fields.customFields).toEqual([]);
+  });
+
   it("demotes a Custom-labelled phone into customFields (ADR-0026)", () => {
     const form = {
       ...EMPTY_CONTACT_FORM_STATE,

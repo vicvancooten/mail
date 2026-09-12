@@ -8,8 +8,11 @@ import {
   timeGroupTier,
 } from "./time-groups.js";
 
-// Late enough in the month that "This month" (>= the 1st) and "Last week"
-// (>= 14 days back) don't collapse into each other.
+// A Thursday, late enough in the month that "This month" and "Last week"
+// don't collapse into each other. With the default (Monday) First Day of
+// the Week (#304), this week starts Monday June 22 — "This week" (below)
+// only ever covers Monday/Tuesday of it, since Wednesday/Thursday are
+// already claimed by Yesterday/Today.
 const NOW = new Date("2026-06-25T12:00:00.000Z");
 
 function thread(
@@ -49,11 +52,19 @@ describe("timeGroupLabel", () => {
   it("buckets the common inbox ranges, including the two named months", () => {
     expect(timeGroupLabel("2026-06-25T09:00:00.000Z", NOW)).toBe("Today");
     expect(timeGroupLabel("2026-06-24T09:00:00.000Z", NOW)).toBe("Yesterday");
-    expect(timeGroupLabel("2026-06-20T09:00:00.000Z", NOW)).toBe("This week");
-    expect(timeGroupLabel("2026-06-12T09:00:00.000Z", NOW)).toBe("Last week");
-    expect(timeGroupLabel("2026-06-03T09:00:00.000Z", NOW)).toBe("This month");
+    expect(timeGroupLabel("2026-06-23T09:00:00.000Z", NOW)).toBe("This week"); // this Tuesday
+    expect(timeGroupLabel("2026-06-18T09:00:00.000Z", NOW)).toBe("Last week"); // last Thursday
+    expect(timeGroupLabel("2026-06-05T09:00:00.000Z", NOW)).toBe("This month");
     expect(timeGroupLabel("2026-05-10T09:00:00.000Z", NOW)).toBe("May"); // previous month
     expect(timeGroupLabel("2026-04-10T09:00:00.000Z", NOW)).toBe("April"); // month before that
+  });
+
+  it("anchors This week/Last week on First Day of the Week (#304), not a rolling 7-day window", () => {
+    // June 21 (Sunday) is in "this" Monday-first week's own last week; with
+    // Sunday picked as First Day of the Week it falls in the *current* week
+    // instead, since that week now starts a day earlier (Sunday June 21).
+    expect(timeGroupLabel("2026-06-21T09:00:00.000Z", NOW)).toBe("Last week");
+    expect(timeGroupLabel("2026-06-21T09:00:00.000Z", NOW, "sunday")).toBe("This week");
   });
 
   it("collapses everything before the two named months into one Older group", () => {
@@ -159,8 +170,8 @@ describe("groupThreadsByTime", () => {
     // which must still read as T2 — not promoted to T1 just because it's
     // first on screen.
     const threads = [
-      thread("t1", "2026-06-20T09:00:00.000Z"), // This week
-      thread("t2", "2026-06-12T09:00:00.000Z"), // Last week
+      thread("t1", "2026-06-23T09:00:00.000Z"), // This week
+      thread("t2", "2026-06-18T09:00:00.000Z"), // Last week
     ];
     const groups = groupThreadsByTime(threads, NOW);
     expect(groups.map((g) => g.label)).toEqual(["This week", "Last week"]);
@@ -173,6 +184,14 @@ describe("formatRowTime", () => {
     expect(formatRowTime("2026-06-25T11:45:00.000Z", NOW)).toBe("15m");
     expect(formatRowTime("2026-06-25T09:00:00.000Z", NOW)).toBe("3h");
     expect(formatRowTime("2026-06-24T09:00:00.000Z", NOW)).toBe("Yest.");
-    expect(formatRowTime("2026-06-01T09:00:00.000Z", NOW)).toBe("1 Jun");
+    // No Region Settings passed: the browser/Node default locale ("en-US"
+    // here) picks the month-then-day order.
+    expect(formatRowTime("2026-06-01T09:00:00.000Z", NOW)).toBe("Jun 1");
+  });
+
+  it("reads the older-than-yesterday fallback in region's own locale (#304)", () => {
+    expect(formatRowTime("2026-06-01T09:00:00.000Z", NOW, { locale: "en-GB", timeZone: "" })).toBe(
+      "1 Jun",
+    );
   });
 });

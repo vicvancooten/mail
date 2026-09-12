@@ -1,3 +1,4 @@
+import { phoneBreakpoint, splitMinimum } from "./breakpoints.js";
 import {
   type AvatarTileKey,
   type AvatarTileTheme,
@@ -47,7 +48,7 @@ function tileDeclarations(theme: AvatarTileTheme, indent: string): string {
 }
 
 function shadowDeclarations(theme: ShadowTheme, indent: string): string {
-  return `${indent}--shadow-overlay: ${theme.overlay};\n${indent}--shadow-header: ${theme.header};\n${indent}--shadow-card: ${theme.card};`;
+  return `${indent}--shadow-overlay: ${theme.overlay};\n${indent}--shadow-header: ${theme.header};\n${indent}--shadow-header-flush: ${theme.headerFlush};\n${indent}--shadow-card: ${theme.card};`;
 }
 
 /**
@@ -72,6 +73,18 @@ ${tileDeclarations(lightAvatarTiles, "  ")}
   --radius-panel: ${radii.panel};
   --radius-pill: ${radii.pill};
   --hairline: ${hairline};
+  /* The one phone breakpoint (#273) — see \`breakpoints.ts\`. Documented here
+     for CSS authors, even though a plain media query feature can't consume
+     a custom property: every phone-only media query in the Client is a
+     literal \`767px\`/\`768px\` pair matching this same number, not derived
+     from it at build time. */
+  --breakpoint-phone: ${phoneBreakpoint}px;
+  /* The split minimum (#296) — see \`breakpoints.ts\`. Documented here for CSS
+     authors, same "can't feed a custom property to a media query" stance
+     \`--breakpoint-phone\` above takes: the fallback below this width is a
+     component swap (Split view to List view), not a Split-internal layout
+     rule, so no media query in the Client currently reads this number. */
+  --split-minimum: ${splitMinimum}px;
 ${shadowDeclarations(lightShadow, "  ")}
 }
 

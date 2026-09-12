@@ -291,10 +291,10 @@
 }
 
 /* Phone (this ticket's own acceptance line: "full-screen on phone") —
-   `contacts.css`'s own 700px convention: the dialog fills the viewport
-   rather than floating as a card, the same posture a phone-sized screen
-   asks any editing surface to take. */
-@media (max-width: 700px) {
+   `contacts.css`'s own convention, the app's one 768px breakpoint (#273):
+   the dialog fills the viewport rather than floating as a card, the same
+   posture a phone-sized screen asks any editing surface to take. */
+@media (max-width: 767px) {
   .contact-dialog {
     max-width: 100%;
     max-height: 100%;

@@ -460,6 +460,13 @@ describe("GET /auth/oauth/:provider/callback", () => {
     expect(outcomeOf(response.headers.location as string)).toBe("signed_in");
 
     const [row] = await listMailAccountsForUser(db, userId);
+    // #285: the redirect also names the new Connected Account row Settings
+    // should scroll to and highlight once its delta lands — the same
+    // `?account=&facet=` pair the needs-reauth notification deep link uses
+    // (`connected-accounts/account-focus.ts`).
+    const redirectUrl = new URL(response.headers.location as string);
+    expect(redirectUrl.searchParams.get("account")).toBe(row?.connectedAccountId);
+    expect(redirectUrl.searchParams.get("facet")).toBe("mail");
     expect(row).toMatchObject({
       // Never typed by the User — this is the fake's identity answer.
       emailAddress: "someone@gmail.com",

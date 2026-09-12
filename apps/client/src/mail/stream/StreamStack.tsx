@@ -14,12 +14,13 @@ import {
   saveComposition,
   THREAD_PAGE_SIZE,
   useConnectedAccounts,
+  useFirstDayOfWeek,
   useLabels,
   useMailAccounts,
+  useRegionFormatSettings,
   useTaskLists,
   useThreadWindow,
 } from "../../store/index.js";
-import { useLocalCacheSync } from "../../sync/use-local-cache-sync.js";
 import { type AddToTasksResult, AddToTasksSheet } from "../AddToTasksSheet.js";
 import { ActionsProvider, useActionKeyboard } from "../actions/ActionsProvider.js";
 import { publishActiveMailHost } from "../actions/active-mail-host.js";
@@ -29,6 +30,7 @@ import { usePaletteHost } from "../command-palette/PaletteHostContext.js";
 import { ShortcutSheet } from "../command-palette/ShortcutSheet.js";
 import { folderToView } from "../folders.js";
 import { RollbackToast } from "../RollbackToast.js";
+import { openReaderWindow } from "../reader-window.js";
 import type { MailtoLink } from "../reading/mailto.js";
 import { useThreadMessages } from "../reading/useThreadMessages.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
@@ -103,8 +105,12 @@ export function StreamStack({
   /** A Task chip's title (#259) — `onNoteCreated`'s own posture: real wiring from `router/StreamRoute.tsx`, a no-op default for every unrouted caller. */
   onOpenTask?: (taskId: string) => void;
 }) {
-  useLocalCacheSync();
   const { paletteOpen, openPalette } = usePaletteHost();
+  // Region Settings (#304): the same First Day of the Week/locale
+  // `time-groups.ts#timeGroupLabel` reads for the Reader's own group label
+  // and `ThreadDetailPane`'s reading-time line.
+  const firstDayOfWeek = useFirstDayOfWeek();
+  const region = useRegionFormatSettings();
   const mailAccounts = useMailAccounts();
   const connectedAccounts = useConnectedAccounts();
   const { scope: connectedAccountScope } = useAccountScope(connectedAccounts);
@@ -389,6 +395,7 @@ export function StreamStack({
       onOpenStream: () => {},
       onAddToNotes,
       onAddToTasks: onOpenAddToTasksSheet,
+      onOpenInNewWindow: (thread) => openReaderWindow(thread.id),
       onMove: () => {},
       threadCount: 0,
       openPicker: topThreadSnapshot ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -490,6 +497,9 @@ export function StreamStack({
                         ? PINNED_GROUP_LABEL
                         : timeGroupLabel(
                             topThreadSnapshot.lastMessageAt ?? topThreadSnapshot.firstMessageAt,
+                            new Date(),
+                            firstDayOfWeek,
+                            region,
                           )
                     }
                     triage={triage}

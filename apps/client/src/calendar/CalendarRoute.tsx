@@ -1,11 +1,13 @@
 import { Outlet } from "@tanstack/react-router";
 import { PanelLeft } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useHiddenCalendarIds, useShowTasksOnGrid } from "../mail/device-preferences.js";
+import { deriveCalendarScope, useAccountScope } from "../mail/useAccountScope.js";
 import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
+import { useConnectedAccounts, usePreference, useRegionFormatSettings } from "../store/index.js";
 import { useAllTasks } from "../store/tasks.js";
-import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import "./calendar.css";
 import { CalendarSlideOver } from "./CalendarSlideOver.js";
 import { CalendarViewSwitcher } from "./CalendarViewSwitcher.js";
@@ -20,7 +22,6 @@ import {
 } from "./calendar-dates.js";
 import { bucketEventsByDay } from "./calendar-occurrences.js";
 import { bucketTasksByDay } from "./calendar-task-occurrences.js";
-import { useShowTasksOnGrid } from "./calendar-task-visibility.js";
 import {
   type CalendarView,
   calendarSearchFor,
@@ -29,29 +30,32 @@ import {
   resolveCalendarView,
   stepDate,
 } from "./calendar-url.js";
-import { useHiddenCalendarIds } from "./calendar-visibility.js";
 import { DayTimeGrid } from "./DayTimeGrid.js";
 import { EventEditorPopover } from "./EventEditorPopover.js";
+import { EventMoveScopeDialog } from "./EventMoveScopeDialog.js";
 import { MonthGrid } from "./MonthGrid.js";
 import { TaskPopover } from "./TaskPopover.js";
 import { YearGrid } from "./YearGrid.js";
 
-const HEADING = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
-
-function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDate[]): string {
+function headingFor(
+  view: CalendarView,
+  date: CivilDate,
+  days: readonly CivilDate[],
+  locale: string | undefined,
+): string {
   switch (view) {
     case "day":
-      return dayHeadingLabel(date);
+      return dayHeadingLabel(date, locale);
     case "workweek":
     case "week": {
       const first = days[0] ?? date;
       const last = days[days.length - 1] ?? date;
       return first.month === last.month
-        ? `${monthHeadingLabel(first)}`
-        : `${HEADING.format(new Date(first.year, first.month - 1, 1))} – ${HEADING.format(new Date(last.year, last.month - 1, 1))}`;
+        ? `${monthHeadingLabel(first, locale)}`
+        : `${monthHeadingLabel(first, locale)} – ${monthHeadingLabel(last, locale)}`;
     }
     case "month":
-      return monthHeadingLabel(date);
+      return monthHeadingLabel(date, locale);
     case "year":
       return String(date.year);
   }
@@ -79,22 +83,54 @@ function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDat
  * Cache query with no request of its own (`store/tasks.ts#useAllTasks`),
  * bucketed by due day (`calendar-task-occurrences.ts`) the same shape
  * `bucketEventsByDay` already gives Events, gated on the slide-over's
- * "Tasks" row (`calendar-task-visibility.ts`) and never handed to `YearGrid`
- * at all — Year shows no Tasks (this ticket's own acceptance line).
+ * "Tasks" row (`mail/device-preferences.ts#useShowTasksOnGrid`) and never
+ * handed to `YearGrid` at all — Year shows no Tasks (this ticket's own
+ * acceptance line).
+ *
+ * Account Scope narrows the grid (#300): the Hub's Scope, narrowed to one or
+ * more Connected Accounts, narrows Events to those accounts' Calendars plus
+ * Local ones (`mail/useAccountScope.ts#deriveCalendarScope`) — on top of,
+ * not instead of, the per-device hidden-Calendar filter above.
  */
 export function CalendarRoute() {
-  useLocalCacheSync();
   const search = calendarRoute.useSearch();
   const navigate = calendarRoute.useNavigate();
-  const view = resolveCalendarView(search);
+
+  // Region Settings (#303): Default View decides which view Calendar opens
+  // on with no `?view=` on the URL, First Day of the Week decides Week/Work
+  // Week/Month's own first column, and locale/clock/Home Time Zone feed
+  // every date/time this screen renders through the grid components below —
+  // `preference` is `undefined` only for the first frame or two before
+  // `usePreference()`'s live query resolves, so every one of these falls
+  // back to `resolveCalendarView`/`daysForView`'s own defaults until then.
+  const preference = usePreference();
+  const view = resolveCalendarView(search, preference?.defaultCalendarView);
   const date = resolveCalendarDate(search);
-  const days = useMemo(() => daysForView(view, date), [view, date]);
+  const days = useMemo(
+    () => daysForView(view, date, preference?.firstDayOfWeek),
+    [view, date, preference?.firstDayOfWeek],
+  );
+  const region = useRegionFormatSettings();
 
   const calendars = useCalendars() ?? [];
   const range = useMemo(() => civilDateRangeToIso(days), [days]);
   const { events, outsideWindow, window: eventWindow } = useEventsForRange(range.start, range.end);
   const [hiddenCalendarIds, toggleCalendarVisibility] = useHiddenCalendarIds();
   const [slideOverOpen, setSlideOverOpen] = useState(false);
+
+  // Account Scope (#300): read independently here, the same
+  // `useConnectedAccounts`/`useAccountScope` pair `MailSection.tsx` reads
+  // (`useAccountScope.ts`'s own doc comment) rather than through a shared
+  // prop — narrowing the Hub's Scope to one Connected Account narrows the
+  // grid's own Events to that account's Calendars plus Local ones
+  // (`deriveCalendarScope`), while the slide-over below still lists every
+  // Calendar regardless of Scope.
+  const connectedAccounts = useConnectedAccounts();
+  const { scope: accountScope } = useAccountScope(connectedAccounts);
+  const scopedCalendarIds = useMemo(() => {
+    const scoped = deriveCalendarScope(connectedAccounts, accountScope, calendars);
+    return new Set(scoped.map((calendar) => calendar.id));
+  }, [connectedAccounts, accountScope, calendars]);
 
   // Due Tasks (#260): the Local Cache directly, no request of its own — the
   // Task collection replicates whole (`store/tasks.ts#useAllTasks`'s own
@@ -110,10 +146,17 @@ export function CalendarRoute() {
 
   const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars]);
   const visibleEvents = useMemo(
-    () => events.filter((event) => !hiddenCalendarIds.has(event.calendarId)),
-    [events, hiddenCalendarIds],
+    () =>
+      events.filter(
+        (event) =>
+          !hiddenCalendarIds.has(event.calendarId) && scopedCalendarIds.has(event.calendarId),
+      ),
+    [events, hiddenCalendarIds, scopedCalendarIds],
   );
-  const buckets = useMemo(() => bucketEventsByDay(visibleEvents), [visibleEvents]);
+  const buckets = useMemo(
+    () => bucketEventsByDay(visibleEvents, region.timeZone),
+    [visibleEvents, region.timeZone],
+  );
 
   function goTo(nextView: CalendarView, nextDate: CivilDate) {
     void navigate({ search: calendarSearchFor(nextView, nextDate), replace: true });
@@ -152,7 +195,9 @@ export function CalendarRoute() {
               ›
             </button>
           </div>
-          <h2 className="calendar-heading">{headingFor(view, date, days)}</h2>
+          <h2 className="calendar-heading">
+            {headingFor(view, date, days, region.locale || undefined)}
+          </h2>
         </div>
         <CalendarViewSwitcher view={view} onChange={(nextView) => goTo(nextView, date)} />
       </header>
@@ -173,6 +218,7 @@ export function CalendarRoute() {
             taskBuckets={taskBuckets}
             calendarById={calendarById}
             onOpenDay={(target) => goTo("day", target)}
+            region={region}
           />
         ) : null}
         {view === "month" ? (
@@ -183,6 +229,7 @@ export function CalendarRoute() {
             taskBuckets={taskBuckets}
             calendarById={calendarById}
             onOpenDay={(target) => goTo("day", target)}
+            region={region}
           />
         ) : null}
         {view === "year" ? (
@@ -191,6 +238,8 @@ export function CalendarRoute() {
             buckets={buckets}
             onOpenDay={(target) => goTo("day", target)}
             onOpenMonth={(target) => goTo("month", target)}
+            firstDayOfWeek={preference?.firstDayOfWeek}
+            locale={region.locale || undefined}
           />
         ) : null}
       </div>
@@ -198,12 +247,14 @@ export function CalendarRoute() {
         open={slideOverOpen}
         onOpenChange={setSlideOverOpen}
         calendars={calendars}
+        connectedAccounts={connectedAccounts ?? []}
         hiddenCalendarIds={hiddenCalendarIds}
         onToggle={toggleCalendarVisibility}
         showTasks={showTasks}
         onToggleTasks={() => toggleShowTasks(!showTasks)}
       />
       <EventEditorPopover calendars={calendars} />
+      <EventMoveScopeDialog />
       <TaskPopover
         onOpenTask={(taskId) => void navigate({ to: "/tasks/$taskId", params: { taskId } })}
       />

@@ -1,3 +1,10 @@
+import {
+  formatRegionDate,
+  formatRegionTime,
+  REGION_LOCALE_UNSET,
+  type RegionFormatSettings,
+} from "@mail/shared";
+
 /**
  * A Task's Due (#253, `@mail/shared`'s `taskSchema#dueDate`/`dueTime` doc
  * comment): a zone-less calendar day plus an optional floating wall-clock
@@ -6,7 +13,18 @@
  * always with a UTC getter/formatter, never a local one, which is the whole
  * of what "zone-less"/"floating" mean in practice: the same string reads as
  * the same day and the same clock time in every viewer's zone.
+ *
+ * The three formatters below route through `@mail/shared#formatRegionDate`/
+ * `formatRegionTime` (#304) for the same locale/clock-format Region Settings
+ * gives Mail and Calendar — `timeZone: "UTC"` forced regardless of `region`,
+ * since a due day/time is zone-less by design, never the Home Time Zone.
  */
+
+/** No Region Settings passed in: the viewer's own browser default locale/clock, same as before this ticket. */
+const DEFAULT_REGION: Pick<RegionFormatSettings, "locale" | "clockFormat"> = {
+  locale: REGION_LOCALE_UNSET,
+  clockFormat: "auto",
+};
 
 /** `dueDate`'s own wire encoding: a Y-M-D day, always at UTC midnight. */
 export function dateOnlyToWireDueDate(ymd: string): string {
@@ -33,31 +51,35 @@ export function addLocalDays(date: Date, days: number): string {
 }
 
 /** A due day for display, e.g. "Jun 15" — `timeZone: "UTC"` forced so the day never shifts against the viewer's own zone (the day is zone-less, not a real instant to convert). */
-export function formatDueDate(dueDate: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(dueDate));
+export function formatDueDate(
+  dueDate: string,
+  region: Pick<RegionFormatSettings, "locale"> = DEFAULT_REGION,
+): string {
+  return formatRegionDate(
+    dueDate,
+    { locale: region.locale, timeZone: "UTC" },
+    { year: undefined, month: "short", day: "numeric" },
+  );
 }
 
 /** A due time for display, e.g. "2:30 PM" — built off a dummy 1970-01-01 instant and forced to `timeZone: "UTC"`, so the digits typed into the `<input type="time">` come back unchanged regardless of the viewer's own zone (floating, not a real instant). */
-export function formatDueTime(dueTime: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }).format(new Date(`1970-01-01T${dueTime}:00.000Z`));
+export function formatDueTime(
+  dueTime: string,
+  region: Pick<RegionFormatSettings, "locale" | "clockFormat"> = DEFAULT_REGION,
+): string {
+  return formatRegionTime(`1970-01-01T${dueTime}:00.000Z`, { ...region, timeZone: "UTC" });
 }
 
 /** Upcoming's own day-group heading (#254), e.g. "Mon, Jun 15" — `formatDueDate`'s own zone-forced approach, plus a weekday: a day group is scanned across many Tasks at once, so it earns more context than a single row's due chip does. */
-export function formatUpcomingDayHeading(dueDate: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(dueDate));
+export function formatUpcomingDayHeading(
+  dueDate: string,
+  region: Pick<RegionFormatSettings, "locale"> = DEFAULT_REGION,
+): string {
+  return formatRegionDate(
+    dueDate,
+    { locale: region.locale, timeZone: "UTC" },
+    { year: undefined, weekday: "short", month: "short", day: "numeric" },
+  );
 }
 
 /**

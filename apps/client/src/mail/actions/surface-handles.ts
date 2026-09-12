@@ -15,7 +15,7 @@
  * that races an unmount can't blank a live surface.
  */
 
-import type { Message } from "@mail/shared";
+import type { AutoAdvanceDirection, Message } from "@mail/shared";
 
 export interface ReaderHandle {
   /** The Message `r`/`a`/`f` act on — whichever one the reader reports as open, defaulting to the newest. */
@@ -27,8 +27,20 @@ export interface ReaderHandle {
 }
 
 export interface ListHandle {
-  /** Moves the selection one row, skipping collapsed groups and scrolling the new row into view (#78). */
+  /** Moves the selection one row, skipping collapsed groups and scrolling the new row into view (#78). Also re-homes DOM focus onto the row arrived at (#275) — the roving-tabindex half of keyboard movement. */
   move: (delta: 1 | -1) => void;
+  /**
+   * The collapse-aware neighbor of `threadId` — `useTriage#advanceSelection`'s
+   * own Auto-advance, reusing this list's collapse-aware order (#78) instead
+   * of a flat id array, so a collapsed Time Group is skipped by Auto-advance
+   * exactly the way it already is by `move` (#275). Prefers `direction`'s
+   * side, falling back to the other when `threadId` sits at that edge; `null`
+   * if `threadId` isn't part of this list's visible order (inside a collapsed
+   * group, say) or is its only row.
+   */
+  neighborOf: (threadId: string, direction: AutoAdvanceDirection) => string | null;
+  /** Moves DOM focus to `threadId`'s row, or to the listbox itself when `threadId` is `null` or no longer rendered — the focus half of Auto-advance re-homing (#275): after a Triage action removes the focused row, the next keypress must act on the row Auto-advance actually selected, without a click first. */
+  focusThread: (threadId: string | null) => void;
 }
 
 let reader: ReaderHandle | null = null;

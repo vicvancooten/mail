@@ -21,10 +21,12 @@ import { generateUlid } from "./ulid.js";
  * Every typed family (`EMAIL`/`TEL`/`URL`) is handed to
  * `splitTypedContactFields` — the exact function `contacts.ts`'s own doc
  * comment names as this ticket's intended caller — so a vCard `TYPE` outside
- * this app's fixed vocabulary (`CONTACT_FIELD_TYPES`) demotes to a Custom
- * Field automatically, the same rule the local edit form already applies to
- * a User typing a non-standard label by hand. `ADR` gets the same treatment
- * through `demoteContactAddress`.
+ * this app's fixed vocabulary (`CONTACT_FIELD_TYPES`) demotes `TEL`/`URL` to
+ * a Custom Field automatically, the same rule the local edit form already
+ * applies to a User typing a non-standard label by hand. `EMAIL` is the one
+ * exception: `splitTypedContactFields` never demotes an email (#283), so a
+ * vCard `EMAIL` survives import regardless of its `TYPE`, blank included.
+ * `ADR` gets the `TEL`/`URL` treatment through `demoteContactAddress`.
  *
  * Deliberately dropped on import, with nothing to lose data quietly since
  * none of these have anywhere in `ContactWritableFields` to land: `UID`,
@@ -193,7 +195,12 @@ function parseOneCard(lines: string[]): ParsedVCard {
         fn = unescapeValue(property.rawValue);
         break;
       case "EMAIL":
-        emailInputs.push(typedInputFrom(property));
+        // No `"other"` fallback here (`typedInputFrom`'s own default for
+        // every other typed family) — an EMAIL with no `TYPE` at all is
+        // exactly the "blank label" case `splitTypedContactFields` itself
+        // defaults to `"home"` (#283), not a standard label this module
+        // should invent on its own.
+        emailInputs.push(typedInputFrom(property, (raw) => raw, ""));
         break;
       case "TEL":
         phoneInputs.push(typedInputFrom(property, mapPhoneType));
@@ -302,11 +309,12 @@ function parseOneCard(lines: string[]): ParsedVCard {
 function typedInputFrom(
   property: RawVCardProperty,
   mapType: (raw: string) => string = (raw) => raw,
+  fallbackLabel = "other",
 ): ContactTypedFieldInput {
   const type = firstType(property);
   return {
     id: generateUlid(),
-    label: type ? mapType(type) : "other",
+    label: type ? mapType(type) : fallbackLabel,
     value: unescapeValue(property.rawValue),
     primary: isPreferred(property),
   };

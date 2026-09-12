@@ -1,25 +1,32 @@
 import type {
   ConnectedAccount,
   Correspondent,
+  FirstDayOfWeek,
   GatekeeperSender,
   GmailLabel,
   Label,
   MailAccount,
   Preference,
+  RegionFormatSettings,
   Thread,
 } from "@mail/shared";
 import {
   DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
   DEFAULT_AUTO_ADVANCE_DIRECTION,
   DEFAULT_AUTO_ADVANCE_ENABLED,
+  DEFAULT_CALENDAR_VIEW,
+  DEFAULT_CLOCK_FORMAT,
   DEFAULT_CONTACTS_SORT_ORDER,
+  DEFAULT_FIRST_DAY_OF_WEEK,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   HOME_TIME_ZONE_UNSET,
+  normalizeCorrespondentAddress,
   normalizeSenderAddress,
+  REGION_LOCALE_UNSET,
   senderDomain,
 } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import {
   type CachedThread,
   DEFAULT_VIEW,
@@ -152,6 +159,10 @@ function defaultPreference(): Preference {
     autoAdvanceDirection: DEFAULT_AUTO_ADVANCE_DIRECTION,
     undoSendDelaySeconds: DEFAULT_UNDO_SEND_DELAY_SECONDS,
     homeTimeZone: HOME_TIME_ZONE_UNSET,
+    regionLocale: REGION_LOCALE_UNSET,
+    clockFormat: DEFAULT_CLOCK_FORMAT,
+    firstDayOfWeek: DEFAULT_FIRST_DAY_OF_WEEK,
+    defaultCalendarView: DEFAULT_CALENDAR_VIEW,
     contactsSortOrder: DEFAULT_CONTACTS_SORT_ORDER,
     answerNotificationsEnabled: DEFAULT_ANSWER_NOTIFICATIONS_ENABLED,
     updatedAt: new Date(0).toISOString(),
@@ -160,6 +171,30 @@ function defaultPreference(): Preference {
 
 export function usePreference(): Preference | undefined {
   return useLiveQuery(() => readPreference(), []);
+}
+
+/**
+ * Region Settings (#303) as the `RegionFormatSettings` shape every date/time
+ * formatter takes — `CalendarRoute.tsx`'s own inline derivation, promoted
+ * here once Mail (#304) needed the identical fallback chain, so the two
+ * Apps read Region Settings through one hook instead of two copies of it.
+ */
+export function useRegionFormatSettings(): RegionFormatSettings {
+  const preference = usePreference();
+  return useMemo(
+    () => ({
+      locale: preference?.regionLocale ?? REGION_LOCALE_UNSET,
+      clockFormat: preference?.clockFormat ?? DEFAULT_CLOCK_FORMAT,
+      timeZone: preference?.homeTimeZone ?? HOME_TIME_ZONE_UNSET,
+    }),
+    [preference?.regionLocale, preference?.clockFormat, preference?.homeTimeZone],
+  );
+}
+
+/** Region Settings' First Day of the Week alone (#303) — for a caller (Mail's Time Group ladder) that only needs this one field, not a full `RegionFormatSettings`. */
+export function useFirstDayOfWeek(): FirstDayOfWeek {
+  const preference = usePreference();
+  return preference?.firstDayOfWeek ?? DEFAULT_FIRST_DAY_OF_WEEK;
 }
 
 /**
@@ -193,6 +228,18 @@ function applyPreferenceOverlay(base: Preference, mutations: PendingUserMutation
         break;
       case "setHomeTimeZone":
         overlaid = { ...overlaid, homeTimeZone: intent.homeTimeZone };
+        break;
+      case "setRegionLocale":
+        overlaid = { ...overlaid, regionLocale: intent.regionLocale };
+        break;
+      case "setClockFormat":
+        overlaid = { ...overlaid, clockFormat: intent.clockFormat };
+        break;
+      case "setFirstDayOfWeek":
+        overlaid = { ...overlaid, firstDayOfWeek: intent.firstDayOfWeek };
+        break;
+      case "setDefaultCalendarView":
+        overlaid = { ...overlaid, defaultCalendarView: intent.defaultCalendarView };
         break;
       case "setContactsSortOrder":
         overlaid = { ...overlaid, contactsSortOrder: intent.contactsSortOrder };
@@ -234,6 +281,52 @@ export function useGmailLabels(mailAccountId: string | null): GmailLabel[] | und
     () => (mailAccountId === null ? Promise.resolve([]) : readGmailLabels(mailAccountId)),
     [mailAccountId],
   );
+}
+
+/**
+ * One Mail Account's cluster of Gmail Labels (#297) — `ScreenerAccountGroup`'s
+ * own shape applied to Gmail Labels: `accountEmail` is what the sidebar's
+ * per-account section header names, and `readGmailLabelsForScope` below only
+ * ever includes an account here once it actually has Gmail Labels, so an
+ * in-Scope non-Gmail account contributes no empty section.
+ */
+export interface GmailLabelAccountGroup {
+  mailAccountId: string;
+  accountEmail: string;
+  labels: GmailLabel[];
+}
+
+/**
+ * Gmail Labels across Account Scope (#73, #297) — `useGmailLabels`'s
+ * single-account read, merged across every in-Scope Mail Account. Per-account
+ * grouping, not a merged/re-sorted list: a Gmail Label really is one
+ * account's own (`useGmailLabels`'s own doc comment), and the sidebar's
+ * per-account sections need to say whose Labels they are the same way
+ * `readScreenerSenders`'s own per-account clusters do.
+ */
+export async function readGmailLabelsForScope(
+  accountScope: readonly string[],
+): Promise<GmailLabelAccountGroup[]> {
+  if (accountScope.length === 0) return [];
+  const accounts = await readMailAccounts();
+  const emailById = new Map(accounts.map((account) => [account.id, account.emailAddress]));
+
+  const groups = await Promise.all(
+    accountScope.map(async (mailAccountId) => ({
+      mailAccountId,
+      accountEmail: emailById.get(mailAccountId) ?? mailAccountId,
+      labels: await readGmailLabels(mailAccountId),
+    })),
+  );
+  return groups.filter((group) => group.labels.length > 0);
+}
+
+/** The sidebar's own data source for its per-account Gmail Labels sections (`mail/Sidebar.tsx`) — `useGmailLabels`'s multi-account sibling, in Account Scope order. */
+export function useGmailLabelsByAccount(
+  accountScope: readonly string[],
+): GmailLabelAccountGroup[] | undefined {
+  const key = accountScope.join(",");
+  return useLiveQuery(() => readGmailLabelsForScope(accountScope), [key]);
 }
 
 export async function readGmailLabels(mailAccountId: string): Promise<GmailLabel[]> {
@@ -1002,6 +1095,86 @@ export async function readRecentThreadsForLinking(
   const overlaid = await overlayPendingMutations(db, all);
   return overlaid
     .filter((thread) => !hasLeftFolderScopedViews(thread))
+    .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
+    .slice(0, limit);
+}
+
+/**
+ * One Thread by id, with the same pending-mutation overlay every other read
+ * here gets (ADR-0010) — the standalone Reader route's own lookup (#292,
+ * `router/ReaderRoute.tsx`), which has no `useThreadWindow` folder page to
+ * find it in, just a bare id off the URL. `undefined` while the query is
+ * still in flight (`useLiveQuery`'s own first-render value), `null` once
+ * it's resolved and nothing in the Local Cache has that id — the route
+ * tells those two apart to show "still loading" only for the first.
+ */
+export function useThread(threadId: string | null): CachedThread | null | undefined {
+  return useLiveQuery(async () => {
+    if (!threadId) return null;
+    const db = localCache();
+    const thread = await db.threads.get(threadId);
+    if (!thread) return null;
+    const [overlaid] = await overlayPendingMutations(db, [thread]);
+    return overlaid ?? null;
+  }, [threadId]);
+}
+
+/** The Contact Card's own "recent Threads" list (#293) default cap — a peek, not a history tab (`MailHistoryTab.tsx` already owns the full, paginated, server-backed one). */
+const RECENT_THREADS_FOR_SENDER_LIMIT = 3;
+
+/**
+ * "The last few Threads exchanged with them" (#293's acceptance line) —
+ * unlike `useMailHistory.ts`'s Person Page tab, this is Local-Cache-only, no
+ * server round trip: a hover/tap card wants to open instantly off whatever
+ * this Client has already synced, not wait on a search request. Modeled on
+ * `readRecentThreadsForLinking` just above (same scan-all-cached-Threads,
+ * exclude-Trash/Junk, sort-by-`sortKey`, cap shape), with one added
+ * predicate — the normalized sender address must appear somewhere in the
+ * Thread's own `participants` (`@mail/shared#normalizeCorrespondentAddress`,
+ * the same normalization `contact-avatar.ts`'s photo index already keys on).
+ *
+ * No Account Scope narrowing, deliberately: like `readRecentThreadsForLinking`,
+ * scoping this to the caller's current Mail Account(s) would mean threading
+ * Account Scope down through every Reader host (`SplitView`, `ListView`,
+ * `StreamStack`, search results) that can open a `ThreadDetailPane`, for a
+ * peek list that already reads "whatever this Client has synced" rather
+ * than a folder-scoped view.
+ *
+ * `excludeThreadId` drops the Thread the Card itself is already open on —
+ * the Reader's own sender is reading "who else have I heard from them",
+ * not re-listing the conversation already on screen.
+ */
+export function useRecentThreadsForSender(
+  address: string | null,
+  options: { limit?: number; excludeThreadId?: string | null } = {},
+): CachedThread[] | undefined {
+  const limit = options.limit ?? RECENT_THREADS_FOR_SENDER_LIMIT;
+  const excludeThreadId = options.excludeThreadId ?? null;
+  return useLiveQuery(
+    () => readRecentThreadsForSender(address, { limit, excludeThreadId }),
+    [address, limit, excludeThreadId],
+  );
+}
+
+export async function readRecentThreadsForSender(
+  address: string | null,
+  options: { limit?: number; excludeThreadId?: string | null } = {},
+): Promise<CachedThread[]> {
+  if (!address) return [];
+  const limit = options.limit ?? RECENT_THREADS_FOR_SENDER_LIMIT;
+  const excludeThreadId = options.excludeThreadId ?? null;
+  const normalized = normalizeCorrespondentAddress(address);
+  const db = localCache();
+  const all = await db.threads.toArray();
+  const overlaid = await overlayPendingMutations(db, all);
+  return overlaid
+    .filter((thread) => !hasLeftFolderScopedViews(thread))
+    .filter((thread) => thread.id !== excludeThreadId)
+    .filter((thread) =>
+      thread.participants.some(
+        (participant) => normalizeCorrespondentAddress(participant.address) === normalized,
+      ),
+    )
     .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
     .slice(0, limit);
 }

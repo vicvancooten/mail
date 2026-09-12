@@ -19,10 +19,11 @@ import { TasksApp } from "./TasksApp.js";
  * covers the sidebar's create/rename flow and List selection; a List's own
  * Tasks (quick add, grouping, complete/undo) are `TaskListView.test.tsx`'s.
  *
- * `useLocalCacheSync()` (`TasksApp.tsx`'s own top-level call, `NotesGrid.tsx`'s
- * shape) needs a real `AuthProvider` in reach — `mail/MailSection.test.tsx`'s
- * own harness: auth bootstrap answered, `/sync` left hanging so every
- * assertion here reads the seeded Local Cache, never a round trip.
+ * `AuthProvider` in reach and `/sync` left hanging are `mail/MailSection.test.tsx`'s
+ * own harness, kept here even though the sync loop itself is the Client
+ * shell's own concern now (#285, `router/RootLayout.tsx`, not `TasksApp`'s):
+ * auth bootstrap still answered, so every assertion here reads the seeded
+ * Local Cache, never a round trip.
  */
 
 vi.mock("sonner", () => ({

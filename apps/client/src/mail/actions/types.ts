@@ -24,24 +24,26 @@ export type ActionSection = (typeof ACTION_SECTIONS)[number];
  * Sheet, which list *every* non-contextual action whether or not it can run
  * right now (#79). Menus, by contrast, never show an unavailable action.
  *
- * The three `reader-*` tags are the Reader's own tier (#143): `reader-primary`
- * (Reply, Done, Snooze, Trash) is visible on every surface; `reader-secondary`
- * (Pin, Star, Label) renders inline but quieter, desktop only; `reader-more`
- * (Read/unread, Forward, Spam, Approve, Block — #144) lives
- * in the Reader's "More" menu on every surface, joined there by the secondary
- * tier too on a touch-capable phone, where there's no room to keep it inline
- * (`ThreadDetailPane`, `registry.ts#moreReaderActions`). A new More-tier
- * action is nothing more than adding `"reader-more"` to its `surfaces` array.
+ * The Reader's own three groups (#289, replacing #143's primary/secondary/more
+ * tiers): Reply (`reader-reply-primary`/`reader-reply-overflow`), Mail
+ * (`reader-mail-primary`/`reader-mail-overflow`) and Integrations
+ * (`reader-send-to`). Each group's overflow is a dropdown built the same way
+ * (`actions/ReaderOverflowMenu.tsx`) — a new overflow action is nothing more
+ * than adding its tag to `surfaces`.
  */
 export type ActionSurface =
   /** The Thread row's hover cluster (`ThreadRow`'s reserved whitespace and `.row-actions`). */
   | "row-hover"
-  /** The Reader's inline, always-visible run — Reply, Done, Snooze, Trash. */
-  | "reader-primary"
-  /** The Reader's inline, visually quieter run — Pin, Star, Label. Desktop only; folds into the More menu on a touch-capable phone. */
-  | "reader-secondary"
-  /** The Reader's "More" menu — everything else that still needs to be reachable. */
-  | "reader-more"
+  /** The Reply group's inline primary — Reply or Reply All, whichever `chooseReplyMode` picked (`reading/reply-mode.ts`). Both `reply` and `reply-all` carry this tag; the pane renders only the one the Thread's participant count picked. */
+  | "reader-reply-primary"
+  /** The Reply group's overflow — the reply form *not* showing inline, plus Forward. */
+  | "reader-reply-overflow"
+  /** The Mail group's inline, always-visible run — Done, Snooze, Trash. */
+  | "reader-mail-primary"
+  /** The Mail group's overflow — Pin, Star, Label, Mark unread, Spam, Block, Approve. */
+  | "reader-mail-overflow"
+  /** The Integrations group's "Send to…" menu — Add to Tasks, Save to Notes. */
+  | "reader-send-to"
   /** The right-click / long-press menu on a row, the reader, a Screener row or a Draft row. */
   | "menu";
 
@@ -56,8 +58,6 @@ export interface ActionBinding {
   display: string;
   /** ⌘ (or Ctrl) must be held for this binding to fire. */
   meta?: boolean;
-  /** Calls `preventDefault()` before running — for keys the browser would otherwise act on (Backspace, `/`). */
-  preventDefault?: boolean;
 }
 
 /** One option under an action that picks between several things rather than committing one — Snooze's presets, Label's toggles. Menus render these as a submenu. */
@@ -156,6 +156,24 @@ export interface ActionContext {
    * sheet's open state and the Thread it's about.
    */
   onAddToTasks: (thread: CachedThread) => void;
+  /**
+   * "Open in new window" (#292): a real browser window, not a route change
+   * — `window.open` against the standalone Reader route
+   * (`router/ReaderRoute.tsx`, `/mail/reader/$threadId`), so the Thread stays
+   * open there while the User works elsewhere in this one. Takes the Thread
+   * directly, same shape as `onAddToNotes`/`onAddToTasks` above, so the
+   * registry's own `run` (`registry.ts`'s `open-in-new-window`) stays a
+   * one-line forward to wherever this context is wired
+   * (`mail/MailSection.tsx`'s own handler).
+   *
+   * `null` from the standalone Reader route itself (`router/ReaderRoute.tsx`)
+   * — that window *is* the one this action would open, so there is nowhere
+   * further for it to go. The same "absence gates availability" shape
+   * `openPicker`/`streamSkip` already use: the registry's own availability
+   * reads the `null` and the Mail overflow simply omits the entry there,
+   * rather than the action running and silently doing nothing.
+   */
+  onOpenInNewWindow: ((thread: CachedThread) => void) | null;
   /** Moves the selection one Thread `delta` — the list's own collapse-aware mover where one is mounted (`surface-handles.ts`), else the flat neighbour. */
   onMove: (delta: 1 | -1) => void;
   /** How many Threads the current list holds — what makes next/prev available at all. */
@@ -284,6 +302,7 @@ export function noopActionContext(overrides: Partial<ActionContext> = {}): Actio
     onOpenStream: () => {},
     onAddToNotes: () => {},
     onAddToTasks: () => {},
+    onOpenInNewWindow: null,
     onMove: () => {},
     threadCount: 0,
     openPicker: null,

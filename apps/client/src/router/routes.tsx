@@ -17,6 +17,7 @@ import { GatekeeperPage } from "../settings/GatekeeperPage.js";
 import { GeneralSection } from "../settings/GeneralSection.js";
 import { InstancePage } from "../settings/InstancePage.js";
 import { NotificationsPage } from "../settings/NotificationsPage.js";
+import { RegionSettingsSection } from "../settings/RegionSettingsSection.js";
 import { SecurityPage } from "../settings/SecurityPage.js";
 import { SettingsLayout } from "../settings/SettingsLayout.js";
 import { ThisDeviceSection } from "../settings/ThisDeviceSection.js";
@@ -31,6 +32,7 @@ import { MailRoute } from "./MailRoute.js";
 import { NewContactRoute } from "./NewContactRoute.js";
 import { NoteDialogRoute } from "./NoteDialogRoute.js";
 import { NotesRoute } from "./NotesRoute.js";
+import { ReaderRoute } from "./ReaderRoute.js";
 import { RootLayout } from "./RootLayout.js";
 import { StreamRoute } from "./StreamRoute.js";
 import { TasksIndexRoute, TasksTaskRoute } from "./TasksRoute.js";
@@ -127,6 +129,22 @@ export const streamRoute = createRoute({
 });
 
 /**
+ * The standalone Reader (#292): "Open in new window" opens this in a real
+ * browser window (`mail/reader-window.ts`) so a Thread stays open while the
+ * User works elsewhere in this one — a route, not a Dialog (the Reader
+ * Sheet's own job, `MailSection.tsx`), and a *child* of `rootRoute` like
+ * every other screen only because TanStack Router has no other way to reach
+ * it: `router/RootLayout.tsx`'s own `isStandaloneReaderPath` check is what
+ * actually keeps the Hub's header, Palette and bottom bar off this one path,
+ * so "no Hub, no list" is a rendering decision, not a routing one.
+ */
+export const mailReaderRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mail/reader/$threadId",
+  component: ReaderRoute,
+});
+
+/**
  * Settings' own sub-routes (#99): `settingsRoute` is now a layout route
  * (`SettingsLayout`'s side nav + `<Outlet/>`) rather than a single screen —
  * `/settings` itself carries no content of its own on desktop, redirecting
@@ -163,6 +181,13 @@ export const settingsGeneralRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/general",
   component: GeneralSection,
+});
+
+/** Region Settings (#303): language and region, clock, first day of week, Calendar's default view, and Home Time Zone — its own destination in `SettingsLayout`'s nav, the same "one bounded pane" shape every other Settings sub-route already has. */
+export const settingsRegionRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/region",
+  component: RegionSettingsSection,
 });
 
 export const settingsThisDeviceRoute = createRoute({
@@ -498,9 +523,11 @@ export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
   streamRoute,
+  mailReaderRoute,
   settingsRoute.addChildren([
     settingsIndexRoute,
     settingsGeneralRoute,
+    settingsRegionRoute,
     settingsThisDeviceRoute,
     settingsConnectedAccountsRoute,
     settingsMailAccountsRoute,

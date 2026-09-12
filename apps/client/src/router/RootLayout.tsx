@@ -9,7 +9,7 @@ import { CalendarReminderToast } from "../calendar/CalendarReminderToast.js";
 import { CalendarRollbackToast } from "../calendar/CalendarRollbackToast.js";
 import { Toaster } from "../components/ui/sonner.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
-import { useIsMobile } from "../hooks/use-mobile.js";
+import { useIsPhoneWidth } from "../hooks/use-phone-width.js";
 import { AccountScope } from "../mail/AccountScope.js";
 import { isTyping } from "../mail/actions/ActionsProvider.js";
 import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
@@ -19,9 +19,10 @@ import { PaletteHostProvider, usePaletteHost } from "../mail/command-palette/Pal
 import { deriveMailAccountScope, useAccountScope } from "../mail/useAccountScope.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
+import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
-import { BottomBar } from "./BottomBar.js";
+import { Dock } from "./Dock.js";
 import { rootRoute } from "./routes.js";
 import { useChromeRetract } from "./useChromeRetract.js";
 import "./shell.css";
@@ -42,8 +43,8 @@ import "./shell.css";
  * acceptance box: a three-column grid whose outer columns are equal
  * fractions, so the centred search field is centred on the *viewport*
  * rather than on whatever is left over beside the switcher. Left is the
- * home mark (`HomeLink.tsx`, a plain `Link` to `/mail`) and, as its own
- * adjacent control, the App Switcher; centre the global search entry;
+ * home mark (`HomeLink.tsx`, a plain `Link` to `/mail` on desktop) and, as
+ * its own adjacent control, the App Switcher; centre the global search entry;
  * right is Account Scope (`AccountScope.tsx`, moved here from
  * `mail/TopBar.tsx` — Client chrome per `CONTEXT.md`'s own Hub entry), the
  * appearance toggle, and the User's avatar menu. Nothing here names the
@@ -64,22 +65,29 @@ import "./shell.css";
  * Mail-only one's.
  *
  * The App itself renders inside `.app-card` (#96): a raised card on the
- * Hub's own ground at ≥701px (`shell.css`'s own breakpoint, matching every
- * other Split/List layout switch in the app) and full-bleed on the phone —
+ * Hub's own ground at ≥768px (`shell.css`'s own breakpoint, the app's one
+ * phone breakpoint, #273) and full-bleed on the phone —
  * `.app-viewport`'s padding and `.app-card`'s radius/shadow both toggle at
  * that width, rather than either route rendering two different trees.
  *
  * Phone chrome (#155, rescinding `DESIGN.md`'s earlier "no bottom tab bar"
- * for phone): `HomeLink`, the header's own `AppSwitcher` instance and the
- * appearance toggle all drop out of the header on phone — a real
- * conditional (`isPhoneChrome` below), not CSS-only visibility, since a
- * hidden-but-mounted "Switch app" control is a duplicate accessible
- * control, not a neutral simplification. `BottomBar.tsx` picks up Folders,
- * the App Switcher and Compose down there instead, and Appearance folds
- * into `AvatarMenu`'s own radio group, which already had it. The header
- * and the bottom bar retract together on scroll-down and return on
- * scroll-up (`useChromeRetract.ts`), `data-chrome-hidden` below being what
- * `shell.css`'s phone query reads to animate both.
+ * for phone): the header's own `AppSwitcher` instance and the appearance
+ * toggle drop out of the header on phone — a real conditional
+ * (`isPhoneChrome` below), not CSS-only visibility, since a hidden-but-
+ * mounted "Switch app" control is a duplicate accessible control, not a
+ * neutral simplification. `Dock.tsx` (#298, replacing the old bottom bar)
+ * picks up the App Switcher tile plus the current App's own declared
+ * controls down there instead, and Appearance folds into `AvatarMenu`'s own
+ * radio group, which already had it. `HomeLink` itself stays (#286,
+ * `CONTEXT.md`'s own Hub entry: "on a phone the Hub keeps the top bar
+ * full-width and full-bleed, the home mark at its leading edge, and hands
+ * the App Switcher to the Dock") — its `to` just narrows from `/mail`
+ * to `currentApp`'s own root, since there's no adjacent Switcher on phone to
+ * jump elsewhere with. The header and the Dock retract together on
+ * scroll-down and return on scroll-up (`useChromeRetract.ts`),
+ * `data-chrome-hidden` below being what `shell.css`'s phone query reads to
+ * animate both — the header's own box carries its safe-area inset as
+ * padding on itself, so the same transform moves both together.
  *
  * `user`/`onLogout` ride the router's own context (`routes.ts#RouterContext`)
  * rather than a prop, since this component is instantiated by the router
@@ -92,8 +100,19 @@ import "./shell.css";
  * session and the open/closed flag; `RootLayoutChrome` (below) is what
  * actually reads them, since a provider's own value can't be read by the
  * component that renders it.
+ *
+ * `useLocalCacheSync()` (#285) is the Local Cache and sync loop's own home
+ * now — the Client shell's concern, run once regardless of which route is
+ * current, rather than something each of the nine App surfaces
+ * (`MailSection`, `stream/StreamStack`, `NotesGrid`, `TasksApp`, `CalendarRoute`,
+ * `ContactsGrid`, and each App's own Recently Deleted screen) started
+ * itself. This component never unmounts on navigation between routes — only
+ * `AuthGate` unmounts it, on sign-out — so navigating straight to
+ * `/settings` starts the sync loop exactly as reliably as navigating to
+ * `/mail` used to, and navigating between Apps never restarts it.
  */
 export function RootLayout() {
+  useLocalCacheSync();
   const mailAccounts = useMailAccounts() ?? [];
   // The Palette's own search scope (`PaletteHostContext.tsx`'s own doc
   // comment) is Mail-Account-scoped, not Connected-Account-scoped (#207) —
@@ -256,11 +275,11 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // Nothing Mail-scoped mounted (Settings, a placeholder App): the same
   // "nothing wired" context the Shortcut Sheet already renders against,
   // with `/`/⌘K's own callbacks still live so those two rows work from
-  // anywhere, and Stream still one command away. The phone bottom bar's
-  // Folders and Compose buttons (#155) read this same fallback — from
-  // Settings or a placeholder App, both navigate to Mail first rather than
-  // doing nothing, the same "navigate, then act" shape `paletteSearch`
-  // above already uses for a hit selected from outside `/mail`.
+  // anywhere, and Stream still one command away. The Dock's Folders and
+  // Compose tiles (#155, #298) read this same fallback — from Settings or
+  // a placeholder App, both navigate to Mail first rather than doing
+  // nothing, the same "navigate, then act" shape `paletteSearch` above
+  // already uses for a hit selected from outside `/mail`.
   const fallbackCtx = useMemo(
     () =>
       noopActionContext({
@@ -273,35 +292,54 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
     [openPalette, navigate],
   );
 
-  // The Hub header and phone bottom bar retract on scroll-down, return on
-  // scroll-up (#155's own acceptance box) — `data-chrome-hidden` below is
-  // what `shell.css`'s phone query reads; see `useChromeRetract.ts` for why
-  // one hook here covers every scrollable pane any route renders.
+  // The Hub header and phone Dock retract on scroll-down, return on
+  // scroll-up (#155's own acceptance box, carried forward by #298) —
+  // `data-chrome-hidden` below is what `shell.css`'s phone query reads; see
+  // `useChromeRetract.ts` for why one hook here covers every scrollable
+  // pane any route renders.
   const chromeHidden = useChromeRetract(pathname);
   const activeCtx = activeHost?.ctx ?? fallbackCtx;
 
   // The phone/desktop split for this chrome (#155): a real conditional, not
-  // CSS-only visibility, and deliberately `AppSwitcher.tsx`'s own
-  // `useIsMobile` (768px) rather than this app's other 700px breakpoint
-  // (`Sidebar.tsx`, `mail.css`'s Split/List switch) — `AppSwitcher` already
+  // CSS-only visibility — `AppSwitcher.tsx`'s own `useIsPhoneWidth`, the
+  // app's one 768px breakpoint (#273 unified this with the Mail/Settings
+  // split that used to sit at a different 700px). `AppSwitcher` already
   // branches its own Sheet-vs-inline rendering on this exact hook, and
-  // mounting *both* a header instance and a bottom-bar instance of it (each
+  // mounting *both* a header instance and a Dock instance of it (each
   // carrying the same "Switch app" accessible name) would be a real
   // duplicate-control bug, not just a test inconvenience — CSS `display:
   // none` hides one visually but leaves it in the accessibility tree and
   // tab order. `shell.css`'s own phone query for this chrome matches this
-  // same 768px number for exactly that reason, accepting the narrow
-  // 701–767px seam against Sidebar's own breakpoint that already exists
-  // elsewhere in this app rather than reconciling every breakpoint in one
-  // pass.
-  const isPhoneChrome = useIsMobile();
+  // same 768px number for exactly that reason.
+  const isPhoneChrome = useIsPhoneWidth();
+
+  // The standalone Reader (#292, `router/ReaderRoute.tsx`): "renders the
+  // Reader only (no Hub, no list)" is a rendering decision made here, not a
+  // routing one — `mailReaderRoute` is still a child of `rootRoute` like
+  // every other screen (TanStack Router has no other way to reach it), so
+  // this is what actually keeps the header, `AppSwitcher`, Account Scope,
+  // the Command Palette and the phone Dock off this one path. Every
+  // hook above still ran (Rules of Hooks) — most just go unused this
+  // render, the same "harmless to keep running" posture the notification-
+  // routing effects above already take regardless of route. `Toaster` stays
+  // mounted: `ReaderRoute`'s own Triage/Undo calls (`announceUndoableAction`)
+  // need a surface to raise their toast on, and this is the only one in
+  // reach with the Hub's own header/Palette gone.
+  if (pathname.startsWith("/mail/reader/")) {
+    return (
+      <TooltipProvider>
+        <Outlet />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider>
       <div className="app-shell" data-chrome-hidden={chromeHidden}>
         <header className="app-header">
           <div className="header-left">
-            {!isPhoneChrome && <HomeLink />}
+            <HomeLink to={isPhoneChrome ? (currentApp?.path ?? "/mail") : "/mail"} />
             {!isPhoneChrome && <AppSwitcher pathname={pathname} />}
           </div>
           <div className="header-center">
@@ -344,7 +382,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             <Outlet />
           </div>
         </div>
-        {isPhoneChrome && <BottomBar pathname={pathname} ctx={activeCtx} />}
+        {isPhoneChrome && <Dock pathname={pathname} ctx={activeCtx} />}
         <Toaster />
         <CalendarRollbackToast />
         <CalendarReminderToast />

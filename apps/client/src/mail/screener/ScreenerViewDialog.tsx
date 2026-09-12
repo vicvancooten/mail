@@ -1,5 +1,7 @@
+import { formatRegionDate, formatRegionTime } from "@mail/shared";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog.js";
 import type { ScreenerSenderGroup } from "../../store/index.js";
+import { useRegionFormatSettings } from "../../store/index.js";
 import { Avatar } from "../Avatar.js";
 import { MessageBody } from "../reading/MessageBody.js";
 import { useThreadMessages } from "../reading/useThreadMessages.js";
@@ -92,6 +94,7 @@ export function ScreenerViewDialog({
 /** One held Thread's own share of the stack: every Message it holds, oldest first, each read-only (see the module doc comment above). */
 function HeldThreadReading({ threadId }: { threadId: string }) {
   const { messages, loading, error } = useThreadMessages(threadId);
+  const region = useRegionFormatSettings();
 
   if (error) return <p className="screener-view-thread-error">Couldn't load this message.</p>;
   if (!messages) {
@@ -107,7 +110,7 @@ function HeldThreadReading({ threadId }: { threadId: string }) {
               {message.subject || "(no subject)"}
             </span>
             <time className="screener-view-message-date" dateTime={message.sentAt}>
-              {new Date(message.sentAt).toLocaleString()}
+              {formatRegionDate(message.sentAt, region)}, {formatRegionTime(message.sentAt, region)}
             </time>
           </header>
           <MessageBody message={message} interactive={false} />

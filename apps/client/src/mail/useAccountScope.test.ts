@@ -1,7 +1,11 @@
-import type { MailAccount } from "@mail/shared";
+import type { Calendar, MailAccount } from "@mail/shared";
 import { describe, expect, it } from "vitest";
-import { makeConnectedAccount, makeMailAccount } from "../test-support/mail-fixtures.js";
-import { deriveMailAccountScope } from "./useAccountScope.js";
+import {
+  makeCalendar,
+  makeConnectedAccount,
+  makeMailAccount,
+} from "../test-support/mail-fixtures.js";
+import { deriveCalendarScope, deriveMailAccountScope } from "./useAccountScope.js";
 
 /**
  * `deriveMailAccountScope` (#207): what turns the Connected Account Scope
@@ -47,5 +51,47 @@ describe("deriveMailAccountScope", () => {
   it("falls back to every Mail Account while the Connected Accounts collection hasn't synced yet", () => {
     expect(deriveMailAccountScope(undefined, [], MAIL_ACCOUNTS)).toEqual(["acct-1", "acct-2"]);
     expect(deriveMailAccountScope([], [], MAIL_ACCOUNTS)).toEqual(["acct-1", "acct-2"]);
+  });
+});
+
+/**
+ * `deriveCalendarScope` (#300): `deriveMailAccountScope`'s own shape for the
+ * Calendar App — a Local Calendar is always in Scope, a mirrored one only
+ * while its own Connected Account is checked in the Hub's picker.
+ */
+const CALENDARS: Calendar[] = [
+  makeCalendar("cal-local", "user-1"),
+  makeCalendar("cal-acct1", "user-1", {
+    origin: { type: "connectedAccount", connectedAccountId: "acct-1-connected" },
+    isDefault: false,
+  }),
+  makeCalendar("cal-acct2", "user-1", {
+    origin: { type: "connectedAccount", connectedAccountId: "acct-2-connected" },
+    isDefault: false,
+  }),
+];
+
+describe("deriveCalendarScope", () => {
+  it("keeps Local Calendars and narrows Connected Account Calendars to those in Scope", () => {
+    expect(
+      deriveCalendarScope(
+        [makeConnectedAccount("acct-1-connected"), makeConnectedAccount("acct-2-connected")],
+        ["acct-1-connected"],
+        CALENDARS,
+      ).map((calendar) => calendar.id),
+    ).toEqual(["cal-local", "cal-acct1"]);
+  });
+
+  it("falls back to every Calendar while the Connected Accounts collection hasn't synced yet", () => {
+    expect(deriveCalendarScope(undefined, [], CALENDARS).map((c) => c.id)).toEqual([
+      "cal-local",
+      "cal-acct1",
+      "cal-acct2",
+    ]);
+    expect(deriveCalendarScope([], [], CALENDARS).map((c) => c.id)).toEqual([
+      "cal-local",
+      "cal-acct1",
+      "cal-acct2",
+    ]);
   });
 });

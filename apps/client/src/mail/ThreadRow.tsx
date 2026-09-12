@@ -1,4 +1,4 @@
-import type { ThreadParticipant } from "@mail/shared";
+import type { RegionFormatSettings, ThreadParticipant } from "@mail/shared";
 import { Check, Clock, type LucideIcon, Pin, Star, Trash2 } from "lucide-react";
 import { type CSSProperties, type ReactElement, type ReactNode, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
@@ -68,9 +68,19 @@ export interface RowHoverAction {
  * independently focusable `<button>`s, and a button cannot legally nest
  * inside another interactive element. Selecting the row is still one click
  * anywhere on it — the click bubbles to `onSelect` the same way it always
- * has — and keyboard selection has never gone through per-row focus here
- * anyway (`j`/`k`, the Action registry's single listener), so nothing about
- * that path changes.
+ * has.
+ *
+ * `tabbable` (#275) makes the list a real roving-tabindex listbox: exactly
+ * one row is ever in the Tab order (`tabIndex={0}`), the rest sit at `-1` —
+ * `VirtualizedThreadList` decides which by matching `thread.id` against its
+ * own roving id (the selection, or the first row when nothing is selected
+ * yet), never this component's own `selected` alone, since Auto-advance
+ * moves DOM focus a beat after it moves `selected` and the two would
+ * otherwise disagree mid-transition. `j`/`k`/Arrow movement (the Action
+ * registry's single listener) and Auto-advance both drive real
+ * `HTMLElement.focus()` calls at the mover (`VirtualizedThreadList`'s
+ * `moveSelection`/`focusThread`), keyed off `data-thread-id` below — this
+ * component only renders whichever tab stop it's told to be.
  *
  * `onArchive`/`onTrash`/`onSnooze` (#44, #76, #149, `poc-scope.md` §Clients &
  * notifications) wire the row into `useSwipeToTriage` *and* their own row
@@ -100,6 +110,7 @@ export function ThreadRow({
   thread,
   selected,
   onSelect,
+  onOpenSheet,
   onArchive,
   onTrash,
   onSnooze,
@@ -116,10 +127,14 @@ export function ThreadRow({
   previewArmed = false,
   pointerArmed = false,
   hoverCapable = true,
+  tabbable = true,
+  region,
 }: {
   thread: CachedThread;
   selected: boolean;
   onSelect: () => void;
+  /** Double-click opens the Reader Sheet (#292): the Reader over the list, in a Dialog, rather than replacing or moving alongside it — the list underneath is never touched, so its scroll position, selection and Time Group collapse survive the Sheet closing untouched. Optional: a caller with no Sheet to open (search's non-triage rows, a unit test) simply renders a row where double-click does nothing beyond `onSelect`'s own single-click behavior. */
+  onOpenSheet?: () => void;
   onArchive?: () => void;
   /** #149: swipe left's own commit — "one gesture module... right = Done, left = Trash" (#133). No hover-cluster button of its own; the swipe is Trash's only row-level control. */
   onTrash?: () => void;
@@ -160,6 +175,10 @@ export function ThreadRow({
   pointerArmed?: boolean;
   /** `useHoverCapable()` (#134): `(hover: hover) and (pointer: fine)`, not a viewport breakpoint. `false` drops the row's own Done glyph and its reserved gutter entirely — swipe right is the row's Done gesture on touch — and switches the hover cluster (Snooze/Pin) from hover-revealed to permanently visible, the phone alternative. Defaults `true` so a caller with no capability read above it (most unit tests) keeps today's hover-revealed row. */
   hoverCapable?: boolean;
+  /** This row's own roving-tabindex slot (#275): `true` puts it in the Tab order (`tabIndex={0}`), `false` takes it out (`-1`) — `VirtualizedThreadList` sets this for exactly one row at a time. Defaults `true` so a caller rendering a single row with no list around it (`ThreadRow.test.tsx`) keeps today's always-tabbable behavior. */
+  tabbable?: boolean;
+  /** Region Settings (#304) — `formatRowTime`'s own locale/zone, plus `clockFormat` for `SnoozeMenu`'s preset/custom times. Optional: a caller with no Region Settings read above it (most unit tests) keeps today's browser-default row time. */
+  region?: Pick<RegionFormatSettings, "locale" | "clockFormat" | "timeZone">;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -180,10 +199,19 @@ export function ThreadRow({
   // state a future native Client's touch/keyboard model can reuse directly
   // — and `selected` is what "arriving on a row with j/k arms it" cashes
   // out to: `VirtualizedThreadList`'s `moveSelection` sets it exactly the
-  // way a click does, so one state covers all three triggers.
+  // way a click does, so one state covers all three triggers. This still
+  // drives the meta column's Snooze/Pin reveal (`data-armed` below).
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const armed = hovered || focused || selected || previewArmed || pointerArmed;
+  // The Done check's own, narrower arming (#295): the open/selected Thread
+  // is not "at rest" in the same sense a merely-scrolled-past row is, but
+  // Done is an action, not a selection readout — an open Thread showing a
+  // permanent check reads as "you've already dealt with this", which isn't
+  // true. So Done reveals on hover, focus, and the two forced-arm cases
+  // (`previewArmed`, `pointerArmed`) alone, never on `selected` — the one
+  // deliberate split from `armed` above.
+  const doneArmed = hovered || focused || previewArmed || pointerArmed;
 
   // The Snooze popover (#76): its own local toggle, mirroring
   // `ThreadDetailPane`'s `pickerOpen` for `LabelPicker` — one open control
@@ -223,6 +251,7 @@ export function ThreadRow({
       className={`thread-row${unread ? " unread" : ""}${selected ? " selected" : ""}${thread.pinned ? " pinned" : ""}`}
       data-tier={tier ?? undefined}
       data-armed={armed}
+      data-done-armed={doneArmed}
       data-group-preview={previewArmed || undefined}
       data-hover-capable={hoverCapable}
       style={
@@ -232,8 +261,21 @@ export function ThreadRow({
           transition: swipe.settling ? undefined : "none",
         } as CSSProperties
       }
-      tabIndex={0}
-      onClick={onSelect}
+      tabIndex={tabbable ? 0 : -1}
+      onClick={(event) => {
+        // `event.detail` is the native click count (1, 2, 3…) — the second
+        // click of a double-click carries `2`, which `onDoubleClick` below
+        // already owns. The first click still selects, instantly, the same
+        // as an ordinary single click always has: the Sheet opens *over*
+        // whatever the list just selected, and closing it touches nothing
+        // further — no delayed/undone select to keep every other click in
+        // this list instant for (#292's own "the list ... is unchanged"
+        // is about the Sheet's close, not about a double-click's own first
+        // click never having been a click).
+        if (event.detail > 1) return;
+        onSelect();
+      }}
+      onDoubleClick={onOpenSheet}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -246,6 +288,7 @@ export function ThreadRow({
       onBlur={() => setFocused(false)}
       role="option"
       aria-selected={selected}
+      data-thread-id={thread.id}
       {...swipe.handlers}
     >
       {/* The comp's `.row-check`: reserved whitespace to the left of the
@@ -324,7 +367,7 @@ export function ThreadRow({
           revealing the actions never widens the row or nudges the subject.
           A row with no triage wired (search) simply keeps the time. */}
       <span className="row-meta">
-        <span className="row-time">{formatRowTime(thread.lastMessageAt)}</span>
+        <span className="row-time">{formatRowTime(thread.lastMessageAt, new Date(), region)}</span>
         {cluster.length > 0 ? (
           <span className="row-actions">
             {cluster.map((action) => {
@@ -359,6 +402,7 @@ export function ThreadRow({
                           setSnoozeMenuOpen(false);
                         }}
                         onClose={() => setSnoozeMenuOpen(false)}
+                        region={region}
                       />
                     </PopoverContent>
                   </Popover>

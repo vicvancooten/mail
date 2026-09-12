@@ -1,5 +1,16 @@
 import type { Calendar } from "@mail/shared";
 import { useEffect, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Sheet,
   SheetContent,
@@ -7,13 +18,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet.js";
+import { useHiddenCalendarIds } from "../mail/device-preferences.js";
 import { enqueueUserMutation } from "../store/index.js";
 import { useMailAccounts } from "../store/reads.js";
-import { useHiddenCalendarIds } from "./calendar-visibility.js";
 import { ReminderMinutesEditor } from "./ReminderMinutesEditor.js";
 
 /** Every IANA zone this browser knows — the same list `GeneralSection.tsx`'s Home Time Zone picker offers (#189). */
 const TIME_ZONES = Intl.supportedValuesOf("timeZone");
+
+/** A placeholder Select value standing in for "no Mail account" — Radix disallows an empty string item value. */
+const NO_MAIL_ACCOUNT = "__none__";
 
 /**
  * A Calendar's settings sheet (#236): "Everything a User can say about a
@@ -90,69 +104,64 @@ function CalendarSettingsForm({ calendar }: { calendar: Calendar }) {
       </SheetHeader>
 
       <div className="flex flex-col gap-4 px-4">
-        <label className="flex flex-col gap-1 text-sm" htmlFor={writable ? "cal-name" : undefined}>
-          Name
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={writable ? "cal-name" : undefined}>Name</Label>
           {writable ? (
-            <input
+            <Input
               id="cal-name"
-              className="rounded-md border px-2 py-1"
               value={name}
               onChange={(event) => setName(event.target.value)}
               onBlur={() => commitDetails({ name, description, timeZone })}
             />
           ) : (
-            <span className="text-muted-foreground">{calendar.name}</span>
+            <span className="text-sm text-muted-foreground">{calendar.name}</span>
           )}
-        </label>
+        </div>
 
-        <label
-          className="flex flex-col gap-1 text-sm"
-          htmlFor={writable ? "cal-description" : undefined}
-        >
-          Description
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={writable ? "cal-description" : undefined}>Description</Label>
           {writable ? (
-            <textarea
+            <Textarea
               id="cal-description"
-              className="rounded-md border px-2 py-1"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               onBlur={() => commitDetails({ name, description, timeZone })}
             />
           ) : (
-            <span className="text-muted-foreground">{calendar.description || "—"}</span>
+            <span className="text-sm text-muted-foreground">{calendar.description || "—"}</span>
           )}
-        </label>
+        </div>
 
-        <label
-          className="flex flex-col gap-1 text-sm"
-          htmlFor={writable ? "cal-time-zone" : undefined}
-        >
-          Time zone
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={writable ? "cal-time-zone" : undefined}>Time zone</Label>
           {writable ? (
-            <select
-              id="cal-time-zone"
-              className="rounded-md border px-2 py-1"
+            <Select
               value={timeZone}
-              onChange={(event) => {
-                const nextTimeZone = event.target.value;
+              onValueChange={(nextTimeZone) => {
                 setTimeZone(nextTimeZone);
                 commitDetails({ name, description, timeZone: nextTimeZone });
               }}
             >
-              {TIME_ZONES.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="cal-time-zone" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIME_ZONES.map((zone) => (
+                  <SelectItem key={zone} value={zone}>
+                    {zone}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
-            <span className="text-muted-foreground">{calendar.timeZone}</span>
+            <span className="text-sm text-muted-foreground">{calendar.timeZone}</span>
           )}
-        </label>
+        </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
+        <Label className="flex items-center gap-2">
+          <Input
             type="color"
+            className="h-8 w-12 p-0.5"
             value={calendar.color}
             onChange={(event) =>
               void enqueueUserMutation({
@@ -163,44 +172,41 @@ function CalendarSettingsForm({ calendar }: { calendar: Calendar }) {
             }
           />
           Colour
-        </label>
+        </Label>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
+        <Label className="flex items-center gap-2">
+          <Checkbox
             checked={!hiddenCalendarIds.has(calendar.id)}
-            onChange={() => toggleHidden(calendar.id)}
+            onCheckedChange={() => toggleHidden(calendar.id)}
           />
           Shown on this device
-        </label>
+        </Label>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
+        <Label className="flex items-center gap-2">
+          <Checkbox
             checked={calendar.isDefault}
             disabled={calendar.isDefault}
-            onChange={(event) => {
-              if (!event.target.checked) return;
+            onCheckedChange={(checked) => {
+              if (checked !== true) return;
               void enqueueUserMutation({ type: "setDefaultCalendar", calendarId: calendar.id });
             }}
           />
           Default calendar for new Events
-        </label>
+        </Label>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
+        <Label className="flex items-center gap-2">
+          <Checkbox
             checked={calendar.remindersEnabled}
-            onChange={(event) =>
+            onCheckedChange={(checked) =>
               void enqueueUserMutation({
                 type: "setCalendarRemindersEnabled",
                 calendarId: calendar.id,
-                enabled: event.target.checked,
+                enabled: checked === true,
               })
             }
           />
           Reminders
-        </label>
+        </Label>
 
         <div className="flex flex-col gap-2 text-sm">
           <span>Reminder default — timed events</span>
@@ -235,27 +241,31 @@ function CalendarSettingsForm({ calendar }: { calendar: Calendar }) {
         </div>
 
         {calendar.origin.type === "local" && (
-          <label className="flex flex-col gap-1 text-sm">
-            Mail account
-            <select
-              className="rounded-md border px-2 py-1"
-              value={calendar.mailAccountId ?? ""}
-              onChange={(event) =>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="cal-mail-account">Mail account</Label>
+            <Select
+              value={calendar.mailAccountId ?? NO_MAIL_ACCOUNT}
+              onValueChange={(value) =>
                 void enqueueUserMutation({
                   type: "setCalendarMailAccount",
                   calendarId: calendar.id,
-                  mailAccountId: event.target.value.length > 0 ? event.target.value : null,
+                  mailAccountId: value === NO_MAIL_ACCOUNT ? null : value,
                 })
               }
             >
-              <option value="">None</option>
-              {(mailAccounts ?? []).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.emailAddress}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="cal-mail-account" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_MAIL_ACCOUNT}>None</SelectItem>
+                {(mailAccounts ?? []).map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.emailAddress}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
       </div>
     </div>

@@ -26,6 +26,7 @@ import type { MailAccountRow } from "../mail-accounts/store.js";
 import { createTestDb, resetTestDb } from "../test-support/db.js";
 import { createTestMailAccount } from "../test-support/mail-account.js";
 import { flushMutations, flushUserMutations } from "./mutations.js";
+import { refreshThreadRollups } from "./thread-rollup.js";
 import { resolveThread } from "./threading.js";
 
 /**
@@ -367,6 +368,27 @@ describe("flushMutations — archive/trash on Gmail (#124, ADR-0020)", () => {
     expect(rows[0]).toMatchObject({ kind: "archive" });
   });
 
+  it("strips the \\Inbox label synchronously, so a rollup recompute before the real removal drains doesn't republish the Thread as still in the Inbox (ADR-0010's 2026-09-11 amendment)", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+
+    await flushMutations(db, gmailAccount.id, [
+      { id: "01ARCHIVE", intent: { type: "archive", threadId } },
+    ]);
+
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).not.toContain("\\Inbox");
+
+    // A rollup recompute racing the still-queued label-remove protocol write
+    // (an unrelated message landing in the Thread, say) must agree with the
+    // mutation already applied above, not overwrite it back to "inbox" from
+    // a stale label.
+    await refreshThreadRollups(db, [threadId]);
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("archive");
+  });
+
   it("restoreToInbox enqueues a label-add of \\Inbox for a Gmail account", async () => {
     const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
     const threadId = await seedGmailThread(gmailAccount.id, null); // archived: no \Inbox label
@@ -417,6 +439,50 @@ describe("flushMutations — archive/trash on Gmail (#124, ADR-0020)", () => {
     ]);
 
     expect(outcomes).toEqual([{ id: "01NOTRASH", status: "rejected", reason: "no_trash_folder" }]);
+  });
+
+  it("archive strips \\Inbox off the Message so the Thread stays out of the Inbox across a rollup that runs before the protocol drain (#278)", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+
+    await flushMutations(db, gmailAccount.id, [
+      { id: "01ARCHIVE", intent: { type: "archive", threadId } },
+    ]);
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+
+    // The protocol write loop has not drained yet — nothing here has told
+    // Gmail anything. A rollup running in that gap (any later poll cycle
+    // touching this Thread) is exactly the bug #278 exists to fix: without
+    // the optimistic label write, this call would recompute `inInbox: true`
+    // straight off the still-`\Inbox`-labelled Message and republish it.
+    await refreshThreadRollups(db, [threadId]);
+
+    const row = await threadRow(threadId);
+    expect(row?.inInbox).toBe(false);
+    expect(row?.folderRole).toBe("archive");
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).toEqual([]);
+  });
+
+  it("trash also strips \\Inbox off the Message, so the Thread stays out of the Inbox across the same rollup gap (#278)", async () => {
+    const gmailAccount = await createTestMailAccount(db, { serverKind: "gmail" });
+    const threadId = await seedGmailThread(gmailAccount.id, ["\\Inbox"]);
+    await db.insert(folders).values({
+      id: randomUUID(),
+      mailAccountId: gmailAccount.id,
+      path: "[Gmail]/Trash",
+      name: "Trash",
+      role: "trash",
+    });
+
+    await flushMutations(db, gmailAccount.id, [
+      { id: "01TRASH", intent: { type: "trash", threadId } },
+    ]);
+    await refreshThreadRollups(db, [threadId]);
+
+    expect((await threadRow(threadId))?.inInbox).toBe(false);
+    const [message] = await db.select().from(messages).where(eq(messages.threadId, threadId));
+    expect(message?.gmailLabels).toEqual([]);
   });
 });
 
@@ -1942,6 +2008,32 @@ describe("flushUserMutations — setAnswerNotificationsEnabled (#243)", () => {
     expect(outcomes).toEqual([{ id: "01ANSWERTOGGLE", status: "applied" }]);
     const [row] = await db.select().from(users).where(eq(users.id, account.userId));
     expect(row?.answerNotificationsEnabled).toBe(false);
+  });
+});
+
+describe("flushUserMutations — Region Settings (#303)", () => {
+  it("writes each Region Settings field as an absolute set", async () => {
+    const outcomes = await flushUserMutations(db, account.userId, [
+      { id: "01REGIONLOCALE", intent: { type: "setRegionLocale", regionLocale: "nl-NL" } },
+      { id: "01CLOCKFORMAT", intent: { type: "setClockFormat", clockFormat: "24" } },
+      { id: "01FIRSTDAY", intent: { type: "setFirstDayOfWeek", firstDayOfWeek: "sunday" } },
+      {
+        id: "01DEFAULTVIEW",
+        intent: { type: "setDefaultCalendarView", defaultCalendarView: "month" },
+      },
+    ]);
+
+    expect(outcomes).toEqual([
+      { id: "01REGIONLOCALE", status: "applied" },
+      { id: "01CLOCKFORMAT", status: "applied" },
+      { id: "01FIRSTDAY", status: "applied" },
+      { id: "01DEFAULTVIEW", status: "applied" },
+    ]);
+    const [row] = await db.select().from(users).where(eq(users.id, account.userId));
+    expect(row?.regionLocale).toBe("nl-NL");
+    expect(row?.clockFormat).toBe("24");
+    expect(row?.firstDayOfWeek).toBe("sunday");
+    expect(row?.defaultCalendarView).toBe("month");
   });
 });
 

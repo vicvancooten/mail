@@ -15,6 +15,7 @@ import {
   trashTask,
   unlabelTask,
   useLabels,
+  useRegionFormatSettings,
   useTask,
   useTaskList,
   useTaskLists,
@@ -49,6 +50,7 @@ export function TaskEditor({ taskId, onCollapse }: { taskId: string; onCollapse:
   const taskList = useTaskList(task?.taskListId ?? null);
   const taskLists = useTaskLists();
   const labels = useLabels();
+  const region = useRegionFormatSettings();
 
   // Seeds `titleDraft` from the live row — needed because `task` itself
   // resolves asynchronously (`useTask`'s own live query), so the initial
@@ -187,8 +189,8 @@ export function TaskEditor({ taskId, onCollapse }: { taskId: string; onCollapse:
               <Calendar size={14} />
               {current.dueDate ? (
                 <span>
-                  {formatDueDate(current.dueDate)}
-                  {current.dueTime ? ` ${formatDueTime(current.dueTime)}` : ""}
+                  {formatDueDate(current.dueDate, region)}
+                  {current.dueTime ? ` ${formatDueTime(current.dueTime, region)}` : ""}
                 </span>
               ) : (
                 <span>Due</span>

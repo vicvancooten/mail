@@ -1,6 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
+import { localCache, openLocalCache } from "../store/local-cache.js";
+import { applyPreferenceDelta } from "../store/server-writes.js";
+import { delta } from "../test-support/mail-fixtures.js";
+import { currentListHandle, resetSurfaceHandles } from "./actions/surface-handles.js";
+import { writeGroupCollapsed } from "./device-preferences.js";
 import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
 
 function makeThread(id: string, lastMessageAt: string): CachedThread {
@@ -44,7 +50,7 @@ function makeThreads(count: number): CachedThread[] {
  * Stubs `window.matchMedia` for `useHoverCapable()` (#134): `matches`
  * answers `(hover: hover) and (pointer: fine)` — `true` simulates a
  * mouse/trackpad, `false` a touch-only pointer. Real jsdom has no
- * `matchMedia` at all (`use-mobile.ts`'s own comment), so every test that
+ * `matchMedia` at all (`use-phone-width.ts`'s own comment), so every test that
  * never calls this keeps the hook's `true` fallback — today's
  * hover-revealed behavior, unchanged by this ticket.
  */
@@ -66,6 +72,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  resetSurfaceHandles();
 });
 
 describe("VirtualizedThreadList — row gutter on input capability (#134)", () => {
@@ -174,7 +181,7 @@ describe("VirtualizedThreadList — the taper (#75)", () => {
     const threads = [
       makeThread("t-today", "2026-06-25T09:00:00.000Z"), // Today -> T1
       makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"), // Yesterday -> T2
-      makeThread("t-lastweek", "2026-06-12T09:00:00.000Z"), // Last week -> T3
+      makeThread("t-lastweek", "2026-06-18T09:00:00.000Z"), // Last week -> T3
       makeThread("t-older", "2010-01-01T09:00:00.000Z"), // Older -> T4
     ];
     render(
@@ -268,6 +275,45 @@ describe("VirtualizedThreadList — the taper (#75)", () => {
     const mounted = screen.getAllByRole("option").length;
     expect(mounted).toBeGreaterThan(0);
     expect(mounted).toBeLessThan(150);
+  });
+
+  it("keeps a Time Group header's own DOM node mounted when a row above it goes away (#279)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const threads = [
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"), // Today
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"), // Today
+      makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"), // Yesterday
+    ];
+    const findYesterdayHeader = () =>
+      Array.from(document.querySelectorAll(".group-header")).find((header) =>
+        header.textContent?.includes("Yesterday"),
+      );
+
+    const { rerender } = render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    const before = findYesterdayHeader();
+    expect(before).toBeDefined();
+
+    // A Group Done on "Today" removes both rows above "Yesterday" — the
+    // running row index every row below used to carry as part of the
+    // header's key shifts, and the old `header:${label}:${index}` key
+    // remounted the header, losing its hover/focus/collapse state (#279).
+    rerender(
+      <VirtualizedThreadList
+        threads={[threads[2] as CachedThread]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    expect(findYesterdayHeader()).toBe(before);
   });
 });
 
@@ -557,9 +603,71 @@ describe("VirtualizedThreadList — collapsible groups as a Device Preference (#
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
 
+    // #295: rows now leave through a transition rather than vanishing the
+    // instant the header's own state flips — still present, tagged
+    // `data-clearing`, until that transition finishes.
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
     expect(screen.queryAllByRole("option")).toHaveLength(0);
     expect(document.querySelector(".group-header")).not.toBeNull();
     expect(document.querySelector(".group-header-count")?.textContent).toBe("2");
+  });
+
+  it("animates a collapsing group's rows out (#295: transition, not a snap) and shows a collapsed-at-rest indicator once it lands", () => {
+    renderGrouped([
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+
+    // Mid-transition: rows are still in the DOM, tagged `data-clearing` —
+    // the actual leave animation, not an instant unmount.
+    const rows = screen.getAllByRole("option");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.closest("[data-clearing='true']")).not.toBeNull();
+    }
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    // Collapsed, at rest (unarmed): the indicator is visible with no hover.
+    expect(document.querySelector(".group-collapsed-indicator")).not.toBeNull();
+  });
+
+  it("hides the collapsed-at-rest indicator once the header arms, in favor of the real Expand control", () => {
+    renderGrouped([makeThread("t1", "2026-06-25T09:00:00.000Z")]);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(document.querySelector(".group-collapsed-indicator")).not.toBeNull();
+
+    fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
+    expect(document.querySelector(".group-collapsed-indicator")).toBeNull();
+  });
+
+  it("animates an expanding group's rows in, tagged data-entering", () => {
+    renderGrouped([
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Today" }));
+
+    const rows = screen.getAllByRole("option");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.closest("[data-entering='true']")).not.toBeNull();
+    }
   });
 
   it("flips the control to Expand once collapsed, and back on a second tap", () => {
@@ -592,8 +700,156 @@ describe("VirtualizedThreadList — collapsible groups as a Device Preference (#
     ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
 
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Collapse Yesterday" })).toBeDefined();
+  });
+});
+
+describe("VirtualizedThreadList — roving tabindex and focus (#275)", () => {
+  const NOW = new Date("2026-06-25T12:00:00.000Z");
+
+  function renderRoving(selectedThreadId: string | null, onSelect = vi.fn()) {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const threads = [
+      makeThread("t-today", "2026-06-25T09:00:00.000Z"), // Today
+      makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"), // Yesterday
+      makeThread("t-older", "2010-01-01T09:00:00.000Z"), // Older
+    ];
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={selectedThreadId}
+        onSelect={onSelect}
+      />,
+    );
+    return onSelect;
+  }
+
+  function tabIndexes() {
+    return screen.getAllByRole("option").map((row) => row.tabIndex);
+  }
+
+  it("puts exactly one row in the Tab order — the selected one", () => {
+    renderRoving("t-yesterday");
+    expect(tabIndexes()).toEqual([-1, 0, -1]);
+  });
+
+  it("defaults the one tab stop to the first row when nothing is selected yet", () => {
+    renderRoving(null);
+    expect(tabIndexes()).toEqual([0, -1, -1]);
+  });
+
+  it("the published mover moves DOM focus onto the row it selects, in step with the selection", () => {
+    const onSelect = renderRoving("t-today");
+    currentListHandle()?.move(1);
+
+    expect(onSelect).toHaveBeenCalledWith("t-yesterday");
+    // `onSelect` doesn't itself re-render this uncontrolled harness, so the
+    // row's own `tabIndex` hasn't moved — but real DOM focus, which is what
+    // #275 is actually about, already has.
+    expect(document.activeElement).toBe(
+      screen.getByRole("option", { name: /Subject t-yesterday/ }),
+    );
+  });
+
+  it("neighborOf (#275's Auto-advance seam) skips a collapsed Time Group's rows, same as the mover", () => {
+    renderRoving("t-today");
+    writeGroupCollapsed("Yesterday", true);
+    cleanup();
+    renderRoving("t-today");
+
+    expect(currentListHandle()?.neighborOf("t-today", "older")).toBe("t-older");
+    expect(currentListHandle()?.neighborOf("t-today", "newer")).toBe("t-older");
+  });
+
+  it("focusThread(null) — nothing to land on — focuses the listbox itself", () => {
+    renderRoving("t-today");
+    currentListHandle()?.focusThread(null);
+    expect(document.activeElement).toBe(document.querySelector('[role="listbox"]'));
+  });
+
+  it("an empty list stays a focusable listbox rather than losing its own tab stop", () => {
+    render(
+      <VirtualizedThreadList
+        threads={[]}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.tabIndex).toBe(0);
+    listbox.focus();
+    expect(document.activeElement).toBe(listbox);
+  });
+});
+
+describe("Region Settings on the Time Group ladder (#304)", () => {
+  const names: string[] = [];
+  let counter = 0;
+
+  beforeEach(async () => {
+    const name = `virtualized-thread-list-region-test-${counter++}`;
+    names.push(name);
+    await openLocalCache({ name, schemaVersion: 1 });
+  });
+
+  afterEach(async () => {
+    localCache().close();
+    for (const name of names.splice(0)) await Dexie.delete(name);
+  });
+
+  async function seedFirstDayOfWeek(firstDayOfWeek: "monday" | "sunday"): Promise<void> {
+    await applyPreferenceDelta(
+      delta({
+        created: [
+          {
+            id: "u1",
+            autoAdvanceEnabled: true,
+            autoAdvanceDirection: "older",
+            undoSendDelaySeconds: 10,
+            homeTimeZone: "UTC",
+            regionLocale: "en-US",
+            clockFormat: "auto",
+            firstDayOfWeek,
+            defaultCalendarView: "week",
+            contactsSortOrder: "given",
+            answerNotificationsEnabled: true,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  it("moves a Sunday Thread from Last week into This week once First Day of the Week picks Sunday", async () => {
+    // Thursday, June 25 2026: Monday-first puts last Sunday (June 21) in
+    // Last week; Sunday-first starts this week on that same Sunday instead.
+    // Only `Date` is faked (`toFake: ["Date"]`) — Dexie/`fake-indexeddb`'s
+    // own async machinery schedules through real timers, and a blanket
+    // `vi.useFakeTimers()` deadlocks the local-cache round trip below.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-25T12:00:00.000Z"));
+    await seedFirstDayOfWeek("sunday");
+    const threads = [makeThread("t-sun", "2026-06-21T09:00:00.000Z")];
+
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText("This week", { selector: ".group-header-label" })).toBeDefined();
+    expect(screen.queryByText("Last week", { selector: ".group-header-label" })).toBeNull();
   });
 });
