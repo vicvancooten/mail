@@ -1,4 +1,4 @@
-import type { Message } from "@mail/shared";
+import { formatRegionDate, formatRegionTime, type Message } from "@mail/shared";
 import { CheckCircle2, ChevronLeft, Clock, Reply, ReplyAll, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -10,7 +10,12 @@ import {
 import type { ReplyMode } from "../compose/reply.js";
 import { SenderContactCard } from "../contacts/SenderContactCard.js";
 import type { CachedThread } from "../store/index.js";
-import { labelNameForId, useLabels, useMailAccounts } from "../store/index.js";
+import {
+  labelNameForId,
+  useLabels,
+  useMailAccounts,
+  useRegionFormatSettings,
+} from "../store/index.js";
 import { Avatar } from "./Avatar.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
@@ -109,6 +114,8 @@ export function ThreadDetailPane({
   // Labels are User-scoped, not Mail-Account-scoped (#186, ADR-0023) —
   // `useLabels()` takes no account id.
   const labels = useLabels() ?? [];
+  // Region Settings (#304): this pane's own reading-time line below.
+  const region = useRegionFormatSettings();
   // The Reply group's own primary rule (#289): Reply All when more than one
   // other participant is on the Thread, else Reply. `selfAddress` is this
   // Thread's owning Mail Account's own address — the same account
@@ -437,7 +444,8 @@ export function ThreadDetailPane({
             </span>
             {thread.lastMessageAt ? (
               <span className="reading-time">
-                {new Date(thread.lastMessageAt).toLocaleString()}
+                {formatRegionDate(thread.lastMessageAt, region)},{" "}
+                {formatRegionTime(thread.lastMessageAt, region)}
               </span>
             ) : null}
           </div>

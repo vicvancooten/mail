@@ -1,4 +1,4 @@
-import type { ThreadParticipant } from "@mail/shared";
+import type { RegionFormatSettings, ThreadParticipant } from "@mail/shared";
 import { Check, Clock, type LucideIcon, Pin, Star, Trash2 } from "lucide-react";
 import { type CSSProperties, type ReactElement, type ReactNode, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.js";
@@ -128,6 +128,7 @@ export function ThreadRow({
   pointerArmed = false,
   hoverCapable = true,
   tabbable = true,
+  region,
 }: {
   thread: CachedThread;
   selected: boolean;
@@ -176,6 +177,8 @@ export function ThreadRow({
   hoverCapable?: boolean;
   /** This row's own roving-tabindex slot (#275): `true` puts it in the Tab order (`tabIndex={0}`), `false` takes it out (`-1`) — `VirtualizedThreadList` sets this for exactly one row at a time. Defaults `true` so a caller rendering a single row with no list around it (`ThreadRow.test.tsx`) keeps today's always-tabbable behavior. */
   tabbable?: boolean;
+  /** Region Settings (#304) — `formatRowTime`'s own locale/zone. Optional: a caller with no Region Settings read above it (most unit tests) keeps today's browser-default row time. */
+  region?: Pick<RegionFormatSettings, "locale" | "timeZone">;
 }) {
   const unread = thread.unreadCount > 0;
   const participantLabel = thread.participants.map(describeParticipant).join(", ") || "(no sender)";
@@ -364,7 +367,7 @@ export function ThreadRow({
           revealing the actions never widens the row or nudges the subject.
           A row with no triage wired (search) simply keeps the time. */}
       <span className="row-meta">
-        <span className="row-time">{formatRowTime(thread.lastMessageAt)}</span>
+        <span className="row-time">{formatRowTime(thread.lastMessageAt, new Date(), region)}</span>
         {cluster.length > 0 ? (
           <span className="row-actions">
             {cluster.map((action) => {

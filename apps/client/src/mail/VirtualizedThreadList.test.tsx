@@ -1,6 +1,10 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
+import { localCache, openLocalCache } from "../store/local-cache.js";
+import { applyPreferenceDelta } from "../store/server-writes.js";
+import { delta } from "../test-support/mail-fixtures.js";
 import { currentListHandle, resetSurfaceHandles } from "./actions/surface-handles.js";
 import { writeGroupCollapsed } from "./device-preferences.js";
 import { type GroupBulkController, VirtualizedThreadList } from "./VirtualizedThreadList.js";
@@ -177,7 +181,7 @@ describe("VirtualizedThreadList — the taper (#75)", () => {
     const threads = [
       makeThread("t-today", "2026-06-25T09:00:00.000Z"), // Today -> T1
       makeThread("t-yesterday", "2026-06-24T09:00:00.000Z"), // Yesterday -> T2
-      makeThread("t-lastweek", "2026-06-12T09:00:00.000Z"), // Last week -> T3
+      makeThread("t-lastweek", "2026-06-18T09:00:00.000Z"), // Last week -> T3
       makeThread("t-older", "2010-01-01T09:00:00.000Z"), // Older -> T4
     ];
     render(
@@ -783,5 +787,69 @@ describe("VirtualizedThreadList — roving tabindex and focus (#275)", () => {
     expect(listbox.tabIndex).toBe(0);
     listbox.focus();
     expect(document.activeElement).toBe(listbox);
+  });
+});
+
+describe("Region Settings on the Time Group ladder (#304)", () => {
+  const names: string[] = [];
+  let counter = 0;
+
+  beforeEach(async () => {
+    const name = `virtualized-thread-list-region-test-${counter++}`;
+    names.push(name);
+    await openLocalCache({ name, schemaVersion: 1 });
+  });
+
+  afterEach(async () => {
+    localCache().close();
+    for (const name of names.splice(0)) await Dexie.delete(name);
+  });
+
+  async function seedFirstDayOfWeek(firstDayOfWeek: "monday" | "sunday"): Promise<void> {
+    await applyPreferenceDelta(
+      delta({
+        created: [
+          {
+            id: "u1",
+            autoAdvanceEnabled: true,
+            autoAdvanceDirection: "older",
+            undoSendDelaySeconds: 10,
+            homeTimeZone: "UTC",
+            regionLocale: "en-US",
+            clockFormat: "auto",
+            firstDayOfWeek,
+            defaultCalendarView: "week",
+            contactsSortOrder: "given",
+            answerNotificationsEnabled: true,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  it("moves a Sunday Thread from Last week into This week once First Day of the Week picks Sunday", async () => {
+    // Thursday, June 25 2026: Monday-first puts last Sunday (June 21) in
+    // Last week; Sunday-first starts this week on that same Sunday instead.
+    // Only `Date` is faked (`toFake: ["Date"]`) — Dexie/`fake-indexeddb`'s
+    // own async machinery schedules through real timers, and a blanket
+    // `vi.useFakeTimers()` deadlocks the local-cache round trip below.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-25T12:00:00.000Z"));
+    await seedFirstDayOfWeek("sunday");
+    const threads = [makeThread("t-sun", "2026-06-21T09:00:00.000Z")];
+
+    render(
+      <VirtualizedThreadList
+        threads={threads}
+        complete={true}
+        selectedThreadId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText("This week", { selector: ".group-header-label" })).toBeDefined();
+    expect(screen.queryByText("Last week", { selector: ".group-header-label" })).toBeNull();
   });
 });

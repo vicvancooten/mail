@@ -11,6 +11,7 @@ import {
   formatRegionDate,
   formatRegionTime,
   REGION_LOCALE_UNSET,
+  startOfWeekMs,
 } from "./region-settings.js";
 
 describe("region-settings schemas and defaults", () => {
@@ -100,6 +101,32 @@ describe("formatRegionDate / formatRegionTime", () => {
     });
     const utc = formatRegionTime(iso, { locale: "en-US", clockFormat: "24", timeZone: "UTC" });
     expect(tokyo).not.toBe(utc);
+  });
+});
+
+describe("startOfWeekMs", () => {
+  // Local calendar days, same posture `calendar-dates.ts#startOfWeek` takes
+  // (the viewer's own zone, never UTC) — a `Date` constructed from local
+  // year/month/day fields, so this suite reads the same regardless of which
+  // zone it runs in.
+  function localDay(year: number, month: number, day: number): string {
+    return new Date(startOfWeekMs(new Date(year, month - 1, day, 12))).toDateString();
+  }
+
+  it("defaults to Monday-first, ISO-8601 (#304)", () => {
+    // Thursday, June 25 2026 — Monday of that week is June 22.
+    expect(localDay(2026, 6, 25)).toBe(new Date(2026, 5, 22).toDateString());
+  });
+
+  it("anchors on Sunday once First Day of the Week picks it", () => {
+    function localSundayFirst(year: number, month: number, day: number): string {
+      return new Date(startOfWeekMs(new Date(year, month - 1, day, 12), "sunday")).toDateString();
+    }
+    expect(localSundayFirst(2026, 6, 25)).toBe(new Date(2026, 5, 21).toDateString());
+  });
+
+  it("lands on `now`'s own day when it already is the first day of the week", () => {
+    expect(localDay(2026, 6, 22)).toBe(new Date(2026, 5, 22).toDateString());
   });
 });
 

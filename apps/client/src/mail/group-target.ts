@@ -1,6 +1,19 @@
 import type { BulkTriageFolderRole, BulkTriageTarget } from "@mail/shared";
+import {
+  DEFAULT_FIRST_DAY_OF_WEEK,
+  type FirstDayOfWeek,
+  REGION_LOCALE_UNSET,
+  type RegionFormatSettings,
+  startOfWeekMs,
+} from "@mail/shared";
 import type { FolderKey } from "./folders.js";
 import { monthLabel, monthStartBefore, PINNED_GROUP_LABEL, startOfDay } from "./time-groups.js";
+
+/** No Region Settings passed in: the viewer's own browser default locale/zone, same as `time-groups.ts`'s own default. */
+const DEFAULT_REGION: Pick<RegionFormatSettings, "locale" | "timeZone"> = {
+  locale: REGION_LOCALE_UNSET,
+  timeZone: "",
+};
 
 /**
  * The group header cluster's target-set math (#66, #67, #77): turning a
@@ -29,13 +42,18 @@ export interface GroupDateRange {
  * `null` `lastMessageAt` by) — neither is a valid bulk-Triage target, so the
  * group header cluster never arms for them (`VirtualizedThreadList`).
  */
-export function groupDateRange(label: string, now: Date = new Date()): GroupDateRange | null {
+export function groupDateRange(
+  label: string,
+  now: Date = new Date(),
+  firstDayOfWeek: FirstDayOfWeek = DEFAULT_FIRST_DAY_OF_WEEK,
+  region: Pick<RegionFormatSettings, "locale" | "timeZone"> = DEFAULT_REGION,
+): GroupDateRange | null {
   if (label === PINNED_GROUP_LABEL || label === "Undated") return null;
 
   const today = startOfDay(now);
   const yesterday = today - DAY_MS;
-  const thisWeekStart = today - 7 * DAY_MS;
-  const lastWeekStart = today - 14 * DAY_MS;
+  const thisWeekStart = startOfWeekMs(now, firstDayOfWeek);
+  const lastWeekStart = thisWeekStart - 7 * DAY_MS;
   const monthStart = monthStartBefore(now, 0);
   const prevMonthStart = monthStartBefore(now, 1);
   const twoMonthsAgoStart = monthStartBefore(now, 2);
@@ -56,10 +74,10 @@ export function groupDateRange(label: string, now: Date = new Date()): GroupDate
     case "Older":
       return { since: null, until: iso(twoMonthsAgoStart) };
     default:
-      if (label === monthLabel(prevMonthStart, thisYear)) {
+      if (label === monthLabel(prevMonthStart, thisYear, region)) {
         return { since: iso(prevMonthStart), until: iso(monthStart) };
       }
-      if (label === monthLabel(twoMonthsAgoStart, thisYear)) {
+      if (label === monthLabel(twoMonthsAgoStart, thisYear, region)) {
         return { since: iso(twoMonthsAgoStart), until: iso(prevMonthStart) };
       }
       return null;

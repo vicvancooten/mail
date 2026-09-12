@@ -41,6 +41,7 @@ import {
   useLabels,
   useMailAccounts,
   usePreference,
+  useRegionFormatSettings,
   useScreenerSenders,
   useTaskLists,
   useThreadWindow,
@@ -310,6 +311,12 @@ export function MailSection({
   const preference = usePreference();
   const autoAdvanceEnabled = preference?.autoAdvanceEnabled ?? DEFAULT_AUTO_ADVANCE_ENABLED;
   const direction = preference?.autoAdvanceDirection ?? DEFAULT_AUTO_ADVANCE_DIRECTION;
+  // Region Settings (#304): the same First Day of the Week/locale the Time
+  // Group ladder (`time-groups.ts`) and its bulk-Triage inversion
+  // (`group-target.ts`) both read, so a group header's own range always
+  // bounds the same Threads its label claims to.
+  const firstDayOfWeek = preference?.firstDayOfWeek;
+  const region = useRegionFormatSettings();
   // Filter-by-label (#43, unified with Gmail Labels in the #126 post-merge
   // fix): "a label filter behaves as a view, bounded window like any
   // other" — one discriminated union rather than two parallel optional
@@ -817,14 +824,14 @@ export function MailSection({
   const requestGroupCount = useCallback(
     (label: string) => {
       if (!bulkFolderRole || requestedCountLabels.current.has(label)) return;
-      const range = groupDateRange(label);
+      const range = groupDateRange(label, new Date(), firstDayOfWeek, region);
       if (!range) return;
       requestedCountLabels.current.add(label);
       void countBulkTriageTarget(bulkTriageTarget(accountScope, bulkFolderRole, range))
         .then((response) => setGroupCounts((current) => ({ ...current, [label]: response.count })))
         .catch(() => requestedCountLabels.current.delete(label));
     },
-    [bulkFolderRole, accountScope],
+    [bulkFolderRole, accountScope, firstDayOfWeek, region],
   );
 
   const accountEmailById = useMemo(
@@ -844,7 +851,7 @@ export function MailSection({
   const runGroupBulkAction = useCallback(
     (label: string, action: BulkTriageAction) => {
       if (!bulkFolderRole || accountScope.length === 0) return;
-      const range = groupDateRange(label);
+      const range = groupDateRange(label, new Date(), firstDayOfWeek, region);
       if (!range) return; // Pinned/Undated: the cluster never renders for these (`VirtualizedThreadList`), so this is only a defensive no-op.
       const target = bulkTriageTarget(accountScope, bulkFolderRole, range);
 
@@ -859,7 +866,12 @@ export function MailSection({
               .filter(
                 (thread) =>
                   !thread.pinned &&
-                  timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now) === label,
+                  timeGroupLabel(
+                    thread.lastMessageAt ?? thread.firstMessageAt,
+                    now,
+                    firstDayOfWeek,
+                    region,
+                  ) === label,
               )
               .map((thread) => thread.id)
           : [];
@@ -930,7 +942,7 @@ export function MailSection({
           });
         });
     },
-    [bulkFolderRole, accountScope, threads, describeRejectedAccount],
+    [bulkFolderRole, accountScope, threads, describeRejectedAccount, firstDayOfWeek, region],
   );
 
   const groupBulk: GroupBulkController | undefined = bulkFolderRole

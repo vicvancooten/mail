@@ -1,11 +1,13 @@
 import type {
   ConnectedAccount,
   Correspondent,
+  FirstDayOfWeek,
   GatekeeperSender,
   GmailLabel,
   Label,
   MailAccount,
   Preference,
+  RegionFormatSettings,
   Thread,
 } from "@mail/shared";
 import {
@@ -24,7 +26,7 @@ import {
   senderDomain,
 } from "@mail/shared";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import {
   type CachedThread,
   DEFAULT_VIEW,
@@ -169,6 +171,30 @@ function defaultPreference(): Preference {
 
 export function usePreference(): Preference | undefined {
   return useLiveQuery(() => readPreference(), []);
+}
+
+/**
+ * Region Settings (#303) as the `RegionFormatSettings` shape every date/time
+ * formatter takes — `CalendarRoute.tsx`'s own inline derivation, promoted
+ * here once Mail (#304) needed the identical fallback chain, so the two
+ * Apps read Region Settings through one hook instead of two copies of it.
+ */
+export function useRegionFormatSettings(): RegionFormatSettings {
+  const preference = usePreference();
+  return useMemo(
+    () => ({
+      locale: preference?.regionLocale ?? REGION_LOCALE_UNSET,
+      clockFormat: preference?.clockFormat ?? DEFAULT_CLOCK_FORMAT,
+      timeZone: preference?.homeTimeZone ?? HOME_TIME_ZONE_UNSET,
+    }),
+    [preference?.regionLocale, preference?.clockFormat, preference?.homeTimeZone],
+  );
+}
+
+/** Region Settings' First Day of the Week alone (#303) — for a caller (Mail's Time Group ladder) that only needs this one field, not a full `RegionFormatSettings`. */
+export function useFirstDayOfWeek(): FirstDayOfWeek {
+  const preference = usePreference();
+  return preference?.firstDayOfWeek ?? DEFAULT_FIRST_DAY_OF_WEEK;
 }
 
 /**

@@ -154,6 +154,28 @@ export function formatRegionTime(
 }
 
 /**
+ * The start (local midnight) of the calendar week `now` falls in, honoring
+ * `firstDayOfWeek` — Mail's Time Group ladder's own "This week"/"Last week"
+ * boundary (#304), the epoch-ms sibling of `calendar-dates.ts#startOfWeek`'s
+ * `CivilDate` version. Duplicated rather than shared: that module works in
+ * zone-less `CivilDate` triples for grid arithmetic, this one in real
+ * `Date`/epoch-ms for a rolling "how long ago" ladder — same weekday math
+ * (`Date#getDay`'s Sunday=0..Saturday=6, rotated the same way), different
+ * day representation.
+ */
+export function startOfWeekMs(
+  now: Date,
+  firstDayOfWeek: FirstDayOfWeek = DEFAULT_FIRST_DAY_OF_WEEK,
+): number {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const day = start.getDay();
+  const offset = firstDayOfWeek === "sunday" ? day : (day + 6) % 7;
+  start.setDate(start.getDate() - offset);
+  return start.getTime();
+}
+
+/**
  * An hour-rail label, e.g. "9 AM" or "09" — `DayTimeGrid.tsx`'s own gutter,
  * `formatRegionTime`'s minute-less sibling. Built off a dummy UTC instant and
  * forced to `timeZone: "UTC"` (`task-due.ts#formatDueTime`'s own trick): the

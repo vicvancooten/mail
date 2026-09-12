@@ -1,3 +1,11 @@
+import {
+  DEFAULT_FIRST_DAY_OF_WEEK,
+  type FirstDayOfWeek,
+  formatRegionDate,
+  REGION_LOCALE_UNSET,
+  type RegionFormatSettings,
+  startOfWeekMs,
+} from "@mail/shared";
 import type { CachedThread } from "../store/index.js";
 
 /**
@@ -8,24 +16,21 @@ import type { CachedThread } from "../store/index.js";
  * further back collapse into one Older group, so "clear everything old" has
  * an honest target — this replaced the old per-month/per-year ladder
  * (`prototype/triage-loop-ui`'s shape).
+ *
+ * "This week"/"Last week" anchor on Region Settings' First Day of the Week
+ * (#304, `startOfWeekMs`) — the same setting Calendar's own grids follow —
+ * rather than a rolling 7-day window; month/day labels route through
+ * `formatRegionDate` for the same locale Calendar reads, rather than a
+ * hard-coded English name.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
+/** No Region Settings passed in: the viewer's own browser default locale/zone, same as before this ticket. */
+const DEFAULT_REGION: Pick<RegionFormatSettings, "locale" | "timeZone"> = {
+  locale: REGION_LOCALE_UNSET,
+  timeZone: "",
+};
 
 /** Exported for `group-target.ts`, which inverts these same boundaries (label → date range) rather than re-deriving them (#77). */
 export function startOfDay(date: Date): number {
@@ -34,11 +39,18 @@ export function startOfDay(date: Date): number {
   return copy.getTime();
 }
 
-/** A month, named — qualified with its year once that year isn't `now`'s. */
-export function monthLabel(monthStartMs: number, thisYear: number): string {
-  const d = new Date(monthStartMs);
-  const name = MONTH_NAMES[d.getMonth()] as string;
-  return d.getFullYear() === thisYear ? name : `${name} ${d.getFullYear()}`;
+/** A month, named in `region`'s own locale — qualified with its year once that year isn't `now`'s. */
+export function monthLabel(
+  monthStartMs: number,
+  thisYear: number,
+  region: Pick<RegionFormatSettings, "locale" | "timeZone"> = DEFAULT_REGION,
+): string {
+  const sameYear = new Date(monthStartMs).getFullYear() === thisYear;
+  return formatRegionDate(new Date(monthStartMs).toISOString(), region, {
+    year: sameYear ? undefined : "numeric",
+    month: "long",
+    day: undefined,
+  });
 }
 
 /** The start-of-month timestamp `monthsAgo` months before `now`'s month. */
@@ -52,15 +64,20 @@ export function monthStartBefore(now: Date, monthsAgo: number): number {
  * "Undated" rather than being dropped or crashing the bucket math —
  * `threadSortKey` already handles this case the same way for ordering.
  */
-export function timeGroupLabel(iso: string | null, now: Date = new Date()): string {
+export function timeGroupLabel(
+  iso: string | null,
+  now: Date = new Date(),
+  firstDayOfWeek: FirstDayOfWeek = DEFAULT_FIRST_DAY_OF_WEEK,
+  region: Pick<RegionFormatSettings, "locale" | "timeZone"> = DEFAULT_REGION,
+): string {
   if (iso === null) return "Undated";
   const timestamp = new Date(iso).getTime();
   if (Number.isNaN(timestamp)) return "Undated";
 
   const today = startOfDay(now);
   const yesterday = today - DAY_MS;
-  const thisWeekStart = today - 7 * DAY_MS;
-  const lastWeekStart = today - 14 * DAY_MS;
+  const thisWeekStart = startOfWeekMs(now, firstDayOfWeek);
+  const lastWeekStart = thisWeekStart - 7 * DAY_MS;
   const monthStart = monthStartBefore(now, 0);
   const prevMonthStart = monthStartBefore(now, 1);
   const twoMonthsAgoStart = monthStartBefore(now, 2);
@@ -71,8 +88,8 @@ export function timeGroupLabel(iso: string | null, now: Date = new Date()): stri
   if (timestamp >= thisWeekStart) return "This week";
   if (timestamp >= lastWeekStart) return "Last week";
   if (timestamp >= monthStart) return "This month";
-  if (timestamp >= prevMonthStart) return monthLabel(prevMonthStart, thisYear);
-  if (timestamp >= twoMonthsAgoStart) return monthLabel(twoMonthsAgoStart, thisYear);
+  if (timestamp >= prevMonthStart) return monthLabel(prevMonthStart, thisYear, region);
+  if (timestamp >= twoMonthsAgoStart) return monthLabel(twoMonthsAgoStart, thisYear, region);
   return "Older";
 }
 
@@ -101,8 +118,12 @@ export function timeGroupTier(label: string): TimeGroupTier {
   return FIXED_TIER_BY_LABEL[label] ?? 4;
 }
 
-/** Compact per-row time label: "2h", "Yest.", "3 Aug". */
-export function formatRowTime(iso: string | null, now: Date = new Date()): string {
+/** Compact per-row time label: "2h", "Yest.", "Jun 1" (in `region`'s own locale). */
+export function formatRowTime(
+  iso: string | null,
+  now: Date = new Date(),
+  region: Pick<RegionFormatSettings, "locale" | "timeZone"> = DEFAULT_REGION,
+): string {
   if (iso === null) return "";
   const timestamp = new Date(iso).getTime();
   if (Number.isNaN(timestamp)) return "";
@@ -113,8 +134,7 @@ export function formatRowTime(iso: string | null, now: Date = new Date()): strin
   if (diff < HOUR_MS) return `${Math.max(1, Math.round(diff / 60_000))}m`;
   if (timestamp >= today) return `${Math.round(diff / HOUR_MS)}h`;
   if (timestamp >= today - DAY_MS) return "Yest.";
-  const d = new Date(timestamp);
-  return `${d.getDate()} ${(MONTH_NAMES[d.getMonth()] as string).slice(0, 3)}`;
+  return formatRegionDate(iso, region, { year: undefined, month: "short", day: "numeric" });
 }
 
 export interface ThreadGroup {
@@ -137,12 +157,14 @@ export interface ThreadGroup {
 export function groupThreadsByTime(
   threads: readonly CachedThread[],
   now: Date = new Date(),
+  firstDayOfWeek: FirstDayOfWeek = DEFAULT_FIRST_DAY_OF_WEEK,
+  region: Pick<RegionFormatSettings, "locale" | "timeZone"> = DEFAULT_REGION,
 ): ThreadGroup[] {
   const groups: ThreadGroup[] = [];
   for (const thread of threads) {
     const label = thread.pinned
       ? PINNED_GROUP_LABEL
-      : timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now);
+      : timeGroupLabel(thread.lastMessageAt ?? thread.firstMessageAt, now, firstDayOfWeek, region);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.threads.push(thread);
     else groups.push({ label, tier: timeGroupTier(label), threads: [thread] });

@@ -1,4 +1,3 @@
-import type { RegionFormatSettings } from "@mail/shared";
 import { Outlet } from "@tanstack/react-router";
 import { PanelLeft } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -7,7 +6,7 @@ import { deriveCalendarScope, useAccountScope } from "../mail/useAccountScope.js
 import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
-import { useConnectedAccounts, usePreference } from "../store/index.js";
+import { useConnectedAccounts, usePreference, useRegionFormatSettings } from "../store/index.js";
 import { useAllTasks } from "../store/tasks.js";
 import "./calendar.css";
 import { CalendarSlideOver } from "./CalendarSlideOver.js";
@@ -111,14 +110,7 @@ export function CalendarRoute() {
     () => daysForView(view, date, preference?.firstDayOfWeek),
     [view, date, preference?.firstDayOfWeek],
   );
-  const region: RegionFormatSettings = useMemo(
-    () => ({
-      locale: preference?.regionLocale ?? "",
-      clockFormat: preference?.clockFormat ?? "auto",
-      timeZone: preference?.homeTimeZone ?? "",
-    }),
-    [preference?.regionLocale, preference?.clockFormat, preference?.homeTimeZone],
-  );
+  const region = useRegionFormatSettings();
 
   const calendars = useCalendars() ?? [];
   const range = useMemo(() => civilDateRangeToIso(days), [days]);
