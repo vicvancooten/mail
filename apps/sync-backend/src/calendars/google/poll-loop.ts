@@ -110,7 +110,8 @@ const googleMirrorLoopProvider: MirrorLoopProvider<
 > = {
   label: "calendar mirror loop",
   listAccounts: listGoogleCalendarFacetAccounts,
-  getCredential: (credentials, connectedAccountId) => credentials.getAccessToken(connectedAccountId),
+  getCredential: (credentials, connectedAccountId) =>
+    credentials.getAccessToken(connectedAccountId),
   syncCalendarList: ({ db, account, client, credential }) =>
     syncGoogleCalendarList({
       db,

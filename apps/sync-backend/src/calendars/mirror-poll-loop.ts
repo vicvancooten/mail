@@ -27,7 +27,12 @@ export interface MirrorAccount {
  * directly with a fake provider so a future regression can't land in only
  * one provider again.
  */
-export interface MirrorLoopProvider<TAccount extends MirrorAccount, TClient, TCredentials, TCredential> {
+export interface MirrorLoopProvider<
+  TAccount extends MirrorAccount,
+  TClient,
+  TCredentials,
+  TCredential,
+> {
   /** What this loop's own ticks and errors are logged against, e.g. "calendar mirror loop". */
   label: string;
   listAccounts(db: Db): Promise<TAccount[]>;

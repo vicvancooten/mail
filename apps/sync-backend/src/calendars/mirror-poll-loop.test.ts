@@ -44,7 +44,8 @@ function makeFakeProvider(overrides: {
   return {
     label: "fake mirror loop",
     listAccounts: async () => overrides.accounts,
-    getCredential: async () => (overrides.credential === undefined ? "token" : overrides.credential),
+    getCredential: async () =>
+      overrides.credential === undefined ? "token" : overrides.credential,
     syncCalendarList: async () => {
       overrides.onSyncCalendarList?.();
     },

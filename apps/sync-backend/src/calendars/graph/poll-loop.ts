@@ -4,13 +4,13 @@ import { listActiveConnectedAccountsWithFacet } from "../../connected-accounts/s
 import type { Db } from "../../db/client.js";
 import { calendars } from "../../db/schema.js";
 import type { PollLoopHandle } from "../../sync/poll-loop.js";
+import { calendarEventPollIntervalMs } from "../google/cadence.js";
 import {
   type MirrorAccount,
   type MirrorLoopProvider,
   runMirrorPollTick,
   startMirrorPollLoop,
 } from "../mirror-poll-loop.js";
-import { calendarEventPollIntervalMs } from "../google/cadence.js";
 import { syncGraphCalendarList } from "./calendar-list-sync.js";
 import type { GraphCalendarClient } from "./client.js";
 import { syncGraphCalendarEvents } from "./event-sync.js";
@@ -100,7 +100,8 @@ const graphMirrorLoopProvider: MirrorLoopProvider<
 > = {
   label: "graph calendar mirror loop",
   listAccounts: listGraphCalendarFacetAccounts,
-  getCredential: (credentials, connectedAccountId) => credentials.getAccessToken(connectedAccountId),
+  getCredential: (credentials, connectedAccountId) =>
+    credentials.getAccessToken(connectedAccountId),
   syncCalendarList: ({ db, account, client, credential }) =>
     syncGraphCalendarList({
       db,
