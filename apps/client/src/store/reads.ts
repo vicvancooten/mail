@@ -15,6 +15,7 @@ import {
   DEFAULT_CONTACTS_SORT_ORDER,
   DEFAULT_UNDO_SEND_DELAY_SECONDS,
   HOME_TIME_ZONE_UNSET,
+  normalizeCorrespondentAddress,
   normalizeSenderAddress,
   senderDomain,
 } from "@mail/shared";
@@ -1002,6 +1003,66 @@ export async function readRecentThreadsForLinking(
   const overlaid = await overlayPendingMutations(db, all);
   return overlaid
     .filter((thread) => !hasLeftFolderScopedViews(thread))
+    .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
+    .slice(0, limit);
+}
+
+/** The Contact Card's own "recent Threads" list (#293) default cap — a peek, not a history tab (`MailHistoryTab.tsx` already owns the full, paginated, server-backed one). */
+const RECENT_THREADS_FOR_SENDER_LIMIT = 3;
+
+/**
+ * "The last few Threads exchanged with them" (#293's acceptance line) —
+ * unlike `useMailHistory.ts`'s Person Page tab, this is Local-Cache-only, no
+ * server round trip: a hover/tap card wants to open instantly off whatever
+ * this Client has already synced, not wait on a search request. Modeled on
+ * `readRecentThreadsForLinking` just above (same scan-all-cached-Threads,
+ * exclude-Trash/Junk, sort-by-`sortKey`, cap shape), with one added
+ * predicate — the normalized sender address must appear somewhere in the
+ * Thread's own `participants` (`@mail/shared#normalizeCorrespondentAddress`,
+ * the same normalization `contact-avatar.ts`'s photo index already keys on).
+ *
+ * No Account Scope narrowing, deliberately: like `readRecentThreadsForLinking`,
+ * scoping this to the caller's current Mail Account(s) would mean threading
+ * Account Scope down through every Reader host (`SplitView`, `ListView`,
+ * `StreamStack`, search results) that can open a `ThreadDetailPane`, for a
+ * peek list that already reads "whatever this Client has synced" rather
+ * than a folder-scoped view.
+ *
+ * `excludeThreadId` drops the Thread the Card itself is already open on —
+ * the Reader's own sender is reading "who else have I heard from them",
+ * not re-listing the conversation already on screen.
+ */
+export function useRecentThreadsForSender(
+  address: string | null,
+  options: { limit?: number; excludeThreadId?: string | null } = {},
+): CachedThread[] | undefined {
+  const limit = options.limit ?? RECENT_THREADS_FOR_SENDER_LIMIT;
+  const excludeThreadId = options.excludeThreadId ?? null;
+  return useLiveQuery(
+    () => readRecentThreadsForSender(address, { limit, excludeThreadId }),
+    [address, limit, excludeThreadId],
+  );
+}
+
+export async function readRecentThreadsForSender(
+  address: string | null,
+  options: { limit?: number; excludeThreadId?: string | null } = {},
+): Promise<CachedThread[]> {
+  if (!address) return [];
+  const limit = options.limit ?? RECENT_THREADS_FOR_SENDER_LIMIT;
+  const excludeThreadId = options.excludeThreadId ?? null;
+  const normalized = normalizeCorrespondentAddress(address);
+  const db = localCache();
+  const all = await db.threads.toArray();
+  const overlaid = await overlayPendingMutations(db, all);
+  return overlaid
+    .filter((thread) => !hasLeftFolderScopedViews(thread))
+    .filter((thread) => thread.id !== excludeThreadId)
+    .filter((thread) =>
+      thread.participants.some(
+        (participant) => normalizeCorrespondentAddress(participant.address) === normalized,
+      ),
+    )
     .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
     .slice(0, limit);
 }
