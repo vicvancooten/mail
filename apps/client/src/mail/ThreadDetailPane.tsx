@@ -44,9 +44,11 @@ export type OnReply = (message: Message, mode: ReplyMode) => void;
  * the mouse-reachable half of triage: the toolbar's run of icon buttons, in
  * three groups (#289, replacing #143's primary/secondary/more tiers) — Reply,
  * Mail, and Integrations — each a context-sensitive or always-visible inline
- * control plus its own overflow (`ReaderOverflowMenu`). The Thread header
- * (subject, participants, labels, actions) renders
- * instantly from the Local Cache; the sanitized, sandboxed message bodies
+ * control plus its own overflow (`ReaderOverflowMenu`). The Thread's subject,
+ * participants and labels render instantly from the Local Cache, as does
+ * this fixed action bar above them (#290: everything from the subject down
+ * is one scrolling document — see `.reading-body` below — the action bar is
+ * the only chrome that stays pinned); the sanitized, sandboxed message bodies
  * (#41, `reading/MessageList.js`) are a per-Thread fetch-through — the wire
  * `Thread` projection is a list-row summary, never a body — so the Snippet
  * shows first and the real content swaps in once it arrives.
@@ -242,10 +244,6 @@ export function ThreadDetailPane({
                 <ChevronLeft size={16} />
               </button>
             ) : null}
-            <div className="reading-heading">
-              {groupLabel ? <div className="reading-eyebrow">{groupLabel}</div> : null}
-              <h1 className="reading-subject">{thread.subject || "(no subject)"}</h1>
-            </div>
             <div className="reading-actions">
               {/* Prev/next are gone from this row entirely (#155): a
                 touch-capable phone never had them here (#143 user story
@@ -391,6 +389,18 @@ export function ThreadDetailPane({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* #290: everything below the fixed action bar above — subject,
+          participants, the Message list and the reply footer — is one
+          scrolling document (`.reading-body`), not a mix of pinned chrome
+          and a scrolled message list. Nothing here is sticky; the action
+          bar above is the only chrome that stays put. */}
+        <div className="reading-body">
+          <div className="reading-heading">
+            {groupLabel ? <div className="reading-eyebrow">{groupLabel}</div> : null}
+            <h1 className="reading-subject">{thread.subject || "(no subject)"}</h1>
+          </div>
           <div className="reading-meta">
             <Avatar name={participants} className="reading-avatar" />
             <span className="reading-identity">
@@ -414,14 +424,12 @@ export function ThreadDetailPane({
               </span>
             ) : null}
           </div>
-        </div>
 
-        <ReaderTaskChips threadId={thread.id} onOpenTask={onOpenTask} />
-        {invitationCards?.map((card) => (
-          <InviteCard key={card.uid} card={card} threadId={thread.id} />
-        ))}
+          <ReaderTaskChips threadId={thread.id} onOpenTask={onOpenTask} />
+          {invitationCards?.map((card) => (
+            <InviteCard key={card.uid} card={card} threadId={thread.id} />
+          ))}
 
-        <div className="reading-body">
           {messages ? (
             <MessageList
               messages={messages}
@@ -435,21 +443,22 @@ export function ThreadDetailPane({
           ) : (
             <p className="reading-snippet placeholder">No preview cached yet.</p>
           )}
-        </div>
 
-        {/* The comp's `.reply-hint`: the reply composer at rest — a quiet
-          filled bar across the foot of the pane that names who it would
-          answer, rather than an empty editor holding the page open. */}
-        {replyTarget ? (
-          <button
-            type="button"
-            className="reply-hint"
-            onClick={() => onReply(replyTarget, "reply")}
-          >
-            <Reply size={15} />
-            Reply to {replyToName}…
-          </button>
-        ) : null}
+          {/* The comp's `.reply-hint`: the reply composer at rest — a quiet
+            filled bar at the foot of the document that names who it would
+            answer, rather than an empty editor holding the page open. Part
+            of the scrolling document now (#290), not pinned above it. */}
+          {replyTarget ? (
+            <button
+              type="button"
+              className="reply-hint"
+              onClick={() => onReply(replyTarget, "reply")}
+            >
+              <Reply size={15} />
+              Reply to {replyToName}…
+            </button>
+          ) : null}
+        </div>
       </div>
     </ActionMenu>
   );
