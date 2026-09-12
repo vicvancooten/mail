@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import type { ReplyMode } from "../compose/reply.js";
+import { SenderContactCard } from "../contacts/SenderContactCard.js";
 import type { CachedThread } from "../store/index.js";
 import { labelNameForId, useLabels, useMailAccounts } from "../store/index.js";
 import { Avatar } from "./Avatar.js";
@@ -97,6 +98,14 @@ export function ThreadDetailPane({
 }) {
   const participants =
     thread.participants.map((p) => p.name ?? p.address).join(", ") || "(no sender)";
+  // The Contact Card's own "sender" (#293): `participants` above is every
+  // correspondent joined into one string (this pane's existing identity
+  // line, and `ThreadRow.tsx`'s own Avatar seed) — a Contact Card needs one
+  // real address to look up, so it reads the first entry of `participants`
+  // (`sync/thread-rollup.ts#collectParticipants`'s own "oldest message
+  // first" order), the same correspondent this Avatar already represents in
+  // the common one-correspondent Thread.
+  const primarySender = thread.participants[0] ?? null;
   // Labels are User-scoped, not Mail-Account-scoped (#186, ADR-0023) —
   // `useLabels()` takes no account id.
   const labels = useLabels() ?? [];
@@ -402,7 +411,16 @@ export function ThreadDetailPane({
             <h1 className="reading-subject">{thread.subject || "(no subject)"}</h1>
           </div>
           <div className="reading-meta">
-            <Avatar name={participants} className="reading-avatar" />
+            {primarySender ? (
+              <SenderContactCard
+                name={primarySender.name}
+                address={primarySender.address}
+                threadId={thread.id}
+                avatarClassName="reading-avatar"
+              />
+            ) : (
+              <Avatar name={participants} className="reading-avatar" />
+            )}
             <span className="reading-identity">
               <span className="reading-from">{participants}</span>
               <span className="reading-addr">

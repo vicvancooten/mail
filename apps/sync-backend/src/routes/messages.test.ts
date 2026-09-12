@@ -81,6 +81,7 @@ interface SeedMessageInput {
   threadId: string;
   bodyHtml?: string | null;
   bodyText?: string | null;
+  snippet?: string | null;
   bodyIsPlainText?: boolean | null;
   bodyFetchedAt?: Date | null;
   attachments?: MessageAttachment[];
@@ -129,6 +130,7 @@ async function seedMessage(input: SeedMessageInput): Promise<string> {
     seen: false,
     flagged: false,
     attachments: input.attachments ?? [],
+    snippet: input.snippet ?? null,
     bodyText: input.bodyText ?? "hi",
     bodyHtml: input.bodyHtml ?? "<p>hi</p>",
     bodyIsPlainText: input.bodyIsPlainText ?? null,
@@ -281,6 +283,22 @@ describe("GET /threads/:threadId/messages", () => {
     });
     const body = response.json() as { messages: Array<{ bodyIsPlainText: boolean }> };
     expect(body.messages[0]?.bodyIsPlainText).toBe(true);
+  });
+
+  it("carries this message's own Snippet (#291) — never a Thread-level one", async () => {
+    const app = buildTestApp();
+    const cookie = await claimOwner(app);
+    const accountId = await createOwnedMailAccount(app, cookie);
+    const threadId = randomUUID();
+    await seedMessage({ mailAccountId: accountId, threadId, snippet: "Short answer: yes." });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/threads/${threadId}/messages`,
+      headers: { cookie },
+    });
+    const body = response.json() as { messages: Array<{ snippet: string | null }> };
+    expect(body.messages[0]?.snippet).toBe("Short answer: yes.");
   });
 
   describe("remoteImagesAllowed (#146)", () => {

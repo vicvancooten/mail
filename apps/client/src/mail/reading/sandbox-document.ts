@@ -359,6 +359,25 @@ if(wrap&&wrap.classList&&wrap.classList.contains("mail-image-shimmer"))wrap.clas
 })();`;
 
 /**
+ * #291: the in-frame "Show quoted text" toggle. Flips a `hidden` attribute
+ * on the quoted-history container rather than telling the parent anything —
+ * unlike the click bridge above, nothing about this needs a decision only
+ * the host document can make. The existing `RESIZE_SCRIPT`'s
+ * `ResizeObserver` (watching `document.body`, not any one element) already
+ * posts a fresh height whenever this changes it, so there is nothing to wire
+ * up here beyond the toggle itself.
+ */
+const QUOTE_TOGGLE_SCRIPT = `(function(){
+var btn=document.getElementById("mail-quote-toggle");
+var content=document.getElementById("mail-quote-content");
+if(!btn||!content)return;
+btn.addEventListener("click",function(){
+if(content.hasAttribute("hidden")){content.removeAttribute("hidden");btn.textContent="Hide quoted text";}
+else{content.setAttribute("hidden","");btn.textContent="Show quoted text";}
+});
+})();`;
+
+/**
  * A visible error state for a remote image that fails to load once "Load
  * remote images" is on (ADR-0018's acceptance box: "a failing image shows a
  * message") — today a broken `<img>` just leaves a hole, `alt` text only if
@@ -388,6 +407,13 @@ if(wrap)wrap.classList.remove("mail-image-shimmer");
 export interface MessageDocumentOptions {
   /** Server-sanitized body HTML, already proxy-rewritten for remote images (`sync/image-proxy.ts`), `cid:` untouched. */
   html: string;
+  /**
+   * Quoted/forwarded history behind this message (#291,
+   * `@mail/shared#splitMessageQuotedHistory`), `null` when there is none.
+   * Sanitized the same way `html` is and rendered right after it, collapsed
+   * behind the in-frame "Show quoted text" toggle (`QUOTE_TOGGLE_SCRIPT`).
+   */
+  quotedHtml: string | null;
   cidBlobUrls: ReadonlyMap<string, string>;
   imagesLoaded: boolean;
   darkMode: boolean;
@@ -414,11 +440,25 @@ export function buildMessageDocument(opts: MessageDocumentOptions): string {
     imagesLoaded: opts.imagesLoaded,
   };
   const body = sanitizeAndSubstitute(opts.html, state);
+  // #291: sanitized through the same pass and state as `body` — a resolved
+  // `cid:` or an opted-in remote image inside the quoted half gets the exact
+  // same treatment, whether or not the toggle below has revealed it yet.
+  const quotedBody = opts.quotedHtml ? sanitizeAndSubstitute(opts.quotedHtml, state) : null;
   const invert = opts.darkMode && !senderDeclaresColorScheme(opts.html);
   const csp = buildMessageCsp({ nonce: opts.nonce, origin: opts.origin });
   const targetOrigin = JSON.stringify(opts.origin);
   const resizeScript = RESIZE_SCRIPT.replaceAll("__MAIL_TARGET_ORIGIN__", targetOrigin);
   const linkBridgeScript = LINK_BRIDGE_SCRIPT.replaceAll("__MAIL_TARGET_ORIGIN__", targetOrigin);
+  // Never present without `quotedBody` — a sender's own stylesheet is
+  // sanitized for the dangerous cases (`sanitizeCssText`) but not neutered
+  // of ordinary rules, so a wildcard reset could otherwise defeat the plain
+  // `hidden` attribute; `[hidden]{display:none!important}` below is what
+  // keeps it collapsed regardless.
+  const quoteToggleMarkup = quotedBody
+    ? `<button type="button" class="mail-quote-toggle" id="mail-quote-toggle">Show quoted text</button>` +
+      `<div class="mail-quote-content" id="mail-quote-content" hidden>${quotedBody}</div>`
+    : "";
+  const quoteToggleScript = quotedBody ? QUOTE_TOGGLE_SCRIPT : "";
 
   const invertCss = invert
     ? `.mail-invert{filter:invert(1) hue-rotate(180deg);background:#fff;}
@@ -441,10 +481,14 @@ table{max-width:100%;}
   background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.65) 50%,rgba(255,255,255,0) 100%);
   animation:mail-image-shimmer-sweep 1.2s ease-in-out infinite;}
 @keyframes mail-image-shimmer-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.mail-quote-toggle{display:inline-block;margin-top:10px;padding:4px 11px;border:1px solid #d8d8d8;
+  border-radius:999px;background:#f5f5f5;color:#666;font-family:inherit;font-size:12px;cursor:pointer;}
+.mail-quote-content{margin-top:8px;}
+.mail-quote-content[hidden]{display:none!important;}
 ${invertCss}
 </style>
 </head><body>
-<div${invert ? ' class="mail-invert"' : ""}>${body}</div>
-<script nonce="${opts.nonce}">${resizeScript}${opts.linkBridge ? linkBridgeScript : ""}${IMAGE_LOAD_SCRIPT}${IMAGE_ERROR_SCRIPT}</script>
+<div${invert ? ' class="mail-invert"' : ""}>${body}${quoteToggleMarkup}</div>
+<script nonce="${opts.nonce}">${resizeScript}${opts.linkBridge ? linkBridgeScript : ""}${IMAGE_LOAD_SCRIPT}${IMAGE_ERROR_SCRIPT}${quoteToggleScript}</script>
 </body></html>`;
 }

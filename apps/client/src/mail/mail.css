@@ -1695,6 +1695,103 @@
   color: var(--color-ink-faint);
 }
 
+/* The Contact Card's own trigger (#293, `SenderContactCard.tsx`) — a bare
+   `button` around the reading avatar, reset back to looking like the plain
+   avatar it wraps; `.reading-meta .mail-avatar` above still sizes the tile
+   itself regardless of this extra wrapper. */
+.sender-contact-card-trigger {
+  display: inline-flex;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.sender-contact-card-trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* The Contact Card's own content (#293) — positioning, portal, background
+   and shadow are the shared `HoverCard` primitive's own (`components/ui/
+   hover-card.tsx`, this ticket's own addition to the shared-primitive
+   vocabulary); this only lays out what's inside it. */
+.sender-contact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sender-contact-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sender-contact-card-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sender-contact-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sender-contact-card-address {
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sender-contact-card-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: var(--hairline) solid var(--color-border);
+  list-style: none;
+}
+
+.sender-contact-card-thread {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.sender-contact-card-thread-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+
+.sender-contact-card-thread-time {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--color-ink-faint);
+}
+
+.sender-contact-card-empty {
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: var(--hairline) solid var(--color-border);
+  font-size: 12.5px;
+  color: var(--color-ink-faint);
+}
+
 /* The Reader's Task chips (#259) — one per open Task whose Thread Link
    field names this Thread, `ReaderTaskChips.tsx`'s own doc comment. Same
    74ch column `.reading-heading` centers itself on (the side inset now
@@ -1857,6 +1954,64 @@
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* #291: a collapsed older Message — read, not the newest — shrinks to one
+   row: sender, date and its own Snippet, in place of the header + sandboxed
+   body + attachments + reply row an expanded one carries. The whole row is
+   the click target that expands it. */
+.message-item-collapsed {
+  padding: 0;
+}
+
+.message-item-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.message-item-summary:hover {
+  background: var(--color-hover);
+}
+
+.message-item-summary-chevron {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+
+.message-item-summary-sender {
+  flex: none;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+
+.message-item-summary-date {
+  flex: none;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.message-item-summary-snippet {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* #47: per-Message Reply / Reply All / Forward — the quiet control

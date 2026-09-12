@@ -17,6 +17,7 @@ import {
   readMailAccounts,
   readPreference,
   readRecentThreadsForLinking,
+  readRecentThreadsForSender,
   readThreadWindow,
   THREAD_PAGE_SIZE,
 } from "./reads.js";
@@ -362,6 +363,94 @@ describe("readRecentThreadsForLinking (#195, the Thread Link picker)", () => {
     );
 
     expect(await readRecentThreadsForLinking(2)).toHaveLength(2);
+  });
+});
+
+describe("readRecentThreadsForSender (#293, the Reader's Contact Card)", () => {
+  it("finds Threads carrying the normalized address anywhere in participants, newest first", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("older", "acct-1", {
+            participants: [{ name: "Ada", address: "Ada@Example.test" }],
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+          makeThread("newer", "acct-1", {
+            participants: [{ name: "Ada", address: "ada@example.test" }],
+            lastMessageAt: minutesAfterEpoch(5),
+          }),
+          makeThread("unrelated", "acct-1", {
+            participants: [{ name: "Bob", address: "bob@example.test" }],
+            lastMessageAt: minutesAfterEpoch(9),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForSender("ada@example.test");
+
+    expect(threads.map((thread) => thread.id)).toEqual(["newer", "older"]);
+  });
+
+  it("excludes Trash and Junk, the same rule every other cross-folder read follows", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("kept", "acct-1"),
+          makeThread("trashed", "acct-1", { folderRole: "trash" }),
+          makeThread("junked", "acct-1", { folderRole: "junk" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForSender("ada@example.test");
+
+    expect(threads.map((thread) => thread.id)).toEqual(["kept"]);
+  });
+
+  it("excludes the Thread the Card is opened from", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("open", "acct-1", { lastMessageAt: minutesAfterEpoch(5) }),
+          makeThread("other", "acct-1", { lastMessageAt: minutesAfterEpoch(1) }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const threads = await readRecentThreadsForSender("ada@example.test", {
+      excludeThreadId: "open",
+    });
+
+    expect(threads.map((thread) => thread.id)).toEqual(["other"]);
+  });
+
+  it("caps at the given limit", async () => {
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: Array.from({ length: 5 }, (_, index) =>
+          makeThread(`t${index}`, "acct-1", { lastMessageAt: minutesAfterEpoch(index) }),
+        ),
+      }),
+      { replace: false },
+    );
+
+    expect(await readRecentThreadsForSender("ada@example.test", { limit: 2 })).toHaveLength(2);
+  });
+
+  it("reads no Threads at all for a null address", async () => {
+    await applyThreadDelta("acct-1", delta({ created: [makeThread("t1", "acct-1")] }), {
+      replace: false,
+    });
+
+    expect(await readRecentThreadsForSender(null)).toEqual([]);
   });
 });
 
