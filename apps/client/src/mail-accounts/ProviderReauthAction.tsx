@@ -1,5 +1,6 @@
 import type { RegisteredProvider } from "@mail/shared";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { fetchProviderAvailability, startProviderSignIn } from "../api/oauth-signin.js";
 import { describeProviderUnavailable } from "./provider-unavailable.js";
 
@@ -95,10 +96,21 @@ export function ProviderReauthAction({
 
   return (
     <p>
-      <button type="button" onClick={() => void handleClick()} disabled={starting}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => void handleClick()}
+        disabled={starting}
+      >
         {label}
-      </button>
-      {error && <span role="alert"> {error}</span>}
+      </Button>
+      {error && (
+        <span role="alert" className="text-sm text-destructive">
+          {" "}
+          {error}
+        </span>
+      )}
     </p>
   );
 }

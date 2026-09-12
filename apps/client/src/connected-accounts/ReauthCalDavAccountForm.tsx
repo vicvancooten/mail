@@ -1,4 +1,7 @@
 import { type FormEvent, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ApiError } from "../api/auth.js";
 import { reauthConnectedAccount } from "../api/connected-accounts.js";
 
@@ -42,19 +45,25 @@ export function ReauthCalDavAccountForm({
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <label htmlFor={`caldav-reauth-password-${connectedAccountId}`}>App password</label>
-      <input
-        id={`caldav-reauth-password-${connectedAccountId}`}
-        type="password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        required
-      />
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`caldav-reauth-password-${connectedAccountId}`}>App password</Label>
+        <Input
+          id={`caldav-reauth-password-${connectedAccountId}`}
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <Button type="submit" disabled={submitting}>
         Reconnect
-      </button>
+      </Button>
     </form>
   );
 }

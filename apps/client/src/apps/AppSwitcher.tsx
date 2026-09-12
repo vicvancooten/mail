@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Sheet,
@@ -46,8 +46,8 @@ import { APPS, appForPath, appIconFor } from "./apps.js";
  * expansion is a plain positioned `div`, not a Radix `Dialog`. `useIsPhoneWidth`
  * (the app's one 768px breakpoint, #273) is the line between the two
  * branches — `RootLayout.tsx` reads this same hook for `isPhoneChrome`, so
- * the header's own instance of this component and the phone bottom bar's
- * are never both mounted at once (see `PhoneSwitcher` below).
+ * the header's own instance of this component and the phone Dock's are
+ * never both mounted at once (see `PhoneSwitcher` below).
  *
  * Each tab is a router `Link` on both branches, so a reserved App is a real
  * destination (`PlaceholderRoute`) rather than a disabled control.
@@ -113,17 +113,19 @@ function AppTabs({
  * full name (five, since #187): a sheet has the vertical room a 60px header
  * never does, so there's no "out of room" question here to answer.
  *
- * The phone bottom bar (`router/BottomBar.tsx`) renders this directly
- * rather than going through `AppSwitcher`'s own `useIsPhoneWidth` branch —
- * the bottom bar is already CSS-gated to that same 768px phone breakpoint
- * (#273 unified the two this app used to carry), so a second JS check here
- * would just be a chance for the two to disagree. `variant="bottom-bar"`
- * swaps the header's
- * icon-plus-chevron trigger for one that matches its two siblings there
- * (Folders, Compose) — the current App's name as a caption, no chevron,
- * since a persistent tab item is never "expanded" the way the header's own
- * disclosure toggle can read. The Sheet itself, and everything in it, is
- * unchanged either way.
+ * The phone Dock (`router/Dock.tsx`, #298) renders this directly rather
+ * than going through `AppSwitcher`'s own `useIsPhoneWidth` branch — the Dock
+ * is already CSS-gated to that same 768px phone breakpoint (#273 unified
+ * the two this app used to carry), so a second JS check here would just be
+ * a chance for the two to disagree. `variant="dock"` swaps the header's
+ * icon-plus-chevron trigger for one styled to read as its own control
+ * rather than as a caption sitting between the Dock's other two tiles
+ * (#298's own acceptance box: "the switcher tile reads as tappable/a
+ * control, not a label") — a filled tile behind the current App's icon plus
+ * an upward chevron (the Sheet it opens rises from the foot of the screen,
+ * `ChevronDown`'s own mirror), rather than bare icon-over-caption text
+ * identical in weight to Folders/Compose beside it. The Sheet itself, and
+ * everything in it, is unchanged either way.
  */
 export function PhoneSwitcher({
   current,
@@ -136,21 +138,24 @@ export function PhoneSwitcher({
   CurrentIcon: ReturnType<typeof appIconFor>;
   open: boolean;
   setOpen: (open: boolean) => void;
-  variant?: "header" | "bottom-bar";
+  variant?: "header" | "dock";
 }) {
   return (
     <>
-      {variant === "bottom-bar" ? (
+      {variant === "dock" ? (
         <button
           type="button"
-          className="bottom-bar-item"
+          className="dock-switcher"
           aria-label="Switch app"
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => setOpen(true)}
         >
-          <CurrentIcon size={20} />
+          <span className="app-tile">
+            <CurrentIcon size={18} />
+          </span>
           <span>{current?.name ?? "Apps"}</span>
+          <ChevronUp size={13} className="dock-switcher-chev" />
         </button>
       ) : (
         <button

@@ -462,7 +462,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("at phone width, the header sheds to search and avatar and the bottom bar carries Folders, the App Switcher and Compose (#155)", async () => {
+  it("at phone width, the header sheds to search and avatar and the Dock carries the App Switcher tile plus Mail's two declared controls (#155, #298)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -484,29 +484,57 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
       expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
 
-      // The bottom bar itself: Folders, the App Switcher (captioned with
-      // the current App's name, "Mail" — its accessible name stays "Switch
-      // app" either way, the same one the header's own skin carries), and
-      // Compose — scoped to the bar itself, since jsdom (unlike a real
-      // browser) never hides the desktop folder rail's own same-named
-      // Compose pill for a width it can't apply `mail.css`'s CSS against.
-      const bottomBar = screen.getByRole("navigation", {
-        name: "Folders, switch app, and compose",
+      // The Dock itself: Folders and Compose either side of the switcher
+      // tile — Mail's own two declared controls (`apps/apps.ts#AppDef.dockControls`)
+      // — the switcher tile captioned with the current App's name, "Mail"
+      // (its accessible name stays "Switch app" either way, the same one
+      // the header's own skin carries) — scoped to the Dock itself, since
+      // jsdom (unlike a real browser) never hides the desktop folder rail's
+      // own same-named Compose pill for a width it can't apply `mail.css`'s
+      // CSS against.
+      const dock = screen.getByRole("navigation", {
+        name: "Folders, switch app, and Compose",
       });
-      expect(within(bottomBar).getByRole("button", { name: "Folders" })).toBeDefined();
-      expect(within(bottomBar).getByText("Mail")).toBeDefined();
-      expect(within(bottomBar).getByRole("button", { name: "Compose" })).toBeDefined();
+      expect(within(dock).getByRole("button", { name: "Folders" })).toBeDefined();
+      expect(within(dock).getByText("Mail")).toBeDefined();
+      expect(within(dock).getByRole("button", { name: "Compose" })).toBeDefined();
 
       // Folders opens the same Sheet the desktop rail's entries live in.
-      await user.click(within(bottomBar).getByRole("button", { name: "Folders" }));
+      await user.click(within(dock).getByRole("button", { name: "Folders" }));
       expect(await screen.findByRole("dialog")).toBeDefined();
       expect(screen.getByRole("button", { name: "Screener" })).toBeDefined();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).toBeNull();
 
-      // Compose opens the Composer from the bottom bar directly.
-      await user.click(within(bottomBar).getByRole("button", { name: "Compose" }));
+      // Compose opens the Composer from the Dock directly.
+      await user.click(within(dock).getByRole("button", { name: "Compose" }));
       expect(await screen.findByPlaceholderText("Subject")).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("at phone width, an App with fewer declared Dock controls shows fewer tiles (#298)", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+
+    try {
+      render(<App />);
+      await screen.findByRole("button", { name: "Switch app" });
+
+      // Contacts hasn't declared any Dock controls yet
+      // (`apps/apps.ts#APPS`'s own `contacts` entry) — the Dock renders only
+      // the switcher tile for it, no empty Folders/Compose placeholders.
+      await user.click(screen.getByRole("button", { name: "Switch app" }));
+      await user.click(screen.getByRole("link", { name: /Contacts/ }));
+      await screen.findByLabelText("Contacts");
+
+      const dock = screen.getByRole("navigation", { name: "switch app" });
+      expect(within(dock).queryByRole("button", { name: "Folders" })).toBeNull();
+      expect(within(dock).queryByRole("button", { name: "Compose" })).toBeNull();
+      expect(within(dock).getByRole("button", { name: "Switch app" })).toBeDefined();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
