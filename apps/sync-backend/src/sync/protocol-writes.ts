@@ -363,6 +363,36 @@ interface LabelBatchOptions {
  * undo; either way the row is dequeued, since a definitive rejection is never
  * going to succeed on a bare retry.
  */
+/**
+ * Undoes the one optimistic write both `labelBatch`'s `archiveRows` call and
+ * `moveBatch`'s Gmail `trash` call can have left behind (#278, #271 wave-1
+ * review): `sync/mutations.ts` strips `\Inbox` off these Messages before the
+ * protocol write is ever attempted, so a *definitive* rejection (see each
+ * caller's own doc comment for how that's told apart from transient) needs
+ * to put it back — restoring the label, rolling every affected Thread's
+ * rollup forward from that restored state, then dequeuing the rows, since a
+ * definitive rejection is never going to succeed on a bare retry.
+ */
+async function revertOptimisticInboxRemoval(
+  db: Db,
+  byMessageId: Map<string, CurrentMessage>,
+  rows: OutboxRow[],
+  done: Set<string>,
+): Promise<void> {
+  const messageIds = rows.map((row) => row.messageId);
+  await setGmailInboxLabel(db, messageIds, true);
+  const threadIds = [
+    ...new Set(
+      messageIds.flatMap((id) => {
+        const threadId = byMessageId.get(id)?.threadId;
+        return threadId ? [threadId] : [];
+      }),
+    ),
+  ];
+  await refreshThreadRollups(db, threadIds);
+  for (const row of rows) done.add(row.id);
+}
+
 async function labelBatch(
   db: Db,
   client: ImapFlow,
@@ -383,18 +413,7 @@ async function labelBatch(
     : await client.messageFlagsRemove(uids, [label], { uid: true, useLabels: true });
   if (!ok) {
     if (options?.revertOnDefiniteFailure) {
-      const messageIds = rows.map((row) => row.messageId);
-      await setGmailInboxLabel(db, messageIds, true);
-      const threadIds = [
-        ...new Set(
-          messageIds.flatMap((id) => {
-            const threadId = byMessageId.get(id)?.threadId;
-            return threadId ? [threadId] : [];
-          }),
-        ),
-      ];
-      await refreshThreadRollups(db, threadIds);
-      for (const row of rows) done.add(row.id);
+      await revertOptimisticInboxRemoval(db, byMessageId, rows, done);
     }
     return; // Transient (no `revertOnDefiniteFailure`) — leave queued for the next drain pass.
   }
@@ -449,18 +468,7 @@ async function moveBatch(
   const result = await client.messageMove(uids, target.path, { uid: true });
   if (!result) {
     if (options?.revertOnDefiniteFailure) {
-      const messageIds = rows.map((row) => row.messageId);
-      await setGmailInboxLabel(db, messageIds, true);
-      const threadIds = [
-        ...new Set(
-          messageIds.flatMap((id) => {
-            const threadId = byMessageId.get(id)?.threadId;
-            return threadId ? [threadId] : [];
-          }),
-        ),
-      ];
-      await refreshThreadRollups(db, threadIds);
-      for (const row of rows) done.add(row.id);
+      await revertOptimisticInboxRemoval(db, byMessageId, rows, done);
     }
     return; // Failed — leave queued for the next drain pass (unless just reverted, above).
   }
