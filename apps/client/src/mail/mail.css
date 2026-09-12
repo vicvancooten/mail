@@ -1401,6 +1401,18 @@
   color: var(--color-ink);
 }
 
+/* Each preset's own computed time (#304, Region Settings), pushed to the row's
+   trailing edge rather than crowding the label. */
+.snooze-menu-list button {
+  justify-content: space-between;
+}
+
+.snooze-preset-time {
+  color: var(--color-ink-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .label-toggle.on {
   background: var(--color-accent-soft);
   color: var(--color-accent);
@@ -1423,6 +1435,14 @@
   padding-top: 0;
 }
 
+.snooze-menu-custom-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .snooze-menu-custom input,
 .label-picker-new input {
   flex: 1;
@@ -1437,6 +1457,15 @@
   font-size: 13px;
   outline: none;
   transition: background var(--dur-press) var(--ease);
+}
+
+/* The custom picker's own live preview (#304, Region Settings) — the parsed
+   `<input type="datetime-local">` value, read back in the viewer's own
+   locale/clock rather than the input's fixed browser-chrome rendering. */
+.snooze-menu-custom-preview {
+  padding: 0 2px;
+  color: var(--color-ink-faint);
+  font-size: 11.5px;
 }
 
 .snooze-menu-custom input:focus,
