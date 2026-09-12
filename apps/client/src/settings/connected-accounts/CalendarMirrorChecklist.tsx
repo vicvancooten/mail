@@ -15,15 +15,10 @@ import { useCalendarsForConnectedAccount } from "../../store/calendars.js";
 /**
  * The Calendar Facet cell's own selective-sync checklist (#235, the
  * #172-prototype-locked home for it: "the checklist lives in the Calendar
- * Facet cell's Popover on the Connected Accounts page"). This component is
- * that checklist's whole implementation — **not yet mounted anywhere**: the
- * Popover it belongs inside, and the Connected Accounts settings page
- * around it, are #201/#206's (`feat/connected-accounts`, not merged onto
- * this branch's ancestry — see this ticket's closing comment, the same
- * "seam ready, no host to plug it into yet" deferral #234's closing comment
- * made for its own credential provider). Exported so `apps/client/src/settings`
- * can drop `<CalendarMirrorChecklist connectedAccountId={...} />` straight
- * into that Popover's content the moment it lands.
+ * Facet cell's Popover on the Connected Accounts page"). Built standalone by
+ * #235 before that Popover existed to host it; #301 mounts it into
+ * `ConnectedAccountFacetBadge.tsx`'s Popover content for `facet === "calendar"`,
+ * the same seam `AddressBookMirrorChecklist` already fills for Contacts.
  *
  * Every discovered Calendar gets a row here whether mirrored or not (this
  * ticket's own acceptance line) — `useCalendarsForConnectedAccount` already
