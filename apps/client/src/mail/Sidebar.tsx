@@ -73,7 +73,7 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  *
  * On phone this isn't a permanent rail at all: it's a `Sheet` bottom sheet
  * (#93). Its own in-body toggle is gone as of #155 — the phone bottom bar's
- * Folders button opens it now (`router/BottomBar.tsx`, via the Action
+ * Folders button opens it now (`router/Dock.tsx`, via the Action
  * registry's `onOpenFolders`), the same "one persistent place to reach a
  * thing" move the bottom bar makes for Compose and the App Switcher too.
  * `foldersOpen`/`onFoldersOpenChange` (optional) let a caller control the

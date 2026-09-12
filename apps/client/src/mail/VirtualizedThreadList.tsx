@@ -43,6 +43,15 @@ import type { Triage } from "./useTriage.js";
  * so a group of thousands doesn't animate thousands of rows. */
 export const GROUP_STAGGER_ROW_CAP = 8;
 
+/** #295: manual Collapse's own stagger step and transition duration — the
+ * same numbers the Done-all bulk clear (`MailSection.tsx`'s own
+ * `GROUP_STAGGER_STEP_MS`/`GROUP_COLLAPSE_DURATION_MS`) already uses, kept
+ * as their own constants here rather than imported, since this component
+ * has no dependency on `MailSection` and the two are free to drift apart
+ * later if the two motions ever need to. */
+const MANUAL_COLLAPSE_STAGGER_STEP_MS = 45;
+const MANUAL_COLLAPSE_TRANSITION_MS = 260;
+
 /**
  * The windowed list (#40, and #51's "one list renderer... search is another
  * list, not a second application"). Renders only the rows in and near the
@@ -195,6 +204,34 @@ export function VirtualizedThreadList({
   // a render, so a hook per label doesn't fit here the way it does there.
   const collapsedVersion = useGroupCollapsedVersion();
 
+  // Manual Collapse's own leave/enter transition (#295): a header click must
+  // animate, not snap — instant unmount the moment `writeGroupCollapsed`
+  // flips a label true would be exactly that snap. `leavingGroupLabels`
+  // keeps a *collapsing* group's rows in `items` below (past the render
+  // where the persisted flag has already gone true, so the header's own
+  // Collapse/Expand control and `aria-expanded` flip the instant it's
+  // clicked) for one more transition's worth of time, tagged `data-
+  // clearing` the same way the Done-all bulk clear already stages a row's
+  // exit; `enteringGroupLabels` is Expand's mirror — the persisted flag is
+  // already false and the rows are already back in `items`, so this only
+  // adds the `data-entering` stagger-in tag for one transition's worth of
+  // time. Never both for the same label at once (`toggleCollapsed` clears
+  // whichever set doesn't apply before adding to the other).
+  const [leavingGroupLabels, setLeavingGroupLabels] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [enteringGroupLabels, setEnteringGroupLabels] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const collapseTransitionTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  useEffect(() => {
+    const timers = collapseTransitionTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `collapsedVersion` is a deliberate re-read trigger, not a value this reads directly.
   const items = useMemo<ListItem[]>(() => {
     if (!group) {
@@ -225,7 +262,10 @@ export function VirtualizedThreadList({
         loadedCount: groupItem.threads.length,
         collapsed,
       });
-      if (collapsed) continue;
+      // A group mid-collapse (`leavingGroupLabels`) still renders its rows,
+      // one transition's worth past the persisted flag going true — #295's
+      // "collapse animates rather than snaps".
+      if (collapsed && !leavingGroupLabels.has(groupItem.label)) continue;
       for (const thread of groupItem.threads) {
         flat.push({
           kind: "thread",
@@ -239,10 +279,59 @@ export function VirtualizedThreadList({
       }
     }
     return flat;
-  }, [threads, group, collapsedVersion]);
+  }, [threads, group, collapsedVersion, leavingGroupLabels]);
 
   const toggleCollapsed = useCallback((label: string) => {
-    writeGroupCollapsed(label, !readGroupCollapsed(label));
+    const wasCollapsed = readGroupCollapsed(label);
+    const pendingTimer = collapseTransitionTimers.current.get(label);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      collapseTransitionTimers.current.delete(label);
+    }
+    // Either direction flips the persisted flag *immediately* — the header's
+    // own control and `aria-expanded` must never lag the click, only the
+    // rows do — then stages that direction's own animation tag for one
+    // transition's worth of time.
+    writeGroupCollapsed(label, !wasCollapsed);
+    if (wasCollapsed) {
+      setLeavingGroupLabels((current) => {
+        if (!current.has(label)) return current;
+        const next = new Set(current);
+        next.delete(label);
+        return next;
+      });
+      setEnteringGroupLabels((current) => new Set(current).add(label));
+    } else {
+      setEnteringGroupLabels((current) => {
+        if (!current.has(label)) return current;
+        const next = new Set(current);
+        next.delete(label);
+        return next;
+      });
+      setLeavingGroupLabels((current) => new Set(current).add(label));
+    }
+    collapseTransitionTimers.current.set(
+      label,
+      setTimeout(
+        () => {
+          if (wasCollapsed) {
+            setEnteringGroupLabels((current) => {
+              const next = new Set(current);
+              next.delete(label);
+              return next;
+            });
+          } else {
+            setLeavingGroupLabels((current) => {
+              const next = new Set(current);
+              next.delete(label);
+              return next;
+            });
+          }
+          collapseTransitionTimers.current.delete(label);
+        },
+        MANUAL_COLLAPSE_STAGGER_STEP_MS * GROUP_STAGGER_ROW_CAP + MANUAL_COLLAPSE_TRANSITION_MS,
+      ),
+    );
   }, []);
 
   // The header checkmark's spine preview (#66, #77): hovering/focusing it
@@ -584,6 +673,48 @@ export function VirtualizedThreadList({
     return map;
   }, [items, groupBulk?.clearingThreadIds]);
 
+  // #295's own manual-Collapse leave/enter stagger — same per-group index
+  // math as `clearIndexById` above, keyed off `leavingGroupLabels`/
+  // `enteringGroupLabels` (a whole group's own rows) rather than a bulk
+  // action's individual Thread ids.
+  const collapseLeaveIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    if (leavingGroupLabels.size === 0) return map;
+    let index = 0;
+    let currentGroup: string | null | undefined;
+    for (const item of items) {
+      if (item.kind !== "thread" || !item.groupLabel || !leavingGroupLabels.has(item.groupLabel)) {
+        continue;
+      }
+      if (item.groupLabel !== currentGroup) {
+        currentGroup = item.groupLabel;
+        index = 0;
+      }
+      map.set(item.thread.id, Math.min(index, GROUP_STAGGER_ROW_CAP - 1));
+      index += 1;
+    }
+    return map;
+  }, [items, leavingGroupLabels]);
+
+  const collapseEnterIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    if (enteringGroupLabels.size === 0) return map;
+    let index = 0;
+    let currentGroup: string | null | undefined;
+    for (const item of items) {
+      if (item.kind !== "thread" || !item.groupLabel || !enteringGroupLabels.has(item.groupLabel)) {
+        continue;
+      }
+      if (item.groupLabel !== currentGroup) {
+        currentGroup = item.groupLabel;
+        index = 0;
+      }
+      map.set(item.thread.id, Math.min(index, GROUP_STAGGER_ROW_CAP - 1));
+      index += 1;
+    }
+    return map;
+  }, [items, enteringGroupLabels]);
+
   const doneAction = actionById("done");
 
   // The listbox stays the fallback focus target even with nothing in it
@@ -632,23 +763,38 @@ export function VirtualizedThreadList({
           // right-clicking a row nobody has opened acts on *that* row.
           const rowCtx =
             actions && item.kind === "thread" ? withThread(actions, item.thread) : null;
-          const clearIndex =
+          const bulkClearIndex =
             item.kind === "thread" ? clearIndexById.get(item.thread.id) : undefined;
+          const collapseLeaveIndex =
+            item.kind === "thread" ? collapseLeaveIndexById.get(item.thread.id) : undefined;
+          const collapseEnterIndex =
+            item.kind === "thread" ? collapseEnterIndexById.get(item.thread.id) : undefined;
+          // A bulk Done-all clear and a manual Collapse leave never target
+          // the same row at once (the former runs on rows that are about to
+          // stop existing; the latter on rows a header click is merely
+          // folding away), so one combined "leaving" index covers both.
+          const leavingIndex = bulkClearIndex ?? collapseLeaveIndex;
           return (
             <div
               key={item.key}
               data-index={virtualItem.index}
-              data-clearing={clearIndex !== undefined || undefined}
-              // Mid-leave, this element's own box never changes size — only
-              // its opacity/transform animate — but it's still handed to
-              // `measureElement` in every other frame, which means a fresh
-              // `ResizeObserver` subscription churns for a row about to
-              // vanish anyway (#97's bug 3: "still fed to measureElement
-              // while transforming"). Skipping the ref while clearing costs
-              // nothing: `hiddenThreadIds` removes the row from `items`
-              // outright once the animation ends, and the virtualizer
-              // recomputes from scratch on that pass regardless.
-              ref={clearIndex === undefined ? virtualizer.measureElement : undefined}
+              data-clearing={leavingIndex !== undefined || undefined}
+              data-entering={collapseEnterIndex !== undefined || undefined}
+              // Mid-leave (or mid-enter), this element's own box never
+              // changes size — only its opacity/transform animate — but
+              // it's still handed to `measureElement` in every other frame,
+              // which means a fresh `ResizeObserver` subscription churns for
+              // a row about to vanish (or that just arrived) anyway (#97's
+              // bug 3: "still fed to measureElement while transforming").
+              // Skipping the ref while animating costs nothing: `items`
+              // above stops rendering a leaving row outright once its
+              // animation ends, and the virtualizer recomputes from scratch
+              // on that pass regardless.
+              ref={
+                leavingIndex === undefined && collapseEnterIndex === undefined
+                  ? virtualizer.measureElement
+                  : undefined
+              }
               style={
                 {
                   position: "absolute",
@@ -656,7 +802,11 @@ export function VirtualizedThreadList({
                   left: 0,
                   width: "100%",
                   transform: `translateY(${virtualItem.start}px)`,
-                  ...(clearIndex !== undefined ? { "--group-clear-index": clearIndex } : {}),
+                  ...(leavingIndex !== undefined
+                    ? { "--group-clear-index": leavingIndex }
+                    : collapseEnterIndex !== undefined
+                      ? { "--group-clear-index": collapseEnterIndex }
+                      : {}),
                 } as CSSProperties
               }
             >
@@ -871,6 +1021,7 @@ function GroupHeaderCluster({
     <div
       className="group-header-cluster"
       data-armed={armed}
+      data-collapsed={collapsed}
       data-group-preview={preview}
       onMouseEnter={arm}
       onMouseLeave={disarm}
@@ -907,6 +1058,12 @@ function GroupHeaderCluster({
       <span className="group-header-label">{label}</span>
       <span className="group-header-count">{count}</span>
       <span className="gh-spacer" />
+      {/* #295: a collapsed group's own at-rest tell — non-interactive, and
+          gone the moment the cluster arms, when the real Expand control (or
+          touch's overflow Sheet) already says the same thing. */}
+      {collapsed && !armed ? (
+        <ChevronDown size={13} className="group-collapsed-indicator" aria-hidden="true" />
+      ) : null}
       {hoverCapable ? (
         <div className="bulk-actions">
           {bulk ? (

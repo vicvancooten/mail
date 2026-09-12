@@ -1,6 +1,24 @@
 import type { ConnectedAccountFacetKind } from "@mail/shared";
 import type { LucideIcon } from "lucide-react";
-import { Calendar, ListChecks, Mail, NotebookText, Users } from "lucide-react";
+import { Calendar, ListChecks, Mail, NotebookText, PanelLeft, Plus, Users } from "lucide-react";
+
+/**
+ * One of an App's own Dock controls (#298) — the Dock's floating pill holds
+ * the App Switcher tile plus whichever of these an App declares, at most
+ * two (the phone Dock's whole width budget beside the switcher tile). Purely
+ * a display declaration — `key` is what `router/Dock.tsx` maps to an actual
+ * handler (an `ActionContext` callback today; nothing here reaches into
+ * Mail's own action vocabulary, the same "Apps registry stays behavior-free"
+ * split `APP_ICONS` already keeps for the App Switcher). An App with fewer
+ * than two — or none — simply lists fewer; the Dock renders exactly as many
+ * tiles as `dockControls` names, no placeholder slots.
+ */
+export interface AppDockControl {
+  /** What `router/Dock.tsx`'s own lookup maps to a runnable handler — never read as display text itself. */
+  key: string;
+  label: string;
+  icon: LucideIcon;
+}
 
 /**
  * The five Apps the App Switcher names (#72, part of #66; grown to five and
@@ -29,6 +47,14 @@ export interface AppDef {
    * rather than rendering it disabled or empty.
    */
   observesAccountScope: boolean;
+  /**
+   * This App's two most-used controls, in the phone Dock (#298) — at most
+   * two, in the order the Dock renders them either side of the switcher
+   * tile. Mail names its two (Folders, Compose); an App that hasn't named
+   * any yet renders none, the same "reserved but not fully built out"
+   * posture `available: false` already gives a whole App above.
+   */
+  dockControls: readonly AppDockControl[];
 }
 
 export const APPS: readonly AppDef[] = [
@@ -39,6 +65,14 @@ export const APPS: readonly AppDef[] = [
     description: "Read, triage and send your mail.",
     available: true,
     observesAccountScope: true,
+    // The phone Dock's own two (#298, the ticket's own worked example):
+    // Folders opens the same Sheet the desktop folder rail lives in,
+    // Compose starts a new draft — the pair `router/Dock.tsx` (née
+    // `BottomBar.tsx`) used to hardcode, now declared here instead.
+    dockControls: [
+      { key: "folders", label: "Folders", icon: PanelLeft },
+      { key: "compose", label: "Compose", icon: Plus },
+    ],
   },
   {
     key: "contacts",
@@ -47,6 +81,9 @@ export const APPS: readonly AppDef[] = [
     description: "Everyone you've written to, gathered in one address book.",
     available: true,
     observesAccountScope: true,
+    // No Dock controls named yet — a future ticket's own worked example,
+    // not this one's.
+    dockControls: [],
   },
   {
     key: "calendar",
@@ -57,6 +94,7 @@ export const APPS: readonly AppDef[] = [
     // first built-out screen (Notes' own #193 precedent above).
     available: true,
     observesAccountScope: true,
+    dockControls: [],
   },
   {
     key: "tasks",
@@ -67,6 +105,7 @@ export const APPS: readonly AppDef[] = [
     // quick add, `notes`'s own "first built-out screen" precedent.
     available: true,
     observesAccountScope: false,
+    dockControls: [],
   },
   {
     key: "notes",
@@ -77,6 +116,7 @@ export const APPS: readonly AppDef[] = [
     // first built-out screen.
     available: true,
     observesAccountScope: false,
+    dockControls: [],
   },
 ];
 

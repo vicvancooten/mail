@@ -1,6 +1,8 @@
 import type { ConnectedAccount, DavDiscoverySummary, DavFacet } from "@mail/shared";
 import { type FormEvent, useState } from "react";
-import { PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ApiError } from "../api/auth.js";
 import { addCalDavFacet, createCalDavAccount } from "../api/connected-accounts.js";
 import { FACET_LABEL } from "./provider-table.js";
@@ -21,6 +23,13 @@ import { FACET_LABEL } from "./provider-table.js";
  * discovery alone, "never asks for the password again" (#203's own
  * acceptance criterion) because the stored credential is what the attach
  * route re-runs discovery against, not anything typed here.
+ *
+ * #299: this is Calendar/Contacts' own multi-step form, so it now renders
+ * inside a Dialog (`AddFacetControl.tsx`'s own `AddCalendarContactsFacetPopover`)
+ * rather than swapping in place inside the Provider-choice Popover. Its own
+ * heading stays plain markup rather than `Dialog`'s header primitives —
+ * this form is also exercised standalone (`AddCalDavFacetForm.test.tsx`),
+ * with no surrounding `Dialog` to supply the context those primitives need.
  */
 export function AddCalDavFacetForm({
   facet,
@@ -75,15 +84,13 @@ export function AddCalDavFacetForm({
   if (discovered) {
     return (
       <>
-        <PopoverHeader>
-          <PopoverTitle>Connected</PopoverTitle>
-        </PopoverHeader>
+        <h3 className="text-sm font-medium text-foreground">Connected</h3>
         <p role="status" className="text-sm text-muted-foreground">
           {describeFound(facet, discovered)}
         </p>
-        <button type="button" onClick={onAdded}>
+        <Button type="button" onClick={onAdded}>
           Done
-        </button>
+        </Button>
       </>
     );
   }
@@ -91,66 +98,97 @@ export function AddCalDavFacetForm({
   if (mode === "choose") {
     return (
       <>
-        <PopoverHeader>
-          <PopoverTitle>Add {FACET_LABEL[facet].toLowerCase()}</PopoverTitle>
-          <PopoverDescription>CalDAV/CardDAV</PopoverDescription>
-        </PopoverHeader>
-        {eligible.map((account) => (
-          <button
-            key={account.id}
+        <div className="flex flex-col gap-0.5">
+          <h3 className="text-sm font-medium text-foreground">
+            Add {FACET_LABEL[facet].toLowerCase()}
+          </h3>
+          <p className="text-sm text-muted-foreground">CalDAV/CardDAV</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          {eligible.map((account) => (
+            <Button
+              key={account.id}
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              onClick={() => void handleAttach(account.id)}
+            >
+              Use {account.identity}
+            </Button>
+          ))}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <Button
             type="button"
+            variant="outline"
+            onClick={() => setMode("entry")}
             disabled={submitting}
-            onClick={() => void handleAttach(account.id)}
           >
-            Use {account.identity}
-          </button>
-        ))}
-        {error && <p role="alert">{error}</p>}
-        <button type="button" onClick={() => setMode("entry")} disabled={submitting}>
-          Add a different CalDAV/CardDAV account
-        </button>
+            Add a different CalDAV/CardDAV account
+          </Button>
+        </div>
       </>
     );
   }
 
   return (
-    <form onSubmit={handleCreate}>
-      <PopoverHeader>
-        <PopoverTitle>Add {FACET_LABEL[facet].toLowerCase()}</PopoverTitle>
-        <PopoverDescription>CalDAV/CardDAV</PopoverDescription>
-      </PopoverHeader>
-      <label htmlFor={`caldav-server-${facet}`}>Server or email address</label>
-      <input
-        id={`caldav-server-${facet}`}
-        value={serverAddress}
-        onChange={(event) => setServerAddress(event.target.value)}
-        required
-      />
-      <label htmlFor={`caldav-username-${facet}`}>Username</label>
-      <input
-        id={`caldav-username-${facet}`}
-        value={username}
-        onChange={(event) => setUsername(event.target.value)}
-        required
-      />
-      <label htmlFor={`caldav-password-${facet}`}>App password</label>
-      <input
-        id={`caldav-password-${facet}`}
-        type="password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        required
-      />
-      {error && <p role="alert">{error}</p>}
+    <form onSubmit={handleCreate} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-sm font-medium text-foreground">
+          Add {FACET_LABEL[facet].toLowerCase()}
+        </h3>
+        <p className="text-sm text-muted-foreground">CalDAV/CardDAV</p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`caldav-server-${facet}`}>Server or email address</Label>
+        <Input
+          id={`caldav-server-${facet}`}
+          value={serverAddress}
+          onChange={(event) => setServerAddress(event.target.value)}
+          required
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`caldav-username-${facet}`}>Username</Label>
+        <Input
+          id={`caldav-username-${facet}`}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          required
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`caldav-password-${facet}`}>App password</Label>
+        <Input
+          id={`caldav-password-${facet}`}
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+        />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
       <div className="flex gap-2">
         {eligible.length > 0 && (
-          <button type="button" onClick={() => setMode("choose")} disabled={submitting}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setMode("choose")}
+            disabled={submitting}
+          >
             Back
-          </button>
+          </Button>
         )}
-        <button type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting}>
           {submitting ? "Checking…" : "Discover and add"}
-        </button>
+        </Button>
       </div>
     </form>
   );

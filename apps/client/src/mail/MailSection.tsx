@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
+import { useIsBelowSplitMinimum } from "../hooks/use-split-minimum-width.js";
 import { subscribeNotificationTarget } from "../pwa/notification-router.js";
 import {
   type CachedThread,
@@ -231,6 +232,20 @@ export function MailSection({
   // criterion ("changing density in Settings updates the list immediately").
   const [viewMode] = useViewMode();
   const [density] = useListDensity();
+  // The split minimum (#296, `hooks/use-split-minimum-width.ts`): below
+  // ~920px neither pane in Split has room to be itself, so the rendered
+  // layout falls back to list-then-Reader while `viewMode` itself (the
+  // stored Device Preference) stays untouched — widening the window past
+  // the token restores Split with no further action from the User.
+  const belowSplitMinimum = useIsBelowSplitMinimum();
+  // The fallback itself (#296): the stored `viewMode` preference is never
+  // rewritten — only what gets rendered changes, so widening the window
+  // back past the split minimum restores Split with no further action from
+  // the User. Shared by both of this component's own Split/List switches
+  // (the plain Thread list below, and `SearchResultsView`'s own, which
+  // renders the same `.split-view`/`.split-list`/`.split-pane` shape) so
+  // neither can drift out of sync with the other.
+  const effectiveViewMode = belowSplitMinimum ? "list" : viewMode;
   // Account Scope (#73, repointed at Connected Accounts in #207): the
   // Hub's own Scope, `deriveMailAccountScope`d down to the Thread list's own
   // accounts — a Connected Account with no Mail Facet in Scope contributes
@@ -1047,7 +1062,7 @@ export function MailSection({
 
   // The phone folder Sheet (#155): controlled from here now rather than
   // `Sidebar.tsx`'s own uncontrolled `openMobile`, so the bottom bar's
-  // Folders button (`router/BottomBar.tsx`, reached through the Action
+  // Folders button (`router/Dock.tsx`, reached through the Action
   // registry's `onOpenFolders` below) can open it from outside Mail's own
   // rendered rail.
   const [foldersOpen, setFoldersOpen] = useState(false);
@@ -1330,7 +1345,7 @@ export function MailSection({
               <Screener accountScope={accountScope} onClose={closeScreener} />
             ) : search.active ? (
               <SearchResultsView
-                viewMode={viewMode}
+                viewMode={effectiveViewMode}
                 state={search}
                 triage={searchTriage}
                 onReply={openReply}
@@ -1372,7 +1387,7 @@ export function MailSection({
                   mailAccounts?.filter((account) => accountScope.includes(account.id)) ?? []
                 }
               />
-            ) : viewMode === "split" ? (
+            ) : effectiveViewMode === "split" ? (
               <SplitView
                 threads={visibleThreads}
                 ids={visibleIds}

@@ -125,6 +125,26 @@ describe("ThreadRow — the Done control", () => {
     expect(screen.getByRole("option").getAttribute("data-armed")).toBe("true");
   });
 
+  it("keeps the Done check hidden at rest for the open/selected Thread — #295: selection is not an arming trigger for Done", () => {
+    render(
+      <ThreadRow thread={makeThread()} selected={true} onSelect={() => {}} onArchive={() => {}} />,
+    );
+    const row = screen.getByRole("option");
+    // `data-armed` (the broader cluster — row-time/row-actions reveal)
+    // still reads true for a selected row; `data-done-armed` (the Done
+    // check's own, narrower trigger) must not.
+    expect(row.getAttribute("data-armed")).toBe("true");
+    expect(row.getAttribute("data-done-armed")).toBe("false");
+
+    fireEvent.mouseEnter(row);
+    expect(row.getAttribute("data-done-armed")).toBe("true");
+    fireEvent.mouseLeave(row);
+    expect(row.getAttribute("data-done-armed")).toBe("false");
+
+    fireEvent.focus(screen.getByRole("button", { name: 'Mark "Quarterly numbers" Done' }));
+    expect(row.getAttribute("data-done-armed")).toBe("true");
+  });
+
   it("the Done control keeps a real accessible name reachable by keyboard even while unarmed", () => {
     render(
       <ThreadRow thread={makeThread()} selected={false} onSelect={() => {}} onArchive={() => {}} />,

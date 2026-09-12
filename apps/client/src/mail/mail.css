@@ -648,6 +648,18 @@
   color: var(--color-ink);
 }
 
+/* A collapsed group's own at-rest tell (#295): `.bulk-actions` (including
+ * its own Collapse/Expand button) stays hover-only, same as ever — this is
+ * a separate, non-interactive glyph so "this group is folded" reads without
+ * arming anything. `GroupHeaderCluster` renders it only while collapsed
+ * *and* unarmed — armed, the real Expand control (or, touch, the overflow
+ * Sheet) already says the same thing, so showing both would be redundant. */
+.group-collapsed-indicator {
+  flex: none;
+  color: var(--color-ink-faint);
+  margin-left: 4px;
+}
+
 /* Touch's own entry to Done all / Mark all read / Collapse (#97's grill
    decision: "no hover — an always-visible small overflow button... opens a
    Sheet"), and #134's touch alternative to the rail/bulk-actions above:
@@ -725,6 +737,29 @@
   to {
     opacity: 0;
     transform: translateX(16px);
+  }
+}
+
+/* ---------- manual Collapse's own leave/enter (#295) ---------------------
+ * A header click reuses the exact same stagger cadence and duration as the
+ * Done-all bulk clear above — "leaving" reads identically whichever action
+ * caused it — and adds the mirror image for Expand: rows fade/slide *in*
+ * rather than only ever out. `VirtualizedThreadList` sets `--group-clear-
+ * index` the same way for both; `data-clearing`/`data-entering` are never
+ * both true on one row. */
+.thread-list [data-entering="true"] {
+  animation: group-row-enter var(--dur-leave) var(--ease) both;
+  animation-delay: calc(var(--group-clear-index, 0) * 45ms);
+}
+
+@keyframes group-row-enter {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -897,11 +932,14 @@
     transform var(--dur-fast) var(--ease);
 }
 
-/* Armed is real component state (`ThreadRow`'s `data-armed`) driven by
-   hover, focus, or arriving on the row with j/k (#66, #75) — never a bare
-   `:hover` rule, so the same "what's armed" question has one answer for a
-   future native Client's touch/keyboard model too. */
-.thread-row[data-armed="true"] .done-btn,
+/* Done is keyed off its own, narrower `data-done-armed` (#295) — hover,
+   focus, or the two forced-arm cases, but never `selected` alone: the
+   open/selected Thread must not sit with a permanent check at rest, only
+   `data-armed`'s broader set (which does include `selected`) still governs
+   the row-time/row-actions reveal below. Never a bare `:hover` rule either
+   way, so the same "what's armed" question has one answer for a future
+   native Client's touch/keyboard model too. */
+.thread-row[data-done-armed="true"] .done-btn,
 .thread-row .done-btn:focus-visible {
   opacity: 1;
   pointer-events: auto;
@@ -3190,7 +3228,7 @@ button.search-chip-toggle.on {
 
   /* The folder rail (#74): a permanent rail has no room on a phone, so it
      becomes a `Sheet` bottom sheet instead (#93) — opened from the phone
-     bottom bar's own Folders button now (#155, `router/BottomBar.tsx`),
+     phone Dock's own Folders tile now (#155, #298, `router/Dock.tsx`),
      not an in-body toggle floating over the list. */
   .side-nav-desktop {
     display: none;

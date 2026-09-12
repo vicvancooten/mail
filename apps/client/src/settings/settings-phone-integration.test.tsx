@@ -165,7 +165,7 @@ describe("Settings at phone width (#135)", () => {
     // Home mark itself stays at the top bar's leading edge on phone too
     // (#286), unlike the switcher instance the Dock picks up instead.
     expect(
-      screen.getByRole("navigation", { name: "Folders, switch app, and compose" }),
+      screen.getByRole("navigation", { name: "Folders, switch app, and Compose" }),
     ).toBeDefined();
     expect(screen.getByLabelText("Wicket home")).toBeDefined();
   });
@@ -185,7 +185,7 @@ describe("Settings at phone width (#135)", () => {
     // bottom bar.
     expect(screen.getByLabelText("Wicket home")).toBeDefined();
     expect(
-      screen.queryByRole("navigation", { name: "Folders, switch app, and compose" }),
+      screen.queryByRole("navigation", { name: "Folders, switch app, and Compose" }),
     ).toBeNull();
   });
 });
