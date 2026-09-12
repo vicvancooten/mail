@@ -268,9 +268,28 @@
   padding: 1px 3px;
   box-sizing: border-box;
   overflow: hidden;
-  /* Inert — opening an Occurrence is a later ticket's own screen; this
-     grid only ever reads (#231's own acceptance line). */
   cursor: default;
+}
+
+/* Dragging to move an Occurrence (#305) — a writable Calendar's own chip
+   grabs; the source chip dims while its own ghost tracks the pointer's
+   snapped drop target, never the other way round. */
+.calendar-timed-event.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+.calendar-timed-event.dragging-source {
+  opacity: 0.35;
+}
+.calendar-timed-event.calendar-timed-event-ghost {
+  pointer-events: none;
+  opacity: 0.7;
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-accent) 18%, var(--color-surface));
+}
+.calendar-time-grid.dragging {
+  cursor: grabbing;
 }
 
 /* ------------------------------------------------------------------ */
@@ -529,6 +548,19 @@
   font-size: 10.5px;
   color: var(--color-ink-muted);
   padding-left: 5px;
+}
+
+/* Dragging a chip to another day (#305) — `calendar-timed-event`'s own
+   grab/dim pair, Month's own day-only drop. */
+.calendar-month-chip-drag.draggable {
+  cursor: grab;
+  touch-action: none;
+}
+.calendar-month-chip-drag.dragging-source {
+  opacity: 0.35;
+}
+.calendar-month-grid.dragging {
+  cursor: grabbing;
 }
 
 /* ------------------------------------------------------------------ */
