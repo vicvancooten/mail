@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
 import { currentListHandle, resetSurfaceHandles } from "./actions/surface-handles.js";
@@ -599,9 +599,71 @@ describe("VirtualizedThreadList — collapsible groups as a Device Preference (#
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
 
+    // #295: rows now leave through a transition rather than vanishing the
+    // instant the header's own state flips — still present, tagged
+    // `data-clearing`, until that transition finishes.
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
     expect(screen.queryAllByRole("option")).toHaveLength(0);
     expect(document.querySelector(".group-header")).not.toBeNull();
     expect(document.querySelector(".group-header-count")?.textContent).toBe("2");
+  });
+
+  it("animates a collapsing group's rows out (#295: transition, not a snap) and shows a collapsed-at-rest indicator once it lands", () => {
+    renderGrouped([
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+
+    // Mid-transition: rows are still in the DOM, tagged `data-clearing` —
+    // the actual leave animation, not an instant unmount.
+    const rows = screen.getAllByRole("option");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.closest("[data-clearing='true']")).not.toBeNull();
+    }
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    // Collapsed, at rest (unarmed): the indicator is visible with no hover.
+    expect(document.querySelector(".group-collapsed-indicator")).not.toBeNull();
+  });
+
+  it("hides the collapsed-at-rest indicator once the header arms, in favor of the real Expand control", () => {
+    renderGrouped([makeThread("t1", "2026-06-25T09:00:00.000Z")]);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(document.querySelector(".group-collapsed-indicator")).not.toBeNull();
+
+    fireEvent.mouseEnter(document.querySelector(".group-header-cluster") as HTMLElement);
+    expect(document.querySelector(".group-collapsed-indicator")).toBeNull();
+  });
+
+  it("animates an expanding group's rows in, tagged data-entering", () => {
+    renderGrouped([
+      makeThread("t-today-1", "2026-06-25T09:00:00.000Z"),
+      makeThread("t-today-2", "2026-06-25T08:00:00.000Z"),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Today" }));
+
+    const rows = screen.getAllByRole("option");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.closest("[data-entering='true']")).not.toBeNull();
+    }
   });
 
   it("flips the control to Expand once collapsed, and back on a second tap", () => {
@@ -634,6 +696,9 @@ describe("VirtualizedThreadList — collapsible groups as a Device Preference (#
     ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse Today" }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
 
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Collapse Yesterday" })).toBeDefined();

@@ -196,10 +196,19 @@ export function ThreadRow({
   // state a future native Client's touch/keyboard model can reuse directly
   // — and `selected` is what "arriving on a row with j/k arms it" cashes
   // out to: `VirtualizedThreadList`'s `moveSelection` sets it exactly the
-  // way a click does, so one state covers all three triggers.
+  // way a click does, so one state covers all three triggers. This still
+  // drives the meta column's Snooze/Pin reveal (`data-armed` below).
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const armed = hovered || focused || selected || previewArmed || pointerArmed;
+  // The Done check's own, narrower arming (#295): the open/selected Thread
+  // is not "at rest" in the same sense a merely-scrolled-past row is, but
+  // Done is an action, not a selection readout — an open Thread showing a
+  // permanent check reads as "you've already dealt with this", which isn't
+  // true. So Done reveals on hover, focus, and the two forced-arm cases
+  // (`previewArmed`, `pointerArmed`) alone, never on `selected` — the one
+  // deliberate split from `armed` above.
+  const doneArmed = hovered || focused || previewArmed || pointerArmed;
 
   // The Snooze popover (#76): its own local toggle, mirroring
   // `ThreadDetailPane`'s `pickerOpen` for `LabelPicker` — one open control
@@ -239,6 +248,7 @@ export function ThreadRow({
       className={`thread-row${unread ? " unread" : ""}${selected ? " selected" : ""}${thread.pinned ? " pinned" : ""}`}
       data-tier={tier ?? undefined}
       data-armed={armed}
+      data-done-armed={doneArmed}
       data-group-preview={previewArmed || undefined}
       data-hover-capable={hoverCapable}
       style={
