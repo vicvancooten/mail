@@ -22,7 +22,7 @@ import { useConnectedAccounts, useMailAccounts } from "../store/index.js";
 import { useLocalCacheSync } from "../sync/use-local-cache-sync.js";
 import { useResolvedAppearance } from "../theme/device-theme.js";
 import { AvatarMenu } from "./AvatarMenu.js";
-import { BottomBar } from "./BottomBar.js";
+import { Dock } from "./Dock.js";
 import { rootRoute } from "./routes.js";
 import { useChromeRetract } from "./useChromeRetract.js";
 import "./shell.css";
@@ -75,14 +75,15 @@ import "./shell.css";
  * toggle drop out of the header on phone — a real conditional
  * (`isPhoneChrome` below), not CSS-only visibility, since a hidden-but-
  * mounted "Switch app" control is a duplicate accessible control, not a
- * neutral simplification. `BottomBar.tsx` picks up Folders, the App
- * Switcher and Compose down there instead, and Appearance folds into
- * `AvatarMenu`'s own radio group, which already had it. `HomeLink` itself
- * stays (#286, `CONTEXT.md`'s own Hub entry: "on a phone the Hub keeps the
- * top bar full-width and full-bleed, the home mark at its leading edge, and
- * hands the App Switcher to the Dock") — its `to` just narrows from `/mail`
+ * neutral simplification. `Dock.tsx` (#298, replacing the old bottom bar)
+ * picks up the App Switcher tile plus the current App's own declared
+ * controls down there instead, and Appearance folds into `AvatarMenu`'s own
+ * radio group, which already had it. `HomeLink` itself stays (#286,
+ * `CONTEXT.md`'s own Hub entry: "on a phone the Hub keeps the top bar
+ * full-width and full-bleed, the home mark at its leading edge, and hands
+ * the App Switcher to the Dock") — its `to` just narrows from `/mail`
  * to `currentApp`'s own root, since there's no adjacent Switcher on phone to
- * jump elsewhere with. The header and the bottom bar retract together on
+ * jump elsewhere with. The header and the Dock retract together on
  * scroll-down and return on scroll-up (`useChromeRetract.ts`),
  * `data-chrome-hidden` below being what `shell.css`'s phone query reads to
  * animate both — the header's own box carries its safe-area inset as
@@ -274,11 +275,11 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // Nothing Mail-scoped mounted (Settings, a placeholder App): the same
   // "nothing wired" context the Shortcut Sheet already renders against,
   // with `/`/⌘K's own callbacks still live so those two rows work from
-  // anywhere, and Stream still one command away. The phone bottom bar's
-  // Folders and Compose buttons (#155) read this same fallback — from
-  // Settings or a placeholder App, both navigate to Mail first rather than
-  // doing nothing, the same "navigate, then act" shape `paletteSearch`
-  // above already uses for a hit selected from outside `/mail`.
+  // anywhere, and Stream still one command away. The Dock's Folders and
+  // Compose tiles (#155, #298) read this same fallback — from Settings or
+  // a placeholder App, both navigate to Mail first rather than doing
+  // nothing, the same "navigate, then act" shape `paletteSearch` above
+  // already uses for a hit selected from outside `/mail`.
   const fallbackCtx = useMemo(
     () =>
       noopActionContext({
@@ -291,10 +292,11 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
     [openPalette, navigate],
   );
 
-  // The Hub header and phone bottom bar retract on scroll-down, return on
-  // scroll-up (#155's own acceptance box) — `data-chrome-hidden` below is
-  // what `shell.css`'s phone query reads; see `useChromeRetract.ts` for why
-  // one hook here covers every scrollable pane any route renders.
+  // The Hub header and phone Dock retract on scroll-down, return on
+  // scroll-up (#155's own acceptance box, carried forward by #298) —
+  // `data-chrome-hidden` below is what `shell.css`'s phone query reads; see
+  // `useChromeRetract.ts` for why one hook here covers every scrollable
+  // pane any route renders.
   const chromeHidden = useChromeRetract(pathname);
   const activeCtx = activeHost?.ctx ?? fallbackCtx;
 
@@ -303,7 +305,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // app's one 768px breakpoint (#273 unified this with the Mail/Settings
   // split that used to sit at a different 700px). `AppSwitcher` already
   // branches its own Sheet-vs-inline rendering on this exact hook, and
-  // mounting *both* a header instance and a bottom-bar instance of it (each
+  // mounting *both* a header instance and a Dock instance of it (each
   // carrying the same "Switch app" accessible name) would be a real
   // duplicate-control bug, not just a test inconvenience — CSS `display:
   // none` hides one visually but leaves it in the accessibility tree and
@@ -316,7 +318,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // routing one — `mailReaderRoute` is still a child of `rootRoute` like
   // every other screen (TanStack Router has no other way to reach it), so
   // this is what actually keeps the header, `AppSwitcher`, Account Scope,
-  // the Command Palette and the phone bottom bar off this one path. Every
+  // the Command Palette and the phone Dock off this one path. Every
   // hook above still ran (Rules of Hooks) — most just go unused this
   // render, the same "harmless to keep running" posture the notification-
   // routing effects above already take regardless of route. `Toaster` stays
@@ -380,7 +382,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             <Outlet />
           </div>
         </div>
-        {isPhoneChrome && <BottomBar pathname={pathname} ctx={activeCtx} />}
+        {isPhoneChrome && <Dock pathname={pathname} ctx={activeCtx} />}
         <Toaster />
         <CalendarRollbackToast />
         <CalendarReminderToast />

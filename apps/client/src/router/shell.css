@@ -18,10 +18,15 @@
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
-  /* The phone bottom bar's own content height (#155), excluding its safe-
-     area padding — one value the bar itself and `.app-viewport`'s reserved
-     bottom padding both read, so they can never drift out of step. */
-  --bottom-bar-height: 58px;
+  /* The phone Dock's own content height (#155, #298), excluding its own
+     bottom margin and safe-area padding — one value the Dock itself and
+     `.app-viewport`'s reserved bottom padding both read, so they can never
+     drift out of step. */
+  --dock-height: 56px;
+  /* Gap between the Dock's floating pill and the screen's bottom safe area
+     — what actually makes it read as floating rather than framing: the
+     page's own ground colour shows all the way round it. */
+  --dock-gutter: 14px;
 }
 
 /* ---------- the global header ---------- */
@@ -549,8 +554,9 @@
    entirely on phone now (`RootLayout.tsx`'s own `isPhoneChrome` — a real
    conditional, not CSS visibility: a hidden-but-mounted "Switch app"
    control is a duplicate accessible control, not a neutral
-   simplification), with `BottomBar.tsx` picking up Folders, the App
-   Switcher and Compose down there instead, and Appearance folding into
+   simplification), with `Dock.tsx` (#298) picking up the App Switcher tile
+   plus the current App's own declared controls down there instead, and
+   Appearance folding into
    `AvatarMenu`'s own radio group (which already had it). This query
    matches `RootLayout.tsx`'s own breakpoint exactly — `AppSwitcher.tsx`'s
    `useIsPhoneWidth`, the app's one 768px phone breakpoint (#273, also
@@ -597,7 +603,7 @@
      smooth every frame of a fast scroll. */
   .app-viewport {
     padding-top: calc(54px + env(safe-area-inset-top));
-    padding-bottom: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--dock-height) + var(--dock-gutter) * 2 + env(safe-area-inset-bottom));
   }
 
   .app-shell[data-chrome-hidden="true"] .app-header {
@@ -605,58 +611,70 @@
   }
 }
 
-/* ---------- the phone bottom bar (#155) ---------- */
+/* ---------- the phone Dock (#155, replaced with a floating pill in #298) ---------- */
 
-/* Hidden by default — `RootLayout.tsx` only ever mounts `<BottomBar>` on
-   phone (`isPhoneChrome`) so this rule rarely does any work, but it's a
-   harmless backstop rather than the actual gate. */
-.bottom-bar {
+/* Hidden by default — `RootLayout.tsx` only ever mounts `<Dock>` on phone
+   (`isPhoneChrome`) so this rule rarely does any work, but it's a harmless
+   backstop rather than the actual gate. */
+.dock {
   display: none;
 }
 
 @media (max-width: 767px) {
-  .bottom-bar {
+  /* A floating pill, not a bar framing the screen (#298's own acceptance
+     box): centred with a gutter on every side rather than pinned edge to
+     edge, so the page's one phone ground colour (`.app-viewport`'s own
+     `--color-bg` fill, full-bleed at this width) shows all the way round
+     it instead of being framed by a painted band. `--shadow-overlay` — the
+     one shadow this app gives an element that floats *over* content rather
+     than merely sitting in relief above it (`compose.css`, `mail.css`'s own
+     panels) — is what makes it read as floating rather than as more chrome
+     bolted to the edge. */
+  .dock {
     display: flex;
+    align-items: stretch;
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: 50%;
+    bottom: calc(var(--dock-gutter) + env(safe-area-inset-bottom));
     z-index: 10;
-    height: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+    gap: 2px;
+    padding: 6px;
+    border-radius: 999px;
     background: var(--color-surface-strong);
-    /* The same relief-from-the-ground token the header uses for its own
-       separation from `.app-viewport` below it (`--shadow-header`, a fixed
-       recipe, not a floating-element shadow) — the header and the bottom
-       bar are the same kind of chrome, so they read as one surface family
-       rather than each inventing its own edge treatment. */
-    box-shadow: var(--shadow-header);
+    box-shadow: var(--shadow-overlay);
+    transform: translateX(-50%);
     transition: transform var(--dur-fast) var(--ease-out);
   }
 
-  .app-shell[data-chrome-hidden="true"] .bottom-bar {
-    transform: translateY(100%);
+  /* Retracts downward off-screen, same mechanism and timing as the header
+     (`useChromeRetract.ts`, `data-chrome-hidden`) — the horizontal centring
+     transform stays in the same rule so the two combine into one `matrix`
+     rather than a second transform clobbering the first. */
+  .app-shell[data-chrome-hidden="true"] .dock {
+    transform: translateX(-50%)
+      translateY(calc(100% + var(--dock-gutter) + env(safe-area-inset-bottom) + 20px));
   }
 }
 
-/* One shared voice for all three items — Folders, the switcher (its own
-   `variant="bottom-bar"` skin, `apps/AppSwitcher.tsx`) and Compose — an
-   icon over a caption, evenly spaced, transparent until pressed. Ghost is
-   this app's default control voice everywhere else too; a persistent bar
-   read is earned by even spacing and a full-height hit target, not by an
-   inverted or tinted "current" state none of the three actually has (each
-   opens a transient sheet or panel, never a place you "are"). */
-.bottom-bar-item {
+/* One shared voice for every tile — a declared control (Folders, Compose,
+   `apps/apps.ts#AppDef.dockControls`) or the switcher — an icon over a
+   caption, evenly spaced, transparent until pressed. Ghost is this app's
+   default control voice everywhere else too; a persistent pill read is
+   earned by even spacing and a full-height hit target, not by an inverted
+   or tinted "current" state none of these tiles actually has (each opens a
+   transient sheet or panel, never a place you "are"). */
+.dock-item {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  height: 100%;
+  gap: 2px;
+  min-width: 56px;
+  height: var(--dock-height);
+  padding: 0 10px;
   border: none;
+  border-radius: 999px;
   background: transparent;
   color: var(--color-ink-muted);
   font-family: inherit;
@@ -668,27 +686,81 @@
     transform var(--dur-press) var(--ease-out);
 }
 
-.bottom-bar-item:hover {
+.dock-item:hover {
   color: var(--color-ink);
 }
 
-.bottom-bar-item:active {
+.dock-item:active {
   color: var(--color-accent);
   transform: scale(0.92);
 }
 
 /* Compose is the one filled action everywhere else in the app
-   (`.compose-btn`'s own accent pill) — here it stays ghost like its two
-   siblings (a solid disc this small reads as a FAB bolted onto a tab bar,
-   the phone-app cliché the brief rules out), but keeps a little of that
-   same personality: the plus turns a quarter turn on press, not just a
-   colour change. */
-.bottom-bar-compose svg {
+   (`.compose-btn`'s own accent pill) — here it stays ghost like its
+   siblings (a solid disc this small reads as a FAB bolted onto a Dock, the
+   phone-app cliché the brief rules out), but keeps a little of that same
+   personality: the plus turns a quarter turn on press, not just a colour
+   change. */
+.dock-compose svg {
   transition: transform var(--dur-fast) var(--ease-pop);
 }
 
-.bottom-bar-compose:active svg {
+.dock-compose:active svg {
   transform: rotate(90deg);
+}
+
+/* The switcher tile (#298's own acceptance box: "reads as tappable/a
+   control, not a label") — a filled `.app-tile` behind the current App's
+   icon plus an upward chevron, rather than bare icon-over-caption text at
+   the same visual weight as the ghost tiles either side of it. A subtle
+   fill and border give it its own footprint in the pill so it reads as the
+   thing you press to open something, not a caption naming what the Dock
+   currently shows. */
+.dock-switcher {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: var(--dock-height);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.dock-switcher span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-switcher:hover {
+  background: var(--color-field);
+}
+
+.dock-switcher:active {
+  transform: scale(0.96);
+}
+
+.dock-switcher .app-tile {
+  width: 22px;
+  height: 22px;
+}
+
+.dock-switcher-chev {
+  color: var(--color-ink-faint);
+  flex: none;
 }
 
 /* The phone App Switcher's own Sheet (#136): a bottom sheet, not the

@@ -1040,7 +1040,7 @@ export function MailSection({
 
   // The phone folder Sheet (#155): controlled from here now rather than
   // `Sidebar.tsx`'s own uncontrolled `openMobile`, so the bottom bar's
-  // Folders button (`router/BottomBar.tsx`, reached through the Action
+  // Folders button (`router/Dock.tsx`, reached through the Action
   // registry's `onOpenFolders` below) can open it from outside Mail's own
   // rendered rail.
   const [foldersOpen, setFoldersOpen] = useState(false);
