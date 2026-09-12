@@ -1,7 +1,7 @@
 import type { AutoAdvanceDirection, UndoSendDelaySeconds } from "@mail/shared";
 import { UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
 import { useCallback } from "react";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -71,11 +71,9 @@ export function GeneralSection() {
       {preference && (
         <section className="flex flex-col gap-4">
           <Label className="flex items-center gap-2">
-            <Input
-              type="checkbox"
-              className="h-4 w-4"
+            <Checkbox
               checked={preference.autoAdvanceEnabled}
-              onChange={(event) => changeAutoAdvanceEnabled(event.target.checked)}
+              onCheckedChange={(checked) => changeAutoAdvanceEnabled(checked === true)}
             />
             Auto-advance after archive/trash
           </Label>

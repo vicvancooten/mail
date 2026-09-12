@@ -1,4 +1,4 @@
-import type { DragEvent, MouseEvent, ReactNode } from "react";
+import type { DragEvent, MouseEvent, ReactNode, Ref } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -36,6 +36,7 @@ export function CalendarDayCell({
   onOpenDay,
   onTaskDrop,
   onBackgroundClick,
+  containerRef,
   children,
 }: {
   date: CivilDate;
@@ -43,6 +44,8 @@ export function CalendarDayCell({
   onOpenDay: (date: CivilDate) => void;
   onTaskDrop?: (taskId: string) => void;
   onBackgroundClick?: (event: MouseEvent<HTMLDivElement>) => void;
+  /** The Event drag session's own hit-test (#305) — `DayTimeGrid.tsx`/`MonthGrid.tsx` collect one ref per cell so a pointer-move can find which cell it's currently over; `undefined` everywhere a cell is never itself a drag target. */
+  containerRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
@@ -69,6 +72,7 @@ export function CalendarDayCell({
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a native HTML5 drop zone and click-to-create surface (#261, "no drag-and-drop dependency") over the cell's own background — every real control here (a chip's checkbox/title, the Month day-number button) is its own focusable element right inside it; the click/drag are shortcuts, the chip's own popover Due control and the Tasks App's own create flow are the keyboard/screen-reader path. */}
         {/* biome-ignore lint/a11y/useKeyWithClickEvents: same shortcut-surface reasoning — there is no keyboard equivalent of "click empty grid space" to wire, the same posture `tasks/TaskListView.tsx`'s own drop zones already take. */}
         <div
+          ref={containerRef}
           className={className}
           onClick={onBackgroundClick ? handleClick : undefined}
           onDragOver={onTaskDrop ? handleDragOver : undefined}

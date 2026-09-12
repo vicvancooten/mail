@@ -4,7 +4,7 @@ import { addDays, type CivilDate, compareCivilDates, dayKey } from "./calendar-d
 
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
 
-interface CivilInstant extends CivilDate {
+export interface CivilInstant extends CivilDate {
   hour: number;
   minute: number;
 }
@@ -41,6 +41,35 @@ export function eventStart(event: Event, timeZone = ""): CivilInstant {
 
 export function eventEnd(event: Event, timeZone = ""): CivilInstant {
   return civilInstant(event.end, event.allDay || event.floating, timeZone);
+}
+
+/**
+ * `civilInstant`'s own inverse (#305's drag-to-move): a dragged Occurrence's
+ * new position, read as an ordinary `CivilInstant`, back into the wire ISO
+ * string a save actually writes. A wall-clock value (`wallClock`, an
+ * all-day or floating Occurrence) is rebuilt through `Date.UTC` — the exact
+ * "digits as UTC" encoding `civilInstant` reads back off, never the
+ * viewer's own zone — so a Month drag that only ever changes the day never
+ * drifts the wall-clock hour it preserved. A real timed instant goes through
+ * the viewer's own local `Date` constructor instead, `EventEditorPopover.tsx`'s
+ * own `fromLocalInputValue` shape, converting the local wall time a Day/Week
+ * drag computed into the UTC instant the wire format wants.
+ */
+export function civilInstantToIso(instant: CivilInstant, wallClock: boolean): string {
+  if (wallClock) {
+    return new Date(
+      Date.UTC(instant.year, instant.month - 1, instant.day, instant.hour, instant.minute, 0, 0),
+    ).toISOString();
+  }
+  return new Date(
+    instant.year,
+    instant.month - 1,
+    instant.day,
+    instant.hour,
+    instant.minute,
+    0,
+    0,
+  ).toISOString();
 }
 
 /**

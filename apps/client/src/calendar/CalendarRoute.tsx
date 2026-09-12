@@ -33,6 +33,7 @@ import {
 } from "./calendar-url.js";
 import { DayTimeGrid } from "./DayTimeGrid.js";
 import { EventEditorPopover } from "./EventEditorPopover.js";
+import { EventMoveScopeDialog } from "./EventMoveScopeDialog.js";
 import { MonthGrid } from "./MonthGrid.js";
 import { TaskPopover } from "./TaskPopover.js";
 import { YearGrid } from "./YearGrid.js";
@@ -261,6 +262,7 @@ export function CalendarRoute() {
         onToggleTasks={() => toggleShowTasks(!showTasks)}
       />
       <EventEditorPopover calendars={calendars} />
+      <EventMoveScopeDialog />
       <TaskPopover
         onOpenTask={(taskId) => void navigate({ to: "/tasks/$taskId", params: { taskId } })}
       />

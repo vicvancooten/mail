@@ -140,6 +140,50 @@ describe("a Facet whose API is enabled", () => {
   });
 });
 
+/**
+ * #299's two headline acceptance criteria for Mail's own per-row doors:
+ * Google/Microsoft's "+" opens a Popover holding just that one Provider's
+ * sign-in step (no chooser, no Dialog); Other IMAP's "+" opens the
+ * multi-step form straight into a Dialog (no chooser first either).
+ */
+describe("a Mail row's own door, scoped to one Provider", () => {
+  it("shows only Google's sign-in step in a Popover — not Microsoft's, not a Dialog", async () => {
+    mockAvailability(available({ provider: "google" }), available({ provider: "microsoft" }));
+    render(<AddFacetControl facet="mail" isOwner={false} provider="google" />);
+    await openPopover();
+
+    expect(await screen.findByRole("button", { name: "Sign in with Google" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Sign in with Microsoft" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Other" })).toBeNull();
+    // Radix's Popover.Content, like Dialog.Content, renders `role="dialog"`
+    // itself — the `data-slot` is what actually tells the two apart here.
+    expect(document.querySelector('[data-slot="popover-content"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="dialog-content"]')).toBeNull();
+  });
+
+  it("shows only Microsoft's sign-in step in a Popover — not Google's, not a Dialog", async () => {
+    mockAvailability(available({ provider: "google" }), available({ provider: "microsoft" }));
+    render(<AddFacetControl facet="mail" isOwner={false} provider="microsoft" />);
+    await openPopover();
+
+    expect(await screen.findByRole("button", { name: "Sign in with Microsoft" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Other" })).toBeNull();
+    expect(document.querySelector('[data-slot="popover-content"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="dialog-content"]')).toBeNull();
+  });
+
+  it("opens the IMAP form in a Dialog, no chooser first", async () => {
+    render(<AddFacetControl facet="mail" isOwner={false} provider="other_imap" />);
+    await openPopover();
+
+    expect(await screen.findByLabelText("Email address")).toBeDefined();
+    expect(document.querySelector('[data-slot="dialog-content"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
+  });
+});
+
 describe("every door in one Popover, regardless of which row's + opened it", () => {
   it("shows a section per OAuth Provider plus CalDAV/CardDAV's own working flow", async () => {
     mockAvailability(available({ provider: "google" }), {
