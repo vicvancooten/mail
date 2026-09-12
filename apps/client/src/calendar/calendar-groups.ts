@@ -36,12 +36,15 @@ export function groupCalendarsByAccount(
   connectedAccounts: readonly ConnectedAccount[],
 ): CalendarGroup[] {
   const accountsById = new Map(connectedAccounts.map((account) => [account.id, account]));
-  const groups: CalendarGroup[] = [];
-  const groupByKey = new Map<string, CalendarGroup>();
+  const groupsByKey = new Map<
+    string,
+    { key: string; label: string; provider: Provider | null; calendars: Calendar[] }
+  >();
+  const order: string[] = [];
 
   for (const calendar of calendars) {
     const key = calendar.origin.type === "local" ? "local" : calendar.origin.connectedAccountId;
-    let group = groupByKey.get(key);
+    let group = groupsByKey.get(key);
     if (!group) {
       const account = calendar.origin.type === "local" ? null : accountsById.get(key);
       group = {
@@ -50,11 +53,11 @@ export function groupCalendarsByAccount(
         provider: account?.provider ?? null,
         calendars: [],
       };
-      groupByKey.set(key, group);
-      groups.push(group);
+      groupsByKey.set(key, group);
+      order.push(key);
     }
-    (group.calendars as Calendar[]).push(calendar);
+    group.calendars.push(calendar);
   }
 
-  return groups;
+  return order.map((key) => groupsByKey.get(key)!);
 }
