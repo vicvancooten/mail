@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/popover";
 import { ProviderReauthAction } from "../mail-accounts/ProviderReauthAction.js";
 import { ReauthMailAccountForm } from "../mail-accounts/ReauthMailAccountForm.js";
+import { CalendarMirrorChecklist } from "../settings/connected-accounts/CalendarMirrorChecklist.js";
 import { AddressBookMirrorChecklist } from "./AddressBookMirrorChecklist.js";
 import { FacetReauthAction } from "./FacetReauthAction.js";
 import { FACET_LABEL, PROVIDER_TABLE_LABEL } from "./provider-table.js";
@@ -32,7 +33,9 @@ import { RemoveFacetDialog } from "./RemoveFacetDialog.js";
  * never a password field for an OAuth account either. The Contacts Facet
  * also carries its own `mirrored` checklist (#215, `AddressBookMirrorChecklist.tsx`)
  * — the #172-prototype-locked home for it, rendered here rather than a
- * modal.
+ * modal. The Calendar Facet's own checklist (#301, `CalendarMirrorChecklist.tsx`)
+ * is the same seam, mounted here for the first time — it was built
+ * standalone by #235 before this Popover existed to host it.
  */
 export function ConnectedAccountFacetBadge({
   account,
@@ -136,6 +139,12 @@ export function ConnectedAccountFacetBadge({
               modal — rendered regardless of Needs Reauth, since the Address
               Book list itself (unlike a Fix) is still worth showing. */}
           {facet === "contacts" && <AddressBookMirrorChecklist connectedAccountId={account.id} />}
+
+          {/* The Calendar Facet's own selective-sync checklist (#301,
+              #235's own acceptance line: "the checklist lives in the
+              Calendar Facet cell's Popover") — rendered regardless of Needs
+              Reauth, same as Contacts' own checklist above. */}
+          {facet === "calendar" && <CalendarMirrorChecklist connectedAccountId={account.id} />}
 
           {/* Turning off a Facet, removing a Connected Account (#206,
               ADR-0029) — a confirmed act, so this only opens the dialog; the
