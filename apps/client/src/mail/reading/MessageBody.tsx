@@ -1,4 +1,4 @@
-import type { Message } from "@mail/shared";
+import { type Message, splitMessageQuotedHistory } from "@mail/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type CidBlob, findCidReferences, resolveCidBlobs, revokeCidBlobs } from "./cid.js";
 import { type MailtoLink, parseMailtoHref } from "./mailto.js";
@@ -59,6 +59,16 @@ function usePrefersDark(): boolean {
  * `allow-popups`: handing the click to the browser would lose this seam
  * entirely (ADR-0018's considered-and-rejected options).
  *
+ * Quoted/forwarded history (#291, `@mail/shared#splitMessageQuotedHistory` —
+ * the same rule the Snippet is derived from) renders inside the sandboxed
+ * document itself, collapsed behind a "Show quoted text" toggle at the exact
+ * point it starts: a script alongside the resize/click-bridge ones below
+ * flips a `hidden` attribute, letting the existing `ResizeObserver` (which
+ * watches `document.body`, not any one element) pick up the height change
+ * for free. No host-side state for this — nothing about *whether* a message
+ * has history to hide changes across a render, so there is nothing here for
+ * React to own.
+ *
  * `interactive` (#102, default `true`) is the ordinary reading pane's mode.
  * The Screener's View dialog passes `false` for a stranger's held mail the
  * User hasn't decided about yet: remote images stay blocked with no "Load
@@ -89,11 +99,28 @@ export function MessageBody({
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const darkMode = usePrefersDark();
 
-  const bodyHtml = message.bodyHtml ?? "";
+  // #291: split once per body change, not per render — `visible` is what
+  // goes in the sandboxed document up front, `quoted` (possibly `null`)
+  // renders alongside it behind the in-frame toggle (see the doc comment
+  // above). `fullBodyHtml` is only for the two concerns that need to see the
+  // *whole* body regardless of which half is currently shown: resolving
+  // `cid:` references and deciding whether "Load remote images" has
+  // anything to offer — both would otherwise miss a reference that happens
+  // to sit only in the quoted half.
+  const { visible, quoted } = useMemo(
+    () =>
+      splitMessageQuotedHistory({
+        bodyHtml: message.bodyHtml,
+        bodyText: message.bodyText,
+        bodyIsPlainText: message.bodyIsPlainText,
+      }),
+    [message.bodyHtml, message.bodyText, message.bodyIsPlainText],
+  );
+  const fullBodyHtml = quoted ? `${visible}${quoted}` : visible;
 
   useEffect(() => {
     let cancelled = false;
-    const contentIds = findCidReferences(bodyHtml);
+    const contentIds = findCidReferences(fullBodyHtml);
     if (contentIds.length === 0) {
       setCidBlobs((prev) => {
         revokeCidBlobs(prev);
@@ -114,14 +141,15 @@ export function MessageBody({
     return () => {
       cancelled = true;
     };
-  }, [message.id, bodyHtml, message.attachments]);
+  }, [message.id, fullBodyHtml, message.attachments]);
 
   // Blob URLs are only ever read while this component is mounted; release them on unmount too.
   useEffect(() => () => revokeCidBlobs(cidBlobs), [cidBlobs]);
 
   const srcDoc = useMemo(() => {
     return buildMessageDocument({
-      html: bodyHtml,
+      html: visible,
+      quotedHtml: quoted,
       cidBlobUrls: new Map(cidBlobs.map((blob) => [blob.contentId, blob.blobUrl])),
       imagesLoaded,
       darkMode,
@@ -129,7 +157,7 @@ export function MessageBody({
       origin: window.location.origin,
       linkBridge: interactive,
     });
-  }, [bodyHtml, cidBlobs, imagesLoaded, darkMode, interactive]);
+  }, [visible, quoted, cidBlobs, imagesLoaded, darkMode, interactive]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -172,7 +200,7 @@ export function MessageBody({
     return () => window.removeEventListener("message", onMessage);
   }, [onMailtoLink, interactive]);
 
-  const showLoadImages = interactive && !imagesLoaded && hasProxiedImages(bodyHtml);
+  const showLoadImages = interactive && !imagesLoaded && hasProxiedImages(fullBodyHtml);
   const frameClassName = message.bodyIsPlainText
     ? "message-body-frame message-body-frame-plain"
     : "message-body-frame";

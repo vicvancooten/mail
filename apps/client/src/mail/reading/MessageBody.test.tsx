@@ -21,6 +21,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     seen: true,
     flagged: false,
     attachments: [],
+    snippet: null,
     bodyText: "hi",
     bodyHtml: "<p>hi</p>",
     bodyIsPlainText: false,
@@ -227,6 +228,41 @@ describe("MessageBody", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(openSpy).not.toHaveBeenCalled();
       expect(onMailtoLink).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("quoted history (#291)", () => {
+    it("shows no toggle for a body with no quoted history", () => {
+      render(<MessageBody message={makeMessage()} onMailtoLink={noop} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+      expect(iframe.getAttribute("srcdoc")).not.toContain('id="mail-quote-toggle"');
+    });
+
+    it("splits a native-HTML body at its first blockquote, quoted half hidden by default", () => {
+      const message = makeMessage({
+        bodyHtml: "<div>Agreed.</div><blockquote>Earlier thing</blockquote>",
+      });
+      render(<MessageBody message={message} onMailtoLink={noop} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+      const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+      expect(srcDoc).toContain("<div>Agreed.</div>");
+      expect(srcDoc).toContain('id="mail-quote-toggle"');
+      expect(srcDoc).toContain('id="mail-quote-content" hidden');
+      expect(srcDoc).toContain("Earlier thing");
+    });
+
+    it("splits a plain-text body at the same line the Snippet's stripper would cut", () => {
+      const message = makeMessage({
+        bodyIsPlainText: true,
+        bodyText: "Sounds good.\n\n> Are we still on?",
+        bodyHtml: "Sounds good.<br /><br />&gt; Are we still on?",
+      });
+      render(<MessageBody message={message} onMailtoLink={noop} />);
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+      const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+      expect(srcDoc).toContain("Sounds good.");
+      expect(srcDoc).toContain('id="mail-quote-toggle"');
+      expect(srcDoc).toContain("&gt; Are we still on?");
     });
   });
 

@@ -47,6 +47,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     seen: true,
     flagged: false,
     attachments: [],
+    snippet: null,
     bodyText: "See you at noon.",
     bodyHtml: "<p>See you at noon.</p>",
     bodyIsPlainText: false,
