@@ -13,6 +13,7 @@ import { localCache, openLocalCache } from "./local-cache.js";
 import { enqueueMutation } from "./mutation-queue.js";
 import {
   readGmailLabels,
+  readGmailLabelsForScope,
   readLabels,
   readMailAccounts,
   readPreference,
@@ -809,6 +810,57 @@ describe("readGmailLabels (#126, ADR-0020)", () => {
 
   it("is empty for a Mail Account with no Gmail Labels synced yet (a generic account, always)", async () => {
     expect(await readGmailLabels("never-synced")).toEqual([]);
+  });
+});
+
+describe("readGmailLabelsForScope (#297, the sidebar's per-account sections)", () => {
+  it("groups Gmail Labels by account, in Scope order, omitting an in-Scope account with none", async () => {
+    await applyGmailLabelDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-1", "Zeta"), "acct-1", { name: "Zeta", path: "Zeta" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyGmailLabelDelta(
+      "acct-2",
+      delta({
+        created: [
+          makeGmailLabel(gmailLabelId("acct-2", "Work"), "acct-2", { name: "Work", path: "Work" }),
+        ],
+      }),
+      { replace: false },
+    );
+    await applyMailAccountDelta(
+      delta({
+        created: [
+          makeMailAccount("acct-1", { emailAddress: "one@example.test" }),
+          makeMailAccount("acct-2", { emailAddress: "two@example.test" }),
+        ],
+      }),
+      { replace: false },
+    );
+
+    const groups = await readGmailLabelsForScope(["acct-1", "acct-2", "acct-3"]);
+
+    expect(groups).toEqual([
+      expect.objectContaining({
+        mailAccountId: "acct-1",
+        accountEmail: "one@example.test",
+        labels: expect.arrayContaining([expect.objectContaining({ name: "Zeta" })]),
+      }),
+      expect.objectContaining({
+        mailAccountId: "acct-2",
+        accountEmail: "two@example.test",
+        labels: expect.arrayContaining([expect.objectContaining({ name: "Work" })]),
+      }),
+    ]);
+  });
+
+  it("is empty for an empty Scope", async () => {
+    expect(await readGmailLabelsForScope([])).toEqual([]);
   });
 });
 

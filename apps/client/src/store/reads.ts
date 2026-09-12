@@ -237,6 +237,52 @@ export function useGmailLabels(mailAccountId: string | null): GmailLabel[] | und
   );
 }
 
+/**
+ * One Mail Account's cluster of Gmail Labels (#297) — `ScreenerAccountGroup`'s
+ * own shape applied to Gmail Labels: `accountEmail` is what the sidebar's
+ * per-account section header names, and `readGmailLabelsForScope` below only
+ * ever includes an account here once it actually has Gmail Labels, so an
+ * in-Scope non-Gmail account contributes no empty section.
+ */
+export interface GmailLabelAccountGroup {
+  mailAccountId: string;
+  accountEmail: string;
+  labels: GmailLabel[];
+}
+
+/**
+ * Gmail Labels across Account Scope (#73, #297) — `useGmailLabels`'s
+ * single-account read, merged across every in-Scope Mail Account. Per-account
+ * grouping, not a merged/re-sorted list: a Gmail Label really is one
+ * account's own (`useGmailLabels`'s own doc comment), and the sidebar's
+ * per-account sections need to say whose Labels they are the same way
+ * `readScreenerSenders`'s own per-account clusters do.
+ */
+export async function readGmailLabelsForScope(
+  accountScope: readonly string[],
+): Promise<GmailLabelAccountGroup[]> {
+  if (accountScope.length === 0) return [];
+  const accounts = await readMailAccounts();
+  const emailById = new Map(accounts.map((account) => [account.id, account.emailAddress]));
+
+  const groups = await Promise.all(
+    accountScope.map(async (mailAccountId) => ({
+      mailAccountId,
+      accountEmail: emailById.get(mailAccountId) ?? mailAccountId,
+      labels: await readGmailLabels(mailAccountId),
+    })),
+  );
+  return groups.filter((group) => group.labels.length > 0);
+}
+
+/** The sidebar's own data source for its per-account Gmail Labels sections (`mail/Sidebar.tsx`) — `useGmailLabels`'s multi-account sibling, in Account Scope order. */
+export function useGmailLabelsByAccount(
+  accountScope: readonly string[],
+): GmailLabelAccountGroup[] | undefined {
+  const key = accountScope.join(",");
+  return useLiveQuery(() => readGmailLabelsForScope(accountScope), [key]);
+}
+
 export async function readGmailLabels(mailAccountId: string): Promise<GmailLabel[]> {
   const rows = await localCache()
     .gmailLabels.where("mailAccountId")

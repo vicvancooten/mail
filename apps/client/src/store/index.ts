@@ -92,10 +92,12 @@ export {
   useNotes,
 } from "./notes.js";
 export {
+  type GmailLabelAccountGroup,
   readConnectedAccounts,
   readCorrespondents,
   readCorrespondentsAcrossAccounts,
   readGmailLabels,
+  readGmailLabelsForScope,
   readLabels,
   readMailAccounts,
   readPreference,
@@ -113,6 +115,7 @@ export {
   useCorrespondents,
   useCorrespondentsAcrossAccounts,
   useGmailLabels,
+  useGmailLabelsByAccount,
   useLabels,
   useMailAccounts,
   usePreference,
