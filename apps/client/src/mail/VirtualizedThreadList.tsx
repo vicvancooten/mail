@@ -120,6 +120,7 @@ export function VirtualizedThreadList({
   complete,
   selectedThreadId,
   onSelect,
+  onOpenSheet,
   onLoadMore,
   triage,
   group = true,
@@ -136,6 +137,8 @@ export function VirtualizedThreadList({
   complete: boolean;
   selectedThreadId: string | null;
   onSelect: (id: string) => void;
+  /** Double-clicking a row opens the Reader Sheet over the list (#292) — omitted, rows double-click to no extra effect beyond the single click each half of the gesture already fires (`ThreadRow`'s own `event.detail` guard). */
+  onOpenSheet?: (id: string) => void;
   /** Requests a wider page — called once as the viewport nears the bottom. */
   onLoadMore?: () => void;
   /** Present wires each row's swipe-to-Done/-Snooze (#44, #76); omitted, rows render with no swipe affordance. */
@@ -712,6 +715,7 @@ export function VirtualizedThreadList({
                   thread={item.thread}
                   selected={item.thread.id === selectedThreadId}
                   onSelect={() => onSelect(item.thread.id)}
+                  onOpenSheet={onOpenSheet ? () => onOpenSheet(item.thread.id) : undefined}
                   onArchive={
                     rowCtx && doneAction?.availability(rowCtx).available
                       ? () => doneAction.run(rowCtx)

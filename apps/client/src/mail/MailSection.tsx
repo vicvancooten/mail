@@ -16,6 +16,7 @@ import {
   runBulkTriageBatch,
   undoBulkTriageBatch,
 } from "../api/bulk-triage.js";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import { PendingSendBar } from "../compose/PendingSendBar.js";
 import { buildReplyContent, type ReplyMode } from "../compose/reply.js";
 import { SendFailureBanner } from "../compose/SendFailureBanner.js";
@@ -66,6 +67,7 @@ import { ListView } from "./ListView.js";
 import { NewMailToast } from "./NewMailToast.js";
 import { NotificationOfferBanner } from "./NotificationOfferBanner.js";
 import { RollbackToast } from "./RollbackToast.js";
+import { openReaderWindow } from "./reader-window.js";
 import type { MailtoLink } from "./reading/mailto.js";
 import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { Sidebar } from "./Sidebar.js";
@@ -76,6 +78,7 @@ import { scrollRestoreKey } from "./scroll-restore.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
 import { wrapSearchTriage } from "./search/useSearchState.js";
+import { ThreadDetailPane } from "./ThreadDetailPane.js";
 import { threadLinkSnapshot } from "./thread-link-snapshot.js";
 import { timeGroupLabel } from "./time-groups.js";
 import { announceUndoableAction } from "./undo-toast.js";
@@ -1012,6 +1015,20 @@ export function MailSection({
   // (opening one while the other's up just replaces it, no stacking logic
   // needed).
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false);
+  // The Reader Sheet (#292): a Dialog over the list, opened by double-
+  // clicking a row, independent of `selectedThreadId`/`viewMode` — Split's
+  // side-by-side pane and List's full-screen swap both already open a
+  // Thread on a single click, so the Sheet's whole point ("reading without
+  // the list beside it") is a second, overlay-only way in that never
+  // touches either. Closing it (Escape, the Dialog's own close button, or
+  // an outside click — Radix's default `Dialog` dismissal, unchanged here)
+  // is nothing but `setSheetThreadId(null)`: the list underneath was never
+  // unmounted, selected into, or scrolled, so there is nothing to restore.
+  const [sheetThreadId, setSheetThreadId] = useState<string | null>(null);
+  const sheetThread = useMemo(
+    () => (sheetThreadId ? (threads.find((thread) => thread.id === sheetThreadId) ?? null) : null),
+    [sheetThreadId, threads],
+  );
   // "Add to Tasks" (#258): the sheet's own open state and the Thread it's
   // about — `null` while closed, same "the sheet owns nothing but its own
   // draft" split `AddToTasksSheet.tsx`'s own doc comment draws. Task Lists
@@ -1222,6 +1239,7 @@ export function MailSection({
       onOpenStream,
       onAddToNotes,
       onAddToTasks: onOpenAddToTasksSheet,
+      onOpenInNewWindow: (thread) => openReaderWindow(thread.id),
       onMove: moveSelection,
       threadCount: activeIds.length,
       openPicker: activeSelectedThread ? (which) => currentReaderHandle()?.openPicker(which) : null,
@@ -1354,6 +1372,7 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
+                onOpenSheet={setSheetThreadId}
                 onClearSelection={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
@@ -1372,6 +1391,7 @@ export function MailSection({
                 complete={page.complete}
                 selectedThreadId={selectedThreadId}
                 onSelect={setSelectedThreadId}
+                onOpenSheet={setSheetThreadId}
                 onBack={backToList}
                 onLoadMore={loadMore}
                 triage={triage}
@@ -1392,6 +1412,33 @@ export function MailSection({
         <NewMailToast />
         <NotificationOfferBanner />
         <ShortcutSheet open={shortcutSheetOpen} onClose={() => setShortcutSheetOpen(false)} />
+        {/* The Reader Sheet (#292): a large Dialog over the list — the
+            shared `Dialog` primitive, so Escape and an outside click both
+            dismiss it for free (Radix's own default, unchanged here). Mounted
+            only while `sheetThread` resolves (`sheetThreadId` naming a Thread
+            `threads` still has); `key={sheetThread.id}` gives each Thread its
+            own fresh `ThreadDetailPane` mount, the same reason every other
+            host of this pane renders it keyed. No `onBack`: the Sheet has no
+            list of its own to hand a back pill to, and its own Dialog close
+            button already reads as "close" on top of the real one underneath. */}
+        {sheetThread && (
+          <Dialog open onOpenChange={(open) => (open ? undefined : setSheetThreadId(null))}>
+            <DialogContent className="reader-sheet">
+              {/* No visible title bar over the Reader itself (it already
+                  shows the subject) — an accessible name is still owed to
+                  the dialog, `NoteDialog.tsx`'s own posture. */}
+              <DialogTitle className="sr-only">{sheetThread.subject || "(no subject)"}</DialogTitle>
+              <ThreadDetailPane
+                key={sheetThread.id}
+                thread={sheetThread}
+                triage={triage}
+                onReply={openReply}
+                onMailtoLink={openMailto}
+                onOpenTask={onOpenTask}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
         <AddToTasksSheet
           open={addToTasksThread !== null}
           thread={addToTasksThread}

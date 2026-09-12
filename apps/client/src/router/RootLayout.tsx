@@ -311,6 +311,27 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
   // same 768px number for exactly that reason.
   const isPhoneChrome = useIsPhoneWidth();
 
+  // The standalone Reader (#292, `router/ReaderRoute.tsx`): "renders the
+  // Reader only (no Hub, no list)" is a rendering decision made here, not a
+  // routing one — `mailReaderRoute` is still a child of `rootRoute` like
+  // every other screen (TanStack Router has no other way to reach it), so
+  // this is what actually keeps the header, `AppSwitcher`, Account Scope,
+  // the Command Palette and the phone bottom bar off this one path. Every
+  // hook above still ran (Rules of Hooks) — most just go unused this
+  // render, the same "harmless to keep running" posture the notification-
+  // routing effects above already take regardless of route. `Toaster` stays
+  // mounted: `ReaderRoute`'s own Triage/Undo calls (`announceUndoableAction`)
+  // need a surface to raise their toast on, and this is the only one in
+  // reach with the Hub's own header/Palette gone.
+  if (pathname.startsWith("/mail/reader/")) {
+    return (
+      <TooltipProvider>
+        <Outlet />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider>
       <div className="app-shell" data-chrome-hidden={chromeHidden}>

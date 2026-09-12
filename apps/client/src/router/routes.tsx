@@ -31,6 +31,7 @@ import { MailRoute } from "./MailRoute.js";
 import { NewContactRoute } from "./NewContactRoute.js";
 import { NoteDialogRoute } from "./NoteDialogRoute.js";
 import { NotesRoute } from "./NotesRoute.js";
+import { ReaderRoute } from "./ReaderRoute.js";
 import { RootLayout } from "./RootLayout.js";
 import { StreamRoute } from "./StreamRoute.js";
 import { TasksIndexRoute, TasksTaskRoute } from "./TasksRoute.js";
@@ -124,6 +125,22 @@ export const streamRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/mail/stream",
   component: StreamRoute,
+});
+
+/**
+ * The standalone Reader (#292): "Open in new window" opens this in a real
+ * browser window (`mail/reader-window.ts`) so a Thread stays open while the
+ * User works elsewhere in this one — a route, not a Dialog (the Reader
+ * Sheet's own job, `MailSection.tsx`), and a *child* of `rootRoute` like
+ * every other screen only because TanStack Router has no other way to reach
+ * it: `router/RootLayout.tsx`'s own `isStandaloneReaderPath` check is what
+ * actually keeps the Hub's header, Palette and bottom bar off this one path,
+ * so "no Hub, no list" is a rendering decision, not a routing one.
+ */
+export const mailReaderRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mail/reader/$threadId",
+  component: ReaderRoute,
 });
 
 /**
@@ -498,6 +515,7 @@ export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
   streamRoute,
+  mailReaderRoute,
   settingsRoute.addChildren([
     settingsIndexRoute,
     settingsGeneralRoute,

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CachedThread } from "../store/index.js";
 import { ThreadRow } from "./ThreadRow.js";
@@ -226,5 +227,46 @@ describe("ThreadRow — hoverCapable (#134)", () => {
     );
     expect(screen.getByRole("button", { name: 'Snooze "Quarterly numbers"' })).not.toBeNull();
     expect(screen.getByRole("button", { name: 'Pin "Quarterly numbers"' })).not.toBeNull();
+  });
+});
+
+/**
+ * The Reader Sheet's own gesture (#292): double-clicking a row opens it.
+ * `onSelect` still fires exactly once for the pair — off the first click,
+ * the same as an ordinary single click always has — not twice: the second
+ * click's own `event.detail` (`2`) is `onDoubleClick`'s alone to answer,
+ * never a second select.
+ */
+describe("ThreadRow — opening the Reader Sheet (#292)", () => {
+  it("double-click calls onOpenSheet once and onSelect exactly once (not twice)", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onOpenSheet = vi.fn();
+    render(
+      <ThreadRow
+        thread={makeThread()}
+        selected={false}
+        onSelect={onSelect}
+        onOpenSheet={onOpenSheet}
+        onArchive={() => {}}
+      />,
+    );
+
+    await user.dblClick(screen.getByText("Quarterly numbers"));
+
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits onOpenSheet's wiring for a caller with no Sheet to open — double-click still just selects once", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <ThreadRow thread={makeThread()} selected={false} onSelect={onSelect} onArchive={() => {}} />,
+    );
+
+    await user.dblClick(screen.getByText("Quarterly numbers"));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });

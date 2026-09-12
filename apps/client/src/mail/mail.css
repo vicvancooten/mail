@@ -3716,3 +3716,36 @@ button.search-chip-toggle.on {
   opacity: 0.6;
   cursor: default;
 }
+
+/* The Reader Sheet (#292): a large Dialog over the list — "large" per its
+   own acceptance line, `note-dialog`'s own sizing (`notes/notes.css`) widened
+   further, since the Reader's fixed action bar plus a full scrolling message
+   list needs more room than a Note's editor. `.thread-detail` itself is
+   `height: 100%; min-height: 0` (above) — this is only the bounded box it
+   needs to fill. */
+.reader-sheet {
+  max-width: min(960px, calc(100% - 2rem));
+  height: calc(100% - 4rem);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* The standalone Reader window (#292, `router/ReaderRoute.tsx`) — no
+   `.app-shell` ancestor to give `.thread-detail`'s own `height: 100%` a
+   real box (`router/RootLayout.tsx`'s bare-chrome carve-out skips it
+   entirely for this one path), so this is that box instead: the whole
+   window, the same `100dvh` `.app-shell` itself uses. */
+.reader-standalone {
+  height: 100dvh;
+  background: var(--color-bg);
+}
+
+.reader-standalone-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-muted);
+}

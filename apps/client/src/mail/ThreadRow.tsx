@@ -110,6 +110,7 @@ export function ThreadRow({
   thread,
   selected,
   onSelect,
+  onOpenSheet,
   onArchive,
   onTrash,
   onSnooze,
@@ -131,6 +132,8 @@ export function ThreadRow({
   thread: CachedThread;
   selected: boolean;
   onSelect: () => void;
+  /** Double-click opens the Reader Sheet (#292): the Reader over the list, in a Dialog, rather than replacing or moving alongside it — the list underneath is never touched, so its scroll position, selection and Time Group collapse survive the Sheet closing untouched. Optional: a caller with no Sheet to open (search's non-triage rows, a unit test) simply renders a row where double-click does nothing beyond `onSelect`'s own single-click behavior. */
+  onOpenSheet?: () => void;
   onArchive?: () => void;
   /** #149: swipe left's own commit — "one gesture module... right = Done, left = Trash" (#133). No hover-cluster button of its own; the swipe is Trash's only row-level control. */
   onTrash?: () => void;
@@ -246,7 +249,20 @@ export function ThreadRow({
         } as CSSProperties
       }
       tabIndex={tabbable ? 0 : -1}
-      onClick={onSelect}
+      onClick={(event) => {
+        // `event.detail` is the native click count (1, 2, 3…) — the second
+        // click of a double-click carries `2`, which `onDoubleClick` below
+        // already owns. The first click still selects, instantly, the same
+        // as an ordinary single click always has: the Sheet opens *over*
+        // whatever the list just selected, and closing it touches nothing
+        // further — no delayed/undone select to keep every other click in
+        // this list instant for (#292's own "the list ... is unchanged"
+        // is about the Sheet's close, not about a double-click's own first
+        // click never having been a click).
+        if (event.detail > 1) return;
+        onSelect();
+      }}
+      onDoubleClick={onOpenSheet}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

@@ -1328,6 +1328,65 @@ describe("Reader action bar in three groups (#289)", () => {
   });
 });
 
+describe("Reader Sheet (#292)", () => {
+  it("double-clicking a row opens the Reader in a Dialog over the list, with the list still showing every row underneath", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+    const user = userEvent.setup();
+
+    renderMail();
+    await user.dblClick(await screen.findByText("Newer thread"));
+
+    // The Dialog's own copy of the subject (`.reading-subject`) — the row's
+    // own first click already selected it (an ordinary single click always
+    // would), so the split pane behind the Dialog shows the same Thread
+    // too; what matters is the *list* itself, still showing every row,
+    // never swapped out or unmounted for the Sheet.
+    expect(
+      await screen
+        .findByRole("dialog")
+        .then((dialog) =>
+          within(dialog).getByText("Newer thread", { selector: ".reading-subject" }),
+        ),
+    ).toBeDefined();
+    expect(screen.getByText("Older thread", { selector: ".subject" })).toBeDefined();
+    expect(screen.getByText("Newer thread", { selector: ".subject" })).toBeDefined();
+  });
+
+  it("Escape closes the Sheet, leaving the still-mounted list exactly as it was — every row still there, nothing further changed", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+    const user = userEvent.setup();
+
+    renderMail();
+    await user.dblClick(await screen.findByText("Newer thread"));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("Newer thread", { selector: ".reading-subject" });
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // The list is still there, both rows intact — closing the Sheet is
+    // nothing but the Dialog unmounting, never a second change to anything
+    // underneath it.
+    expect(screen.getByRole("option", { name: /Older thread/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /Newer thread/ })).toBeDefined();
+  });
+
+  it("the Dialog's own close button dismisses the Sheet the same way Escape does", async () => {
+    await seedTwoThreads();
+    stubFetch(never);
+    const user = userEvent.setup();
+
+    renderMail();
+    await user.dblClick(await screen.findByText("Newer thread"));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
 describe("Spam, Approve and Block on any Inbox Thread (#144)", () => {
   it("the row menu offers Spam (with its `!` keycap), Approve and Block, none of which have ever been near the Screener", async () => {
     await seedTwoThreads();
