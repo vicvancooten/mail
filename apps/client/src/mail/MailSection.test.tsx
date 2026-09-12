@@ -46,7 +46,7 @@ import { AccountScope } from "./AccountScope.js";
 import { resetActiveMailHost } from "./actions/active-mail-host.js";
 import { resetSurfaceHandles } from "./actions/surface-handles.js";
 
-import { writeViewMode } from "./device-preferences.js";
+import { readViewMode, writeViewMode } from "./device-preferences.js";
 import { MailSection } from "./MailSection.js";
 import { invalidateThreadMessages } from "./reading/useThreadMessages.js";
 import { resetScrollOffsetsForTest } from "./scroll-restore.js";
@@ -408,6 +408,35 @@ describe("MailSection", () => {
 
     await screen.findByText("Last state");
     expect(document.querySelector(".split-view")).toBeNull();
+  });
+
+  it("falls back to list-then-Reader below the split minimum, leaving the stored Device Preference untouched (#296)", async () => {
+    await seedCachedMail();
+    stubFetch(never);
+    // The split minimum (~920px, `@mail/design-tokens#splitMinimum`) as a
+    // live query, so this test can move the window across it without
+    // remounting — the same `setMatches` shape `use-phone-width.ts`'s own
+    // integration tests already use.
+    const media = stubMatchMedia((query) => query === "(max-width: 919px)");
+
+    renderMail();
+    await screen.findByText("Last state");
+
+    // Narrower than the split minimum: list-then-Reader, not both panes —
+    // and the Device Preference itself still reads "split".
+    expect(document.querySelector(".split-view")).toBeNull();
+    expect(readViewMode()).toBe("split");
+
+    fireEvent.click(screen.getByText("Last state"));
+    expect(await screen.findByRole("button", { name: "Back to list" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    await screen.findByText("Last state");
+
+    // Widening back past the split minimum restores Split on its own — no
+    // further action from the User, and the preference never changed.
+    act(() => media.setMatches("(max-width: 919px)", false));
+    expect(document.querySelector(".split-view")).not.toBeNull();
+    expect(readViewMode()).toBe("split");
   });
 
   it("Stream's own entry point (#105) is a plain navigation, not a view-mode toggle", async () => {
