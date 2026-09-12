@@ -1,6 +1,7 @@
-import type { Message } from "@mail/shared";
+import { formatRegionDate, formatRegionTime, type Message } from "@mail/shared";
 import { ChevronRight, Forward, Reply, ReplyAll } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useRegionFormatSettings } from "../../store/index.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { AttachmentList } from "./AttachmentList.js";
 import { MessageBody } from "./MessageBody.js";
@@ -44,6 +45,7 @@ export function MessageList({
   /** Reports the id of whichever Message is currently scrolled into view — see the doc comment above. */
   onOpenMessageChange?: (messageId: string) => void;
 }) {
+  const region = useRegionFormatSettings();
   const focusedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const openMessageIdRef = useRef<string | null>(null);
@@ -113,7 +115,8 @@ export function MessageList({
                     {message.from?.name ?? message.from?.address ?? "(unknown sender)"}
                   </span>
                   <time className="message-item-date" dateTime={message.sentAt}>
-                    {new Date(message.sentAt).toLocaleString()}
+                    {formatRegionDate(message.sentAt, region)},{" "}
+                    {formatRegionTime(message.sentAt, region)}
                   </time>
                 </header>
                 <MessageBody key={message.id} message={message} onMailtoLink={onMailtoLink} />
@@ -156,7 +159,7 @@ export function MessageList({
                   {message.from?.name ?? message.from?.address ?? "(unknown sender)"}
                 </span>
                 <time className="message-item-summary-date" dateTime={message.sentAt}>
-                  {new Date(message.sentAt).toLocaleDateString()}
+                  {formatRegionDate(message.sentAt, region)}
                 </time>
                 <span className="message-item-summary-snippet">{message.snippet}</span>
               </button>

@@ -14,8 +14,10 @@ import {
   saveComposition,
   THREAD_PAGE_SIZE,
   useConnectedAccounts,
+  useFirstDayOfWeek,
   useLabels,
   useMailAccounts,
+  useRegionFormatSettings,
   useTaskLists,
   useThreadWindow,
 } from "../../store/index.js";
@@ -104,6 +106,11 @@ export function StreamStack({
   onOpenTask?: (taskId: string) => void;
 }) {
   const { paletteOpen, openPalette } = usePaletteHost();
+  // Region Settings (#304): the same First Day of the Week/locale
+  // `time-groups.ts#timeGroupLabel` reads for the Reader's own group label
+  // and `ThreadDetailPane`'s reading-time line.
+  const firstDayOfWeek = useFirstDayOfWeek();
+  const region = useRegionFormatSettings();
   const mailAccounts = useMailAccounts();
   const connectedAccounts = useConnectedAccounts();
   const { scope: connectedAccountScope } = useAccountScope(connectedAccounts);
@@ -490,6 +497,9 @@ export function StreamStack({
                         ? PINNED_GROUP_LABEL
                         : timeGroupLabel(
                             topThreadSnapshot.lastMessageAt ?? topThreadSnapshot.firstMessageAt,
+                            new Date(),
+                            firstDayOfWeek,
+                            region,
                           )
                     }
                     triage={triage}

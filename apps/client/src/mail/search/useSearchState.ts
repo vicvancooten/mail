@@ -1,9 +1,12 @@
-import type {
-  IndexWatermark,
-  MailAccount,
-  SearchResponse,
-  SearchResult,
-  Thread,
+import {
+  formatRegionDate,
+  type IndexWatermark,
+  type MailAccount,
+  REGION_LOCALE_UNSET,
+  type RegionFormatSettings,
+  type SearchResponse,
+  type SearchResult,
+  type Thread,
 } from "@mail/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { runServerSearch } from "../../api/search.js";
@@ -36,14 +39,21 @@ const SERVER_DEBOUNCE_MS = 200;
  * hits (`CommandPalette.tsx`), so the two surfaces read the same watermark
  * the same way rather than growing their own phrasing.
  */
-export function formatIndexWatermark(watermark: IndexWatermark | null): string | null {
+export function formatIndexWatermark(
+  watermark: IndexWatermark | null,
+  region: Pick<RegionFormatSettings, "locale" | "timeZone"> = {
+    locale: REGION_LOCALE_UNSET,
+    timeZone: "",
+  },
+): string | null {
   if (!watermark || watermark.complete) return null;
   if (!watermark.coveredSince) {
     return "Still indexing this account — older mail matches on sender and subject only.";
   }
-  const date = new Date(watermark.coveredSince).toLocaleDateString(undefined, {
+  const date = formatRegionDate(watermark.coveredSince, region, {
     year: "numeric",
     month: "long",
+    day: undefined,
   });
   return `Bodies indexed back to ${date} — older mail matches on sender and subject only.`;
 }

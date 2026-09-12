@@ -8,6 +8,7 @@ import {
   newTaskId,
   setTaskDueDate,
   uncompleteTask,
+  useRegionFormatSettings,
   useTaskLists,
   useUpcomingTasks,
 } from "../store/index.js";
@@ -31,6 +32,7 @@ const COMPLETE_ANIMATION_MS = 260;
 export function TaskUpcomingView({ onBack }: { onBack: () => void }) {
   const dayGroups = useUpcomingTasks();
   const taskLists = useTaskLists();
+  const region = useRegionFormatSettings();
   const [completingIds, setCompletingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
@@ -108,7 +110,7 @@ export function TaskUpcomingView({ onBack }: { onBack: () => void }) {
             const active = group.tasks.filter(
               (task) => !task.completed || completingIds.has(task.id),
             );
-            const heading = formatUpcomingDayHeading(group.dueDate);
+            const heading = formatUpcomingDayHeading(group.dueDate, region);
             return (
               <div className="tasks-group" key={group.dueDate}>
                 <h3 className="tasks-group-heading">{heading}</h3>

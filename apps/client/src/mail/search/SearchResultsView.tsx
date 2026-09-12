@@ -1,7 +1,8 @@
-import type { MailAccount } from "@mail/shared";
+import type { MailAccount, RegionFormatSettings } from "@mail/shared";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { ReauthMailAccountForm } from "../../mail-accounts/ReauthMailAccountForm.js";
+import { useRegionFormatSettings } from "../../store/index.js";
 import type { MailtoLink } from "../reading/mailto.js";
 import type { OnReply } from "../ThreadDetailPane.js";
 import { ThreadDetailPane } from "../ThreadDetailPane.js";
@@ -11,8 +12,11 @@ import { VirtualizedThreadList } from "../VirtualizedThreadList.js";
 import { formatFolderLabel, seededScopeHint } from "./scope.js";
 import { formatIndexWatermark, type SearchState } from "./useSearchState.js";
 
-function formatWatermark(state: SearchState): string | null {
-  return formatIndexWatermark(state.indexWatermark);
+function formatWatermark(
+  state: SearchState,
+  region: Pick<RegionFormatSettings, "locale" | "timeZone">,
+): string | null {
+  return formatIndexWatermark(state.indexWatermark, region);
 }
 
 /**
@@ -154,7 +158,8 @@ function ChipRow({
 }
 
 function EmptyState({ state }: { state: SearchState }) {
-  const watermark = formatWatermark(state);
+  const region = useRegionFormatSettings();
+  const watermark = formatWatermark(state, region);
   const parts: string[] = [];
   if (state.parsed.text) parts.push(`"${state.parsed.text}"`);
   if (state.parsed.from) parts.push(`From: ${state.parsed.from}`);
@@ -245,7 +250,8 @@ export function SearchResultsView({
 }) {
   const selectedThread =
     state.viewResults.find((thread) => thread.id === state.selectedThreadId) ?? null;
-  const watermark = formatWatermark(state);
+  const region = useRegionFormatSettings();
+  const watermark = formatWatermark(state, region);
   const account = accounts.find((candidate) => candidate.id === mailAccountId) ?? null;
   const showAccountBadge = accountScope.length > 1;
 

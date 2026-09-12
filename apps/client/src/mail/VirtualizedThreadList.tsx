@@ -18,7 +18,7 @@ import {
   SheetTitle,
 } from "../components/ui/sheet.js";
 import { useHoverCapable } from "../hooks/use-hover-capable.js";
-import type { CachedThread } from "../store/index.js";
+import { type CachedThread, useFirstDayOfWeek, useRegionFormatSettings } from "../store/index.js";
 import { ActionMenu } from "./actions/ActionMenu.js";
 import { useActions } from "./actions/ActionsProvider.js";
 import { actionById, surfaceActions } from "./actions/registry.js";
@@ -194,6 +194,12 @@ export function VirtualizedThreadList({
   // is on screen.
   const hoverCapable = useHoverCapable();
 
+  // Region Settings (#304): the same First Day of the Week/locale
+  // `time-groups.ts#groupThreadsByTime` reads for "This week"/"Last week"
+  // and the named-month labels below.
+  const firstDayOfWeek = useFirstDayOfWeek();
+  const region = useRegionFormatSettings();
+
   // Collapsed state (#78) lives in the Device Preference module
   // (`device-preferences.ts`), not React state — it's read fresh into
   // `items` below on every pass. `useGroupCollapsedVersion` (#272) is what
@@ -244,7 +250,7 @@ export function VirtualizedThreadList({
         groupLabel: null,
       }));
     }
-    const groups = groupThreadsByTime(threads);
+    const groups = groupThreadsByTime(threads, new Date(), firstDayOfWeek, region);
     const flat: ListItem[] = [];
     let index = 0;
     for (const groupItem of groups) {
@@ -279,7 +285,7 @@ export function VirtualizedThreadList({
       }
     }
     return flat;
-  }, [threads, group, collapsedVersion, leavingGroupLabels]);
+  }, [threads, group, collapsedVersion, leavingGroupLabels, firstDayOfWeek, region]);
 
   const toggleCollapsed = useCallback((label: string) => {
     const wasCollapsed = readGroupCollapsed(label);
@@ -901,6 +907,7 @@ export function VirtualizedThreadList({
                   previewArmed={previewGroupLabel !== null && item.groupLabel === previewGroupLabel}
                   pointerArmed={item.thread.id === pointerArmedThreadId}
                   tabbable={item.thread.id === rovingThreadId}
+                  region={region}
                 />
               )}
             </div>
