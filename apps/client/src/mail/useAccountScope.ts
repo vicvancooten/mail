@@ -1,4 +1,4 @@
-import type { AddressBook, ConnectedAccount, MailAccount } from "@mail/shared";
+import type { AddressBook, Calendar, ConnectedAccount, MailAccount } from "@mail/shared";
 import { useCallback, useSyncExternalStore } from "react";
 import {
   type AccountScope,
@@ -107,5 +107,35 @@ export function deriveAddressBookScope(
   const inScope = new Set(connectedAccountScope);
   return addressBooks.filter(
     (book) => book.origin.kind === "local" || inScope.has(book.origin.connectedAccountId),
+  );
+}
+
+/**
+ * The Calendar App's own view of Account Scope (#300, `deriveAddressBookScope`'s
+ * own shape applied to `Calendar.origin` instead of `AddressBook.origin`): a
+ * Local Calendar is always in Scope — there is no Connected Account id for a
+ * Scope toggle to ever exclude it by, same as a Local Address Book above —
+ * and a mirrored Calendar stays in Scope only while its own
+ * `origin.connectedAccountId` is one of the Connected Accounts currently
+ * checked in the Hub's picker. `CalendarRoute.tsx` narrows the grid's own
+ * Events to just these Calendars' ids (#300's acceptance line: "narrowing
+ * Account Scope to one account narrows events shown to that account's
+ * calendars plus Local ones"); the slide-over's own list is never narrowed
+ * by this — it still lists every Calendar, grouped by Connected Account, so
+ * a User can toggle a Calendar's per-device visibility regardless of the
+ * Hub's current Scope.
+ */
+export function deriveCalendarScope(
+  connectedAccounts: ConnectedAccount[] | undefined,
+  connectedAccountScope: AccountScope,
+  calendars: readonly Calendar[],
+): Calendar[] {
+  if (!connectedAccounts || connectedAccounts.length === 0) {
+    return [...calendars];
+  }
+  const inScope = new Set(connectedAccountScope);
+  return calendars.filter(
+    (calendar) =>
+      calendar.origin.type === "local" || inScope.has(calendar.origin.connectedAccountId),
   );
 }

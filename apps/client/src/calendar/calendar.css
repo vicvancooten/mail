@@ -616,6 +616,46 @@
   padding: 0 16px 16px;
 }
 
+/* Grouping by Connected Account (#300) — Local first, then each account. */
+.calendar-slide-over-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.calendar-slide-over-group + .calendar-slide-over-group {
+  margin-top: 10px;
+}
+
+.calendar-slide-over-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-muted);
+}
+
+.calendar-slide-over-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-slide-over-group-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-hover);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-ink-muted);
+}
+
 .calendar-slide-over-row {
   display: flex;
   align-items: center;

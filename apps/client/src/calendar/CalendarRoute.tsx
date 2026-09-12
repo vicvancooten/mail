@@ -2,9 +2,11 @@ import { Outlet } from "@tanstack/react-router";
 import { PanelLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useHiddenCalendarIds, useShowTasksOnGrid } from "../mail/device-preferences.js";
+import { deriveCalendarScope, useAccountScope } from "../mail/useAccountScope.js";
 import { calendarRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { useEventsForRange } from "../store/events.js";
+import { useConnectedAccounts } from "../store/index.js";
 import { useAllTasks } from "../store/tasks.js";
 import "./calendar.css";
 import { CalendarSlideOver } from "./CalendarSlideOver.js";
@@ -80,6 +82,11 @@ function headingFor(view: CalendarView, date: CivilDate, days: readonly CivilDat
  * "Tasks" row (`mail/device-preferences.ts#useShowTasksOnGrid`) and never
  * handed to `YearGrid` at all — Year shows no Tasks (this ticket's own
  * acceptance line).
+ *
+ * Account Scope narrows the grid (#300): the Hub's Scope, narrowed to one or
+ * more Connected Accounts, narrows Events to those accounts' Calendars plus
+ * Local ones (`mail/useAccountScope.ts#deriveCalendarScope`) — on top of,
+ * not instead of, the per-device hidden-Calendar filter above.
  */
 export function CalendarRoute() {
   const search = calendarRoute.useSearch();
@@ -93,6 +100,20 @@ export function CalendarRoute() {
   const { events, outsideWindow, window: eventWindow } = useEventsForRange(range.start, range.end);
   const [hiddenCalendarIds, toggleCalendarVisibility] = useHiddenCalendarIds();
   const [slideOverOpen, setSlideOverOpen] = useState(false);
+
+  // Account Scope (#300): read independently here, the same
+  // `useConnectedAccounts`/`useAccountScope` pair `MailSection.tsx` reads
+  // (`useAccountScope.ts`'s own doc comment) rather than through a shared
+  // prop — narrowing the Hub's Scope to one Connected Account narrows the
+  // grid's own Events to that account's Calendars plus Local ones
+  // (`deriveCalendarScope`), while the slide-over below still lists every
+  // Calendar regardless of Scope.
+  const connectedAccounts = useConnectedAccounts();
+  const { scope: accountScope } = useAccountScope(connectedAccounts);
+  const scopedCalendarIds = useMemo(() => {
+    const scoped = deriveCalendarScope(connectedAccounts, accountScope, calendars);
+    return new Set(scoped.map((calendar) => calendar.id));
+  }, [connectedAccounts, accountScope, calendars]);
 
   // Due Tasks (#260): the Local Cache directly, no request of its own — the
   // Task collection replicates whole (`store/tasks.ts#useAllTasks`'s own
@@ -108,8 +129,12 @@ export function CalendarRoute() {
 
   const calendarById = useMemo(() => new Map(calendars.map((cal) => [cal.id, cal])), [calendars]);
   const visibleEvents = useMemo(
-    () => events.filter((event) => !hiddenCalendarIds.has(event.calendarId)),
-    [events, hiddenCalendarIds],
+    () =>
+      events.filter(
+        (event) =>
+          !hiddenCalendarIds.has(event.calendarId) && scopedCalendarIds.has(event.calendarId),
+      ),
+    [events, hiddenCalendarIds, scopedCalendarIds],
   );
   const buckets = useMemo(() => bucketEventsByDay(visibleEvents), [visibleEvents]);
 
@@ -196,6 +221,7 @@ export function CalendarRoute() {
         open={slideOverOpen}
         onOpenChange={setSlideOverOpen}
         calendars={calendars}
+        connectedAccounts={connectedAccounts ?? []}
         hiddenCalendarIds={hiddenCalendarIds}
         onToggle={toggleCalendarVisibility}
         showTasks={showTasks}
