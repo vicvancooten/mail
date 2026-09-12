@@ -1,6 +1,15 @@
 import type { AutoAdvanceDirection, UndoSendDelaySeconds } from "@mail/shared";
 import { UNDO_SEND_DELAY_OPTIONS } from "@mail/shared";
 import { useCallback } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { enqueueUserMutation, usePreference } from "../store/index.js";
 
 /**
@@ -9,6 +18,9 @@ import { enqueueUserMutation, usePreference } from "../store/index.js";
  * list to keep in sync with tzdata, and never a network round trip.
  */
 const TIME_ZONES = Intl.supportedValuesOf("timeZone");
+
+/** A placeholder Select value for the brief window before `use-seed-home-time-zone.ts` seeds a real zone — never a real IANA zone name, and disabled so it can never be chosen. */
+const DETECTING_TIME_ZONE = "__detecting__";
 
 /**
  * Settings' General page (#99): the User-scoped, synced `Preference` fields —
@@ -67,63 +79,83 @@ export function GeneralSection() {
           `usePreference()`'s live query resolves (`store/reads.ts`'s own
           doc comment). */}
       {preference && (
-        <section>
-          <label>
-            <input
+        <section className="flex flex-col gap-4">
+          <Label className="flex items-center gap-2">
+            <Input
               type="checkbox"
+              className="h-4 w-4"
               checked={preference.autoAdvanceEnabled}
               onChange={(event) => changeAutoAdvanceEnabled(event.target.checked)}
             />
             Auto-advance after archive/trash
-          </label>
+          </Label>
 
-          <label>
-            Auto-advance direction
-            <select
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="auto-advance-direction">Auto-advance direction</Label>
+            <Select
               value={preference.autoAdvanceDirection}
               disabled={!preference.autoAdvanceEnabled}
-              onChange={(event) =>
-                changeAutoAdvanceDirection(event.target.value as AutoAdvanceDirection)
-              }
+              onValueChange={(value) => changeAutoAdvanceDirection(value as AutoAdvanceDirection)}
             >
-              <option value="older">Older</option>
-              <option value="newer">Newer</option>
-            </select>
-          </label>
+              <SelectTrigger id="auto-advance-direction" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="older">Older</SelectItem>
+                <SelectItem value="newer">Newer</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <label>
-            Undo Send delay
-            <select
-              value={preference.undoSendDelaySeconds}
-              onChange={(event) =>
-                changeUndoSendDelay(Number(event.target.value) as UndoSendDelaySeconds)
-              }
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="undo-send-delay">Undo Send delay</Label>
+            <Select
+              value={String(preference.undoSendDelaySeconds)}
+              onValueChange={(value) => changeUndoSendDelay(Number(value) as UndoSendDelaySeconds)}
             >
-              {UNDO_SEND_DELAY_OPTIONS.map((seconds) => (
-                <option key={seconds} value={seconds}>
-                  {seconds === 0 ? "off" : `${seconds}s`}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="undo-send-delay" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UNDO_SEND_DELAY_OPTIONS.map((seconds) => (
+                  <SelectItem key={seconds} value={String(seconds)}>
+                    {seconds === 0 ? "off" : `${seconds}s`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          <label>
-            Home Time Zone
-            <select
-              value={preference.homeTimeZone}
-              onChange={(event) => changeHomeTimeZone(event.target.value)}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="home-time-zone">Home Time Zone</Label>
+            <Select
+              value={preference.homeTimeZone === "" ? DETECTING_TIME_ZONE : preference.homeTimeZone}
+              onValueChange={(value) => {
+                if (value === DETECTING_TIME_ZONE) return;
+                changeHomeTimeZone(value);
+              }}
             >
-              {/* Seeding (`use-seed-home-time-zone.ts`) races the first paint here on a
-                  brand-new device — an empty option keeps the `<select>` valid rather than
-                  silently snapping to whatever zone sorts first while it settles. */}
-              {preference.homeTimeZone === "" && <option value="">Detecting…</option>}
-              {TIME_ZONES.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="home-time-zone" className="w-fit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Seeding (`use-seed-home-time-zone.ts`) races the first paint here on a
+                    brand-new device — a disabled placeholder item keeps the Select's own
+                    value valid (Radix disallows an empty string) rather than silently
+                    snapping to whatever zone sorts first while it settles. */}
+                {preference.homeTimeZone === "" && (
+                  <SelectItem value={DETECTING_TIME_ZONE} disabled>
+                    Detecting…
+                  </SelectItem>
+                )}
+                {TIME_ZONES.map((zone) => (
+                  <SelectItem key={zone} value={zone}>
+                    {zone}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </section>
       )}
     </section>
