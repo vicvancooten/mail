@@ -2,17 +2,18 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { listActiveConnectedAccountsWithFacet } from "../../connected-accounts/store.js";
 import type { Db } from "../../db/client.js";
-import { calendarMirrorSyncState, calendars } from "../../db/schema.js";
-import { type PollLoopHandle, startPollLoop } from "../../sync/poll-loop.js";
+import { calendars } from "../../db/schema.js";
+import type { PollLoopHandle } from "../../sync/poll-loop.js";
+import {
+  type MirrorAccount,
+  type MirrorLoopProvider,
+  runMirrorPollTick,
+  startMirrorPollLoop,
+} from "../mirror-poll-loop.js";
 import { calendarEventPollIntervalMs } from "../google/cadence.js";
 import { syncGraphCalendarList } from "./calendar-list-sync.js";
 import type { GraphCalendarClient } from "./client.js";
 import { syncGraphCalendarEvents } from "./event-sync.js";
-
-/** 15 minutes — same enumeration cadence as Google's own (`google/poll-loop.ts`), reused verbatim; this ticket never asks for a different one. */
-const CALENDAR_LIST_INTERVAL_MS = 15 * 60 * 1000;
-/** The tick itself runs far more often than either cadence, same reasoning as `google/poll-loop.ts`'s own constant. */
-const TICK_INTERVAL_MS = 60 * 1000;
 
 /**
  * Mints (and, once minted, reads — see `credentials.ts`'s own doc comment
@@ -37,7 +38,7 @@ export interface CalendarMirrorLoopOptions {
   client: GraphCalendarClient;
   credentials: GraphCalendarCredentialProvider;
   logger?: FastifyBaseLogger;
-  /** Test seam — the real loop always uses `TICK_INTERVAL_MS`. */
+  /** Test seam — the real loop always uses the shared module's `TICK_INTERVAL_MS`. */
   tickIntervalMs?: number;
 }
 
@@ -45,13 +46,12 @@ export function startGraphCalendarMirrorLoop(
   db: Db,
   options: CalendarMirrorLoopOptions,
 ): PollLoopHandle {
-  const { client, credentials, logger, tickIntervalMs = TICK_INTERVAL_MS } = options;
-  return startPollLoop({
-    label: "graph calendar mirror loop",
-    intervalMs: tickIntervalMs,
+  const { client, credentials, logger, tickIntervalMs } = options;
+  return startMirrorPollLoop(db, graphMirrorLoopProvider, {
+    client,
+    credentials,
     logger,
-    tick: ({ isStopped }) =>
-      runGraphCalendarMirrorTick(db, { client, credentials, logger, isStopped }),
+    tickIntervalMs,
   });
 }
 
@@ -65,14 +65,10 @@ export async function runGraphCalendarMirrorTick(
     isStopped?: () => boolean;
   },
 ): Promise<void> {
-  const accounts = await listGraphCalendarFacetAccounts(db);
-  for (const account of accounts) {
-    if (deps.isStopped?.()) return;
-    await tickOneAccount(db, account, deps);
-  }
+  return runMirrorPollTick(db, graphMirrorLoopProvider, deps);
 }
 
-interface CalendarFacetAccount {
+interface GraphCalendarFacetAccount extends MirrorAccount {
   connectedAccountId: string;
   userId: string;
 }
@@ -85,101 +81,63 @@ interface CalendarFacetAccount {
  * `calendars`-table-derived query could never do for an account that
  * hadn't already mirrored at least one row.
  */
-async function listGraphCalendarFacetAccounts(db: Db): Promise<CalendarFacetAccount[]> {
+async function listGraphCalendarFacetAccounts(db: Db): Promise<GraphCalendarFacetAccount[]> {
   const rows = await listActiveConnectedAccountsWithFacet(db, "microsoft", "calendar");
   return rows.map((row) => ({ connectedAccountId: row.connectedAccountId, userId: row.userId }));
 }
 
-async function tickOneAccount(
-  db: Db,
-  account: CalendarFacetAccount,
-  deps: {
-    client: GraphCalendarClient;
-    credentials: GraphCalendarCredentialProvider;
-    logger?: FastifyBaseLogger;
+/**
+ * The graph-specific half of `mirror-poll-loop.ts#MirrorLoopProvider`;
+ * `google/poll-loop.ts#googleMirrorLoopProvider`'s own sibling, differing
+ * only in the shape below — the shared tick/timing control flow and the
+ * fresh-grant-zero-rows fix both now live in exactly one place.
+ */
+const graphMirrorLoopProvider: MirrorLoopProvider<
+  GraphCalendarFacetAccount,
+  GraphCalendarClient,
+  GraphCalendarCredentialProvider,
+  string
+> = {
+  label: "graph calendar mirror loop",
+  listAccounts: listGraphCalendarFacetAccounts,
+  getCredential: (credentials, connectedAccountId) => credentials.getAccessToken(connectedAccountId),
+  syncCalendarList: ({ db, account, client, credential }) =>
+    syncGraphCalendarList({
+      db,
+      userId: account.userId,
+      connectedAccountId: account.connectedAccountId,
+      client,
+      accessToken: credential,
+    }),
+  eventPollIntervalMs: calendarEventPollIntervalMs,
+  listMirroredCalendars: async (db, account) => {
+    const rows = await db
+      .select({ id: calendars.id })
+      .from(calendars)
+      .where(
+        and(
+          eq(calendars.originType, "connectedAccount"),
+          eq(calendars.connectedAccountId, account.connectedAccountId),
+          eq(calendars.mirrored, true),
+        ),
+      );
+    const prefix = `gcal-ms:${account.connectedAccountId}:`;
+    // A Google-mirrored row can share this tick's account id namespace —
+    // never this loop's own, so it's filtered out here rather than in the
+    // shared module.
+    return rows.filter((row) => row.id.startsWith(prefix));
   },
-): Promise<void> {
-  const { client, credentials, logger } = deps;
-  const accessToken = await credentials.getAccessToken(account.connectedAccountId);
-  if (!accessToken) return;
-
-  const now = new Date();
-  const [state] = await db
-    .select()
-    .from(calendarMirrorSyncState)
-    .where(eq(calendarMirrorSyncState.connectedAccountId, account.connectedAccountId))
-    .limit(1);
-
-  const pollRequested = state?.pollRequestedAt != null;
-  const listDue =
-    pollRequested ||
-    !state?.lastCalendarListSyncAt ||
-    now.getTime() - state.lastCalendarListSyncAt.getTime() >= CALENDAR_LIST_INTERVAL_MS;
-
-  try {
-    if (listDue) {
-      await syncGraphCalendarList({
-        db,
-        userId: account.userId,
-        connectedAccountId: account.connectedAccountId,
-        client,
-        accessToken,
-      });
-    }
-
-    const eventIntervalMs = await calendarEventPollIntervalMs(db, account.userId, now);
-    const eventsDue =
-      pollRequested ||
-      !state?.lastEventSyncAt ||
-      now.getTime() - state.lastEventSyncAt.getTime() >= eventIntervalMs;
-
-    if (eventsDue) {
-      const mirroredCalendars = await db
-        .select({ id: calendars.id })
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.originType, "connectedAccount"),
-            eq(calendars.connectedAccountId, account.connectedAccountId),
-            eq(calendars.mirrored, true),
-          ),
-        );
-      const prefix = `gcal-ms:${account.connectedAccountId}:`;
-      for (const calendarRow of mirroredCalendars) {
-        if (!calendarRow.id.startsWith(prefix)) continue; // a Google-mirrored row sharing this tick's account id namespace — never this loop's own.
-        const graphCalendarId = calendarRow.id.slice(prefix.length);
-        await syncGraphCalendarEvents({
-          db,
-          userId: account.userId,
-          calendarId: calendarRow.id,
-          graphCalendarId,
-          client,
-          accessToken,
-          now,
-        });
-      }
-    }
-
-    await db
-      .insert(calendarMirrorSyncState)
-      .values({
-        connectedAccountId: account.connectedAccountId,
-        lastCalendarListSyncAt: listDue ? now : state?.lastCalendarListSyncAt,
-        lastEventSyncAt: eventsDue ? now : state?.lastEventSyncAt,
-        pollRequestedAt: null,
-      })
-      .onConflictDoUpdate({
-        target: calendarMirrorSyncState.connectedAccountId,
-        set: {
-          lastCalendarListSyncAt: listDue ? now : state?.lastCalendarListSyncAt,
-          lastEventSyncAt: eventsDue ? now : state?.lastEventSyncAt,
-          pollRequestedAt: null,
-        },
-      });
-  } catch (err) {
-    logger?.error(
-      { err, connectedAccountId: account.connectedAccountId },
-      "graph calendar mirror loop: tick failed",
-    );
-  }
-}
+  syncCalendarEvents: ({ db, account, calendarRow, client, credential, now }) => {
+    const prefix = `gcal-ms:${account.connectedAccountId}:`;
+    const graphCalendarId = calendarRow.id.slice(prefix.length);
+    return syncGraphCalendarEvents({
+      db,
+      userId: account.userId,
+      calendarId: calendarRow.id,
+      graphCalendarId,
+      client,
+      accessToken: credential,
+      now,
+    });
+  },
+};
