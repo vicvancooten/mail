@@ -2758,6 +2758,39 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
+/* Prev/next (`Screener.tsx`'s own `moveSelection`): a quiet icon pair next
+   to the count, `.side-nav-collapse-toggle`'s own "transparent at rest,
+   filled on hover/focus" treatment rather than the danger-tinted one
+   Block's split menu uses — this moves the selection, it doesn't destroy
+   anything. */
+.screener-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.screener-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-nav-btn:hover,
+.screener-nav-btn:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .screener-list {
   list-style: none;
   margin: 0;

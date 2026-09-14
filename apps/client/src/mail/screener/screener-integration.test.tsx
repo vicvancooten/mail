@@ -377,6 +377,95 @@ describe("the Screener's own queue (#56)", () => {
   });
 });
 
+describe("the header's prev/next buttons (mouse-reachable, moveSelection)", () => {
+  async function seedThreeHeldSenders(): Promise<void> {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-a", "acct-1", {
+            subject: "From A",
+            heldSender: "a@example.test",
+            participants: [{ name: "Ann", address: "a@example.test" }],
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+          makeThread("held-b", "acct-1", {
+            subject: "From B",
+            heldSender: "b@example.test",
+            participants: [{ name: "Bea", address: "b@example.test" }],
+            lastMessageAt: minutesAfterEpoch(2),
+          }),
+          makeThread("held-c", "acct-1", {
+            subject: "From C",
+            heldSender: "c@example.test",
+            participants: [{ name: "Cee", address: "c@example.test" }],
+            lastMessageAt: minutesAfterEpoch(3),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  function selectedName(): string | null {
+    const selected = document.querySelector(".screener-row.selected .screener-row-name");
+    return selected?.textContent ?? null;
+  }
+
+  it("moves the selection forward and back, the same step j/k take", async () => {
+    await seedThreeHeldSenders();
+    renderScreener();
+
+    await screen.findByText("Ann");
+    await screen.findByText("Bea");
+    await screen.findByText("Cee");
+    // The oldest hold starts selected, same as every other test in this file.
+    await waitFor(() => expect(selectedName()).toBe("Ann"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Bea"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Cee"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Bea"));
+  });
+
+  it("wraps at both ends, exactly what j/k already do there (Screener.tsx's own keydown handler)", async () => {
+    await seedThreeHeldSenders();
+    renderScreener();
+
+    await waitFor(() => expect(selectedName()).toBe("Ann"));
+
+    // Past the last row, Next wraps to the first.
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Cee"));
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Ann"));
+
+    // Before the first row, Previous wraps to the last.
+    fireEvent.click(screen.getByRole("button", { name: "Previous sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Cee"));
+  });
+
+  it("stays out of the header entirely with at most one held sender — nothing to move between", async () => {
+    await seedHeldSenders();
+    renderScreener();
+
+    await screen.findByText("A Stranger");
+    expect(screen.queryByRole("button", { name: "Next sender" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous sender" })).toBeNull();
+  });
+});
+
 describe("the View dialog and Block's split menu (#102)", () => {
   async function seedOneHeldSender(
     threadId: string,
