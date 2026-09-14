@@ -2973,7 +2973,17 @@ button.search-chip-toggle.on {
   color: var(--color-danger);
 }
 
-.screener-block-menu-trigger {
+/* `.screener-row-actions button` above (0,1,1: one class, one element) beats
+   a bare `.screener-block-menu-trigger` (0,1,0: one class) on every property
+   they both declare, `padding` included — that rule's own `0 14px` was
+   winning over this one's intended `0`, and a flex item's default
+   `min-width: auto` then held the button at that padding's own width (28px,
+   `content-box` clamped to zero) regardless of the `width: 22px` declared
+   below, squeezing the chevron itself down to nothing: not dim, not
+   low-contrast, just not there. `.screener-row-actions button.screener-block:hover`
+   just above already takes the compound-selector fix for the same reason;
+   this needed it too, and at rest, not only on hover. */
+.screener-row-actions button.screener-block-menu-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2992,9 +3002,9 @@ button.search-chip-toggle.on {
     color var(--dur-press) var(--ease);
 }
 
-.screener-block-menu-trigger:hover,
-.screener-block-menu-trigger:focus-visible,
-.screener-block-menu-trigger[data-state="open"] {
+.screener-row-actions button.screener-block-menu-trigger:hover,
+.screener-row-actions button.screener-block-menu-trigger:focus-visible,
+.screener-row-actions button.screener-block-menu-trigger[data-state="open"] {
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
 }
