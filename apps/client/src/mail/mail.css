@@ -721,9 +721,19 @@
  * capped at the same 8-row stagger — this only ever reads that one number,
  * never re-derives it. The duration is `--dur-leave` (#97: this used to be
  * a hardcoded 220ms, adrift from both the token budget and the 260ms
- * `MailSection` actually waits before unmounting the row). Reduced motion
- * is handled globally (`index.css`'s `prefers-reduced-motion` rule
- * collapses every duration to 1ms), not re-implemented here. */
+ * `MailSection` actually waits before unmounting the row).
+ *
+ * A settle, not a flick: rank #1's "nothing inverts, nothing bounces" rule
+ * ruled out the row's original `translateX(16px)` slide — sliding a row
+ * sideways off the list reads like it's being flicked away, a gesture this
+ * system's whole voice (ground and gap, one electric accent, no motion
+ * that draws attention to itself) doesn't otherwise use anywhere. A leaving
+ * row instead fades and eases down a few px and slightly smaller, as if it
+ * is settling into the ground beneath the list rather than being swept off
+ * it; Expand's own entrance is the literal reverse — a row rises the same
+ * few px into place. Reduced motion is handled globally (`index.css`'s
+ * `prefers-reduced-motion` rule collapses every duration to 1ms), not
+ * re-implemented here. */
 .thread-list [data-clearing="true"] {
   animation: group-row-leave var(--dur-leave) var(--ease) both;
   animation-delay: calc(var(--group-clear-index, 0) * 45ms);
@@ -732,18 +742,18 @@
 @keyframes group-row-leave {
   from {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(6px) scale(0.98);
   }
 }
 
 /* ---------- manual Collapse's own leave/enter (#295) ---------------------
  * A header click reuses the exact same stagger cadence and duration as the
  * Done-all bulk clear above — "leaving" reads identically whichever action
- * caused it — and adds the mirror image for Expand: rows fade/slide *in*
+ * caused it — and adds the mirror image for Expand: rows fade/rise *in*
  * rather than only ever out. `VirtualizedThreadList` sets `--group-clear-
  * index` the same way for both; `data-clearing`/`data-entering` are never
  * both true on one row. */
@@ -755,11 +765,11 @@
 @keyframes group-row-enter {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(-6px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
 }
 
