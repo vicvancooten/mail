@@ -139,6 +139,28 @@ describe("selectTargetThreadIds", () => {
     expect(ids).not.toContain(atUntil);
   });
 
+  it("until: null reaches every Thread up to right now — the open-ended \"Today\" shape, no ceiling at all", async () => {
+    // `group-target.ts#groupDateRange`'s own test documents the intent this
+    // proves at the query layer: "Today is open-ended: no upper bound, so a
+    // Thread arriving after the request still lands in it." A Thread whose
+    // `lastMessageAt` sits at (or a moment after) the instant this query
+    // runs must still be in the target set — `until: null` means "no
+    // ceiling", not "ceiling of right now", which is what let the header's
+    // optimistic collapse and the batch's actual target set disagree on a
+    // Thread right at the boundary (the newest row in "Today" is exactly
+    // the one most likely to sit this close to "now").
+    const veryRecent = await seedThread(new Date());
+
+    const ids = await selectTargetThreadIds(db, {
+      mailAccountId: account.id,
+      folderRole: "inbox",
+      since: null,
+      until: null,
+    });
+
+    expect(ids).toContain(veryRecent);
+  });
+
   it("since: null reaches every Thread down to the beginning", async () => {
     const old = await seedThread(new Date("2020-01-01T00:00:00Z"));
     const recent = await seedThread(JAN_1);
