@@ -7,6 +7,7 @@ import { useHoverCapable } from "../hooks/use-hover-capable.js";
 import { Avatar } from "../mail/Avatar.js";
 import { formatRowTime } from "../mail/time-groups.js";
 import { useRecentThreadsForSender } from "../store/index.js";
+import { bannerStyleFor, contactBannerStyle } from "./contact-banner.js";
 import { useContactByAddress } from "./contact-by-address.js";
 import { contactPhotoSrc } from "./contact-photo.js";
 import { PromoteCorrespondentDialog } from "./PromoteCorrespondentDialog.js";
@@ -70,6 +71,14 @@ export function SenderContactCard({
 
   const triggerName = contact ? contactDisplayName(contact) : (name ?? address);
   const triggerPhoto = contact ? contactPhotoSrc(contact) : null;
+  // The same banner mechanism Contacts' own card and Person Page hero use
+  // (`contact-banner.ts`): a matched Contact's real banner (a swatch, an
+  // uploaded image, or — unset — its own deterministic gradient), falling
+  // back to that same deterministic gradient keyed off the bare `address`
+  // for a stranger with no Contact row to carry one. Either way this is
+  // the *one* banner-generation codepath in the app; nothing here re-derives
+  // colour on its own.
+  const banner = contact ? contactBannerStyle(contact) : bannerStyleFor(address);
 
   return (
     <>
@@ -87,42 +96,55 @@ export function SenderContactCard({
           </button>
         </HoverCardTrigger>
         <HoverCardContent className="sender-contact-card">
-          <div className="sender-contact-card-identity">
-            <Avatar name={triggerName} photoUrl={triggerPhoto} />
+          {/* A banner-plus-larger-photo header, `ContactCard.tsx`'s own
+              "full-bleed banner strip behind an overlapping avatar" shape
+              (#211) reused rather than a second, card-local layout — this is
+              a hover *card*, not the Person Page, so the banner is shallower
+              and the photo doesn't grow as large as the hero's own. */}
+          <div className="sender-contact-card-banner" style={{ background: banner }}>
+            <Avatar
+              name={triggerName}
+              photoUrl={triggerPhoto}
+              className="sender-contact-card-photo"
+            />
+          </div>
+          <div className="sender-contact-card-body">
             <span className="sender-contact-card-names">
               <span className="sender-contact-card-name">{triggerName}</span>
               <span className="sender-contact-card-address">{address}</span>
             </span>
+
+            {recentThreads === undefined ? null : recentThreads.length > 0 ? (
+              <ul className="sender-contact-card-threads">
+                {recentThreads.map((thread) => (
+                  <li key={thread.id} className="sender-contact-card-thread">
+                    <span className="sender-contact-card-thread-subject">
+                      {thread.subject || "(no subject)"}
+                    </span>
+                    <span className="sender-contact-card-thread-time">
+                      {formatRowTime(thread.lastMessageAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="sender-contact-card-empty">
+                No other recent Threads with this address.
+              </p>
+            )}
+
+            {contact ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/contacts/$contactId" params={{ contactId: contact.id }}>
+                  Open in Contacts
+                </Link>
+              </Button>
+            ) : (
+              <Button type="button" size="sm" onClick={() => setAddingContact(true)}>
+                Add to Contacts
+              </Button>
+            )}
           </div>
-
-          {recentThreads === undefined ? null : recentThreads.length > 0 ? (
-            <ul className="sender-contact-card-threads">
-              {recentThreads.map((thread) => (
-                <li key={thread.id} className="sender-contact-card-thread">
-                  <span className="sender-contact-card-thread-subject">
-                    {thread.subject || "(no subject)"}
-                  </span>
-                  <span className="sender-contact-card-thread-time">
-                    {formatRowTime(thread.lastMessageAt)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="sender-contact-card-empty">No other recent Threads with this address.</p>
-          )}
-
-          {contact ? (
-            <Button asChild size="sm" variant="outline">
-              <Link to="/contacts/$contactId" params={{ contactId: contact.id }}>
-                Open in Contacts
-              </Link>
-            </Button>
-          ) : (
-            <Button type="button" size="sm" onClick={() => setAddingContact(true)}>
-              Add to Contacts
-            </Button>
-          )}
         </HoverCardContent>
       </HoverCard>
       {addingContact ? (

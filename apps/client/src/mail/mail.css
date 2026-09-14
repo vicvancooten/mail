@@ -1829,17 +1829,68 @@
 /* The Contact Card's own content (#293) — positioning, portal, background
    and shadow are the shared `HoverCard` primitive's own (`components/ui/
    hover-card.tsx`, this ticket's own addition to the shared-primitive
-   vocabulary); this only lays out what's inside it. */
+   vocabulary); this only lays out what's inside it.
+   Roomier and prettier (#211's own banner-plus-photo treatment, reused
+   rather than reinvented): wider than the primitive's own default 288px
+   (`w-72`) so a real subject line and sender address both read comfortably,
+   still a hover card rather than a full page. `padding: 0` and
+   `overflow: hidden` replace the primitive's own `p-3` — the banner below
+   needs to bleed flush to every edge, clipped to the same rounded corners
+   the popover itself already has, and `.sender-contact-card-body` carries
+   its own padding for everything that isn't the banner. */
 .sender-contact-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  width: 320px;
+  padding: 0;
+  overflow: hidden;
 }
 
-.sender-contact-card-identity {
+/* The banner strip (`ContactCard.tsx`'s own `.contact-card-banner`, this
+   card's own shorter cut of it): a flat wash behind the sender's photo,
+   never a plate or a hairline — ground and gap applies to a hover card too.
+   `position: relative` is what lets `.sender-contact-card-photo` below
+   overlap its bottom edge instead of sitting fully inside or fully below
+   it, the comp's own "photo breaks out of the banner" read. */
+.sender-contact-card-banner {
+  position: relative;
+  height: 56px;
+}
+
+/* The larger photo (the ticket's own "large enough to easily read most
+   emails," #211's overlap read): `Avatar`'s wrapper gets this className
+   (`Avatar.tsx` puts a caller's `className` on `.mail-avatar-wrap`), so
+   positioning lives here and diameter lives on the nested `.mail-avatar`
+   below — the same split `.reading-meta .mail-avatar` already uses
+   elsewhere in this file, just with an absolute position added on top of
+   it. The 3px ring in `--color-surface` (`.contact-card-avatar`'s own
+   value — the popover's `bg-popover` resolves to the same token) is what
+   reads as a cutout against the banner rather than a photo simply pinned
+   over it. */
+.sender-contact-card-photo {
+  position: absolute;
+  left: 16px;
+  top: 28px;
+}
+
+.sender-contact-card-photo .mail-avatar {
+  width: 52px;
+  height: 52px;
+  border: 3px solid var(--color-surface);
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+/* Clears the photo's own overflow below the banner (56px banner, a 52px
+   photo starting 28px down the banner ends 24px past it) plus a further
+   14px of ordinary breathing room before the name — the same "banner
+   height, avatar position, body's own top padding" arithmetic
+   `.contact-card-body` already does for the full Contacts card. */
+.sender-contact-card-body {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
+  padding: 38px 14px 14px;
 }
 
 .sender-contact-card-names {
@@ -1849,7 +1900,7 @@
 }
 
 .sender-contact-card-name {
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;

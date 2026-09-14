@@ -12,6 +12,7 @@ import {
   minutesAfterEpoch,
 } from "../test-support/mail-fixtures.js";
 import { stubMatchMedia } from "../test-support/match-media.js";
+import { bannerStyleFor, contactBannerStyle } from "./contact-banner.js";
 import { SenderContactCard } from "./SenderContactCard.js";
 
 // `SenderContactCard` only ever reaches `Link` for "Open in Contacts"
@@ -85,6 +86,47 @@ describe("SenderContactCard (#293)", () => {
     const link = screen.getByRole("link", { name: "Open in Contacts" });
     expect(link.getAttribute("href")).toBe("/contacts/$contactId/contact-ann");
     expect(screen.queryByRole("button", { name: "Add to Contacts" })).toBeNull();
+  });
+
+  it("gives a matched Contact's own banner behind a larger photo — the same mechanism Contacts' own card uses", async () => {
+    stubMatchMedia(() => false);
+    await localCache().contacts.put(
+      makeContact("contact-ann", BOOK.id, {
+        name: { given: "Ann", family: "Example" },
+        emails: [{ id: "e1", type: "work", value: "ann@example.test", primary: true }],
+        banner: { kind: "swatch", swatch: "b" },
+      }),
+    );
+
+    render(<SenderContactCard name="Ann" address="ann@example.test" threadId="t1" />);
+    openByTap();
+
+    await screen.findByText("Ann Example");
+    const banner = document.querySelector(".sender-contact-card-banner") as HTMLElement;
+    expect(banner).not.toBeNull();
+    expect(banner.style.background).toBe(
+      contactBannerStyle({ id: "contact-ann", banner: { kind: "swatch", swatch: "b" } }),
+    );
+    // The larger, overlapping photo — a second `Avatar` beyond the small
+    // trigger tile, living inside the banner rather than the identity row
+    // the old layout put it in.
+    expect(banner.querySelector(".mail-avatar-wrap")).not.toBeNull();
+  });
+
+  it("falls back to the deterministic banner, keyed off the bare address, for a stranger with no Contact row", async () => {
+    stubMatchMedia(() => false);
+    render(<SenderContactCard name="Stranger" address="stranger@example.test" threadId="t1" />);
+    openByTap();
+
+    await screen.findByText("stranger@example.test");
+    const banner = document.querySelector(".sender-contact-card-banner") as HTMLElement;
+    // jsdom normalizes an `hsl(...)` background to its `rgb(...)` equivalent
+    // once assigned — round-tripping the expected value through a scratch
+    // element applies the same normalization to both sides rather than
+    // comparing a raw `hsl(...)` string against jsdom's own rendering of it.
+    const expected = document.createElement("div");
+    expected.style.background = bannerStyleFor("stranger@example.test");
+    expect(banner.style.background).toBe(expected.style.background);
   });
 
   it("an unknown sender shows the bare address and offers 'Add to Contacts'", async () => {
