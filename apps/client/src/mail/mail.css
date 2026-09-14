@@ -778,7 +778,14 @@
 .thread-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* A bit more breathing room between the tile and the text columns
+   * (10px, was 8px) — the internal-only half of "increase mail spacing a
+   * bit"; row *height* (the other half) is `taper.ts`'s own, since that's
+   * what an inline style per virtualized item actually controls. Left/right
+   * inset stays exactly 8px — `.group-header`'s own `padding: 0 14px`
+   * (#153) is coupled to this row's outer margin+padding summing to 14px
+   * for the rail to land in the same column, so it isn't touched here. */
+  gap: 10px;
   width: calc(100% - 12px);
   margin: 0 6px;
   box-sizing: border-box;
@@ -889,7 +896,7 @@
 }
 
 .thread-list--compact .thread-row {
-  gap: 7px;
+  gap: 8px;
   font-size: 13px;
 }
 

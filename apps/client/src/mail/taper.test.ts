@@ -34,6 +34,16 @@ describe("taperRowHeight / taperHeaderHeight", () => {
     expect(delta[0]).toBeGreaterThan(0);
     expect(new Set(delta).size).toBe(1);
   });
+
+  it("never lets the densest row get uncomfortably small — T4 compact stays no smaller than comfortable's own old floor", () => {
+    // The complaint the taper existed to prevent went too far the other
+    // way: T4 (Older/Undated/the two named months) compacted down to 26px,
+    // barely enough for a 19px avatar with no room to breathe. The floor
+    // now sits at comfortable's own *old* T4 height (32px) — the densest
+    // tier a User can reach, at the densest density, still reads as a real
+    // row rather than a tick mark.
+    expect(taperRowHeight(4, "compact")).toBeGreaterThanOrEqual(32);
+  });
 });
 
 describe("ungroupedRowHeight", () => {

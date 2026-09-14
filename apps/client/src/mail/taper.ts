@@ -21,12 +21,17 @@ import type { TimeGroupTier } from "./time-groups.js";
  * `-august` in `docs/design/prototypes/the-instrument.html`), adopted
  * verbatim in #87 — the rows there are markedly tighter than the plate-and-
  * hairline list they replaced, and that density is half of what makes the
- * taper legible as a ladder rather than as four sizes of the same row. */
+ * taper legible as a ladder rather than as four sizes of the same row.
+ *
+ * Raised a further 4px per tier since: the comp's own numbers, run through
+ * `compact`'s delta on T4, produced a 26px row — a 19px avatar with almost
+ * no room to breathe, "incredibly small" rather than merely quiet. Every
+ * tier keeps its rank in the ladder; only the floor moved. */
 const COMFORTABLE_ROW_HEIGHT: Readonly<Record<TimeGroupTier, number>> = {
-  1: 54,
-  2: 46,
-  3: 38,
-  4: 32,
+  1: 58,
+  2: 50,
+  3: 42,
+  4: 36,
 };
 
 /** The comp's header heights (26/24/22/20) plus `GROUP_HEADER_LEAD` — the
@@ -43,8 +48,12 @@ const COMFORTABLE_HEADER_HEIGHT: Readonly<Record<TimeGroupTier, number>> = {
   4: 20 + GROUP_HEADER_LEAD,
 };
 
-/** Compact shifts every tier's row by this many px — never re-derives a flat height. */
-const COMPACT_ROW_DELTA = 6;
+/** Compact shifts every tier's row by this many px — never re-derives a flat
+ * height. Trimmed from 6 to 4: compact exists to fit more of the list on
+ * screen, not to make the densest tier unreadable — T4 compact (32px) now
+ * bottoms out exactly where comfortable's own T4 used to sit before the
+ * floor above was raised, never lower. */
+const COMPACT_ROW_DELTA = 4;
 /** Compact shifts every tier's header by this many px. */
 const COMPACT_HEADER_DELTA = 8;
 
