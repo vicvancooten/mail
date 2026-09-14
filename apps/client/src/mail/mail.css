@@ -2037,6 +2037,35 @@
   gap: 10px;
   margin-bottom: 10px;
   font-size: 13px;
+  /* A reset for the one case this renders as a `<button>` rather than a
+     plain `<header>` — a Message expanded only because the User clicked it,
+     clickable back down again (`MessageList.tsx`'s own `collapsible`). A
+     no-op on the plain `<header>` every other expanded Message still gets,
+     which carries none of a button's own default chrome to begin with. */
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+
+/* The collapse control itself: `.message-item-summary`'s own "quiet until
+   reached for" treatment, bled into the row above it with a negative margin
+   so the hover fill reads as its own hit area rather than a highlight
+   pasted flush against the card's edges. */
+.message-item-header-collapsible {
+  cursor: pointer;
+  margin: -6px -8px 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  transition: background var(--dur-press) var(--ease);
+}
+
+.message-item-header-collapsible:hover,
+.message-item-header-collapsible:focus-visible {
+  background: var(--color-hover);
 }
 
 .message-item-sender {

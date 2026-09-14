@@ -24,11 +24,19 @@ import type { MailtoLink } from "./mailto.js";
  * #291: in a long Thread the User lands on what is new, not the whole
  * history. The newest Message and every unread one render in full; every
  * other one collapses to sender, date and its own Snippet, and expands in
- * place on click — `toggled` only ever grows (there is no collapse-back-
- * down control, not asked for), and this component is unmounted with the
- * rest of `.reading-body` on every Reader open (`ThreadDetailPane`'s
- * `key={thread.id}`), which is what resets it per open rather than any
- * effect here watching `thread.id`.
+ * place on click. Only a Message that's expanded *because* the User clicked
+ * it — `expandedByClick` naming it — can be clicked back down again: its
+ * header becomes the collapse control, the mirror of the collapsed row's
+ * own "click anywhere to expand". The newest Message, an unread one, and
+ * `focusMessageId`'s own search-landing target stay plain headers with no
+ * click handler at all — collapsing the one Message a search hit just
+ * landed you on, or the newest/unread mail you opened the Thread to read,
+ * would undo the very default that put it in front of you, so `expanded`'s
+ * other two reasons never gain a collapse control merely by also being
+ * true. This component is unmounted with the rest of `.reading-body` on
+ * every Reader open (`ThreadDetailPane`'s `key={thread.id}`), which is what
+ * resets `expandedByClick` per open rather than any effect here watching
+ * `thread.id`.
  */
 export function MessageList({
   messages,
@@ -50,6 +58,23 @@ export function MessageList({
   const containerRef = useRef<HTMLDivElement>(null);
   const openMessageIdRef = useRef<string | null>(null);
   const [expandedByClick, setExpandedByClick] = useState<ReadonlySet<string>>(new Set());
+
+  function expandMessage(id: string) {
+    setExpandedByClick((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  /** The mirror of `expandMessage` above — only ever called for a Message `collapsible` (below) has already established is expanded for no reason but this set. */
+  function collapseMessage(id: string) {
+    setExpandedByClick((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!focusMessageId || focusedRef.current) return;
@@ -98,8 +123,13 @@ export function MessageList({
         // defeat the whole point of #51's "opening a result lands on the
         // matched message".
         const defaultExpanded = index === messages.length - 1 || !message.seen;
-        const expanded =
-          defaultExpanded || message.id === focusMessageId || expandedByClick.has(message.id);
+        const isFocusTarget = message.id === focusMessageId;
+        const expanded = defaultExpanded || isFocusTarget || expandedByClick.has(message.id);
+        // The one case its header may click back down: expanded for no
+        // reason but `expandedByClick` itself, not one of the two defaults
+        // above and not the search-focus target either (see this
+        // component's own doc comment for why those two stay put).
+        const collapsible = expanded && !defaultExpanded && !isFocusTarget;
 
         return (
           <article
@@ -110,15 +140,32 @@ export function MessageList({
           >
             {expanded ? (
               <>
-                <header className="message-item-header">
-                  <span className="message-item-sender">
-                    {message.from?.name ?? message.from?.address ?? "(unknown sender)"}
-                  </span>
-                  <time className="message-item-date" dateTime={message.sentAt}>
-                    {formatRegionDate(message.sentAt, region)},{" "}
-                    {formatRegionTime(message.sentAt, region)}
-                  </time>
-                </header>
+                {collapsible ? (
+                  <button
+                    type="button"
+                    className="message-item-header message-item-header-collapsible"
+                    aria-label={`Collapse message from ${message.from?.name ?? message.from?.address ?? "unknown sender"}`}
+                    onClick={() => collapseMessage(message.id)}
+                  >
+                    <span className="message-item-sender">
+                      {message.from?.name ?? message.from?.address ?? "(unknown sender)"}
+                    </span>
+                    <time className="message-item-date" dateTime={message.sentAt}>
+                      {formatRegionDate(message.sentAt, region)},{" "}
+                      {formatRegionTime(message.sentAt, region)}
+                    </time>
+                  </button>
+                ) : (
+                  <header className="message-item-header">
+                    <span className="message-item-sender">
+                      {message.from?.name ?? message.from?.address ?? "(unknown sender)"}
+                    </span>
+                    <time className="message-item-date" dateTime={message.sentAt}>
+                      {formatRegionDate(message.sentAt, region)},{" "}
+                      {formatRegionTime(message.sentAt, region)}
+                    </time>
+                  </header>
+                )}
                 <MessageBody key={message.id} message={message} onMailtoLink={onMailtoLink} />
                 <AttachmentList message={message} />
                 <div className="message-item-reply-actions">
@@ -146,13 +193,7 @@ export function MessageList({
                 type="button"
                 className="message-item-summary"
                 aria-label={`Expand message from ${message.from?.name ?? message.from?.address ?? "unknown sender"}`}
-                onClick={() =>
-                  setExpandedByClick((prev) => {
-                    const next = new Set(prev);
-                    next.add(message.id);
-                    return next;
-                  })
-                }
+                onClick={() => expandMessage(message.id)}
               >
                 <ChevronRight size={14} className="message-item-summary-chevron" />
                 <span className="message-item-summary-sender">

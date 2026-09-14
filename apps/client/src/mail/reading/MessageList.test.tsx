@@ -124,4 +124,60 @@ describe("MessageList (#291)", () => {
     );
     expect(document.getElementById("message-msg-2")?.querySelector("iframe")).not.toBeNull();
   });
+
+  it("collapses an expanded message back down on a second click of its own header, but offers no such control on one expanded by default", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({ id: "msg-1", seen: true, from: { name: "Older Sender", address: "o@x.test" } }),
+      makeMessage({
+        id: "msg-2",
+        seen: true,
+        from: { name: "Newest Sender", address: "n@x.test" },
+      }),
+    ];
+    render(
+      <MessageList
+        messages={messages}
+        onReply={noop}
+        onMailtoLink={noop}
+        onOpenMessageChange={noop}
+      />,
+    );
+
+    // Expand the older (collapsed-by-default) Message by clicking its row.
+    await user.click(screen.getByRole("button", { name: /Older Sender/ }));
+    expect(document.getElementById("message-msg-1")?.querySelector("iframe")).not.toBeNull();
+
+    // Its own header is now the collapse control — a second click folds it
+    // right back down to a summary row.
+    await user.click(screen.getByRole("button", { name: /Collapse message from Older Sender/ }));
+    expect(document.getElementById("message-msg-1")?.querySelector("iframe")).toBeNull();
+    expect(screen.getByRole("button", { name: /Older Sender/ })).toBeDefined();
+
+    // The newest Message stays expanded with a plain, non-interactive
+    // header — nothing here to collapse it with.
+    expect(
+      screen.queryByRole("button", { name: /Collapse message from Newest Sender/ }),
+    ).toBeNull();
+  });
+
+  it("offers no collapse control on the message a search hit landed on, even though focusMessageId alone is what expanded it", () => {
+    const messages = [
+      makeMessage({ id: "msg-1", seen: true }),
+      makeMessage({ id: "msg-2", seen: true }),
+      makeMessage({ id: "msg-3", seen: true }),
+    ];
+    render(
+      <MessageList
+        messages={messages}
+        onReply={noop}
+        onMailtoLink={noop}
+        onOpenMessageChange={noop}
+        focusMessageId="msg-2"
+      />,
+    );
+
+    expect(document.getElementById("message-msg-2")?.querySelector("iframe")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Collapse message/ })).toBeNull();
+  });
 });
