@@ -12,7 +12,6 @@ import {
   Pin,
   Plus,
   Reply,
-  ShieldCheck,
   Tag,
   Trash2,
 } from "lucide-react";
@@ -52,16 +51,18 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
  * nothing to aim at.
  *
  * Counts are a call to action, never decoration (the ticket's own
- * acceptance criterion): only the Screener's held count and Drafts' unsent
- * count ever render one, and only once there's something to act on — a
- * `0` renders no badge at all.
+ * acceptance criterion): only Drafts' unsent count ever renders one, and
+ * only once there's something to act on — a `0` renders no badge at all.
  *
  * The Stream entry (#105, CONTEXT.md): started life in #96 as an interim
  * Split/List toggle standing in for `mail/TopBar.tsx`'s old one; now a plain
  * navigation to Stream's own full-screen route (`router/routes.tsx#streamRoute`)
  * — entered deliberately, never switched into — so it deliberately isn't
  * styled as a permanent rail entry (no icon in `FOLDER_ICONS`, no count),
- * just a plain button beside Compose.
+ * just a plain button beside Compose. The Screener (`router/routes.tsx#screenerRoute`)
+ * is the same shape now — entered deliberately, from the Gatekeeper banner
+ * or the Command Palette, never a rail entry of its own (`folders.ts`'s own
+ * doc comment on why it left `FOLDER_ORDER`).
  *
  * Collapses to an icon-only rail on desktop (#93's own acceptance box; #99's
  * "This device" page toggle is the other place that flips it) —
@@ -96,7 +97,6 @@ import { FOLDER_LABELS, FOLDER_ORDER, type FolderKey } from "./folders.js";
 
 const FOLDER_ICONS: Record<FolderKey, LucideIcon> = {
   inbox: Inbox,
-  screener: ShieldCheck,
   snoozed: Clock,
   pinned: Pin,
   drafts: Pencil,
@@ -116,7 +116,6 @@ interface SidebarProps {
   gmailLabelFilter: string | null;
   onSelectGmailLabel: (labelId: string) => void;
   onCompose: () => void;
-  screenerCount: number;
   draftsCount: number;
   /** Stream's own entry point (#105) — a plain navigation, run through the Action registry's `open-stream` (`MailSection.tsx`'s own `onOpenStream`). */
   onOpenStream: () => void;
@@ -178,7 +177,6 @@ function RailContents({
   gmailLabelFilter,
   onSelectGmailLabel,
   onCompose,
-  screenerCount,
   draftsCount,
   onOpenStream,
   collapsed,
@@ -208,7 +206,7 @@ function RailContents({
       <SidebarSection sectionId="folders" label="Folders" railCollapsed={collapsed}>
         <SidebarMenu className="nav-list">
           {FOLDER_ORDER.map((key) => {
-            const count = key === "screener" ? screenerCount : key === "drafts" ? draftsCount : 0;
+            const count = key === "drafts" ? draftsCount : 0;
             const active = labelFilter === null && gmailLabelFilter === null && folder === key;
             const Icon = FOLDER_ICONS[key];
             return (

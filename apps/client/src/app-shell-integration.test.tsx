@@ -500,9 +500,12 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(within(dock).getByRole("button", { name: "Compose" })).toBeDefined();
 
       // Folders opens the same Sheet the desktop rail's entries live in.
+      // The Screener isn't one of these any more (`mail/folders.ts`'s own
+      // doc comment on why it left the sidebar) — "Snoozed" stands in as
+      // an ordinary fixed destination.
       await user.click(within(dock).getByRole("button", { name: "Folders" }));
       expect(await screen.findByRole("dialog")).toBeDefined();
-      expect(screen.getByRole("button", { name: "Screener" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Snoozed" })).toBeDefined();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).toBeNull();
 
@@ -666,12 +669,12 @@ describe("the app shell over a routed tree (#71)", () => {
     stubFetch();
     writeAccountScope(["acct-1"]);
 
-    history.replaceState(null, "", "/mail?folder=screener&account=acct-2");
+    history.replaceState(null, "", "/mail/screener?account=acct-2");
     render(<App />);
 
     expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
-    expect(location.pathname).toBe("/mail");
-    expect(location.search).toContain("folder=screener");
+    expect(location.pathname).toBe("/mail/screener");
+    expect(location.search).toContain("account=acct-2");
   });
 
   it("a cold-start Needs Reauth deep-link (#151, widened to Connected Accounts by #201/#204) lands on Connected Accounts and opens that Facet's Popover", async () => {

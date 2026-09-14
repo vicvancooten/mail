@@ -274,9 +274,9 @@ describe("notificationTargetUrl", () => {
     ).toBe("/mail?thread=t-1&account=acct-1");
   });
 
-  it("deep-links a Gatekeeper digest into the Screener", () => {
+  it("deep-links a Gatekeeper digest into the Screener's own route", () => {
     expect(notificationTargetUrl({ kind: "screener", mailAccountId: "acct-1" })).toBe(
-      "/mail?folder=screener&account=acct-1",
+      "/mail/screener?account=acct-1",
     );
   });
 

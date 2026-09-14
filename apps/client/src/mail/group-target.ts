@@ -86,10 +86,13 @@ export function groupDateRange(
 
 /**
  * `FolderKey` → `BulkTriageFolderRole`: the four sidebar destinations a bulk
- * target can actually name — Screener, Snoozed, Pinned and Drafts aren't
+ * target can actually name — Snoozed, Pinned and Drafts aren't
  * `Thread.lastMessageAt`-ordered mailbox folders the batch endpoint knows
  * how to bound, so `MailSection` never hands `VirtualizedThreadList` a
- * `groupBulk` controller while one of those is showing.
+ * `groupBulk` controller while one of those is showing. The Screener was
+ * never a candidate here either, and isn't even a `FolderKey` any more
+ * (`folders.ts`'s own doc comment) — it's a queue of held senders, not a
+ * Thread list a date-group header could ever apply to.
  */
 export function bulkTriageFolderRoleForFolder(folder: FolderKey): BulkTriageFolderRole | null {
   switch (folder) {

@@ -86,7 +86,6 @@ describe("bulkTriageFolderRoleForFolder", () => {
   });
 
   it("has no role for the folders that aren't a Thread.lastMessageAt-ordered mailbox view", () => {
-    expect(bulkTriageFolderRoleForFolder("screener")).toBeNull();
     expect(bulkTriageFolderRoleForFolder("snoozed")).toBeNull();
     expect(bulkTriageFolderRoleForFolder("pinned")).toBeNull();
     expect(bulkTriageFolderRoleForFolder("drafts")).toBeNull();

@@ -101,6 +101,13 @@ export function MailRoute() {
     void navigate({ to: "/mail/stream" });
   }, [navigate]);
 
+  // The Screener's own entry point (`mail/folders.ts`'s own doc comment on
+  // why it's no longer a `FolderKey`) — `onOpenStream`'s exact shape, just
+  // naming `screenerRoute` instead.
+  const onOpenScreener = useCallback(() => {
+    void navigate({ to: "/mail/screener" });
+  }, [navigate]);
+
   // "Add to Notes" (#195): once `MailSection`'s own handler has actually
   // created the Note (awaited — `notesNoteRoute`'s `beforeLoad` would
   // otherwise redirect a `/notes/$noteId` that doesn't resolve yet), this is
@@ -131,6 +138,7 @@ export function MailRoute() {
       initialAccountId={search.account ?? null}
       onLocationChange={onLocationChange}
       onOpenStream={onOpenStream}
+      onOpenScreener={onOpenScreener}
       onNoteCreated={onNoteCreated}
       onOpenTask={onOpenTask}
     />

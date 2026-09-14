@@ -1722,17 +1722,40 @@ describe("Sidebar (#74)", () => {
     expect(screen.queryByText("Inbox thread")).toBeNull();
   });
 
-  it("Screener opens from its sidebar entry, same as the Gatekeeper banner's own button", async () => {
-    await seedTwoThreads();
+  it("the Gatekeeper banner's Review button hands off to onOpenScreener, a plain navigation like Stream's own entry point", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-1", "acct-1", {
+            subject: "Please read",
+            heldSender: "stranger@example.test",
+            participants: [{ name: "A Stranger", address: "stranger@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch(never);
+    const onOpenScreener = vi.fn();
 
-    renderMail();
-    await screen.findByText("Newer thread");
+    renderMail({ onOpenScreener });
+    expect(await screen.findByRole("status")).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "Screener" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
 
-    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
-    expect(screen.queryByText("Newer thread")).toBeNull();
+    // The Screener is its own route now (`router/ScreenerRoute.tsx`) — this
+    // never renders `<Screener>` itself, it hands off to whoever owns
+    // navigation (`router/MailRoute.tsx` in production), the same posture
+    // `onOpenStream` already takes above.
+    expect(onOpenScreener).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("region", { name: "Screener" })).toBeNull();
   });
 });
 

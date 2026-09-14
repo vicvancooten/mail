@@ -75,7 +75,6 @@ import { useThreadMessages } from "./reading/useThreadMessages.js";
 import { Sidebar } from "./Sidebar.js";
 import { SplitView } from "./SplitView.js";
 import { GatekeeperBanner } from "./screener/GatekeeperBanner.js";
-import { Screener } from "./screener/Screener.js";
 import { scrollRestoreKey } from "./scroll-restore.js";
 import { SearchResultsView } from "./search/SearchResultsView.js";
 import type { ViewOrigin } from "./search/scope.js";
@@ -200,6 +199,7 @@ export function MailSection({
   initialAccountId = null,
   onLocationChange,
   onOpenStream = noop,
+  onOpenScreener = noop,
   onNoteCreated = noop,
   onOpenTask = noop,
 }: {
@@ -218,6 +218,15 @@ export function MailSection({
   ) => void;
   /** Stream's own entry point (#105) — `router/MailRoute.tsx`'s navigation to `streamRoute`; a no-op default for every unrouted caller (every test in this file included), same posture `onLocationChange` above takes. */
   onOpenStream?: () => void;
+  /**
+   * The Screener's own entry point — `router/MailRoute.tsx`'s navigation to
+   * `screenerRoute`, `onOpenStream`'s own shape now that the Screener is a
+   * real sibling route rather than a `setFolder("screener")` call
+   * (`folders.ts`'s own doc comment on why it left `FolderKey`). A no-op
+   * default for every unrouted caller (every test in this file included),
+   * same posture `onOpenStream` takes.
+   */
+  onOpenScreener?: () => void;
   /** "Add to Notes" (#195)'s own navigation, fired once the new Note actually exists in the Local Cache (the internal `onAddToNotes` handler below awaits the store write first — `notesNoteRoute`'s own `beforeLoad` redirects a `/notes/$noteId` that doesn't resolve yet) — `router/MailRoute.tsx`'s navigation to that route; a no-op default for every unrouted caller (every test in this file included), same posture `onOpenStream` above takes. */
   onNoteCreated?: (noteId: string) => void;
   /** The Reader's Task chips (#259, `ReaderTaskChips.tsx`'s own doc comment) — `router/MailRoute.tsx`'s navigation to `/tasks/:taskId`; same no-op-default, router-agnostic posture as `onOpenStream`. */
@@ -283,17 +292,17 @@ export function MailSection({
   const selectedThreadIdRef = useRef(selectedThreadId);
   selectedThreadIdRef.current = selectedThreadId;
   const [limit, setLimit] = useState(THREAD_PAGE_SIZE);
-  // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`): the
-  // Screener is one of these entries too, so `screenerOpen` below is derived
-  // from it rather than a second, independently-toggled boolean — one state
-  // that both the Sidebar's "which entry is active" highlight and the body
-  // switch below read, never two that could disagree.
+  // The sidebar folder destination (#74, `mail/folders.ts#FolderKey`) — the
+  // Screener isn't one of these any more (it's its own sibling route,
+  // `router/ScreenerRoute.tsx`), so this is exactly the Sidebar's own
+  // "which entry is active" highlight and nothing else.
   const [folder, setFolder] = useState<FolderKey>(initialFolder ?? DEFAULT_FOLDER);
-  // The Screener (#56, poc-spec.md §Gatekeeper v1): its own full-screen swap
-  // of `.mail-body`, the same shape `search.active` already uses below.
-  const screenerOpen = folder === "screener";
   // Account Scope (#82): the Screener groups held senders by Mail Account
-  // across the whole Scope, not just the primary account.
+  // across the whole Scope, not just the primary account. Computed here
+  // still, even though `router/ScreenerRoute.tsx` is what actually renders
+  // the Screener now — the Command Palette's `screener` action availability
+  // (`ActionContext.screenerCount` below) needs it while Mail itself is
+  // showing.
   const screenerAccountGroups = useScreenerSenders(accountScope) ?? [];
   const screenerSenderCount = screenerAccountGroups.reduce(
     (sum, group) => sum + group.senders.length,
@@ -634,32 +643,27 @@ export function MailSection({
 
   // Opening the Screener *is* "viewing" it (`device-preferences.ts`'s own
   // doc comment) — the banner's unseen cursor advances the instant this
-  // fires, not on some later "you scrolled past every row" heuristic.
+  // fires, not on some later "you scrolled past every row" heuristic. A
+  // plain navigation now (`onOpenScreener`, `router/MailRoute.tsx`'s own
+  // wiring to `screenerRoute`) rather than `setFolder("screener")` — the
+  // Screener is a sibling route of its own now, not a folder this component
+  // renders itself (`folders.ts`'s own doc comment on why it left
+  // `FolderKey`).
   const openScreener = useCallback(() => {
     if (accountScope.length === 0) return;
     // Every account in Scope, not just the primary — the Screener now shows
     // (and the banner now counts) holds across all of them (#82).
     for (const id of accountScope) writeScreenerViewed(id);
-    setFolder("screener");
-  }, [accountScope]);
-  const closeScreener = useCallback(() => setFolder(DEFAULT_FOLDER), []);
+    onOpenScreener();
+  }, [accountScope, onOpenScreener]);
 
-  // The Sidebar's folder destinations (#74): every entry but Screener lands
-  // here directly; Screener's own `writeScreenerViewed` side effect means it
-  // still goes through `openScreener` above rather than a bare `setFolder`.
-  const selectFolder = useCallback(
-    (next: FolderKey) => {
-      if (next === "screener") {
-        openScreener();
-        return;
-      }
-      setFolder(next);
-      setFilter(NO_FILTER);
-      setSelectedThreadId(null);
-      setLimit(THREAD_PAGE_SIZE);
-    },
-    [openScreener],
-  );
+  // The Sidebar's folder destinations (#74).
+  const selectFolder = useCallback((next: FolderKey) => {
+    setFolder(next);
+    setFilter(NO_FILTER);
+    setSelectedThreadId(null);
+    setLimit(THREAD_PAGE_SIZE);
+  }, []);
 
   // A notification click landing here (#53, ADR-0015: "a click always
   // lands where the next decision is"): the service worker only knows how
@@ -689,12 +693,14 @@ export function MailSection({
           // closure, which still holds the *pre*-narrow value in the same
           // tick `narrowScopeTo` just fired (a stale-closure read, same
           // batching `narrowScopeTo`'s own doc comment describes) — so the
-          // "viewed" cursor would advance for the wrong account. Setting
-          // both directly here keeps them in the one account the digest
-          // actually named.
+          // "viewed" cursor would advance for the wrong account. Marking it
+          // viewed directly here, against the digest's own named account,
+          // keeps that right; `onOpenScreener()` itself is a plain
+          // navigation to `screenerRoute` at this point, unaffected by
+          // which account Scope narrowed to.
           if (target.mailAccountId !== accountId) narrowScopeTo(target.mailAccountId);
           writeScreenerViewed(target.mailAccountId);
-          setFolder("screener");
+          onOpenScreener();
           return;
         case "needs-reauth":
           return;
@@ -704,7 +710,7 @@ export function MailSection({
           return;
       }
     });
-  }, [accountId, narrowScopeTo, reopenCompose]);
+  }, [accountId, narrowScopeTo, reopenCompose, onOpenScreener]);
 
   const selectLabelFilter = useCallback((labelId: string | null) => {
     setFilter(labelId !== null ? { kind: "label", labelId } : NO_FILTER);
@@ -1310,17 +1316,16 @@ export function MailSection({
   );
 
   // **The** `keydown` listener (#94). Inert while the composer owns the
-  // keyboard (#45), while the Screener is up with its own modal scheme, and
-  // while either overlay is — the Palette handles its own keys, and the
-  // Sheet must not let `e` archive something behind it. "Add to Tasks"'s own
-  // sheet (#258) joins that list for the same reason.
+  // keyboard (#45), and while either overlay is — the Palette handles its
+  // own keys, and the Sheet must not let `e` archive something behind it.
+  // "Add to Tasks"'s own sheet (#258) joins that list for the same reason.
+  // The Screener no longer needs a place on this list — it's a separate
+  // route now (`router/ScreenerRoute.tsx`), which unmounts this whole
+  // component (and its listener along with it) rather than merely showing
+  // over it the way it used to.
   useActionKeyboard(
     actionContext,
-    composeId !== null ||
-      screenerOpen ||
-      paletteOpen ||
-      shortcutSheetOpen ||
-      addToTasksThread !== null,
+    composeId !== null || paletteOpen || shortcutSheetOpen || addToTasksThread !== null,
   );
 
   if (!mailAccounts || mailAccounts.length === 0) return null;
@@ -1329,12 +1334,7 @@ export function MailSection({
   return (
     <ActionsProvider value={actionContext}>
       <section className="mail-section">
-        {/* Unmounted rather than merely hidden while the Screener is open: a
-            `readScreenerSeenUntil` read only happens on mount/account change
-            (`GatekeeperBanner`'s own doc comment), and `openScreener` just
-            wrote a fresh cursor — remounting is what picks it up, so the
-            banner doesn't still claim "unseen" for holds it was just shown. */}
-        {!screenerOpen && <GatekeeperBanner accountScope={accountScope} onOpen={openScreener} />}
+        <GatekeeperBanner accountScope={accountScope} onOpen={openScreener} />
         <div className="mail-frame">
           <Sidebar
             folder={folder}
@@ -1346,16 +1346,13 @@ export function MailSection({
             gmailLabelFilter={gmailLabelFilter}
             onSelectGmailLabel={selectGmailLabelFilter}
             onCompose={openCompose}
-            screenerCount={screenerSenderCount}
             draftsCount={draftCompositions.length}
             onOpenStream={onOpenStream}
             foldersOpen={foldersOpen}
             onFoldersOpenChange={setFoldersOpen}
           />
           <div className="mail-body">
-            {screenerOpen && accountScope.length > 0 ? (
-              <Screener accountScope={accountScope} onClose={closeScreener} />
-            ) : search.active ? (
+            {search.active ? (
               <SearchResultsView
                 viewMode={effectiveViewMode}
                 state={search}
