@@ -600,14 +600,33 @@
      above) rather than pushing it down as a flex sibling, so `.app-viewport`
      reserves the same space itself instead — required so retracting the
      header can be a pure `transform`, not a reflow, the only way it stays
-     smooth every frame of a fast scroll. */
+     smooth every frame of a fast scroll. Transitions in step with the
+     header's/dock's own `transform` below (same duration, same easing) —
+     see the `[data-chrome-hidden="true"]` override further down for why. */
   .app-viewport {
     padding-top: calc(54px + env(safe-area-inset-top));
     padding-bottom: calc(var(--dock-height) + var(--dock-gutter) * 2 + env(safe-area-inset-bottom));
+    transition: padding var(--dur-fast) var(--ease-out);
   }
 
   .app-shell[data-chrome-hidden="true"] .app-header {
     transform: translateY(-100%);
+  }
+
+  /* The reported "gray bars" (user's own words): `.app-viewport`'s reserved
+     padding above never used to shrink when the chrome it was reserved for
+     actually retracted — the header/dock slid away via a pure `transform`
+     (deliberately, so retracting stays a smooth 60fps move rather than a
+     reflow), but the space they left behind stayed exactly as reserved,
+     showing as a dead strip of `.app-viewport`'s own ground colour top and
+     bottom. Collapsing the padding to just the safe-area inset in lockstep
+     — same `data-chrome-hidden` gate, same duration/easing as the header's
+     and dock's own transforms — is what lets scrolled content actually
+     reclaim that space rather than merely watching the chrome slide off of
+     a gap that was never given back. */
+  .app-shell[data-chrome-hidden="true"] .app-viewport {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -804,7 +823,20 @@
    (the app's one 768px phone breakpoint, #273). The route's own
    element still paints its own `--color-bg` fill; `.app-card`'s
    `overflow: hidden` is what clips that fill to the rounded corners rather
-   than every route needing its own radius. */
+   than every route needing its own radius. `--color-surface-strong` here is
+   what makes that raised-card margin read as a *different*, cooler surface
+   than the card sitting on it — deliberate at ≥768px, but with no card
+   inset left to frame at phone width, the same colour only showed as a
+   mismatched grey strip anywhere this padding was still visible (the
+   header's own covered top strip, once retracted; the floating dock's own
+   gutter, always) — the phone override below matches the route's own
+   `--color-bg` fill instead, so that reserved space reads as the page's
+   ground rather than as a second, separate surface. Deliberately placed
+   after this rule (not inside its own `@media (max-width: 767px)` block
+   further up the file) — equal-specificity rules cascade in source order
+   regardless of which one carries a media condition, so an earlier phone
+   override here would have lost to this unconditional declaration instead
+   of winning under 768px. */
 .app-viewport {
   flex: 1;
   min-height: 0;
@@ -817,6 +849,12 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+@media (max-width: 767px) {
+  .app-viewport {
+    background: var(--color-bg);
+  }
 }
 
 @media (min-width: 768px) {
