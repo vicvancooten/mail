@@ -13,6 +13,7 @@ import {
 } from "../store/index.js";
 import { TaskQuickAdd } from "./TaskQuickAdd.js";
 import { TaskRow } from "./TaskRow.js";
+import { TasksCompletedGroup } from "./TasksCompletedGroup.js";
 import { formatUpcomingDayHeading } from "./task-due.js";
 
 /** `TaskListView.tsx`'s own animate-out window, reused verbatim. */
@@ -34,6 +35,10 @@ export function TaskUpcomingView() {
   const region = useRegionFormatSettings();
   const [completingIds, setCompletingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  // One view-wide expander (this view's own doc comment above), so one
+  // plain `useState` — `TaskTodayView.tsx`'s own reasoning, not a Device
+  // Preference either since there's no single List this belongs to.
+  const [completedOpen, setCompletedOpen] = useState(false);
 
   const defaultList = (taskLists ?? []).find((list) => list.isDefault) ?? null;
 
@@ -117,10 +122,13 @@ export function TaskUpcomingView() {
         </div>
       )}
       {completed.length > 0 ? (
-        <details className="tasks-completed-expander">
-          <summary>{completed.length} completed</summary>
-          <ul className="task-list">{completed.map(renderRow)}</ul>
-        </details>
+        <TasksCompletedGroup
+          count={completed.length}
+          open={completedOpen}
+          onToggle={setCompletedOpen}
+        >
+          {completed.map(renderRow)}
+        </TasksCompletedGroup>
       ) : null}
     </section>
   );

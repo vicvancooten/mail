@@ -1,11 +1,8 @@
 import type { Task, TaskList, TaskSection } from "@mail/shared";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { type DragEvent, useEffect, useState } from "react";
-import {
-  type TaskBoardMode,
-  useTaskBoardMode,
-  useTaskCompletedOpen,
-} from "../mail/device-preferences.js";
+import { Segmented } from "../components/Segmented.js";
+import { useTaskBoardMode, useTaskCompletedOpen } from "../mail/device-preferences.js";
 import { announceUndoableAction } from "../mail/undo-toast.js";
 import {
   completeTask,
@@ -24,8 +21,14 @@ import {
 import { TaskBoardView } from "./TaskBoardView.js";
 import { TaskQuickAdd } from "./TaskQuickAdd.js";
 import { TaskRow } from "./TaskRow.js";
+import { TasksCompletedGroup } from "./TasksCompletedGroup.js";
 import { midpointOrder, SECTION_DRAG_TYPE, TASK_DRAG_TYPE } from "./task-drag.js";
 import { useFocusOnMount } from "./use-focus-on-mount.js";
+
+const VIEW_MODE_OPTIONS = [
+  { value: "list" as const, label: "List" },
+  { value: "board" as const, label: "Board" },
+];
 
 /**
  * How long a just-completed row stays in the active group, fading out
@@ -246,23 +249,11 @@ export function TaskListView({
     <section className="tasks-main" aria-label={taskList.name}>
       <div className="tasks-main-header">
         <h2 className="tasks-main-title">{taskList.name}</h2>
-        {/* List/Board (#256): a Task List's own switch — Today/Upcoming
-            never render this control at all (`TasksApp.tsx`'s own branch),
-            the ticket's own "Today/Upcoming offer no such switch".
-            `settings/ThisDeviceSection.tsx`'s own plain-`<select>` shape for
-            every other Device Preference (Appearance, Layout, density), not
-            a bespoke segmented control. */}
-        <label className="tasks-mode-field">
-          <span>View as</span>
-          <select
-            aria-label="View as"
-            value={mode}
-            onChange={(event) => setMode(event.target.value as TaskBoardMode)}
-          >
-            <option value="list">List</option>
-            <option value="board">Board</option>
-          </select>
-        </label>
+        {/* List/Board (#256, moved onto the shared `Segmented` by #322,
+            R2): a Task List's own switch — Today/Upcoming never render this
+            control at all (`TasksApp.tsx`'s own branch), the ticket's own
+            "Today/Upcoming offer no such switch". */}
+        <Segmented options={VIEW_MODE_OPTIONS} value={mode} onChange={setMode} label="View as" />
         {/* Bootstrap (#255): below the "second Section" threshold, this is
             the only way to create one at all — not part of the row flow the
             ticket's own "no add-section affordance in the row flow" rules
@@ -302,7 +293,7 @@ export function TaskListView({
           )
         ) : null}
       </div>
-      <TaskQuickAdd onAdd={addTask} />
+      <TaskQuickAdd onAdd={addTask} registerFocus />
       {/* Board mode (#256): the Sections-as-columns layout replaces the
           grouped list and its own completed expander outright — the fixed
           Done column is where a completed Task lives instead. Same `all`
@@ -497,29 +488,26 @@ export function TaskListView({
             </div>
           )}
           {completed.length > 0 ? (
-            <details
-              className="tasks-completed-expander"
+            <TasksCompletedGroup
+              count={completed.length}
               open={completedOpen}
-              onToggle={(event) => setCompletedOpen(event.currentTarget.open)}
+              onToggle={setCompletedOpen}
             >
-              <summary>{completed.length} completed</summary>
-              <ul className="task-list">
-                {completed.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    expanded={task.id === expandedTaskId}
-                    onToggleComplete={() => toggleComplete(task)}
-                    onToggleExpand={() =>
-                      setExpandedTaskId((current) => (current === task.id ? null : task.id))
-                    }
-                    onCollapse={() =>
-                      setExpandedTaskId((current) => (current === task.id ? null : current))
-                    }
-                  />
-                ))}
-              </ul>
-            </details>
+              {completed.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  expanded={task.id === expandedTaskId}
+                  onToggleComplete={() => toggleComplete(task)}
+                  onToggleExpand={() =>
+                    setExpandedTaskId((current) => (current === task.id ? null : task.id))
+                  }
+                  onCollapse={() =>
+                    setExpandedTaskId((current) => (current === task.id ? null : current))
+                  }
+                />
+              ))}
+            </TasksCompletedGroup>
           ) : null}
         </>
       )}
