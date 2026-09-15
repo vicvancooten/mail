@@ -17,4 +17,5 @@ export {
   radii,
   type ShadowTheme,
 } from "./geometry.js";
+export { controlHeight, space, text } from "./scale.js";
 export { type FontTheme, fonts } from "./typography.js";
