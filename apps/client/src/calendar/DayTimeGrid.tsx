@@ -2,7 +2,11 @@ import type { Calendar, Event, RegionFormatSettings, Task } from "@mail/shared";
 import { formatHourLabel } from "@mail/shared";
 import { type MouseEvent, type PointerEvent, useRef, useState } from "react";
 import { CalendarDayCell } from "./CalendarDayCell.js";
-import { defaultCalendarId, openCreatePanelForDay } from "./calendar-create.js";
+import {
+  defaultCalendarId,
+  openCreatePanelForDay,
+  openCreatePanelForRange,
+} from "./calendar-create.js";
 import {
   type CivilDate,
   dayKey,
@@ -16,6 +20,7 @@ import {
   handleEventDrop,
   handleEventResizeDrop,
   isDraggableCalendar,
+  resolveCreateDragRange,
   snapToQuarterHour,
 } from "./calendar-event-drag.js";
 import { openCreatePanel, pointAnchorRect } from "./calendar-event-panel.js";
@@ -113,6 +118,30 @@ interface ResizeTracker {
   target: number | null;
 }
 
+/**
+ * Dragging on empty grid space to create a brand-new Event with an exact
+ * range — `DragTracker`/`ResizeTracker`'s own sibling for a gesture with no
+ * existing Occurrence behind it yet, one per `.calendar-hour-row` pointer
+ * sequence. `anchorMinutes` is the quarter-hour the drag actually started on
+ * (wherever inside the hour row the pointer went down, not just that row's
+ * own hour); `current` is the quarter-hour the pointer sits over right now,
+ * `null` until the drag clears `DRAG_THRESHOLD_PX` — the same "a few px of
+ * jitter must never start a drag" split a chip's own `moved` already gives a
+ * move. Never crosses day columns, unlike a move: the button a create-drag
+ * starts on already belongs to exactly one day, and `setPointerCapture`
+ * keeps every later move/up event routed back to it regardless of where the
+ * pointer strays.
+ */
+interface CreateDragTracker {
+  pointerId: number;
+  dayKey: string;
+  startX: number;
+  startY: number;
+  moved: boolean;
+  anchorMinutes: number;
+  current: number | null;
+}
+
 /** Which day column's own rect the pointer currently sits over — nearest column wins once the pointer strays past the grid's own left/right edge, so a drag dropped past the last day column still lands on it rather than doing nothing. */
 function columnAt(
   clientX: number,
@@ -173,12 +202,18 @@ export function DayTimeGrid({
   const columnRefs = useRef(new Map<string, HTMLDivElement>());
   const dragTrackerRef = useRef<DragTracker | null>(null);
   const resizeTrackerRef = useRef<ResizeTracker | null>(null);
+  const createDragTrackerRef = useRef<CreateDragTracker | null>(null);
   const justDraggedRef = useRef(false);
   const [preview, setPreview] = useState<{
     eventId: string;
     dayKey: string;
     minutes: number;
     heightPercent: number;
+  } | null>(null);
+  const [createPreview, setCreatePreview] = useState<{
+    dayKey: string;
+    startMinutes: number;
+    endMinutes: number;
   } | null>(null);
   const [resizePreview, setResizePreview] = useState<{
     eventId: string;
@@ -239,6 +274,97 @@ export function DayTimeGrid({
     if (!tracker || tracker.pointerId !== event.pointerId) return;
     dragTrackerRef.current = null;
     setPreview(null);
+  }
+
+  /**
+   * Pointer-down on empty grid space (an hour row itself, never an
+   * Occurrence's own chip layered on top of it — that chip is a sibling
+   * element with its own `handlePointerDown`, so this one is never reached
+   * for it) starts a create-drag, the exact same gating a plain click here
+   * already applies: no writable default Calendar (`defaultCalendarId`), no
+   * gesture at all, silently, the same as `createAt` below no-ops today.
+   * `anchorMinutes` is read from wherever inside the row the pointer
+   * actually landed, not just the row's own hour, so a drag started
+   * partway through an hour begins exactly there rather than snapping its
+   * own start to the top of the hour.
+   */
+  function handleCreateDragPointerDown(event: PointerEvent<HTMLButtonElement>, key: string) {
+    if (event.button !== 0) return;
+    if (!defaultCalendarId(calendarById)) return;
+    const column = columnRefs.current.get(key);
+    if (!column) return;
+    const rect = column.getBoundingClientRect();
+    const anchorMinutes = snapToQuarterHour(
+      clampMinutes(((event.clientY - rect.top) / rect.height) * MINUTES_PER_DAY),
+    );
+    createDragTrackerRef.current = {
+      pointerId: event.pointerId,
+      dayKey: key,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      anchorMinutes,
+      current: null,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleCreateDragPointerMove(event: PointerEvent<HTMLButtonElement>) {
+    const tracker = createDragTrackerRef.current;
+    if (!tracker || tracker.pointerId !== event.pointerId) return;
+    if (!tracker.moved) {
+      const dx = event.clientX - tracker.startX;
+      const dy = event.clientY - tracker.startY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      tracker.moved = true;
+    }
+    const column = columnRefs.current.get(tracker.dayKey);
+    if (!column) return;
+    const rect = column.getBoundingClientRect();
+    const minutes = snapToQuarterHour(
+      clampMinutes(((event.clientY - rect.top) / rect.height) * MINUTES_PER_DAY),
+    );
+    tracker.current = minutes;
+    const { startMinutes, endMinutes } = resolveCreateDragRange(tracker.anchorMinutes, minutes);
+    setCreatePreview({ dayKey: tracker.dayKey, startMinutes, endMinutes });
+  }
+
+  /**
+   * Pointer-up on a genuine create-drag (`tracker.moved`) opens the create
+   * popover seeded with the exact dragged range (`openCreatePanelForRange`)
+   * and sets `justDraggedRef` so the row's own native `click` — which still
+   * fires right after this `pointerup`, same as it would for an ordinary
+   * click — never also runs `createAt`'s fixed-duration create underneath
+   * it. A plain click (`!tracker.moved`) does nothing here at all and falls
+   * straight through to that `onClick`, which is exactly today's existing
+   * click-to-create behaviour, left untouched.
+   */
+  function handleCreateDragPointerUp(event: PointerEvent<HTMLButtonElement>, day: CivilDate) {
+    const tracker = createDragTrackerRef.current;
+    createDragTrackerRef.current = null;
+    if (!tracker || tracker.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setCreatePreview(null);
+    if (!tracker.moved || tracker.current === null) return;
+    justDraggedRef.current = true;
+    const { startMinutes, endMinutes } = resolveCreateDragRange(
+      tracker.anchorMinutes,
+      tracker.current,
+    );
+    openCreatePanelForRange(
+      day,
+      startMinutes,
+      endMinutes,
+      calendarById,
+      pointAnchorRect(event.clientX, event.clientY),
+    );
+  }
+
+  function handleCreateDragPointerCancel(event: PointerEvent<HTMLButtonElement>) {
+    const tracker = createDragTrackerRef.current;
+    if (!tracker || tracker.pointerId !== event.pointerId) return;
+    createDragTrackerRef.current = null;
+    setCreatePreview(null);
   }
 
   /** Grabbing a chip's own top/bottom edge (#306) — `stopPropagation` so the chip's own `handlePointerDown` (a move) never also starts, the same "one gesture, one meaning" split the handle's own hit area already gives a pointer by being 6px tall. */
@@ -304,7 +430,7 @@ export function DayTimeGrid({
 
   return (
     <div
-      className={`calendar-time-grid${days.length === 1 ? " single-day" : ""}${preview ? " dragging" : ""}${resizePreview ? " resizing" : ""}`}
+      className={`calendar-time-grid${days.length === 1 ? " single-day" : ""}${preview ? " dragging" : ""}${resizePreview ? " resizing" : ""}${createPreview ? " creating" : ""}`}
     >
       {days.map((day) => {
         const bucket = buckets.get(dayKey(day));
@@ -380,9 +506,23 @@ export function DayTimeGrid({
                       type="button"
                       aria-label={`Create event at ${formatHourLabel(hour, region)}`}
                       className="calendar-hour-row"
-                      onClick={(event: MouseEvent<HTMLButtonElement>) =>
-                        createAt(event.clientX, event.clientY)
-                      }
+                      onPointerDown={(e) => handleCreateDragPointerDown(e, key)}
+                      onPointerMove={handleCreateDragPointerMove}
+                      onPointerUp={(e) => handleCreateDragPointerUp(e, day)}
+                      onPointerCancel={handleCreateDragPointerCancel}
+                      onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                        // A real create-drag's own pointer-up already opened
+                        // the range popover and set this — the native click
+                        // that still follows it (same browser behaviour a
+                        // chip drag's own `handleClickCapture` already
+                        // swallows) must never also run the fixed-duration
+                        // create below.
+                        if (justDraggedRef.current) {
+                          justDraggedRef.current = false;
+                          return;
+                        }
+                        createAt(event.clientX, event.clientY);
+                      }}
                     />
                   );
                 })}
@@ -451,6 +591,17 @@ export function DayTimeGrid({
                     style={{
                       top: `${(preview.minutes / MINUTES_PER_DAY) * 100}%`,
                       height: `${preview.heightPercent}%`,
+                      left: 0,
+                      width: "100%",
+                    }}
+                  />
+                ) : null}
+                {createPreview && createPreview.dayKey === key ? (
+                  <div
+                    className="calendar-timed-event calendar-timed-event-ghost"
+                    style={{
+                      top: `${(createPreview.startMinutes / MINUTES_PER_DAY) * 100}%`,
+                      height: `${((createPreview.endMinutes - createPreview.startMinutes) / MINUTES_PER_DAY) * 100}%`,
                       left: 0,
                       width: "100%",
                     }}

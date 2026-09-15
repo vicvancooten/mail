@@ -21,12 +21,19 @@
   /* The phone Dock's own content height (#155, #298), excluding its own
      bottom margin and safe-area padding — one value the Dock itself and
      `.app-viewport`'s reserved bottom padding both read, so they can never
-     drift out of step. */
-  --dock-height: 56px;
+     drift out of step. Trimmed from an earlier 56px: close to a native
+     bottom bar's own ~49pt content height rather than sitting visibly
+     larger than one, since a floating pill this size was reading as though
+     it claimed the middle of the screen rather than sitting calmly at its
+     foot (still a full 48px tap target, comfortably above the ~44px
+     minimum). */
+  --dock-height: 48px;
   /* Gap between the Dock's floating pill and the screen's bottom safe area
      — what actually makes it read as floating rather than framing: the
-     page's own ground colour shows all the way round it. */
-  --dock-gutter: 14px;
+     page's own ground colour shows all the way round it. Trimmed alongside
+     `--dock-height` above, for the same reason: less of the screen given to
+     the pill's own isolation, not just to the pill itself. */
+  --dock-gutter: 10px;
 }
 
 /* ---------- the global header ---------- */
@@ -600,14 +607,33 @@
      above) rather than pushing it down as a flex sibling, so `.app-viewport`
      reserves the same space itself instead — required so retracting the
      header can be a pure `transform`, not a reflow, the only way it stays
-     smooth every frame of a fast scroll. */
+     smooth every frame of a fast scroll. Transitions in step with the
+     header's/dock's own `transform` below (same duration, same easing) —
+     see the `[data-chrome-hidden="true"]` override further down for why. */
   .app-viewport {
     padding-top: calc(54px + env(safe-area-inset-top));
     padding-bottom: calc(var(--dock-height) + var(--dock-gutter) * 2 + env(safe-area-inset-bottom));
+    transition: padding var(--dur-fast) var(--ease-out);
   }
 
   .app-shell[data-chrome-hidden="true"] .app-header {
     transform: translateY(-100%);
+  }
+
+  /* The reported "gray bars" (user's own words): `.app-viewport`'s reserved
+     padding above never used to shrink when the chrome it was reserved for
+     actually retracted — the header/dock slid away via a pure `transform`
+     (deliberately, so retracting stays a smooth 60fps move rather than a
+     reflow), but the space they left behind stayed exactly as reserved,
+     showing as a dead strip of `.app-viewport`'s own ground colour top and
+     bottom. Collapsing the padding to just the safe-area inset in lockstep
+     — same `data-chrome-hidden` gate, same duration/easing as the header's
+     and dock's own transforms — is what lets scrolled content actually
+     reclaim that space rather than merely watching the chrome slide off of
+     a gap that was never given back. */
+  .app-shell[data-chrome-hidden="true"] .app-viewport {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -638,7 +664,7 @@
     bottom: calc(var(--dock-gutter) + env(safe-area-inset-bottom));
     z-index: 10;
     gap: 2px;
-    padding: 6px;
+    padding: 5px;
     border-radius: 999px;
     background: var(--color-surface-strong);
     box-shadow: var(--shadow-overlay);
@@ -664,15 +690,20 @@
    or tinted "current" state none of these tiles actually has (each opens a
    transient sheet or panel, never a place you "are"). */
 .dock-item {
-  flex: 1;
+  /* Content-based, not an equal-share `flex: 1`: a one-word ghost
+     caption ("Folders"/"Compose") never needs to grow, and giving it equal
+     weight against the switcher tile below is exactly what used to starve
+     the switcher's own variable-length App name of room — see
+     `.dock-switcher`'s own comment. */
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 56px;
+  min-width: 52px;
   height: var(--dock-height);
-  padding: 0 10px;
+  padding: 0 8px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -717,15 +748,27 @@
    thing you press to open something, not a caption naming what the Dock
    currently shows. */
 .dock-switcher {
-  flex: 1;
+  /* Content-based basis and real growth priority (fixes the current
+     App's name reading as a single illegible letter) — this is the one
+     Dock tile whose label varies (App names run "Mail" to "Contacts"), so
+     unlike `.dock-item`'s own fixed-width captions either side, it's the
+     one tile that should actually claim any free width the pill has. A
+     bare `flex: 1` shared equally with two `.dock-item`s (each protected by
+     their own `min-width`, this tile's `min-width: 0` giving it none of its
+     own) meant *this* tile, not either of theirs, absorbed the whole
+     squeeze whenever the pill's own shrink-to-fit sizing ran short — flex-
+     basis `auto` seeds that sizing from the label's own real content width
+     instead of a shared, content-blind `0%`, and `min-width` gives it a
+     floor even at the shortest App name. */
+  flex: 1 1 auto;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 0;
+  gap: 5px;
+  min-width: 72px;
   height: var(--dock-height);
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-surface);
@@ -754,8 +797,8 @@
 }
 
 .dock-switcher .app-tile {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
 }
 
 .dock-switcher-chev {
@@ -804,7 +847,20 @@
    (the app's one 768px phone breakpoint, #273). The route's own
    element still paints its own `--color-bg` fill; `.app-card`'s
    `overflow: hidden` is what clips that fill to the rounded corners rather
-   than every route needing its own radius. */
+   than every route needing its own radius. `--color-surface-strong` here is
+   what makes that raised-card margin read as a *different*, cooler surface
+   than the card sitting on it — deliberate at ≥768px, but with no card
+   inset left to frame at phone width, the same colour only showed as a
+   mismatched grey strip anywhere this padding was still visible (the
+   header's own covered top strip, once retracted; the floating dock's own
+   gutter, always) — the phone override below matches the route's own
+   `--color-bg` fill instead, so that reserved space reads as the page's
+   ground rather than as a second, separate surface. Deliberately placed
+   after this rule (not inside its own `@media (max-width: 767px)` block
+   further up the file) — equal-specificity rules cascade in source order
+   regardless of which one carries a media condition, so an earlier phone
+   override here would have lost to this unconditional declaration instead
+   of winning under 768px. */
 .app-viewport {
   flex: 1;
   min-height: 0;
@@ -817,6 +873,12 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+@media (max-width: 767px) {
+  .app-viewport {
+    background: var(--color-bg);
+  }
 }
 
 @media (min-width: 768px) {

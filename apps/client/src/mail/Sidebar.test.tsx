@@ -26,7 +26,6 @@ const props = {
   gmailLabelFilter: null,
   onSelectGmailLabel: vi.fn(),
   onCompose: vi.fn(),
-  screenerCount: 0,
   draftsCount: 0,
   onOpenStream: vi.fn(),
 };

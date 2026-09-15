@@ -24,8 +24,20 @@ export interface ResolvedBulkTriageTarget {
   folderRole: BulkTriageFolderRole;
   /** Inclusive lower bound on `Thread.lastMessageAt`, or `null` for "everything older". */
   since: Date | null;
-  /** Exclusive upper bound on `Thread.lastMessageAt` — already clamped to "now" by the caller (`routes/bulk-triage.ts`). */
-  until: Date;
+  /**
+   * Exclusive upper bound on `Thread.lastMessageAt`, already clamped to "now"
+   * by the caller (`routes/bulk-triage.ts#clampUntil`) whenever the Client
+   * asked for one — `null` means the Client sent no ceiling at all (the
+   * open-ended "Today" group's own shape, `group-target.ts#groupDateRange`),
+   * and is left genuinely unbounded here rather than substituted with a
+   * ceiling of "the instant this query runs": that substitution is exactly
+   * what let a Thread whose `lastMessageAt` lands in the gap between the
+   * User's click and this query's own execution — the newest row in "Today"
+   * is the one most likely to — get optimistically collapsed by the Client
+   * (its own boundary math has no upper bound for this group either) while
+   * silently missing the server's target set.
+   */
+  until: Date | null;
 }
 
 /**
@@ -42,7 +54,7 @@ export async function selectTargetThreadIds(
 ): Promise<string[]> {
   const dateBounds = and(
     target.since !== null ? gte(threads.lastMessageAt, target.since) : undefined,
-    lt(threads.lastMessageAt, target.until),
+    target.until !== null ? lt(threads.lastMessageAt, target.until) : undefined,
   );
 
   if (target.folderRole === "inbox") {

@@ -2,8 +2,10 @@ import type { Message } from "@mail/shared";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dexie from "dexie";
+import { useMemo } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../../auth/AuthContext.js";
+import { useMailAccounts } from "../../store/index.js";
 import { localCache, openLocalCache } from "../../store/local-cache.js";
 import { listQueuedMutations } from "../../store/mutation-queue.js";
 import { applyMailAccountDelta, applyThreadDelta } from "../../store/server-writes.js";
@@ -16,10 +18,12 @@ import {
 } from "../../test-support/mail-fixtures.js";
 import { jsonResponse } from "../../test-support/mock-fetch.js";
 import { PaletteHostTestProvider } from "../../test-support/palette-host-harness.js";
+import { ActionsProvider } from "../actions/ActionsProvider.js";
 import { resetActiveMailHost } from "../actions/active-mail-host.js";
 import { resetSurfaceHandles } from "../actions/surface-handles.js";
-import { MailSection } from "../MailSection.js";
+import { noopActionContext } from "../actions/types.js";
 import { resetUndoToastsForTest } from "../undo-toast.js";
+import { Screener } from "./Screener.js";
 
 /**
  * Undo (#95, ADR-0019) rides `undo-toast.ts`'s real `announceUndoableAction`
@@ -76,11 +80,19 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
 }
 
 /**
- * End-to-end coverage of #56's acceptance boxes: the banner appearing for a
- * Hold and disappearing once the Screener is viewed, Approve releasing into
- * the Inbox, and a keyboard-only pass through the Screener itself. Driven
- * the same way `MailSection.test.tsx`/`search-integration.test.tsx` are: a
- * real IndexedDB-backed Local Cache, a stubbed `fetch`, no mocked hooks.
+ * End-to-end coverage of `Screener.tsx`'s own acceptance boxes (#56): Approve
+ * releasing a held sender, the row menu's three Verdicts, a keyboard-only
+ * pass, the View dialog and Block's split menu, and #145's cache
+ * invalidation. Driven the same way `MailSection.test.tsx`/`StreamStack.test.tsx`
+ * are: a real IndexedDB-backed Local Cache, a stubbed `fetch`, no mocked
+ * hooks — `<Screener>` rendered directly, `StreamStack.test.tsx`'s own
+ * precedent for a full-screen destination that is no longer a view
+ * `MailSection` swaps in and out of (`router/ScreenerRoute.tsx`'s own doc
+ * comment on why). The Gatekeeper banner's own "a Hold shows the banner" /
+ * "Review hands off to onOpenScreener" coverage lives in
+ * `MailSection.test.tsx` now — the two are separate routes in production, so
+ * a banner assertion and a Screener-row assertion no longer belong in the
+ * same render the way they used to.
  */
 
 let counter = 0;
@@ -115,10 +127,10 @@ function stubFetch(threadMessages: Record<string, Message[]> = {}) {
 beforeEach(async () => {
   resetSyncStatus();
   resetUndoToastsForTest();
-  // `active-mail-host.ts`/`surface-handles.ts` (#147): `MailSection`'s own
-  // unmount clears these, but only once that unmount's effect cleanup has
-  // actually run — their own reset exports guarantee a clean start instead
-  // of depending on that timing.
+  // `active-mail-host.ts`/`surface-handles.ts` (#147): nothing in this file
+  // publishes either any more (`Screener` itself never did), but the reset
+  // still guarantees a clean start rather than depending on some other
+  // suite's own unmount timing.
   resetActiveMailHost();
   resetSurfaceHandles();
   toastCalls.length = 0;
@@ -159,72 +171,70 @@ async function seedHeldSenders(): Promise<void> {
   );
 }
 
-function renderMail(threadMessages: Record<string, Message[]> = {}) {
+/**
+ * `router/ScreenerRoute.tsx` minus its router glue: the same Account
+ * Scope derivation (bypassed straight to "every Mail Account" here, since
+ * this file never seeds a Connected Account row — `useAccountScope.ts#
+ * deriveMailAccountScope`'s own fallback), and the same inert
+ * `ActionsProvider`/`noopActionContext` wrapping so the row menu's
+ * Approve/Deny/Block still works (`Screener.tsx`'s own `useActions()`).
+ */
+function ScreenerHarness({ onClose }: { onClose: () => void }) {
+  const mailAccounts = useMailAccounts() ?? [];
+  const accountScope = useMemo(() => mailAccounts.map((account) => account.id), [mailAccounts]);
+  const actionContext = useMemo(
+    () => noopActionContext({ onBackToList: onClose, onOpenFolders: onClose }),
+    [onClose],
+  );
+  if (accountScope.length === 0) return null;
+  return (
+    <ActionsProvider value={actionContext}>
+      <Screener accountScope={accountScope} onClose={onClose} />
+    </ActionsProvider>
+  );
+}
+
+function renderScreener(threadMessages: Record<string, Message[]> = {}) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = stubFetch(threadMessages) as typeof fetch;
+  const onClose = vi.fn();
   const result = render(
     <AuthProvider>
       <PaletteHostTestProvider>
-        <MailSection />
+        <ScreenerHarness onClose={onClose} />
       </PaletteHostTestProvider>
     </AuthProvider>,
   );
   return {
     ...result,
+    onClose,
     restoreFetch: () => {
       globalThis.fetch = originalFetch;
     },
   };
 }
 
-describe("Gatekeeper banner and Screener (#56)", () => {
-  it("a Hold shows the banner; Approve from the Screener releases the Thread into the Inbox", async () => {
+describe("the Screener's own queue (#56)", () => {
+  it("Approve releases a held sender at once, queuing approveSender", async () => {
     await seedHeldSenders();
-    renderMail();
+    renderScreener();
 
-    expect(await screen.findByText("Ordinary mail")).toBeDefined();
-    // Held mail never shows in the Inbox.
-    expect(screen.queryByText("Please read")).toBeNull();
-
-    expect(await screen.findByRole("status")).toBeDefined();
-    expect(screen.getByText(/1 sender waiting in the Screener/)).toBeDefined();
-
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(await screen.findByText("A Stranger")).toBeDefined();
-    // Viewing the Screener dismisses the (now non-existent) banner underneath.
-    expect(screen.queryByRole("status")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Approve/ }));
     // The Screener's own optimistic feel: the row leaves immediately.
     await waitFor(() => expect(screen.queryByText("A Stranger")).toBeNull());
     expect(screen.getByText("Nothing waiting — new strangers show up here.")).toBeDefined();
 
-    // Approving clears `heldSender` server-side; simulate the sync landing.
-    await applyThreadDelta(
-      "acct-1",
-      delta({
-        updated: [
-          makeThread("held-1", "acct-1", {
-            subject: "Please read",
-            heldSender: null,
-            participants: [{ name: "A Stranger", address: "stranger@example.test" }],
-          }),
-        ],
-      }),
-      { replace: false },
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Back to Inbox" }));
-    expect(await screen.findByText("Please read")).toBeDefined();
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent.type)).toContain("approveSender");
   });
 
   it("right-clicking a held sender's row offers the same three Verdicts, with their keycaps (#94)", async () => {
     await seedHeldSenders();
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     const row = await screen.findByText("A Stranger");
-
     fireEvent.contextMenu(row);
 
     const approve = await screen.findByRole("menuitem", { name: /Approve sender/ });
@@ -238,7 +248,7 @@ describe("Gatekeeper banner and Screener (#56)", () => {
     expect(queued.map((mutation) => mutation.intent.type)).toContain("approveSender");
   });
 
-  it("a keyboard-only pass through the Screener: j/k navigate, a approves, Escape closes", async () => {
+  it("a keyboard-only pass through the Screener: j/k navigate, a approves, Escape leaves", async () => {
     await applyMailAccountDelta(
       delta({
         created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
@@ -265,9 +275,8 @@ describe("Gatekeeper banner and Screener (#56)", () => {
       }),
       { replace: false },
     );
-    renderMail();
+    const { onClose } = renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("Ann");
     await screen.findByText("Bea");
     // The oldest hold starts selected — wait for that settle before driving
@@ -288,9 +297,12 @@ describe("Gatekeeper banner and Screener (#56)", () => {
     await waitFor(() => expect(screen.queryByText("Bea")).toBeNull());
     expect(screen.getByText("Ann")).toBeDefined();
 
-    // Escape leaves the Screener back to the Inbox.
+    // Escape leaves the Screener — `onClose` (`Screener.tsx`'s own prop,
+    // `ScreenerRoute.tsx`'s `onLeave` in production) is the whole of it,
+    // now that leaving means navigating away rather than a sibling
+    // component swapping this one back out.
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByText("Ann")).toBeNull());
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("with several Mail Accounts in Scope, held senders group by account, headers and all (#82)", async () => {
@@ -329,12 +341,8 @@ describe("Gatekeeper banner and Screener (#56)", () => {
       }),
       { replace: false },
     );
-    renderMail();
+    renderScreener();
 
-    // Both accounts' senders wait, so the banner counts across the whole Scope.
-    await screen.findByText(/2 senders waiting in the Screener/);
-
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
     await screen.findByText("Ann");
     await screen.findByText("Bea");
     // Each held sender's own account names its cluster.
@@ -362,11 +370,99 @@ describe("Gatekeeper banner and Screener (#56)", () => {
 
   it("a single Mail Account in Scope shows no group header", async () => {
     await seedHeldSenders();
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
     expect(document.querySelector(".screener-group-header")).toBeNull();
+  });
+});
+
+describe("the header's prev/next buttons (mouse-reachable, moveSelection)", () => {
+  async function seedThreeHeldSenders(): Promise<void> {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-a", "acct-1", {
+            subject: "From A",
+            heldSender: "a@example.test",
+            participants: [{ name: "Ann", address: "a@example.test" }],
+            lastMessageAt: minutesAfterEpoch(1),
+          }),
+          makeThread("held-b", "acct-1", {
+            subject: "From B",
+            heldSender: "b@example.test",
+            participants: [{ name: "Bea", address: "b@example.test" }],
+            lastMessageAt: minutesAfterEpoch(2),
+          }),
+          makeThread("held-c", "acct-1", {
+            subject: "From C",
+            heldSender: "c@example.test",
+            participants: [{ name: "Cee", address: "c@example.test" }],
+            lastMessageAt: minutesAfterEpoch(3),
+          }),
+        ],
+      }),
+      { replace: false },
+    );
+  }
+
+  function selectedName(): string | null {
+    const selected = document.querySelector(".screener-row.selected .screener-row-name");
+    return selected?.textContent ?? null;
+  }
+
+  it("moves the selection forward and back, the same step j/k take", async () => {
+    await seedThreeHeldSenders();
+    renderScreener();
+
+    await screen.findByText("Ann");
+    await screen.findByText("Bea");
+    await screen.findByText("Cee");
+    // The oldest hold starts selected, same as every other test in this file.
+    await waitFor(() => expect(selectedName()).toBe("Ann"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Bea"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Cee"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Bea"));
+  });
+
+  it("wraps at both ends, exactly what j/k already do there (Screener.tsx's own keydown handler)", async () => {
+    await seedThreeHeldSenders();
+    renderScreener();
+
+    await waitFor(() => expect(selectedName()).toBe("Ann"));
+
+    // Past the last row, Next wraps to the first.
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Cee"));
+    fireEvent.click(screen.getByRole("button", { name: "Next sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Ann"));
+
+    // Before the first row, Previous wraps to the last.
+    fireEvent.click(screen.getByRole("button", { name: "Previous sender" }));
+    await waitFor(() => expect(selectedName()).toBe("Cee"));
+  });
+
+  it("stays out of the header entirely with at most one held sender — nothing to move between", async () => {
+    await seedHeldSenders();
+    renderScreener();
+
+    await screen.findByText("A Stranger");
+    expect(screen.queryByRole("button", { name: "Next sender" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous sender" })).toBeNull();
   });
 });
 
@@ -402,7 +498,7 @@ describe("the View dialog and Block's split menu (#102)", () => {
 
   it("View opens a dialog reading the held mail; deciding from inside it closes the dialog", async () => {
     await seedOneHeldSender("held-view", "stranger@example.test", "A Stranger");
-    renderMail({
+    renderScreener({
       "held-view": [
         makeMessage({
           id: "m-view-1",
@@ -413,9 +509,7 @@ describe("the View dialog and Block's split menu (#102)", () => {
       ],
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
-
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const dialog = await screen.findByRole("dialog");
     // The message's own subject and date are visible (#102's acceptance box).
@@ -434,7 +528,7 @@ describe("the View dialog and Block's split menu (#102)", () => {
 
   it("blocks remote images and offers no click-through inside the dialog", async () => {
     await seedOneHeldSender("held-view-images", "stranger@example.test", "A Stranger");
-    renderMail({
+    renderScreener({
       "held-view-images": [
         makeMessage({
           id: "m-view-2",
@@ -445,7 +539,6 @@ describe("the View dialog and Block's split menu (#102)", () => {
       ],
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const dialog = await screen.findByRole("dialog");
@@ -459,9 +552,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
   it("Block's split menu offers Block domain, scoped to the sender's own domain", async () => {
     const user = userEvent.setup();
     await seedOneHeldSender("held-block", "stranger@lists.example.test", "A Stranger");
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
 
     // Radix's menu opens off pointer events `fireEvent.click` doesn't
@@ -480,9 +572,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
   it("Block's split menu offers Spam, queuing a spamSender decision", async () => {
     const user = userEvent.setup();
     await seedOneHeldSender("held-spam", "villain@example.test", "A Villain");
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Villain");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
@@ -502,9 +593,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
   it("disables Block domain for a barred public provider", async () => {
     const user = userEvent.setup();
     await seedOneHeldSender("held-barred", "stranger@gmail.com", "A Stranger");
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
@@ -520,9 +610,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
       "A Stranger",
       "sales@mycompany.test",
     );
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
@@ -555,9 +644,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
       "A Stranger",
       "sales@mycompany.test",
     );
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
     await user.click(screen.getByRole("button", { name: /More block options/ }));
     await user.click(await screen.findByText("Block everything sent to sales@mycompany.test"));
@@ -582,9 +670,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
       "A Stranger",
       "acct-1@example.test",
     );
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
@@ -597,9 +684,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
   it("offers no Block Alias item when the held Thread never resolved one", async () => {
     const user = userEvent.setup();
     await seedOneHeldSender("held-no-alias", "stranger@example.test", "A Stranger");
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));
@@ -608,8 +694,8 @@ describe("the View dialog and Block's split menu (#102)", () => {
   });
 });
 
-describe("remote images refresh after a Screener decision (#145)", () => {
-  it("approving a sender invalidates the per-tab message cache, so the next Reader open for their Thread loads images without a reload", async () => {
+describe("a Screener decision invalidates the per-tab message cache (#145)", () => {
+  it("approving a sender invalidates the cache the same tick the decision is queued, before any round trip", async () => {
     await applyMailAccountDelta(
       delta({
         created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
@@ -637,10 +723,6 @@ describe("remote images refresh after a Screener decision (#145)", () => {
     // `false`.
     const proxiedImageHtml =
       '<img src="/messages/m-cache/image-proxy?url=https%3A%2F%2Fsender.example%2Ft.gif&sig=abc">';
-    // Stands in for the Verdict the backend re-resolves on every fetch
-    // (`routes/messages.ts`) — flipped below once Approve is queued, exactly
-    // as the real server would answer differently on the next round trip.
-    let remoteImagesAllowed = false;
     const calls: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -655,7 +737,7 @@ describe("remote images refresh after a Screener decision (#145)", () => {
               id: "m-cache",
               threadId: "held-cache",
               bodyHtml: proxiedImageHtml,
-              remoteImagesAllowed,
+              remoteImagesAllowed: false,
             }),
           ],
         });
@@ -663,15 +745,15 @@ describe("remote images refresh after a Screener decision (#145)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
 
+    const onClose = vi.fn();
     render(
       <AuthProvider>
         <PaletteHostTestProvider>
-          <MailSection />
+          <ScreenerHarness onClose={onClose} />
         </PaletteHostTestProvider>
       </AuthProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Stranger");
 
     // Warm the per-tab cache for this Thread through the View dialog, which
@@ -681,42 +763,14 @@ describe("remote images refresh after a Screener decision (#145)", () => {
     await within(dialog).findByText("Please read");
     expect(calls.filter((url) => url === "/threads/held-cache/messages")).toHaveLength(1);
 
-    // The sender's Verdict is now Approved server-side.
-    remoteImagesAllowed = true;
     fireEvent.click(within(dialog).getByRole("button", { name: /Approve/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("A Stranger")).toBeNull());
 
-    // Sync lands: the Thread leaves the Screener into the ordinary Inbox.
-    await applyThreadDelta(
-      "acct-1",
-      delta({
-        updated: [
-          makeThread("held-cache", "acct-1", {
-            subject: "Please read",
-            heldSender: null,
-            participants: [{ name: "A Stranger", address: "stranger@example.test" }],
-          }),
-        ],
-      }),
-      { replace: false },
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Back to Inbox" }));
-    fireEvent.click(await screen.findByText("Please read"));
-
-    // The invalidated cache forces at least one more fetch — a stale cache
-    // would have served the first, still-blocked response and never asked
-    // again. (More than one refetch can fire: the Command Palette's own
-    // `useThreadMessages(selectedThread?.id)` mounts alongside the Reader's,
-    // per that hook's own doc comment — both see the invalidated cache.)
-    await waitFor(() =>
-      expect(
-        calls.filter((url) => url === "/threads/held-cache/messages").length,
-      ).toBeGreaterThanOrEqual(2),
-    );
-    await screen.findByText("Please read", { selector: ".reading-subject" });
-    // A fresh `remoteImagesAllowed: true` means no manual opt-in is offered.
-    expect(screen.queryByRole("button", { name: "Load remote images" })).toBeNull();
+    const queued = await listQueuedMutations("acct-1");
+    expect(queued.map((mutation) => mutation.intent)).toEqual([
+      { type: "approveSender", sender: { scope: "address", value: "stranger@example.test" } },
+    ]);
   });
 });
 
@@ -742,9 +796,8 @@ describe("Spam has a real Undo (#90's close-out of #102's Acceptance box)", () =
       }),
       { replace: false },
     );
-    renderMail();
+    renderScreener();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
     await screen.findByText("A Villain");
 
     await user.click(screen.getByRole("button", { name: /More block options/ }));

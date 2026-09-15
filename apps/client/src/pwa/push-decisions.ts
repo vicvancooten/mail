@@ -235,10 +235,12 @@ export function notificationClickTarget(payload: PushPayload): NotificationClick
  * has mounted/subscribed yet), so the target has to ride the URL
  * `self.clients.openWindow` opens instead — `router/routes.tsx`'s own
  * shape for "Mail with a Thread selected", the Screener, and Mail Accounts
- * settings. `account` is `/mail`'s own extra search param (`MailRoute.tsx`):
- * Account Scope is a Device Preference, not part of the URL, so a Thread or
- * Screener a previously-narrowed Scope would hide still needs a way to
- * widen it on a fresh mount — see `MailSection.tsx`'s `initialAccountId`.
+ * settings. `account` is a search param both `/mail` and `/mail/screener`
+ * carry for the same reason (`MailRoute.tsx`, `ScreenerRoute.tsx`): Account
+ * Scope is a Device Preference, not part of the URL, so a Thread or Screener
+ * hold a previously-narrowed Scope would hide still needs a way to widen it
+ * on a fresh mount — see `MailSection.tsx`'s `initialAccountId` and
+ * `ScreenerRoute.tsx`'s own equivalent handling.
  *
  * `failed-send` has no deep-link here — reopening a Draft in the composer
  * from a cold start is real, separate work this ticket didn't ask for; it
@@ -249,7 +251,7 @@ export function notificationTargetUrl(target: NotificationClickTarget): string {
     case "thread":
       return `/mail?thread=${encodeURIComponent(target.threadId)}&account=${encodeURIComponent(target.mailAccountId)}`;
     case "screener":
-      return `/mail?folder=screener&account=${encodeURIComponent(target.mailAccountId)}`;
+      return `/mail/screener?account=${encodeURIComponent(target.mailAccountId)}`;
     case "needs-reauth":
       // #204: `account`/`facet` — `connected-accounts/account-focus.ts`'s own
       // query param names, read back by `ConnectedAccountsPage` once

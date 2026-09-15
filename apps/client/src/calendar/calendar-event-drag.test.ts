@@ -11,6 +11,7 @@ import {
   commitEventMove,
   commitEventResize,
   isDraggableCalendar,
+  resolveCreateDragRange,
   resolveDraggedInstant,
   resolveDroppedOccurrence,
   resolveResizedOccurrence,
@@ -131,6 +132,37 @@ describe("snapToQuarterHour (#305)", () => {
   it("clamps inside one civil day", () => {
     expect(snapToQuarterHour(-10)).toBe(0);
     expect(snapToQuarterHour(24 * 60)).toBe(24 * 60 - 15);
+  });
+});
+
+describe("resolveCreateDragRange", () => {
+  it("keeps a plain downward drag as anchor-to-current", () => {
+    expect(resolveCreateDragRange(9 * 60, 10 * 60)).toEqual({
+      startMinutes: 9 * 60,
+      endMinutes: 10 * 60,
+    });
+  });
+
+  it("swaps an upward drag so start is always the earlier of the two", () => {
+    expect(resolveCreateDragRange(10 * 60, 9 * 60)).toEqual({
+      startMinutes: 9 * 60,
+      endMinutes: 10 * 60,
+    });
+  });
+
+  it("clamps a drag that never left its anchor up to one quarter-hour slot", () => {
+    expect(resolveCreateDragRange(9 * 60, 9 * 60)).toEqual({
+      startMinutes: 9 * 60,
+      endMinutes: 9 * 60 + 15,
+    });
+  });
+
+  it("clamps a drag that collapsed to under one slot up to one slot", () => {
+    // The pointer travelled a few minutes before settling back near the anchor.
+    expect(resolveCreateDragRange(9 * 60, 9 * 60 + 5)).toEqual({
+      startMinutes: 9 * 60,
+      endMinutes: 9 * 60 + 15,
+    });
   });
 });
 

@@ -257,6 +257,12 @@
   border-bottom: var(--hairline) solid var(--color-border);
   cursor: pointer;
   font: inherit;
+  /* A plain click still creates the fixed-duration default event; dragging
+     vertically from here creates one spanning the exact dragged range
+     instead — `touch-action: none` keeps a touch drag from also scrolling
+     the page, the same reason every other draggable surface in this grid
+     (a chip, a resize handle) already sets it. */
+  touch-action: none;
 }
 
 .calendar-hour-row:hover {
@@ -315,6 +321,13 @@
 }
 .calendar-time-grid.resizing {
   cursor: ns-resize;
+}
+
+/* Dragging on empty grid space to create a new Event with an exact range —
+   the same dashed ghost a move already renders (`calendar-timed-event-ghost`
+   above), just seeded from a drag with no source chip to dim. */
+.calendar-time-grid.creating {
+  cursor: crosshair;
 }
 
 /* ------------------------------------------------------------------ */

@@ -13,6 +13,8 @@ import { resetUndoToastsForTest } from "./mail/undo-toast.js";
 import { publishNotificationTarget } from "./pwa/notification-router.js";
 import { localCache, openLocalCache } from "./store/local-cache.js";
 import {
+  applyAddressBookDelta,
+  applyCalendarDelta,
   applyConnectedAccountDelta,
   applyLabelDelta,
   applyMailAccountDelta,
@@ -24,6 +26,8 @@ import {
 import { resetSyncStatus } from "./sync/sync-loop.js";
 import {
   delta,
+  makeAddressBook,
+  makeCalendar,
   makeConnectedAccount,
   makeLabel,
   makeMailAccount,
@@ -500,9 +504,12 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(within(dock).getByRole("button", { name: "Compose" })).toBeDefined();
 
       // Folders opens the same Sheet the desktop rail's entries live in.
+      // The Screener isn't one of these any more (`mail/folders.ts`'s own
+      // doc comment on why it left the sidebar) — "Snoozed" stands in as
+      // an ordinary fixed destination.
       await user.click(within(dock).getByRole("button", { name: "Folders" }));
       expect(await screen.findByRole("dialog")).toBeDefined();
-      expect(screen.getByRole("button", { name: "Screener" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Snoozed" })).toBeDefined();
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("dialog")).toBeNull();
 
@@ -515,6 +522,9 @@ describe("the app shell over a routed tree (#71)", () => {
   });
 
   it("at phone width, an App with fewer declared Dock controls shows fewer tiles (#298)", async () => {
+    await applyAddressBookDelta(delta({ created: [makeAddressBook("book-1")] }), {
+      replace: false,
+    });
     stubFetch();
     const user = userEvent.setup();
     const originalWidth = window.innerWidth;
@@ -524,17 +534,129 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByRole("button", { name: "Switch app" });
 
-      // Contacts hasn't declared any Dock controls yet
-      // (`apps/apps.ts#APPS`'s own `contacts` entry) — the Dock renders only
-      // the switcher tile for it, no empty Folders/Compose placeholders.
+      // Contacts declares one Dock control now (`apps/apps.ts#APPS`'s own
+      // `contacts` entry, its own "create") — the Dock renders that one
+      // tile plus the switcher, neither of Mail's own Folders/Compose.
       await user.click(screen.getByRole("button", { name: "Switch app" }));
       await user.click(screen.getByRole("link", { name: /Contacts/ }));
       await screen.findByLabelText("Contacts");
 
-      const dock = screen.getByRole("navigation", { name: "switch app" });
+      const dock = screen.getByRole("navigation", { name: "New Contact and switch app" });
       expect(within(dock).queryByRole("button", { name: "Folders" })).toBeNull();
       expect(within(dock).queryByRole("button", { name: "Compose" })).toBeNull();
+      expect(within(dock).getByRole("button", { name: "New Contact" })).toBeDefined();
       expect(within(dock).getByRole("button", { name: "Switch app" })).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Contacts Dock's create control opens the grid's own /contacts/new screen", async () => {
+    await applyAddressBookDelta(delta({ created: [makeAddressBook("book-1")] }), {
+      replace: false,
+    });
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/contacts");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Contacts");
+
+      const dock = screen.getByRole("navigation", { name: "New Contact and switch app" });
+      await user.click(within(dock).getByRole("button", { name: "New Contact" }));
+
+      // The exact same screen `ContactsGrid.tsx`'s own "New contact" link
+      // opens (`NewContactRoute.tsx`) — a real navigation, not a second,
+      // parallel creation flow.
+      await waitFor(() => expect(location.pathname).toBe("/contacts/new"));
+      expect(await screen.findByRole("dialog")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Calendar Dock's create control opens the same create popover a grid click does, defaulted onto the User's default Calendar", async () => {
+    await applyCalendarDelta(delta({ created: [makeCalendar("cal-1", "u1")] }), {
+      replace: false,
+    });
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/calendar");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Calendar");
+
+      const dock = screen.getByRole("navigation", { name: "New Event and switch app" });
+      await user.click(within(dock).getByRole("button", { name: "New Event" }));
+
+      // `EventEditorPopover.tsx`'s own create-mode fields — the exact same
+      // popover `DayTimeGrid.tsx`'s own click-to-create opens, not a second
+      // creation UI.
+      expect(await screen.findByPlaceholderText("Title")).toBeDefined();
+      expect(screen.getByRole("group", { name: "Event or Task" })).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Tasks Dock's create control opens Today, whose own quick add already creates straight into the default List with no List picked first", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", "u1", { name: "Tasks", isDefault: true })] }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/tasks");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Tasks");
+
+      const dock = screen.getByRole("navigation", { name: "New Task and switch app" });
+      await user.click(within(dock).getByRole("button", { name: "New Task" }));
+
+      // `TaskTodayView.tsx`'s own quick add — the one existing entry point
+      // that already creates a Task with no List of its own selected first.
+      await waitFor(() => expect(location.search).toContain("view=today"));
+      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
+      expect(screen.getByLabelText("Add a task")).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Notes Dock's create control mints a Note and opens straight into its own dialog, Notes' own gap since there is no dedicated /notes/new screen yet", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/notes");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Notes");
+
+      const dock = screen.getByRole("navigation", { name: "New Note and switch app" });
+      await user.click(within(dock).getByRole("button", { name: "New Note" }));
+
+      // A real Note now exists and its own dialog is open — the exact same
+      // screen a click on any existing Note already opens
+      // (`NoteDialogRoute.tsx`), just seeded with a freshly minted, empty
+      // one first.
+      await waitFor(() => expect(location.pathname).toMatch(/^\/notes\/[^/]+$/));
+      expect(await screen.findByRole("dialog")).toBeDefined();
+      // `NoteDialog.tsx`'s own `useNote(noteId)` live query resolves the
+      // freshly written row asynchronously — `findByRole`, not `getByRole`.
+      expect(await screen.findByRole("button", { name: "Pin note" })).toBeDefined();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -666,12 +788,12 @@ describe("the app shell over a routed tree (#71)", () => {
     stubFetch();
     writeAccountScope(["acct-1"]);
 
-    history.replaceState(null, "", "/mail?folder=screener&account=acct-2");
+    history.replaceState(null, "", "/mail/screener?account=acct-2");
     render(<App />);
 
     expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
-    expect(location.pathname).toBe("/mail");
-    expect(location.search).toContain("folder=screener");
+    expect(location.pathname).toBe("/mail/screener");
+    expect(location.search).toContain("account=acct-2");
   });
 
   it("a cold-start Needs Reauth deep-link (#151, widened to Connected Accounts by #201/#204) lands on Connected Accounts and opens that Facet's Popover", async () => {

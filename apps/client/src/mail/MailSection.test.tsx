@@ -1722,17 +1722,40 @@ describe("Sidebar (#74)", () => {
     expect(screen.queryByText("Inbox thread")).toBeNull();
   });
 
-  it("Screener opens from its sidebar entry, same as the Gatekeeper banner's own button", async () => {
-    await seedTwoThreads();
+  it("the Gatekeeper banner's Review button hands off to onOpenScreener, a plain navigation like Stream's own entry point", async () => {
+    await applyMailAccountDelta(
+      delta({
+        created: [makeMailAccount("acct-1", { gatekeeper: { enabled: true, cutoff: null } })],
+      }),
+      { replace: false },
+    );
+    await applyThreadDelta(
+      "acct-1",
+      delta({
+        created: [
+          makeThread("held-1", "acct-1", {
+            subject: "Please read",
+            heldSender: "stranger@example.test",
+            participants: [{ name: "A Stranger", address: "stranger@example.test" }],
+          }),
+        ],
+      }),
+      { replace: false },
+    );
     stubFetch(never);
+    const onOpenScreener = vi.fn();
 
-    renderMail();
-    await screen.findByText("Newer thread");
+    renderMail({ onOpenScreener });
+    expect(await screen.findByRole("status")).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "Screener" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
 
-    expect(await screen.findByRole("region", { name: "Screener" })).toBeDefined();
-    expect(screen.queryByText("Newer thread")).toBeNull();
+    // The Screener is its own route now (`router/ScreenerRoute.tsx`) — this
+    // never renders `<Screener>` itself, it hands off to whoever owns
+    // navigation (`router/MailRoute.tsx` in production), the same posture
+    // `onOpenStream` already takes above.
+    expect(onOpenScreener).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("region", { name: "Screener" })).toBeNull();
   });
 });
 
@@ -1929,6 +1952,89 @@ describe("MailSection — the group header cluster (#66, #67, #77)", () => {
     // The toast names the true total, not the two that were actually loaded.
     expect(await screen.findByText(/Done: 5 in Today\./)).toBeDefined();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+  });
+
+  it("persists: a Thread the batch actually applied stays gone after the next sync and a fresh mount", async () => {
+    // The optimistic collapse (`hiddenThreadIds`) is in-memory React state —
+    // it proves nothing about whether the batch actually changed anything on
+    // the Sync Backend. This test drives the *whole* round trip a real
+    // reload would: batch succeeds, the round `requestSyncNow()` kicks off
+    // answers with the Thread delta the Sync Backend would actually send
+    // back (`inInbox: false` on the affected Threads, the same shape
+    // `routes/bulk-triage.test.ts` asserts server-side), and only then does
+    // this remount `MailSection` from scratch against the same Local
+    // Cache — the only way to tell "gone because a still-mounted overlay is
+    // hiding it" apart from "gone because the Sync Backend actually applied
+    // the batch and the next sync reflects it," which is exactly the
+    // distinction a User's own bug report ("nothing is ever marked done")
+    // turns on.
+    await seedTodayThreads();
+    const calls = stubFetchWithBulkTriage({
+      sync: () =>
+        Promise.resolve(
+          jsonResponse({
+            user: {},
+            connectedAccounts: {},
+            mailAccounts: {
+              "acct-1": {
+                Thread: delta<import("@mail/shared").Thread>({
+                  updated: [
+                    makeThread("t-a", "acct-1", {
+                      subject: "Thread A",
+                      lastMessageAt: earlierToday(),
+                      inInbox: false,
+                      folderRole: "archive",
+                    }),
+                    makeThread("t-b", "acct-1", {
+                      subject: "Thread B",
+                      lastMessageAt: earlierToday(),
+                      inInbox: false,
+                      folderRole: "archive",
+                    }),
+                  ],
+                  newState: "state-after-done",
+                }),
+              },
+            },
+          } satisfies Partial<SyncResponse> as SyncResponse),
+        ),
+      batch: () =>
+        jsonResponse({
+          batchId: "batch-1",
+          affectedCount: 2,
+          accounts: [{ mailAccountId: "acct-1", status: "applied", affectedCount: 2 }],
+        }),
+    });
+
+    const first = renderMail();
+    await screen.findByText("Thread A");
+    fireEvent.click(await screen.findByRole("button", { name: "Done with Today" }));
+
+    // The batch itself landed …
+    await waitFor(() => {
+      expect(calls.some((call) => call.url === "/bulk-triage/batch")).toBe(true);
+    });
+    // … and the round trip `requestSyncNow()` kicks off actually applied the
+    // Thread delta to the Local Cache, not just the in-memory collapse.
+    await waitFor(async () => {
+      const row = await localCache().threads.get("t-a");
+      expect(row?.inInbox).toBe(false);
+    });
+
+    // A reload: a fresh `MailSection` mount against the same Local Cache,
+    // no `hiddenThreadIds`/`clearingThreadIds` overlay left over from the
+    // unmounted instance.
+    first.unmount();
+    renderMail();
+    // Give the fresh mount's own `useLiveQuery` a tick to resolve against
+    // the Local Cache before asserting on its absence — a bare synchronous
+    // `queryByText` right after `render` could pass for the wrong reason
+    // (nothing has painted yet at all).
+    await waitFor(() => {
+      expect(document.querySelector(".thread-list")).not.toBeNull();
+    });
+    expect(screen.queryByText("Thread A")).toBeNull();
+    expect(screen.queryByText("Thread B")).toBeNull();
   });
 
   it("Undo restores the group and re-syncs", async () => {

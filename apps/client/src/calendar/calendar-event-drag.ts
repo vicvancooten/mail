@@ -135,6 +135,35 @@ export type EventResizeEdge = "start" | "end";
 export const MIN_EVENT_DURATION_MINUTES = 15;
 
 /**
+ * Dragging on empty grid space to create a brand-new Event with an exact
+ * range — `DayTimeGrid.tsx`'s own create-drag pointer handlers reduce every
+ * pointer-move down to just two numbers (`anchorMinutes`, where the drag
+ * started; `currentMinutes`, where the pointer is now) and hand them here,
+ * the same way a resize's own tracker hands `resolveResizedOccurrence` just
+ * an edge and a target. Dragging upward past the anchor is exactly as valid
+ * as dragging down from it — the earlier of the two is always `startMinutes`
+ * — so there is no "backwards drag" case to special-case, only the ordinary
+ * `Math.min`/`Math.max` a resize's own two edges already reduce to. A drag
+ * that never clears one quarter-hour of vertical travel degenerates the same
+ * way #306's own resize floor does rather than producing an empty or
+ * backwards range: it clamps up to one slot (`MIN_EVENT_DURATION_MINUTES`)
+ * starting at the anchor, so the caller never has to decide whether "the
+ * pointer barely moved" means "create nothing" versus "create something".
+ */
+export function resolveCreateDragRange(
+  anchorMinutes: number,
+  currentMinutes: number,
+): { startMinutes: number; endMinutes: number } {
+  const startMinutes = Math.min(anchorMinutes, currentMinutes);
+  const endMinutes = Math.max(
+    anchorMinutes,
+    currentMinutes,
+    startMinutes + MIN_EVENT_DURATION_MINUTES,
+  );
+  return { startMinutes, endMinutes };
+}
+
+/**
  * Resolves a chip's resize-edge drop into the same absolute-write shape
  * `resolveDroppedOccurrence` already hands `commitEventMove` (#306, reusing
  * #305's own pointer machinery) — `null` for a no-op resize or a Calendar

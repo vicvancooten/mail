@@ -34,6 +34,7 @@ import { NoteDialogRoute } from "./NoteDialogRoute.js";
 import { NotesRoute } from "./NotesRoute.js";
 import { ReaderRoute } from "./ReaderRoute.js";
 import { RootLayout } from "./RootLayout.js";
+import { ScreenerRoute } from "./ScreenerRoute.js";
 import { StreamRoute } from "./StreamRoute.js";
 import { TasksIndexRoute, TasksTaskRoute } from "./TasksRoute.js";
 
@@ -94,9 +95,12 @@ export interface MailSearch {
    * restorable snapshot `onLocationChange` mirrors back: Account Scope is
    * its own Device Preference (`useAccountScope.ts`), so this only ever
    * seeds `MailSection`'s `initialAccountId` on a fresh mount — widening a
-   * previously-narrowed Scope so the `thread`/`screener` target above is
-   * actually visible. `MailRoute`'s own `onLocationChange` never writes it
-   * back, so it drops out of the URL the instant the mount settles.
+   * previously-narrowed Scope so the `thread` target above is actually
+   * visible. `MailRoute`'s own `onLocationChange` never writes it back, so
+   * it drops out of the URL the instant the mount settles.
+   * `screenerRoute`'s own `account` below is this field's sibling, for the
+   * same reason, on the Screener's own URL now that it's no longer a
+   * `?folder=` value here.
    */
   account?: string;
 }
@@ -126,6 +130,39 @@ export const streamRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/mail/stream",
   component: StreamRoute,
+});
+
+export interface ScreenerSearch {
+  /**
+   * A cold-start Gatekeeper digest notification's own Mail Account
+   * (`pwa/push-decisions.ts`'s `screener` deep-link target) — `mailRoute`'s
+   * own `account` field, moved here now that the Screener is its own URL
+   * rather than a `?folder=screener` value on `/mail`: widens a previously
+   * narrowed Account Scope on a fresh mount so the digest's own held sender
+   * is actually visible (`ScreenerRoute.tsx`'s own handling).
+   */
+  account?: string;
+}
+
+/**
+ * The Screener (#56, poc-spec.md §Gatekeeper v1): used to be a pseudo-folder
+ * (`?folder=screener` on `/mail`, `mail/folders.ts`'s own `FolderKey`) —
+ * `streamRoute`'s own reasoning above applies here just as directly: a
+ * sibling of `mailRoute` with a real URL is what gives the browser/device
+ * Back button somewhere honest to go, rather than the pseudo-folder's own
+ * dead end (the in-app "Back to Inbox" button was the only way out). Entered
+ * deliberately — the Gatekeeper banner's "Review", the Command Palette —
+ * never switched into from the sidebar (`Sidebar.tsx`'s own doc comment on
+ * why it isn't a rail entry any more), so there is nothing here for the
+ * sidebar's own "which entry is active" highlight to read either.
+ */
+export const screenerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mail/screener",
+  validateSearch: (search: Record<string, unknown>): ScreenerSearch => ({
+    account: typeof search.account === "string" ? search.account : undefined,
+  }),
+  component: ScreenerRoute,
 });
 
 /**
@@ -523,6 +560,7 @@ export const routeTree = rootRoute.addChildren([
   indexRoute,
   mailRoute,
   streamRoute,
+  screenerRoute,
   mailReaderRoute,
   settingsRoute.addChildren([
     settingsIndexRoute,

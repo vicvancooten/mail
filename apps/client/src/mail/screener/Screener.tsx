@@ -1,6 +1,6 @@
 import type { GatekeeperSender } from "@mail/shared";
 import { senderDomain } from "@mail/shared";
-import { ArrowLeft, Eye } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Eye } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   enqueueMutation,
@@ -61,6 +61,14 @@ import { ScreenerViewDialog } from "./ScreenerViewDialog.js";
  * registry's part is that every row gets the same right-click / long-press
  * menu every other row in the Client has, with the same keycaps printed on
  * it.
+ *
+ * The header's prev/next buttons are a mouse-reachable, discoverable
+ * version of the same `j`/`k` move (`moveSelection`, shared by both) —
+ * `stream/StreamStack.tsx`'s own "here's what's coming next" peek card, this
+ * screen's own take on it, since a queue of sender slips has no card stack
+ * of its own to peek behind. They wrap at both ends exactly the way `j`/`k`
+ * already did before this — there was never a reason for the mouse's own
+ * path through the same list to disagree with the keyboard's.
  */
 /** How long a decided slip stays on screen carrying its verdict before it clears. */
 const VERDICT_HOLD_MS = 900;
@@ -193,6 +201,29 @@ export function Screener({
     [],
   );
 
+  /**
+   * `j`/`k`/the arrow keys' own move, pulled out so the header's prev/next
+   * buttons below can run the identical step — same wrap-at-the-ends
+   * behavior in both directions (`groups[index + 1] ?? groups[0]` past the
+   * last row, `groups[groups.length - 1]` before the first), so a mouse
+   * click and a keypress can never disagree about where "next" lands. A
+   * no-op on an empty queue, same as the keyboard's own early return.
+   */
+  const moveSelection = useCallback(
+    (delta: 1 | -1) => {
+      if (groups.length === 0) return;
+      const index = groups.findIndex((group) => rowKey(group) === selectedKey);
+      const target =
+        delta === 1
+          ? (groups[index + 1] ?? groups[0])
+          : index > 0
+            ? groups[index - 1]
+            : groups[groups.length - 1];
+      if (target) setSelectedKey(rowKey(target));
+    },
+    [groups, selectedKey],
+  );
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -218,19 +249,15 @@ export function Screener({
 
       switch (event.key) {
         case "j":
-        case "ArrowDown": {
+        case "ArrowDown":
           event.preventDefault();
-          const next = groups[index + 1] ?? groups[0];
-          if (next) setSelectedKey(rowKey(next));
+          moveSelection(1);
           return;
-        }
         case "k":
-        case "ArrowUp": {
+        case "ArrowUp":
           event.preventDefault();
-          const prev = index > 0 ? groups[index - 1] : groups[groups.length - 1];
-          if (prev) setSelectedKey(rowKey(prev));
+          moveSelection(-1);
           return;
-        }
         case "a":
           if (selected) decide("approveSender", selected);
           return;
@@ -244,7 +271,7 @@ export function Screener({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [groups, selectedKey, onClose, decide, viewingKey]);
+  }, [groups, selectedKey, onClose, decide, viewingKey, moveSelection]);
 
   /** Block domain (#102): resolves the row's own address to its domain and decides with that scope instead of the default address one. */
   function blockDomain(group: ScreenerSenderGroup): void {
@@ -273,6 +300,33 @@ export function Screener({
       <div className="screener-header">
         <h2>Screener</h2>
         {groups.length > 0 ? <span className="screener-count">{groups.length}</span> : null}
+        {/* Prev/next (mouse-reachable, `j`/`k`/the arrow keys' own mover —
+            `moveSelection` above — stays the keyboard's exact scheme,
+            wrapping at both ends the same way): the Screener's own version
+            of Stream's "here's what's coming next" (`StreamStack.tsx`'s own
+            peek card), reached with a click instead of only a keypress. */}
+        {groups.length > 1 ? (
+          <div className="screener-nav">
+            <button
+              type="button"
+              className="screener-nav-btn"
+              onClick={() => moveSelection(-1)}
+              aria-label="Previous sender"
+              title="Previous sender (k)"
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              type="button"
+              className="screener-nav-btn"
+              onClick={() => moveSelection(1)}
+              aria-label="Next sender"
+              title="Next sender (j)"
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        ) : null}
         <button type="button" className="screener-close" onClick={onClose}>
           <ArrowLeft size={14} /> Back to Inbox
         </button>

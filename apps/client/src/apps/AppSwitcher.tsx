@@ -152,7 +152,7 @@ export function PhoneSwitcher({
           onClick={() => setOpen(true)}
         >
           <span className="app-tile">
-            <CurrentIcon size={18} />
+            <CurrentIcon size={15} />
           </span>
           <span>{current?.name ?? "Apps"}</span>
           <ChevronUp size={13} className="dock-switcher-chev" />

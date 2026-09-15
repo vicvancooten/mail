@@ -186,14 +186,29 @@ export async function bulkTriageRoutes(app: FastifyInstance, { db }: BulkTriageR
 
 /**
  * `until` is a ceiling the Client can only lower, never raise past "now" —
- * the literal mechanism behind "a Thread arriving after the request is not
- * touched" (#67's acceptance bar). A `null`/future-dated `until` is silently
- * replaced by `now`, never rejected: the Client asking for "up to whenever
- * this lands" is the ordinary case (an open-ended group like "Today"), not a
- * mistake.
+ * the mechanism behind "a Thread arriving after the request is not touched"
+ * for a *bounded* group (every date-group header but "Today" — #67's
+ * acceptance bar). A future-dated `until` is silently clamped to `now`,
+ * never rejected: a stale or generous value reaching past the request's own
+ * instant is the mistake this guards against, not a reason to fail the
+ * whole request.
+ *
+ * `null` is different in kind, not just in value: it is not a value to
+ * clamp at all, but the Client saying "no ceiling" — the open-ended "Today"
+ * group's own shape (`group-target.ts#groupDateRange`'s own doc comment:
+ * "so a Thread arriving after the request still lands in it"). Substituting
+ * `now` for it used to collapse that distinction into the same "up to this
+ * instant" ceiling every bounded group already gets, which is exactly what
+ * let a Thread whose `lastMessageAt` landed in the gap between the User's
+ * click and this handler's own execution — the newest row in "Today" is the
+ * one most likely to — sit right at that seam: optimistically collapsed
+ * client-side (`group-target.ts`'s own boundary math has no upper bound for
+ * "Today" either) while silently missing this handler's target set. Passed
+ * straight through to `selectTargetThreadIds`, which already treats `null`
+ * as "no upper bound" the same way it already does for `since`.
  */
-function clampUntil(until: string | null, now: Date): Date {
-  if (until === null) return now;
+function clampUntil(until: string | null, now: Date): Date | null {
+  if (until === null) return null;
   const requested = new Date(until);
   return requested < now ? requested : now;
 }

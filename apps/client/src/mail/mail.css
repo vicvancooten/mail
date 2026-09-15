@@ -721,9 +721,19 @@
  * capped at the same 8-row stagger — this only ever reads that one number,
  * never re-derives it. The duration is `--dur-leave` (#97: this used to be
  * a hardcoded 220ms, adrift from both the token budget and the 260ms
- * `MailSection` actually waits before unmounting the row). Reduced motion
- * is handled globally (`index.css`'s `prefers-reduced-motion` rule
- * collapses every duration to 1ms), not re-implemented here. */
+ * `MailSection` actually waits before unmounting the row).
+ *
+ * A settle, not a flick: rank #1's "nothing inverts, nothing bounces" rule
+ * ruled out the row's original `translateX(16px)` slide — sliding a row
+ * sideways off the list reads like it's being flicked away, a gesture this
+ * system's whole voice (ground and gap, one electric accent, no motion
+ * that draws attention to itself) doesn't otherwise use anywhere. A leaving
+ * row instead fades and eases down a few px and slightly smaller, as if it
+ * is settling into the ground beneath the list rather than being swept off
+ * it; Expand's own entrance is the literal reverse — a row rises the same
+ * few px into place. Reduced motion is handled globally (`index.css`'s
+ * `prefers-reduced-motion` rule collapses every duration to 1ms), not
+ * re-implemented here. */
 .thread-list [data-clearing="true"] {
   animation: group-row-leave var(--dur-leave) var(--ease) both;
   animation-delay: calc(var(--group-clear-index, 0) * 45ms);
@@ -732,18 +742,18 @@
 @keyframes group-row-leave {
   from {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(6px) scale(0.98);
   }
 }
 
 /* ---------- manual Collapse's own leave/enter (#295) ---------------------
  * A header click reuses the exact same stagger cadence and duration as the
  * Done-all bulk clear above — "leaving" reads identically whichever action
- * caused it — and adds the mirror image for Expand: rows fade/slide *in*
+ * caused it — and adds the mirror image for Expand: rows fade/rise *in*
  * rather than only ever out. `VirtualizedThreadList` sets `--group-clear-
  * index` the same way for both; `data-clearing`/`data-entering` are never
  * both true on one row. */
@@ -755,11 +765,11 @@
 @keyframes group-row-enter {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(-6px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -768,7 +778,14 @@
 .thread-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* A bit more breathing room between the tile and the text columns
+   * (10px, was 8px) — the internal-only half of "increase mail spacing a
+   * bit"; row *height* (the other half) is `taper.ts`'s own, since that's
+   * what an inline style per virtualized item actually controls. Left/right
+   * inset stays exactly 8px — `.group-header`'s own `padding: 0 14px`
+   * (#153) is coupled to this row's outer margin+padding summing to 14px
+   * for the rail to land in the same column, so it isn't touched here. */
+  gap: 10px;
   width: calc(100% - 12px);
   margin: 0 6px;
   box-sizing: border-box;
@@ -879,7 +896,7 @@
 }
 
 .thread-list--compact .thread-row {
-  gap: 7px;
+  gap: 8px;
   font-size: 13px;
 }
 
@@ -1812,17 +1829,68 @@
 /* The Contact Card's own content (#293) — positioning, portal, background
    and shadow are the shared `HoverCard` primitive's own (`components/ui/
    hover-card.tsx`, this ticket's own addition to the shared-primitive
-   vocabulary); this only lays out what's inside it. */
+   vocabulary); this only lays out what's inside it.
+   Roomier and prettier (#211's own banner-plus-photo treatment, reused
+   rather than reinvented): wider than the primitive's own default 288px
+   (`w-72`) so a real subject line and sender address both read comfortably,
+   still a hover card rather than a full page. `padding: 0` and
+   `overflow: hidden` replace the primitive's own `p-3` — the banner below
+   needs to bleed flush to every edge, clipped to the same rounded corners
+   the popover itself already has, and `.sender-contact-card-body` carries
+   its own padding for everything that isn't the banner. */
 .sender-contact-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  width: 320px;
+  padding: 0;
+  overflow: hidden;
 }
 
-.sender-contact-card-identity {
+/* The banner strip (`ContactCard.tsx`'s own `.contact-card-banner`, this
+   card's own shorter cut of it): a flat wash behind the sender's photo,
+   never a plate or a hairline — ground and gap applies to a hover card too.
+   `position: relative` is what lets `.sender-contact-card-photo` below
+   overlap its bottom edge instead of sitting fully inside or fully below
+   it, the comp's own "photo breaks out of the banner" read. */
+.sender-contact-card-banner {
+  position: relative;
+  height: 56px;
+}
+
+/* The larger photo (the ticket's own "large enough to easily read most
+   emails," #211's overlap read): `Avatar`'s wrapper gets this className
+   (`Avatar.tsx` puts a caller's `className` on `.mail-avatar-wrap`), so
+   positioning lives here and diameter lives on the nested `.mail-avatar`
+   below — the same split `.reading-meta .mail-avatar` already uses
+   elsewhere in this file, just with an absolute position added on top of
+   it. The 3px ring in `--color-surface` (`.contact-card-avatar`'s own
+   value — the popover's `bg-popover` resolves to the same token) is what
+   reads as a cutout against the banner rather than a photo simply pinned
+   over it. */
+.sender-contact-card-photo {
+  position: absolute;
+  left: 16px;
+  top: 28px;
+}
+
+.sender-contact-card-photo .mail-avatar {
+  width: 52px;
+  height: 52px;
+  border: 3px solid var(--color-surface);
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+/* Clears the photo's own overflow below the banner (56px banner, a 52px
+   photo starting 28px down the banner ends 24px past it) plus a further
+   14px of ordinary breathing room before the name — the same "banner
+   height, avatar position, body's own top padding" arithmetic
+   `.contact-card-body` already does for the full Contacts card. */
+.sender-contact-card-body {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
+  padding: 38px 14px 14px;
 }
 
 .sender-contact-card-names {
@@ -1832,7 +1900,7 @@
 }
 
 .sender-contact-card-name {
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2037,6 +2105,35 @@
   gap: 10px;
   margin-bottom: 10px;
   font-size: 13px;
+  /* A reset for the one case this renders as a `<button>` rather than a
+     plain `<header>` — a Message expanded only because the User clicked it,
+     clickable back down again (`MessageList.tsx`'s own `collapsible`). A
+     no-op on the plain `<header>` every other expanded Message still gets,
+     which carries none of a button's own default chrome to begin with. */
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+
+/* The collapse control itself: `.message-item-summary`'s own "quiet until
+   reached for" treatment, bled into the row above it with a negative margin
+   so the hover fill reads as its own hit area rather than a highlight
+   pasted flush against the card's edges. */
+.message-item-header-collapsible {
+  cursor: pointer;
+  margin: -6px -8px 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  transition: background var(--dur-press) var(--ease);
+}
+
+.message-item-header-collapsible:hover,
+.message-item-header-collapsible:focus-visible {
+  background: var(--color-hover);
 }
 
 .message-item-sender {
@@ -2758,6 +2855,39 @@ button.search-chip-toggle.on {
   color: var(--color-ink);
 }
 
+/* Prev/next (`Screener.tsx`'s own `moveSelection`): a quiet icon pair next
+   to the count, `.side-nav-collapse-toggle`'s own "transparent at rest,
+   filled on hover/focus" treatment rather than the danger-tinted one
+   Block's split menu uses — this moves the selection, it doesn't destroy
+   anything. */
+.screener-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.screener-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.screener-nav-btn:hover,
+.screener-nav-btn:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
 .screener-list {
   list-style: none;
   margin: 0;
@@ -2973,7 +3103,17 @@ button.search-chip-toggle.on {
   color: var(--color-danger);
 }
 
-.screener-block-menu-trigger {
+/* `.screener-row-actions button` above (0,1,1: one class, one element) beats
+   a bare `.screener-block-menu-trigger` (0,1,0: one class) on every property
+   they both declare, `padding` included — that rule's own `0 14px` was
+   winning over this one's intended `0`, and a flex item's default
+   `min-width: auto` then held the button at that padding's own width (28px,
+   `content-box` clamped to zero) regardless of the `width: 22px` declared
+   below, squeezing the chevron itself down to nothing: not dim, not
+   low-contrast, just not there. `.screener-row-actions button.screener-block:hover`
+   just above already takes the compound-selector fix for the same reason;
+   this needed it too, and at rest, not only on hover. */
+.screener-row-actions button.screener-block-menu-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2992,9 +3132,9 @@ button.search-chip-toggle.on {
     color var(--dur-press) var(--ease);
 }
 
-.screener-block-menu-trigger:hover,
-.screener-block-menu-trigger:focus-visible,
-.screener-block-menu-trigger[data-state="open"] {
+.screener-row-actions button.screener-block-menu-trigger:hover,
+.screener-row-actions button.screener-block-menu-trigger:focus-visible,
+.screener-row-actions button.screener-block-menu-trigger[data-state="open"] {
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
 }
@@ -3314,7 +3454,24 @@ button.search-chip-toggle.on {
      phone's tighter side padding — no more wrapping the action row onto
      its own line under a subject that isn't here any more. */
   .reading-header {
-    padding: 8px 16px;
+    padding: 6px 12px;
+  }
+
+  /* The bar's own three groups (Reply, Mail, Integrations, #289) at their
+     desktop 32px/1px-gap sizing read as a wide, heavy strip across a
+     390px-wide phone — most of the complaint was never the bar's position
+     (it's already pinned to the top of the pane, not floating mid-screen,
+     the way `.reading-header`'s own `flex: none` first-child placement in
+     `ThreadDetailPane.tsx`'s column already guarantees), just its footprint.
+     A phone-only tighter icon size closes that gap without touching the
+     desktop bar this same markup renders there. */
+  .reading-actions button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .reading-actions-gap {
+    width: 8px;
   }
 
   .reading-heading {

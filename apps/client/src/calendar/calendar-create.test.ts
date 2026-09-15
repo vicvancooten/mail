@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { makeCalendar } from "../test-support/mail-fixtures.js";
-import { creatableCalendars, defaultCalendarId } from "./calendar-create.js";
+import {
+  creatableCalendars,
+  defaultCalendarId,
+  openCreatePanelForRange,
+} from "./calendar-create.js";
+import { closeEventPanel, pointAnchorRect, useEventPanelState } from "./calendar-event-panel.js";
 
 const USER = "user-1";
 
@@ -70,5 +76,50 @@ describe("creatableCalendars (#282)", () => {
     const readOnly = makeCalendar("cal-readonly", USER, { capabilities: READ_ONLY_CAPABILITIES });
 
     expect(creatableCalendars([writable, readOnly])).toEqual([writable]);
+  });
+});
+
+/**
+ * `openCreatePanelForRange` — the timed grid's drag-to-create gesture,
+ * `openCreatePanelForDay`'s own sibling for an exact range rather than a
+ * whole day. Same "no writable Calendar, no popover" gate as every other
+ * click-to-create entry point (`defaultCalendarId`), exercised the same way
+ * here as `openCreatePanelForDay` itself is exercised end-to-end in
+ * `CalendarRoute.test.tsx`.
+ */
+describe("openCreatePanelForRange", () => {
+  afterEach(() => closeEventPanel());
+
+  it("opens a timed create panel spanning exactly the dragged range", () => {
+    const calendarById = new Map([["cal-1", makeCalendar("cal-1", USER)]]);
+    const day = { year: 2026, month: 6, day: 1 };
+    const { result } = renderHook(() => useEventPanelState());
+
+    act(() =>
+      openCreatePanelForRange(day, 9 * 60, 10 * 60 + 30, calendarById, pointAnchorRect(0, 0)),
+    );
+
+    expect(result.current).toMatchObject({
+      mode: "create",
+      calendarId: "cal-1",
+      allDay: false,
+      start: new Date(2026, 5, 1, 0, 9 * 60, 0, 0).toISOString(),
+      end: new Date(2026, 5, 1, 0, 10 * 60 + 30, 0, 0).toISOString(),
+    });
+  });
+
+  it("no-ops when every Calendar is read-only, same as openCreatePanelForDay", () => {
+    const calendarById = new Map([
+      [
+        "cal-readonly",
+        makeCalendar("cal-readonly", USER, { capabilities: READ_ONLY_CAPABILITIES }),
+      ],
+    ]);
+    const day = { year: 2026, month: 6, day: 1 };
+    const { result } = renderHook(() => useEventPanelState());
+
+    act(() => openCreatePanelForRange(day, 9 * 60, 10 * 60, calendarById, pointAnchorRect(0, 0)));
+
+    expect(result.current).toBeNull();
   });
 });
