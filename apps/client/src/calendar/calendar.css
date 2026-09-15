@@ -21,7 +21,6 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: var(--hairline) solid var(--color-border);
 }
 
 .calendar-toolbar-left {
@@ -53,81 +52,18 @@
   text-overflow: ellipsis;
 }
 
-.calendar-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: transparent;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-.calendar-icon-btn:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.calendar-today-btn {
-  height: 30px;
-  padding: 0 12px;
-  border-radius: var(--radius-pill);
-  border: var(--hairline) solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background var(--dur-press) var(--ease);
-}
-.calendar-today-btn:hover {
-  background: var(--color-hover);
-}
+/* The toolbar's icon and "Today" buttons are plain `.btn-ghost(.btn-icon)`
+   now (`controls.css`, R2) — no calendar-specific rule left to declare for
+   them. */
 
 .calendar-nav-arrows {
   display: flex;
   gap: 2px;
 }
 
-/* ------------------------------------------------------------------ */
-/* Segmented view switcher                                             */
-/* ------------------------------------------------------------------ */
-
-.calendar-view-switcher {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  margin: 0;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: var(--color-field);
-}
-
-.calendar-view-switcher-btn {
-  border: none;
-  background: transparent;
-  color: var(--color-ink-muted);
-  font-size: 12.5px;
-  font-weight: 550;
-  padding: 6px 12px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-.calendar-view-switcher-btn:hover {
-  color: var(--color-ink);
-}
-.calendar-view-switcher-btn.current {
-  background: var(--color-surface);
-  color: var(--color-ink);
-  box-shadow: var(--shadow-card);
-}
+/* The view switcher is `Segmented` (`components/Segmented.tsx`, R2) —
+   `controls.css#.segmented` owns its whole shape; nothing calendar-specific
+   is left to declare here. */
 
 /* ------------------------------------------------------------------ */
 /* Body — cross-fades on every view/date switch                        */

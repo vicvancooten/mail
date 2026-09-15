@@ -251,7 +251,7 @@ export function ThreadDetailPane({
             {onBack ? (
               <button
                 type="button"
-                className="reading-back"
+                className="btn-ghost btn-icon reading-back"
                 onClick={onBack}
                 aria-label="Back to list"
                 title={buttonTitle("back-to-list", "Back to list")}

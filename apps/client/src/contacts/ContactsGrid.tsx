@@ -2,6 +2,7 @@ import type { AddressBook } from "@mail/shared";
 import { getContactCapabilityTable } from "@mail/shared";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { Segmented } from "../components/Segmented.js";
 import { Button } from "../components/ui/button.js";
 import { announceUndoableAction } from "../mail/undo-toast.js";
 import {
@@ -23,6 +24,11 @@ import { PeopleYouveMailedList } from "./PeopleYouveMailedList.js";
 import { contactsToVCardFile, downloadVCardFile, vCardFileName } from "./vcard-export.js";
 
 type ContactsAppTab = "contacts" | "mailed";
+
+const CONTACTS_TAB_OPTIONS: ReadonlyArray<{ value: ContactsAppTab; label: string }> = [
+  { value: "contacts", label: "Contacts" },
+  { value: "mailed", label: "People you've mailed" },
+];
 
 /**
  * `/contacts`'s own content (#211, the winning Card directory from #174): one
@@ -162,26 +168,12 @@ export function ContactsGrid() {
 
   return (
     <section className="contacts-grid-section" aria-label="Contacts">
-      <div className="contacts-app-tabs" role="tablist" aria-label="Contacts App">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "contacts"}
-          className={`contacts-app-tab${tab === "contacts" ? " active" : ""}`}
-          onClick={() => setTab("contacts")}
-        >
-          Contacts
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "mailed"}
-          className={`contacts-app-tab${tab === "mailed" ? " active" : ""}`}
-          onClick={() => setTab("mailed")}
-        >
-          People you've mailed
-        </button>
-      </div>
+      <Segmented
+        options={CONTACTS_TAB_OPTIONS}
+        value={tab}
+        onChange={setTab}
+        label="Contacts App"
+      />
 
       {tab === "contacts" ? (
         <>

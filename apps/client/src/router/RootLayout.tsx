@@ -361,7 +361,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             {!isPhoneChrome && (
               <button
                 type="button"
-                className="header-icon-btn"
+                className="btn-ghost btn-icon"
                 title="Toggle appearance"
                 aria-label="Toggle appearance"
                 onClick={toggleAppearance}

@@ -48,32 +48,7 @@
   padding: 0;
 }
 
-.notes-label-chip {
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 12.5px;
-  padding: 5px 12px;
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease),
-    border-color var(--dur-press) var(--ease);
-}
-
-.notes-label-chip:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.notes-label-chip.selected {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  font-weight: 600;
-}
+/* The Label chip itself is `.chip` now (`controls.css`, R2). */
 
 .notes-grid-empty {
   margin: 0;

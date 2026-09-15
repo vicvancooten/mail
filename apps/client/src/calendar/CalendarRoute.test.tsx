@@ -285,7 +285,7 @@ describe("CalendarRoute (#231)", () => {
     render(<App />);
     await screen.findByText("Team Standup");
 
-    await user.click(screen.getByRole("button", { name: "Month" }));
+    await user.click(screen.getByRole("radio", { name: "Month" }));
 
     await waitFor(() => expect(location.search).toContain("view=month"));
     expect(await screen.findByText("Team Standup")).toBeDefined();
@@ -1046,7 +1046,7 @@ describe("Region Settings on the Calendar grid (#303)", () => {
 
     render(<App />);
 
-    const monthButton = await screen.findByRole("button", { name: "Month" });
-    await waitFor(() => expect(monthButton.getAttribute("aria-pressed")).toBe("true"));
+    const monthButton = await screen.findByRole("radio", { name: "Month" });
+    await waitFor(() => expect(monthButton.getAttribute("aria-checked")).toBe("true"));
   });
 });

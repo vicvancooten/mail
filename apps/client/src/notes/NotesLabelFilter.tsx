@@ -28,7 +28,7 @@ export function NotesLabelFilter({
           <button
             key={label.id}
             type="button"
-            className={`notes-label-chip${selected ? " selected" : ""}`}
+            className="chip"
             aria-pressed={selected}
             onClick={() => onToggle(label.id)}
           >

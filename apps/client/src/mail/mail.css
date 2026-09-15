@@ -324,26 +324,31 @@
   overflow-y: auto;
 }
 
+/* Ground-and-gap, `.thread-row`'s own margin/radius/hover treatment (the
+   hairline this row deferred is gone for good): an inset margin and a row
+   radius give each row a boundary to read by on the same background, and a
+   hover fill answers the pointer the way every other row in the app does. */
 .draft-row {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  width: 100%;
-  padding: 10px 16px;
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  box-sizing: border-box;
+  padding: 10px 10px;
   border: none;
-  /* Intentional exception to Ground-and-gap (unlike `.thread-row`, which
-     dropped its hairline): this row has no inset margin, no radius and no
-     hover fill of its own, so with the hairline gone it would sit flush
-     against its neighbour on the same background with nothing to read the
-     boundary by. Keep the hairline until drafts get the same
-     margin/radius/hover treatment as `.thread-row`. */
-  border-bottom: var(--hairline) solid var(--color-border);
+  border-radius: var(--radius-row);
   background: var(--color-bg);
   color: var(--color-ink);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background var(--dur-press) var(--ease);
+}
+
+.draft-row:hover {
+  background: var(--color-hover);
 }
 
 .draft-row .subject {
@@ -1287,22 +1292,9 @@
   gap: 4px;
 }
 
-.label-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  border: none;
-  background: var(--color-field);
-  color: var(--color-ink-muted);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.label-chip.overflow {
+/* The Label itself is `.chip` now (`controls.css`, R2); `.label-chip-overflow`
+   is only the "+N" chip's own muted ink. */
+.label-chip-overflow {
   color: var(--color-ink-faint);
 }
 
@@ -1592,26 +1584,11 @@
 
 /* Back exists only where the list is not already on screen: at desktop
    widths Split shows both panes at once, so the rule below hides it there
-   and the narrow breakpoint brings it back. */
+   and the narrow breakpoint brings it back. Shape and colour are
+   `.btn-ghost.btn-icon` now (`controls.css`, R2) — this is only the
+   show/hide this pane still needs from it. */
 .reading-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   flex: none;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.reading-back:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
 }
 
 .split-pane .reading-back {
@@ -2506,42 +2483,11 @@
   color: var(--color-ink);
 }
 
-.search-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: var(--color-field);
-  color: var(--color-ink-muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
+/* Every chip here is `.chip`/`.chip-remove` now (`controls.css`, R2) —
+   `.search-chip-scope.seeded` is this row's own state, a quieter ink for a
+   scope that came from a seed rather than the User's own `in:`/`label:`. */
 .search-chip-scope.seeded {
   color: var(--color-ink-faint);
-}
-
-.search-chip-remove {
-  display: flex;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  padding: 0;
-}
-
-button.search-chip-toggle {
-  cursor: pointer;
-  font-family: inherit;
-}
-
-button.search-chip-toggle.on {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  font-weight: 600;
 }
 
 .thread-row .folder-pill {

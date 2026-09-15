@@ -1,3 +1,4 @@
+import { Segmented } from "../components/Segmented.js";
 import { CALENDAR_VIEWS, type CalendarView } from "./calendar-url.js";
 
 const VIEW_LABEL: Record<CalendarView, string> = {
@@ -8,11 +9,14 @@ const VIEW_LABEL: Record<CalendarView, string> = {
   year: "Year",
 };
 
+const VIEW_OPTIONS = CALENDAR_VIEWS.map((view) => ({ value: view, label: VIEW_LABEL[view] }));
+
 /**
  * The compact segmented view switcher (#231's own acceptance line, Variant B
- * per #173): five plain buttons in one pill-shaped track rather than a
- * shadcn `Tabs` primitive — the same "hand-rolled control, not a heavier
- * dependency" call `apps/AppSwitcher.tsx`'s own tab row already made.
+ * per #173): `Segmented` (R2, `docs/design/polish-pass.md`), the app's one
+ * shared "pick one view" control — this used to hand-roll its own pill of
+ * plain buttons; now it shares that shape and its sliding thumb with every
+ * other Segmented in the app.
  */
 export function CalendarViewSwitcher({
   view,
@@ -22,19 +26,6 @@ export function CalendarViewSwitcher({
   onChange: (view: CalendarView) => void;
 }) {
   return (
-    <fieldset className="calendar-view-switcher">
-      <legend className="sr-only">Calendar view</legend>
-      {CALENDAR_VIEWS.map((candidate) => (
-        <button
-          key={candidate}
-          type="button"
-          className={`calendar-view-switcher-btn${candidate === view ? " current" : ""}`}
-          aria-pressed={candidate === view}
-          onClick={() => onChange(candidate)}
-        >
-          {VIEW_LABEL[candidate]}
-        </button>
-      ))}
-    </fieldset>
+    <Segmented options={VIEW_OPTIONS} value={view} onChange={onChange} label="Calendar view" />
   );
 }

@@ -94,7 +94,7 @@ export function TaskUpcomingView({ onBack }: { onBack: () => void }) {
       <div className="tasks-main-header">
         <button
           type="button"
-          className="tasks-back"
+          className="btn-ghost btn-icon tasks-back"
           aria-label="Back to Task Lists"
           onClick={onBack}
         >

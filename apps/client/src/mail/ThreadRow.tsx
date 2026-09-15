@@ -344,12 +344,12 @@ export function ThreadRow({
         {visibleLabelIds.length > 0 ? (
           <span className="row-labels">
             {visibleLabelIds.map((id) => (
-              <span key={id} className="label-chip">
+              <span key={id} className="chip">
                 {labelNameForId(id)}
               </span>
             ))}
             {overflowLabelCount > 0 ? (
-              <span className="label-chip overflow">+{overflowLabelCount}</span>
+              <span className="chip label-chip-overflow">+{overflowLabelCount}</span>
             ) : null}
           </span>
         ) : null}

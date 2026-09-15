@@ -1,5 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
-import { PanelLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useHiddenCalendarIds, useShowTasksOnGrid } from "../mail/device-preferences.js";
 import { deriveCalendarScope, useAccountScope } from "../mail/useAccountScope.js";
@@ -168,31 +168,31 @@ export function CalendarRoute() {
         <div className="calendar-toolbar-left">
           <button
             type="button"
-            className="calendar-icon-btn"
+            className="btn-ghost btn-icon"
             aria-label="Show Calendars"
             onClick={() => setSlideOverOpen(true)}
           >
             <PanelLeft size={16} />
           </button>
-          <button type="button" className="calendar-today-btn" onClick={() => goTo(view, today())}>
+          <button type="button" className="btn-ghost" onClick={() => goTo(view, today())}>
             Today
           </button>
           <div className="calendar-nav-arrows">
             <button
               type="button"
-              className="calendar-icon-btn"
+              className="btn-ghost btn-icon"
               aria-label="Previous"
               onClick={() => goTo(view, stepDate(view, date, -1))}
             >
-              ‹
+              <ChevronLeft size={16} />
             </button>
             <button
               type="button"
-              className="calendar-icon-btn"
+              className="btn-ghost btn-icon"
               aria-label="Next"
               onClick={() => goTo(view, stepDate(view, date, 1))}
             >
-              ›
+              <ChevronRight size={16} />
             </button>
           </div>
           <h2 className="calendar-heading">
