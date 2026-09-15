@@ -21,12 +21,19 @@
   /* The phone Dock's own content height (#155, #298), excluding its own
      bottom margin and safe-area padding — one value the Dock itself and
      `.app-viewport`'s reserved bottom padding both read, so they can never
-     drift out of step. */
-  --dock-height: 56px;
+     drift out of step. Trimmed from an earlier 56px: close to a native
+     bottom bar's own ~49pt content height rather than sitting visibly
+     larger than one, since a floating pill this size was reading as though
+     it claimed the middle of the screen rather than sitting calmly at its
+     foot (still a full 48px tap target, comfortably above the ~44px
+     minimum). */
+  --dock-height: 48px;
   /* Gap between the Dock's floating pill and the screen's bottom safe area
      — what actually makes it read as floating rather than framing: the
-     page's own ground colour shows all the way round it. */
-  --dock-gutter: 14px;
+     page's own ground colour shows all the way round it. Trimmed alongside
+     `--dock-height` above, for the same reason: less of the screen given to
+     the pill's own isolation, not just to the pill itself. */
+  --dock-gutter: 10px;
 }
 
 /* ---------- the global header ---------- */
@@ -657,7 +664,7 @@
     bottom: calc(var(--dock-gutter) + env(safe-area-inset-bottom));
     z-index: 10;
     gap: 2px;
-    padding: 6px;
+    padding: 5px;
     border-radius: 999px;
     background: var(--color-surface-strong);
     box-shadow: var(--shadow-overlay);
@@ -689,9 +696,9 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 56px;
+  min-width: 52px;
   height: var(--dock-height);
-  padding: 0 10px;
+  padding: 0 8px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -741,10 +748,10 @@
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
   height: var(--dock-height);
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-surface);
@@ -773,8 +780,8 @@
 }
 
 .dock-switcher .app-tile {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
 }
 
 .dock-switcher-chev {
