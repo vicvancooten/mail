@@ -39,7 +39,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 16px 10px;
+  padding: 16px var(--space-3);
   padding-top: calc(16px + var(--chrome-top));
   padding-bottom: calc(16px + var(--chrome-bottom));
   overflow-y: auto;
@@ -53,9 +53,9 @@
 .settings-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   height: 34px;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius-row);
   color: var(--color-ink-muted);
   font-weight: 600;
@@ -117,10 +117,10 @@
 .settings-back {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   height: 44px;
-  padding: 0 14px;
-  padding-left: calc(14px + env(safe-area-inset-left));
+  padding: 0 var(--space-4);
+  padding-left: calc(var(--space-4) + env(safe-area-inset-left));
   color: var(--color-ink);
   font-weight: 600;
   font-size: 14px;
@@ -135,14 +135,17 @@
   padding: 0 0 calc(56px + env(safe-area-inset-bottom));
 }
 
+/* The page's own pane title (R4 pane title tier): 20px of space above, 12px
+   below, per `docs/design/polish-pass.md`'s "Pane padding" note. */
 .settings-page h2 {
   margin: 0;
-  padding: 10px 18px 9px;
-  padding-left: calc(18px + env(safe-area-inset-left));
+  padding: var(--space-5) var(--space-5) var(--space-3);
+  padding-left: calc(var(--space-5) + env(safe-area-inset-left));
   background: var(--color-field);
   border-bottom: var(--hairline) solid var(--color-border);
-  font-weight: 660;
-  font-size: 13px;
+  font-weight: 620;
+  font-size: var(--text-title);
+  letter-spacing: -0.01em;
   color: var(--color-ink);
 }
 
@@ -155,15 +158,15 @@
 
 .settings-page section,
 .settings-page > div {
-  padding: 18px;
-  padding-left: calc(18px + env(safe-area-inset-left));
-  padding-right: calc(18px + env(safe-area-inset-right));
+  padding: var(--space-5);
+  padding-left: calc(var(--space-5) + env(safe-area-inset-left));
+  padding-right: calc(var(--space-5) + env(safe-area-inset-right));
   border-bottom: var(--hairline) solid var(--color-border);
   background: var(--color-surface);
 }
 
 .settings-page p {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-3);
   font-size: 13px;
   line-height: 1.5;
   color: var(--color-ink-muted);
@@ -171,8 +174,8 @@
 }
 
 .settings-page [role="alert"] {
-  margin: 0 0 10px;
-  padding: 9px 11px;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) 11px;
   background: color-mix(in oklab, var(--color-danger) 12%, var(--color-surface));
   border: var(--hairline) solid color-mix(in oklab, var(--color-danger) 45%, var(--color-border));
   border-radius: var(--radius-md);
@@ -207,7 +210,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
+  gap: var(--space-1);
   font-weight: 600;
   font-size: 11.5px;
   color: var(--color-ink-faint);
@@ -237,7 +240,7 @@
 .settings-page input[type="number"],
 .settings-page input[type="password"],
 .settings-page textarea {
-  padding: 7px 9px;
+  padding: var(--space-2) var(--space-2);
   background: var(--color-bg);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
@@ -256,14 +259,14 @@
 .settings-page button {
   appearance: none;
   cursor: pointer;
-  padding: 7px 12px;
+  padding: var(--space-2) 12px;
   border-radius: var(--radius-md);
   border: var(--hairline) solid var(--color-border);
   background: var(--color-surface-strong);
   color: var(--color-ink);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   transition:
     background var(--dur-press) linear,
     transform var(--dur-press) var(--ease-out);
@@ -302,7 +305,7 @@
 .settings-page summary {
   display: block;
   cursor: pointer;
-  padding: 9px 0;
+  padding: var(--space-2) 0;
   font-weight: 680;
   font-size: 14px;
   color: var(--color-ink);
@@ -318,7 +321,7 @@
   display: inline-block;
   width: 0;
   height: 0;
-  margin-right: 9px;
+  margin-right: var(--space-2);
   border-left: 5px solid currentColor;
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
@@ -342,8 +345,8 @@
 .settings-page li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
+  gap: var(--space-3);
+  padding: var(--space-2) 11px;
   background: var(--color-surface-strong);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
@@ -352,7 +355,7 @@
 
 .settings-page code {
   font-size: 11px;
-  padding: 2px 6px;
+  padding: 2px var(--space-2);
   background: var(--color-field);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
@@ -367,9 +370,9 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
   flex: 1 1 100%;
-  padding: 14px;
+  padding: var(--space-4);
   background: var(--color-surface-strong);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
@@ -384,7 +387,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--space-2);
   flex: 1 1 100%;
 }
 
@@ -475,7 +478,7 @@
 .instance-fact {
   flex: 1 1 100%;
   display: flex;
-  gap: 6px 10px;
+  gap: var(--space-2) var(--space-3);
   flex-wrap: wrap;
   font-size: 13px;
   color: var(--color-ink);
@@ -494,14 +497,14 @@
    repair, not the page's purpose. */
 .instance-fact-action {
   margin-left: 8px;
-  padding: 2px 9px;
+  padding: 2px var(--space-2);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-field);
   color: var(--color-ink);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--text-label);
   cursor: pointer;
   transition: background var(--dur-press) var(--ease);
 }
@@ -516,11 +519,11 @@
 }
 
 .instance-fact code {
-  font-size: 12px;
+  font-size: var(--text-label);
   background: var(--color-bg);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-sm, 4px);
-  padding: 1px 5px;
+  padding: 1px var(--space-1);
 }
 
 /* Providers (#115, ADR-0021): one `.provider-card` per Provider, styled
@@ -532,8 +535,8 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--space-3);
+  padding: var(--space-4);
   background: var(--color-surface-strong);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-md);
@@ -563,7 +566,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 5px;
+  gap: var(--space-1);
   width: 100%;
 }
 
@@ -582,14 +585,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 10px 16px;
+  gap: var(--space-3) 16px;
   width: 100%;
 }
 
 .provider-delete p[role="alert"] {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex-wrap: wrap;
   max-width: none;
 }
@@ -603,7 +606,7 @@
 }
 
 .provider-card ol {
-  margin: 6px 0 0;
+  margin: var(--space-2) 0 0;
   padding-left: 20px;
   font-size: 13px;
   color: var(--color-ink-muted);

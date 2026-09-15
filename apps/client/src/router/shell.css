@@ -66,7 +66,7 @@
 .header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -76,7 +76,7 @@
 .home-link {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   padding: 4px 8px 4px 4px;
   border-radius: 999px;
   color: inherit;
@@ -91,7 +91,7 @@
 
 .wordmark {
   font-weight: 650;
-  font-size: 14.5px;
+  font-size: var(--text-body);
   letter-spacing: -0.01em;
   color: var(--color-ink);
   white-space: nowrap;
@@ -179,8 +179,8 @@
 .switcher-compact-btn {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 5px 10px 5px 5px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1);
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -269,12 +269,12 @@
 .tab-pill {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 34px;
   padding: 0 13px;
   border-radius: 999px;
   color: var(--color-ink-muted);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-decoration: none;
   white-space: nowrap;
   transition:
@@ -296,7 +296,7 @@
    (`apps/apps.ts`) — SOON says what it is without taking it away. */
 .tab-pill .tp-soon {
   font-weight: 700;
-  font-size: 10px;
+  font-size: var(--text-label);
   letter-spacing: 0.03em;
   color: var(--color-ink-faint);
 }
@@ -349,9 +349,9 @@
   max-width: 560px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   height: 44px;
-  padding: 0 10px 0 17px;
+  padding: 0 var(--space-3) 0 var(--space-4);
   border: none;
   border-radius: 999px;
   background: var(--color-field-strong);
@@ -374,7 +374,7 @@
 
 .global-search span {
   flex: 1;
-  font-size: 14.5px;
+  font-size: var(--text-body);
   text-align: left;
   color: var(--color-ink-muted);
 }
@@ -385,7 +385,7 @@
   color: var(--color-ink-faint);
   background: var(--color-surface);
   border-radius: var(--radius-sm);
-  padding: 2px 7px;
+  padding: 2px var(--space-2);
 }
 
 /* ---------- Account Scope (#73, moved into the Hub in #96) ---------- */
@@ -426,7 +426,7 @@
 .account-scope-avatars .mail-avatar {
   width: 24px;
   height: 24px;
-  font-size: 9px;
+  font-size: var(--text-label);
   box-shadow: 0 0 0 2px var(--color-surface-strong);
 }
 
@@ -445,7 +445,7 @@
 .account-scope-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   border: none;
@@ -516,7 +516,7 @@
 .avatar-menu-trigger {
   appearance: none;
   cursor: pointer;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   padding: 0;
   border: none;
   background: transparent;
@@ -561,9 +561,9 @@
     right: 0;
     height: 52px;
     gap: 8px;
-    padding: 0 10px;
-    padding-left: calc(10px + env(safe-area-inset-left));
-    padding-right: calc(10px + env(safe-area-inset-right));
+    padding: 0 var(--space-3);
+    padding-left: calc(var(--space-3) + env(safe-area-inset-left));
+    padding-right: calc(var(--space-3) + env(safe-area-inset-right));
     /* R1 (`docs/design/polish-pass.md`): chrome floats *over* content, not
        around it — translucent and blurred like a sheet of glass laid on
        top of the scrolling pane, rather than an opaque slab with a relief
@@ -719,7 +719,7 @@
    media query above — `AppSwitcher.tsx` itself decides sheet vs inline, so
    these rules apply at whatever width the sheet renders. */
 .switcher-sheet {
-  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+  padding: 8px var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
 }
 
 .switcher-sheet .tabs-row {
@@ -731,8 +731,8 @@
 
 .switcher-sheet .tab-pill {
   height: 46px;
-  padding: 0 14px;
-  font-size: 15px;
+  padding: 0 var(--space-4);
+  font-size: var(--text-body);
 }
 
 .switcher-sheet .tab-pill span:not(.tp-soon) {
@@ -841,9 +841,9 @@
 }
 
 .app-placeholder-card h2 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   font-weight: 650;
-  font-size: 16px;
+  font-size: var(--text-title);
   letter-spacing: -0.01em;
   color: var(--color-ink);
 }
@@ -851,12 +851,12 @@
 .app-placeholder-card p {
   margin: 0;
   color: var(--color-ink-faint);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   line-height: 1.55;
 }
 
 .app-placeholder-status {
-  margin-top: 14px;
+  margin-top: var(--space-4);
   font-weight: 600;
   font-size: 11.5px;
   color: var(--color-ink-faint);
@@ -877,12 +877,12 @@
 }
 
 .avatar-menu-role {
-  padding: 1px 7px;
+  padding: 1px var(--space-2);
   border-radius: 999px;
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-weight: 600;
-  font-size: 10px;
+  font-size: var(--text-label);
   letter-spacing: 0.04em;
 }
 

@@ -103,7 +103,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 0 14px 16px;
+  padding: 0 var(--space-4) 16px;
   overflow-y: auto;
   min-height: 0;
   background: var(--color-bg);
@@ -130,7 +130,7 @@
   flex: none;
   width: 28px;
   height: 28px;
-  margin: 10px 2px 8px;
+  margin: var(--space-3) 2px 8px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -160,7 +160,7 @@
 }
 
 .nav-heading {
-  margin: 18px 10px 6px;
+  margin: var(--space-5) var(--space-3) var(--space-2);
   color: var(--color-ink-faint);
   font-weight: 600;
   font-size: 11px;
@@ -200,13 +200,13 @@
   align-items: center;
   gap: 11px;
   height: 36px;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   border: none;
   border-radius: var(--radius-row);
   background: transparent;
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-align: left;
   cursor: pointer;
   transition:
@@ -234,7 +234,7 @@
    folder list below it since it navigates to a different route rather than
    selecting among these destinations. */
 .stream-toggle {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-3);
 }
 
 .nav-label {
@@ -296,9 +296,9 @@
   align-items: flex-start;
   gap: 2px;
   width: calc(100% - 12px);
-  margin: 0 6px;
+  margin: 0 var(--space-2);
   box-sizing: border-box;
-  padding: 10px 10px;
+  padding: var(--space-3) var(--space-3);
   border: none;
   border-radius: var(--radius-row);
   background: var(--color-bg);
@@ -320,7 +320,7 @@
 
 .draft-row .sender {
   color: var(--color-ink-muted);
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .split-view {
@@ -363,8 +363,8 @@
   .split-pane {
     display: flex;
     align-items: stretch;
-    gap: 14px;
-    padding-right: 14px;
+    gap: var(--space-4);
+    padding-right: var(--space-4);
   }
 
   .split-pane > .thread-detail,
@@ -1358,15 +1358,15 @@
 .label-toggle {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   width: 100%;
-  padding: 8px 10px;
+  padding: 8px var(--space-3);
   border: none;
   border-radius: var(--radius-row);
   background: transparent;
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-align: left;
   cursor: pointer;
   transition:
@@ -1388,7 +1388,7 @@
 
 .snooze-preset-time {
   color: var(--color-ink-faint);
-  font-size: 12px;
+  font-size: var(--text-label);
   white-space: nowrap;
 }
 
@@ -1400,7 +1400,7 @@
 
 .label-picker-empty {
   margin: 0;
-  padding: 10px;
+  padding: var(--space-3);
   color: var(--color-ink-faint);
   font-size: 13px;
 }
@@ -1409,8 +1409,8 @@
 .snooze-menu-custom,
 .label-picker-new {
   display: flex;
-  gap: 6px;
-  margin-top: 6px;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
   padding-top: 0;
 }
 
@@ -1427,7 +1427,7 @@
   flex: 1;
   min-width: 0;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   border: none;
   border-radius: var(--radius-md);
   background: var(--color-field);
@@ -1455,14 +1455,14 @@
 .snooze-menu-custom button,
 .label-picker-new button {
   height: 32px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
   color: var(--color-accent-foreground);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   cursor: pointer;
   transition: filter var(--dur-press) var(--ease);
 }
@@ -1520,8 +1520,8 @@
    row instead" (`shell.css`'s `--chrome-top`, 0px at ≥768px). */
 .reading-header {
   flex: none;
-  padding: 10px 16px;
-  padding-top: calc(10px + var(--chrome-top));
+  padding: var(--space-3) 16px;
+  padding-top: calc(var(--space-3) + var(--chrome-top));
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1545,7 +1545,7 @@
 .reading-eyebrow {
   margin-bottom: 4px;
   color: var(--color-ink-faint);
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .reading-subject {
@@ -1649,8 +1649,8 @@
    icon-only buttons `.reading-actions button` sizes everything else to. */
 .reading-actions-group .reading-send-to {
   width: auto;
-  gap: 6px;
-  padding: 0 10px;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
   font: inherit;
   font-size: 13px;
 }
@@ -1712,16 +1712,16 @@
 .reading-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   max-width: 74ch;
-  margin: 18px auto 0;
+  margin: var(--space-5) auto 0;
   padding-bottom: 22px;
 }
 
 .reading-meta .mail-avatar {
   width: 30px;
   height: 30px;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .reading-identity {
@@ -1731,7 +1731,7 @@
 }
 
 .reading-from {
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1742,7 +1742,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
 }
 
@@ -1755,7 +1755,7 @@
   margin-left: auto;
   flex: none;
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
 }
 
@@ -1828,7 +1828,7 @@
   width: 52px;
   height: 52px;
   border: 3px solid var(--color-surface);
-  font-size: 16px;
+  font-size: var(--text-title);
   box-sizing: border-box;
 }
 
@@ -1840,8 +1840,8 @@
 .sender-contact-card-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 38px 14px 14px;
+  gap: var(--space-3);
+  padding: 38px var(--space-4) var(--space-4);
 }
 
 .sender-contact-card-names {
@@ -1851,7 +1851,7 @@
 }
 
 .sender-contact-card-name {
-  font-size: 14.5px;
+  font-size: var(--text-body);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1880,7 +1880,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
 }
 
 .sender-contact-card-thread-subject {
@@ -1902,7 +1902,7 @@
   margin: 0;
   padding: 8px 0 0;
   border-top: var(--hairline) solid var(--color-border);
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
 }
 
@@ -1919,15 +1919,15 @@
   gap: 8px;
   max-width: 74ch;
   margin: 0 auto;
-  padding: 0 0 18px;
+  padding: 0 0 var(--space-5);
   list-style: none;
 }
 
 .reader-task-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
+  gap: var(--space-2);
+  padding: 3px var(--space-3) 3px 8px;
   border-radius: var(--radius-pill);
   background: var(--color-field);
 }
@@ -1943,7 +1943,7 @@
   background: transparent;
   padding: 0;
   color: var(--color-ink);
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1967,7 +1967,7 @@
 .reading-snippet {
   margin: 0 auto;
   max-width: 74ch;
-  font-size: 14.5px;
+  font-size: var(--text-body);
   line-height: 1.7;
   color: var(--color-ink);
 }
@@ -1986,18 +1986,18 @@
 .reply-hint {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex: none;
   width: 100%;
-  margin-top: 14px;
-  padding: 14px 17px;
-  padding-bottom: max(14px, env(safe-area-inset-bottom));
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-4);
+  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-field);
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -2033,11 +2033,11 @@
 .message-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .message-item {
-  padding: 16px 18px;
+  padding: 16px var(--space-5);
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   /* The sender's HTML is unconstrained by design (the Width decision above)
@@ -2052,8 +2052,8 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
   font-size: 13px;
   /* A reset for the one case this renders as a `<button>` rather than a
      plain `<header>` — a Message expanded only because the User clicked it,
@@ -2075,8 +2075,8 @@
    pasted flush against the card's edges. */
 .message-item-header-collapsible {
   cursor: pointer;
-  margin: -6px -8px 4px;
-  padding: 6px 8px;
+  margin: calc(-1 * var(--space-2)) -8px 4px;
+  padding: var(--space-2) 8px;
   border-radius: var(--radius-md);
   transition: background var(--dur-press) var(--ease);
 }
@@ -2109,9 +2109,9 @@
 .message-item-summary {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
-  padding: 14px 18px;
+  padding: var(--space-4) var(--space-5);
   border: none;
   background: transparent;
   color: inherit;
@@ -2150,7 +2150,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--color-ink-muted);
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -2166,7 +2166,7 @@
 .message-item-reply-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 30px;
   padding: 0 11px;
   border: none;
@@ -2174,7 +2174,7 @@
   background: transparent;
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -2190,8 +2190,8 @@
 .message-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  font-size: 14.5px;
+  gap: var(--space-3);
+  font-size: var(--text-body);
   line-height: 1.7;
 }
 
@@ -2204,7 +2204,7 @@
   background: var(--color-field);
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   cursor: pointer;
   transition:
     background var(--dur-press) var(--ease),
@@ -2241,16 +2241,16 @@
 .attachment-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 .attachment-item {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   width: 148px;
-  padding: 9px;
+  padding: var(--space-2);
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-field);
@@ -2274,7 +2274,7 @@
 
 .attachment-pdf-fallback {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
 }
 
@@ -2296,13 +2296,13 @@
 .attachment-size {
   color: var(--color-ink-faint);
   font-variant-numeric: tabular-nums;
-  font-size: 10.5px;
+  font-size: var(--text-label);
 }
 
 .attachment-download {
   color: var(--color-accent);
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 /* Stream (#105, CONTEXT.md) is no longer a mode of this list — it's its own
@@ -2329,7 +2329,7 @@
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   color: var(--color-ink);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   box-shadow: var(--shadow-overlay);
   animation: toast-enter var(--dur-fast) var(--ease-out);
   z-index: 20;
@@ -2338,14 +2338,14 @@
 .notification-offer-banner button {
   flex: none;
   height: 30px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
   color: var(--color-accent-foreground);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   cursor: pointer;
   transition: filter var(--dur-press) var(--ease);
 }
@@ -2370,13 +2370,13 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 12px 15px;
+  padding: 12px var(--space-4);
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   color: var(--color-ink);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   text-align: left;
   cursor: pointer;
   box-shadow: var(--shadow-overlay);
@@ -2389,7 +2389,7 @@
 
 .new-mail-toast strong {
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: var(--text-body);
 }
 
 .new-mail-toast span {
@@ -2421,8 +2421,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
+  gap: var(--space-2);
+  padding: var(--space-3) 16px;
   background: var(--color-bg);
 }
 
@@ -2542,7 +2542,7 @@
 .search-load-older {
   align-self: flex-start;
   height: 32px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-field);
@@ -2584,7 +2584,7 @@
    commands). */
 .search-loading-inline {
   margin: 0;
-  padding: 6px 16px;
+  padding: var(--space-2) 16px;
   color: var(--color-ink-faint);
   font-size: 11.5px;
 }
@@ -2592,10 +2592,10 @@
 .search-offline-banner,
 .search-reauth-banner {
   margin: 0;
-  padding: 10px 14px;
+  padding: var(--space-3) var(--space-4);
   border: none;
   border-radius: var(--radius-panel);
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   background: color-mix(in oklab, var(--color-warn) 14%, var(--color-surface));
   color: var(--color-ink-muted);
 }
@@ -2604,7 +2604,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 7px;
+  gap: var(--space-2);
 }
 
 .search-reauth-banner p {
@@ -2613,14 +2613,14 @@
 
 .search-reauth-button {
   height: 30px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
   color: var(--color-accent-foreground);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -2633,7 +2633,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
   padding: 26px 16px;
   color: var(--color-ink-muted);
   font-size: 13px;
@@ -2641,7 +2641,7 @@
 
 .search-empty button {
   height: 32px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-field);
@@ -2670,9 +2670,9 @@
 .gatekeeper-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   margin: 0 16px 8px;
-  padding: 10px 14px;
+  padding: var(--space-3) var(--space-4);
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-accent-soft);
@@ -2696,14 +2696,14 @@
 .gatekeeper-banner button {
   flex: none;
   height: 28px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
   color: var(--color-accent-foreground);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
   transition: filter var(--dur-press) var(--ease);
@@ -2736,7 +2736,7 @@
   align-items: center;
   gap: 12px;
   flex: none;
-  padding: 26px 8px 18px;
+  padding: 26px 8px var(--space-5);
 }
 
 .screener-header h2 {
@@ -2756,9 +2756,9 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 32px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-field);
@@ -2816,7 +2816,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 /* Each account's cluster (#82) is its own `<li>` in the outer list — no
@@ -2831,14 +2831,14 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 /* Which Mail Account these slips belong to — only rendered once Scope holds
    more than one account (`Screener.tsx`). */
 .screener-group-header {
-  padding: 10px 8px 8px;
-  font-size: 12.5px;
+  padding: var(--space-3) 8px 8px;
+  font-size: var(--text-secondary);
   font-weight: 600;
   color: var(--color-ink-faint);
 }
@@ -2849,7 +2849,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 16px;
+  padding: var(--space-4) 16px;
   border: none;
   border-radius: var(--radius-panel);
   background: var(--color-surface);
@@ -2879,7 +2879,7 @@
 }
 
 .screener-row-name {
-  font-size: 14.5px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--color-ink);
   overflow: hidden;
@@ -2908,7 +2908,7 @@
   align-items: baseline;
   gap: 8px;
   overflow: hidden;
-  font-size: 13.5px;
+  font-size: var(--text-body);
 }
 
 .screener-row-subject {
@@ -2933,9 +2933,9 @@
 .screener-view {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 34px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: transparent;
@@ -2966,9 +2966,9 @@
 .screener-row-actions button {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 34px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   background: transparent;
@@ -3008,7 +3008,7 @@
 .screener-block-split {
   display: inline-flex;
   align-items: center;
-  margin-left: 10px;
+  margin-left: var(--space-3);
 }
 
 .screener-block-split .screener-block {
@@ -3078,7 +3078,7 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   flex: none;
   font-size: 13px;
   font-weight: 600;
@@ -3104,10 +3104,10 @@
 /* The bay states its own rule at the foot: a Verdict is scoped to one Mail
    Account and decides a sender, not a message (CONTEXT.md). */
 .screener-rule {
-  margin: 18px 8px 0;
+  margin: var(--space-5) 8px 0;
   padding: 0;
   max-width: 74ch;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   line-height: 1.6;
   color: var(--color-ink-faint);
 }
@@ -3115,7 +3115,7 @@
 .screener-entry {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 /* ---------- the View dialog (#102) --------------------------------------
@@ -3126,14 +3126,14 @@
 .screener-view-dialog {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
   max-height: 85vh;
 }
 
 .screener-view-identity {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .screener-view-sender {
@@ -3151,7 +3151,7 @@
 .screener-view-threads {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--space-5);
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -3159,8 +3159,8 @@
 .screener-view-thread {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 14px;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
   border-top: var(--hairline) solid var(--color-border);
 }
 
@@ -3206,14 +3206,14 @@
 .block-alias-dialog {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .block-alias-dialog button {
   display: inline-flex;
   align-items: center;
   height: 34px;
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border: none;
   border-radius: var(--radius-pill);
   font-family: inherit;
@@ -3262,7 +3262,7 @@
 .gatekeeper-settings-description {
   color: var(--color-ink-muted);
   font-size: 13px;
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-3);
 }
 
 .gatekeeper-cutoff {
@@ -3281,7 +3281,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 0;
+  padding: var(--space-1) 0;
 }
 
 .gatekeeper-reset-confirm {
@@ -3291,7 +3291,7 @@
 
 .gatekeeper-blocked-spam {
   color: var(--color-ink-muted);
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 /* ============================================================================
@@ -3323,7 +3323,7 @@
 
   .side-nav-sheet {
     max-height: 70vh;
-    padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+    padding: var(--space-4) 12px calc(var(--space-4) + env(safe-area-inset-bottom));
   }
 
   .side-nav-sheet .side-nav {
@@ -3382,8 +3382,8 @@
      pane's own fixed header row, so it keeps taking the top inset
      (`--chrome-top`) here too, not just in the shared rule above. */
   .reading-header {
-    padding: 6px 12px;
-    padding-top: calc(6px + var(--chrome-top));
+    padding: var(--space-2) 12px;
+    padding-top: calc(var(--space-2) + var(--chrome-top));
   }
 
   /* The bar's own three groups (Reply, Mail, Integrations, #289) at their
@@ -3423,7 +3423,7 @@
   }
 
   .reply-hint {
-    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   }
 
   .screener {
@@ -3434,7 +3434,7 @@
 
   .screener-row {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   .screener-row-sender {
@@ -3506,7 +3506,7 @@
   margin: 0;
   padding: 24px;
   text-align: center;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   color: var(--color-ink-faint);
   max-width: none;
 }
@@ -3524,7 +3524,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
   padding: 32px;
   text-align: center;
   color: var(--color-ink-faint);
@@ -3536,7 +3536,7 @@
   justify-content: center;
   width: 52px;
   height: 52px;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-3);
   border-radius: 50%;
   background: var(--color-accent-soft);
   color: var(--color-accent);
@@ -3544,14 +3544,14 @@
 
 .pane-empty h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-title);
   font-weight: 650;
   color: var(--color-ink);
 }
 
 .pane-empty > p {
   margin: 0;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   color: var(--color-ink-faint);
 }
 
@@ -3571,7 +3571,7 @@
 .pane-keys dd {
   justify-self: start;
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
 }
 
@@ -3582,7 +3582,7 @@
   align-items: center;
   justify-content: center;
   min-width: 22px;
-  padding: 2px 7px;
+  padding: 2px var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: var(--color-field);
@@ -3653,9 +3653,9 @@
 .command-palette-input-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex: none;
-  padding: 15px 17px;
+  padding: var(--space-4) var(--space-4);
 }
 
 .command-palette-icon {
@@ -3671,7 +3671,7 @@
   background: transparent;
   color: var(--color-ink);
   font-family: inherit;
-  font-size: 15px;
+  font-size: var(--text-body);
 }
 
 .command-palette-input-row input::placeholder {
@@ -3703,22 +3703,22 @@
 
 .command-palette-list {
   overflow-y: auto;
-  padding: 6px;
+  padding: var(--space-2);
 }
 
 .command-palette-empty {
   padding: 16px 12px;
   margin: 0;
   color: var(--color-ink-faint);
-  font-size: 13.5px;
+  font-size: var(--text-body);
 }
 
 .command-palette-section + .command-palette-section {
-  margin-top: 10px;
+  margin-top: var(--space-3);
 }
 
 .command-palette-section-label {
-  margin: 6px 10px;
+  margin: var(--space-2) var(--space-3);
   color: var(--color-ink-faint);
   font-size: 11.5px;
   font-weight: 600;
@@ -3727,15 +3727,15 @@
 .command-palette-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
-  padding: 9px 10px;
+  padding: var(--space-2) var(--space-3);
   border: none;
   border-radius: var(--radius-row);
   background: transparent;
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-align: left;
   cursor: pointer;
   transition:
@@ -3798,7 +3798,7 @@
 .command-palette-hit-from {
   flex: none;
   color: var(--color-ink-faint);
-  font-size: 12px;
+  font-size: var(--text-label);
   max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3862,7 +3862,7 @@
 }
 
 .command-palette-watermark {
-  margin: 6px 10px 2px;
+  margin: var(--space-2) var(--space-3) 2px;
   color: var(--color-ink-faint);
   font-size: 11px;
 }
@@ -3879,18 +3879,18 @@
   align-items: center;
   justify-content: space-between;
   flex: none;
-  padding: 15px 17px 10px;
+  padding: var(--space-4) var(--space-4) var(--space-3);
 }
 
 .shortcut-sheet-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-title);
   font-weight: 650;
 }
 
 .shortcut-sheet-body {
   overflow-y: auto;
-  padding: 6px 17px 20px;
+  padding: var(--space-2) var(--space-4) 20px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
@@ -3907,14 +3907,14 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: var(--space-2);
 }
 
 .shortcut-sheet-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .shortcut-sheet-row dt {
@@ -3953,7 +3953,7 @@
 .invite-card {
   flex: none;
   margin: 0 0 16px;
-  padding: 14px 16px;
+  padding: var(--space-4) 16px;
   border-radius: var(--radius-panel);
   background: var(--color-field);
 }
@@ -3961,7 +3961,7 @@
 .invite-card-head {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
   color: var(--color-ink-faint);
 }
 
@@ -3977,7 +3977,7 @@
 }
 
 .invite-card-when {
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
 }
 
@@ -3985,23 +3985,23 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  padding: 6px 10px;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-panel);
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
 }
 
 .invite-card-cancelled {
-  margin-top: 10px;
+  margin-top: var(--space-3);
   font-size: 13px;
   font-weight: 500;
   color: var(--color-danger);
 }
 
 .invite-card-note {
-  margin-top: 10px;
+  margin-top: var(--space-3);
   font-size: 13px;
   color: var(--color-ink-faint);
 }
@@ -4009,8 +4009,8 @@
 .invite-card-status {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
   font-size: 13px;
   color: var(--color-ink-muted);
 }
@@ -4027,7 +4027,7 @@
 .invite-card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: var(--space-3);
 }
 
 .invite-card-actions button {
@@ -4039,7 +4039,7 @@
   color: var(--color-ink);
   font-family: inherit;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   cursor: pointer;
   transition: filter var(--dur-press) var(--ease);
 }
