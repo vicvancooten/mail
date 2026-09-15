@@ -93,24 +93,6 @@
   border-color: var(--color-accent);
 }
 
-.contacts-new-link {
-  flex: none;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-decoration: none;
-  padding: 6px 14px;
-  white-space: nowrap;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.contacts-new-link:hover {
-  background: var(--color-hover);
-}
-
 .contacts-recently-deleted-link {
   flex: none;
   font-size: 12.5px;

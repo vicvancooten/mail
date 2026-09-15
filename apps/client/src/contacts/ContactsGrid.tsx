@@ -227,9 +227,6 @@ export function ContactsGrid() {
             <Button type="button" variant="outline" size="sm" onClick={() => setImportOpen(true)}>
               Import…
             </Button>
-            <Link to="/contacts/new" className="contacts-new-link">
-              New contact
-            </Link>
             {/* Recently Deleted (#224): its own screen, not an overlay over this
                 one — `routes.tsx#contactsRecentlyDeletedRoute`'s own doc comment. */}
             <Link to="/contacts/recently-deleted" className="contacts-recently-deleted-link">

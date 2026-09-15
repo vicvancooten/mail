@@ -1345,7 +1345,6 @@ export function MailSection({
             gmailLabelGroups={gmailLabelGroups}
             gmailLabelFilter={gmailLabelFilter}
             onSelectGmailLabel={selectGmailLabelFilter}
-            onCompose={openCompose}
             draftsCount={draftCompositions.length}
             onOpenStream={onOpenStream}
             foldersOpen={foldersOpen}

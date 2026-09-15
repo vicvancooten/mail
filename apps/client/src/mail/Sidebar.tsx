@@ -10,7 +10,6 @@ import {
   PanelLeft,
   Pencil,
   Pin,
-  Plus,
   Reply,
   Tag,
   Trash2,
@@ -115,7 +114,6 @@ interface SidebarProps {
   gmailLabelGroups: GmailLabelAccountGroup[];
   gmailLabelFilter: string | null;
   onSelectGmailLabel: (labelId: string) => void;
-  onCompose: () => void;
   draftsCount: number;
   /** Stream's own entry point (#105) — a plain navigation, run through the Action registry's `open-stream` (`MailSection.tsx`'s own `onOpenStream`). */
   onOpenStream: () => void;
@@ -176,23 +174,12 @@ function RailContents({
   gmailLabelGroups,
   gmailLabelFilter,
   onSelectGmailLabel,
-  onCompose,
   draftsCount,
   onOpenStream,
   collapsed,
 }: SidebarProps & { collapsed: boolean }) {
   return (
     <>
-      <button
-        type="button"
-        className="compose-btn"
-        onClick={onCompose}
-        aria-label="Compose"
-        title="Compose"
-      >
-        <Plus size={14} />
-        {collapsed ? null : "Compose"}
-      </button>
       <button
         type="button"
         className="nav-item stream-toggle"

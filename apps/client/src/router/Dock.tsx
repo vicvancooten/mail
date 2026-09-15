@@ -1,12 +1,9 @@
 import { useCallback, useState } from "react";
 import { PhoneSwitcher } from "../apps/AppSwitcher.js";
 import { APPS_BY_KEY, type AppDockControl, appForPath, appIconFor } from "../apps/apps.js";
-import { defaultCalendarId } from "../calendar/calendar-create.js";
-import { elementAnchorRect, openCreatePanel } from "../calendar/calendar-event-panel.js";
+import { usePrimaryAction } from "../apps/primary-action.js";
 import { openCalendarSlideOver } from "../calendar/calendar-slide-over.js";
 import type { ActionContext } from "../mail/actions/types.js";
-import { useCalendars } from "../store/calendars.js";
-import { createNote, newNoteId } from "../store/notes.js";
 import { rootRoute } from "./routes.js";
 
 /**
@@ -79,98 +76,6 @@ function useNavControlAction(currentKey: string | undefined, ctx: ActionContext)
 }
 
 /**
- * The `primaryAction` tile's own handler, keyed by the current App — merges
- * what used to be two separate tables (`DOCK_ACTIONS`'s own `compose` entry,
- * reading `ctx.onCompose()`, and this same `useCreateAction`'s own
- * Contacts/Calendar/Tasks/Notes switch) into one, now that Mail's primary
- * action is Compose rather than a Folders/Compose pair either side of the
- * switcher tile (R3, `docs/design/polish-pass.md`): every App names exactly
- * one primary action, so one App-keyed handler covers all five rather than
- * splitting Mail's out into a control-keyed table of its own.
- *
- * Each non-Mail case reuses that App's own existing creation entry point
- * rather than inventing a second one:
- *  - **Contacts**: `/contacts/new` — the grid's own "New contact" `Link`
- *    (`ContactsGrid.tsx`), `NewContactRoute.tsx`'s own screen.
- *  - **Calendar**: `openCreatePanel` — the same module-level panel state
- *    every grid click-to-create call already opens
- *    (`calendar-create.ts#openCreatePanelForDay`, `DayTimeGrid.tsx`'s hour
- *    rows), anchored to the pressed Dock button itself
- *    (`elementAnchorRect`) the same way every other click-to-create call
- *    anchors to whatever was actually clicked. Defaulted to a one-hour Event
- *    starting next on the hour, on the User's own default Calendar
- *    (`defaultCalendarId`) — there is no clicked grid cell here to read a
- *    time or a Calendar from.
- *  - **Tasks**: `/tasks?view=today` — `TaskTodayView.tsx`'s own quick add,
- *    already the one existing "create a Task with no List of its own picked
- *    first" entry point (it creates straight into the User's default Task
- *    List). Reused as-is rather than synthesizing a blank, titleless Task
- *    row directly — every other creation path in this App hands `createTask`
- *    a real title the User already typed, and this is the one screen that
- *    already asks for it with no List to pick first.
- *  - **Notes**: `createNote` + `/notes/$noteId` — Notes has no creation
- *    entry point of its own anywhere yet (unlike the three above, only
- *    "Add to Notes" from a Mail Thread creates one, and that Note carries
- *    the Thread's own Thread Link, not a blank body) — the judgment call
- *    this control's own doc comment above flags. Rather than build a new
- *    screen for it, this mints an id and writes the empty row exactly the
- *    way `createNoteFromThreadLink` already does, then opens
- *    `/notes/$noteId` — the *existing* Note dialog already renders any real
- *    `noteId` directly, with no separate "create mode" to gate behind a
- *    dedicated route the way `ContactDialog`'s `contactId: null` needs.
- */
-function usePrimaryAction(
-  currentKey: string | undefined,
-  ctx: ActionContext,
-): (event: React.MouseEvent<HTMLButtonElement>) => void {
-  const navigate = rootRoute.useNavigate();
-  const calendars = useCalendars() ?? [];
-
-  return useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      switch (currentKey) {
-        case "mail":
-          ctx.onCompose();
-          return;
-        case "contacts":
-          void navigate({ to: "/contacts/new" });
-          return;
-        case "calendar": {
-          const calendarId = defaultCalendarId(new Map(calendars.map((cal) => [cal.id, cal])));
-          if (!calendarId) return;
-          const start = new Date();
-          start.setMinutes(0, 0, 0);
-          start.setHours(start.getHours() + 1);
-          const end = new Date(start.getTime() + 60 * 60 * 1000);
-          openCreatePanel({
-            calendarId,
-            start: start.toISOString(),
-            end: end.toISOString(),
-            allDay: false,
-            anchorRect: elementAnchorRect(event.currentTarget),
-          });
-          return;
-        }
-        case "tasks":
-          void navigate({ to: "/tasks", search: { view: "today" } });
-          return;
-        case "notes": {
-          const id = newNoteId();
-          void (async () => {
-            await createNote(id);
-            void navigate({ to: "/notes/$noteId", params: { noteId: id } });
-          })();
-          return;
-        }
-        default:
-          return;
-      }
-    },
-    [currentKey, ctx, navigate, calendars],
-  );
-}
-
-/**
  * The phone Dock (#298, replaced with a blurred glass pill in #318): a
  * floating pill at the foot of the screen holding, in order, the App
  * Switcher tile, the current App's `navControl` if it declares one, and its
@@ -201,7 +106,14 @@ export function Dock({ pathname, ctx }: { pathname: string; ctx: ActionContext }
   // (`fallbackCtx`'s own "navigate to Mail first" shape, `RootLayout.tsx`).
   const app = current ?? APPS_BY_KEY.mail;
   const runNavControl = useNavControlAction(current?.key ?? "mail", ctx);
-  const runPrimaryAction = usePrimaryAction(current?.key ?? "mail", ctx);
+  // `apps/primary-action.ts` shared with the desktop header's own
+  // `<PrimaryAction>` (`RootLayout.tsx`) — the same per-App handler
+  // resolution used to live here as a second copy. `app.primaryAction`
+  // (not `primary.icon`/`primary.label`) still drives the tile's own icon
+  // and accessible name below, since `controlAccessibleLabel` needs the raw
+  // `AppDockControl` (`key`) to build "New Contact" rather than the plain
+  // "New contact" caption the hook hands back.
+  const primary = usePrimaryAction(current?.key ?? "mail", ctx);
 
   const navLabel = joinNaturally(
     [
@@ -223,7 +135,9 @@ export function Dock({ pathname, ctx }: { pathname: string; ctx: ActionContext }
       {app.navControl && (
         <DockTile control={app.navControl} appName={app.name} onClick={runNavControl} />
       )}
-      <DockTile control={app.primaryAction} appName={app.name} onClick={runPrimaryAction} />
+      {primary && (
+        <DockTile control={app.primaryAction} appName={app.name} onClick={primary.onClick} />
+      )}
     </nav>
   );
 }
