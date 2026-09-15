@@ -653,7 +653,13 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
 
     await clickToCreate(() => document.querySelector(".calendar-all-day-cell"));
 
-    expect(await screen.findByText("New event")).not.toBeNull();
+    // Scoped to the Popover's own title element, not a bare text match —
+    // the desktop header's own `<PrimaryAction>` (#319) now carries the
+    // identical "New event" label as its own button text, so an unscoped
+    // query would find two.
+    expect(
+      await screen.findByText("New event", { selector: '[data-slot="popover-title"]' }),
+    ).not.toBeNull();
     expect(screen.getByRole("button", { name: "Event" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Task" }).getAttribute("aria-pressed")).toBe("false");
   });
@@ -933,7 +939,11 @@ describe("Read-only Calendars (#282)", () => {
 
     fireEvent.click(document.querySelector(".calendar-all-day-cell") as HTMLElement);
 
-    expect(screen.queryByText("New event")).toBeNull();
+    // Scoped to the Popover's own title element, not a bare text match —
+    // the header's own `<PrimaryAction>` button (#319) shares the "New
+    // event" label, so an unscoped query would always find it even with no
+    // popover open.
+    expect(screen.queryByText("New event", { selector: '[data-slot="popover-title"]' })).toBeNull();
   });
 
   it("clicking to create with a read-only default Calendar and a writable one lands on the writable Calendar", async () => {
@@ -959,7 +969,13 @@ describe("Read-only Calendars (#282)", () => {
     await clickToCreate(() => document.querySelector(".calendar-all-day-cell"));
     await user.type(screen.getByPlaceholderText("Title"), "Trip");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.queryByText("New event")).toBeNull());
+    // Scoped to the Popover's own title element — see the doc comment two
+    // tests up (#319, the header's own "New event" `<PrimaryAction>` button).
+    await waitFor(() =>
+      expect(
+        screen.queryByText("New event", { selector: '[data-slot="popover-title"]' }),
+      ).toBeNull(),
+    );
 
     // `/sync` never resolves in this suite (`stubFetch`'s own doc comment),
     // so the grid itself never re-materialises this Series into an

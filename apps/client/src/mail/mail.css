@@ -121,14 +121,8 @@
 
 .side-nav[data-collapsed="true"] .nav-label,
 .side-nav[data-collapsed="true"] .nav-heading,
-.side-nav[data-collapsed="true"] .nav-count,
-.side-nav[data-collapsed="true"] .compose-btn span {
+.side-nav[data-collapsed="true"] .nav-count {
   display: none;
-}
-
-.side-nav[data-collapsed="true"] .compose-btn {
-  width: 40px;
-  padding: 0;
 }
 
 .side-nav-collapse-toggle {
@@ -157,44 +151,6 @@
 
 .side-nav[data-collapsed="true"] .side-nav-collapse-toggle {
   align-self: center;
-}
-
-/* Compose is the one filled control in the App, so it is the one control
-   that never has to compete: an accent pill at the head of the rail. The
-   plus rotates a quarter turn on hover — the comp's own answer to "this
-   opens something new". */
-.compose-btn {
-  height: 40px;
-  margin: 0 2px 18px;
-  padding: 0 17px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: var(--color-accent);
-  color: var(--color-accent-foreground);
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 13.5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  flex: none;
-  cursor: pointer;
-  transition:
-    filter var(--dur-press) var(--ease),
-    transform var(--dur-press) var(--ease);
-}
-
-.compose-btn:hover {
-  filter: brightness(1.08);
-}
-
-.compose-btn svg {
-  transition: transform var(--dur-fast) var(--ease);
-}
-
-.compose-btn:hover svg {
-  transform: rotate(90deg);
 }
 
 .nav-list {

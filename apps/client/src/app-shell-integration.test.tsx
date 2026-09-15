@@ -377,6 +377,63 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
+  /**
+   * The desktop header's `<PrimaryAction>` (#319, R3 `docs/design/polish-pass.md`):
+   * a `.btn-primary` before Account Scope, sharing `apps/primary-action.ts#usePrimaryAction`
+   * with the phone Dock's own trailing tile. The rail's own `.compose-btn` is
+   * gone (`mail/Sidebar.tsx`) — this is the one solid-accent Compose left at
+   * desktop width, and it must survive being clicked twice in a row without
+   * dropping whatever's mid-autosave in the open Composer (the regression
+   * `MailSection.test.tsx` used to cover against the now-removed rail
+   * button).
+   */
+  it("the desktop header's primary action composes, and a second click doesn't drop unsaved typing", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    const composeButton = screen.getByRole("button", { name: "Compose" });
+    await user.click(composeButton);
+
+    const subject = await screen.findByPlaceholderText("Subject");
+    await user.type(subject, "Do not lose this");
+
+    await user.click(composeButton);
+
+    const stillOpen = await screen.findByPlaceholderText("Subject");
+    expect(stillOpen).toBe(subject); // the same input — the composer was never unmounted
+    expect((stillOpen as HTMLInputElement).value).toBe("Do not lose this");
+  });
+
+  /**
+   * `RootLayout.tsx`'s own `fallbackCtx` ("navigate to Mail first") is what
+   * every Dock tile already fell back to from Settings or a placeholder App
+   * (#155, unchanged by this ticket) — the header's `<PrimaryAction>` reads
+   * the identical `activeCtx`, so its own Compose button still renders (it
+   * reads `usePrimaryAction`'s Mail-fallback icon/label, `appKey` being
+   * `undefined` on `/settings`) and, clicked, lands on `/mail` exactly the
+   * way `fallbackCtx.onCompose` always has (#319's own acceptance box).
+   */
+  it("Compose from the header still renders and works from Settings (fallbackCtx)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "General" });
+
+    await user.click(screen.getByRole("button", { name: "Compose" }));
+
+    expect(location.pathname).toBe("/mail");
+  });
+
   it("the App Switcher names all five Apps as reachable links, none marked SOON (#72, #86, #187, #193, #211, #231, #252)", async () => {
     await seedOneThread();
     stubFetch();
