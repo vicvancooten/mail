@@ -319,9 +319,14 @@
   font-size: 13px;
 }
 
+/* R1: its own phone scroller, same reservation as `.thread-list`. */
 .draft-list {
   height: 100%;
   overflow-y: auto;
+  padding-top: var(--chrome-top);
+  padding-bottom: var(--chrome-bottom);
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 .draft-row {
@@ -429,10 +434,21 @@
    fill when the pointer, the keyboard or the selection reaches it.
    ========================================================================= */
 
+/* R1 (`docs/design/polish-pass.md`, `router/shell.css`'s own
+   `--chrome-top`/`--chrome-bottom`): 0px at ≥768px, so this is the one rule
+   for every width — the first row clears the floating phone header and the
+   last clears the floating Dock, added onto the list's own top/bottom
+   padding rather than replacing it. `scroll-padding` carries the same
+   reservation into keyboard/programmatic scrolling (`scrollIntoView`, the
+   Palette's own selection), not just the visible clip. */
 .thread-list {
   height: 100%;
   overflow-y: auto;
   padding: 2px 10px 24px;
+  padding-top: calc(2px + var(--chrome-top));
+  padding-bottom: calc(24px + var(--chrome-bottom));
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
   background: var(--color-bg);
 }
 
@@ -1552,9 +1568,14 @@
    participants and everything below live in `.reading-body`'s scrolling
    document instead, so this no longer centers on the 74ch column itself;
    `.reading-heading` (inside the body) does that instead. */
+/* R1: the pane's own fixed header row takes the top inset instead of
+   `.reading-body` below it — `docs/design/polish-pass.md`'s own "panes that
+   already own a fixed header row inside them take the top inset on that
+   row instead" (`shell.css`'s `--chrome-top`, 0px at ≥768px). */
 .reading-header {
   flex: none;
   padding: 10px 16px;
+  padding-top: calc(10px + var(--chrome-top));
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -2797,6 +2818,9 @@ button.search-chip-toggle.on {
   filter: brightness(1.08);
 }
 
+/* R1: its own phone scroller (unlike the reading pane, nothing here owns a
+   fixed header row of its own — `.screener-header` scrolls with the rest),
+   so both insets land on the scroller itself. */
 .screener {
   height: 100%;
   min-height: 0;
@@ -2804,6 +2828,10 @@ button.search-chip-toggle.on {
   flex-direction: column;
   overflow-y: auto;
   padding: 0 20px 28px;
+  padding-top: var(--chrome-top);
+  padding-bottom: calc(28px + var(--chrome-bottom));
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
   background: var(--color-bg);
   color: var(--color-ink);
 }
@@ -3452,9 +3480,12 @@ button.search-chip-toggle.on {
   /* #138: the header is now just the fixed action bar (#290 moved the
      subject/meta into the scrolling body below), so it only needs the
      phone's tighter side padding — no more wrapping the action row onto
-     its own line under a subject that isn't here any more. */
+     its own line under a subject that isn't here any more. R1: still the
+     pane's own fixed header row, so it keeps taking the top inset
+     (`--chrome-top`) here too, not just in the shared rule above. */
   .reading-header {
     padding: 6px 12px;
+    padding-top: calc(6px + var(--chrome-top));
   }
 
   /* The bar's own three groups (Reply, Mail, Integrations, #289) at their
@@ -3478,8 +3509,12 @@ button.search-chip-toggle.on {
     padding-top: 16px;
   }
 
+  /* R1: the reading pane's own scroller, so the last block (the reply bar)
+     clears the floating Dock instead of stopping under it. */
   .reading-body {
     padding: 0 16px 24px;
+    padding-bottom: calc(24px + var(--chrome-bottom));
+    scroll-padding-bottom: var(--chrome-bottom);
   }
 
   /* The fixed 148px attachment tile is a desktop grid unit; on a phone two
@@ -3495,6 +3530,8 @@ button.search-chip-toggle.on {
 
   .screener {
     padding: 0 12px 24px;
+    padding-top: var(--chrome-top);
+    padding-bottom: calc(24px + var(--chrome-bottom));
   }
 
   .screener-row {

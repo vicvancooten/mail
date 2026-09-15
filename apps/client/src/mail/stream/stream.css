@@ -12,12 +12,18 @@
   background: var(--color-bg);
 }
 
+/* R1: the route's own fixed header row (`.reading-header`'s/`.calendar-toolbar`'s
+   own pattern, `docs/design/polish-pass.md`) — it takes the top inset
+   itself since it's the first thing under the floating phone header, and
+   the card stack's own scroller (`ThreadDetailPane`'s `.reading-body`,
+   shared with the Reader) already takes the bottom one. */
 .stream-topbar {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
+  padding-top: calc(16px + var(--chrome-top));
 }
 
 .stream-close {
@@ -247,16 +253,16 @@
    Stream had no phone rules at all before this ticket — its desktop
    padding (24px each side, a peek card inset by another 24px on top of
    that) was never narrowed for a 390px card, wasting width the one reading
-   surface Stream shows needs. The route itself already sits inside
-   `.app-viewport`'s phone-reserved top/bottom space (`shell.css`'s own
-   header/bottom-bar reservation), so nothing here needs its own extra
-   safe-area accounting — only the horizontal padding, which that
-   reservation doesn't touch.
+   surface Stream shows needs. R1 (`docs/design/polish-pass.md`) is what
+   accounts for the floating header/Dock now — `.stream-topbar`'s own
+   top inset above, `.reading-body`'s own bottom inset (`mail.css`, shared
+   with the Reader) — so this block only narrows the horizontal padding.
    ========================================================================= */
 
 @media (max-width: 767px) {
   .stream-topbar {
     padding: 12px 16px;
+    padding-top: calc(12px + var(--chrome-top));
   }
 
   .stream-cards {

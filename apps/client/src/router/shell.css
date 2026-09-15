@@ -20,20 +20,30 @@
   background: var(--color-bg);
   /* The phone Dock's own content height (#155, #298), excluding its own
      bottom margin and safe-area padding — one value the Dock itself and
-     `.app-viewport`'s reserved bottom padding both read, so they can never
-     drift out of step. Trimmed from an earlier 56px: close to a native
-     bottom bar's own ~49pt content height rather than sitting visibly
-     larger than one, since a floating pill this size was reading as though
-     it claimed the middle of the screen rather than sitting calmly at its
-     foot (still a full 48px tap target, comfortably above the ~44px
-     minimum). */
+     `--chrome-bottom` below both read, so they can never drift out of step.
+     Trimmed from an earlier 56px: close to a native bottom bar's own ~49pt
+     content height rather than sitting visibly larger than one, since a
+     floating pill this size was reading as though it claimed the middle of
+     the screen rather than sitting calmly at its foot (still a full 48px
+     tap target, comfortably above the ~44px minimum). */
   --dock-height: 48px;
-  /* Gap between the Dock's floating pill and the screen's bottom safe area
-     — what actually makes it read as floating rather than framing: the
-     page's own ground colour shows all the way round it. Trimmed alongside
-     `--dock-height` above, for the same reason: less of the screen given to
-     the pill's own isolation, not just to the pill itself. */
-  --dock-gutter: 10px;
+  /* Chrome floats over content now (R1, `docs/design/polish-pass.md`); it
+     never reserves space for itself any more (`.app-viewport` below has
+     none of its own), so every phone scroller has to reserve that space for
+     itself instead, by padding its own top/bottom by exactly the floating
+     header's/dock's own footprint — one pair of variables every one of
+     them reads, so they can never compute that footprint differently from
+     each other or from the chrome itself. `0px` at ≥768px, where the header
+     is a normal-flow flex sibling and there is no Dock at all. */
+  --chrome-top: 0px;
+  --chrome-bottom: 0px;
+}
+
+@media (max-width: 767px) {
+  .app-shell {
+    --chrome-top: calc(52px + env(safe-area-inset-top));
+    --chrome-bottom: calc(52px + 12px + env(safe-area-inset-bottom));
+  }
 }
 
 /* ---------- the global header ---------- */
@@ -576,22 +586,25 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 54px;
+    height: 52px;
     gap: 8px;
     padding: 0 10px;
     padding-left: calc(10px + env(safe-area-inset-left));
     padding-right: calc(10px + env(safe-area-inset-right));
-    /* `--shadow-header-flush` (#286): the desktop recipe's top inset
-       highlight reads as a hairline right where the header's top edge
-       meets the safe-area inset (the OS status bar) — dropped here, kept
-       everywhere else, since the bottom shade/drop it keeps still separates
-       the floating header from content scrolling beneath it. */
-    box-shadow: var(--shadow-header-flush);
+    /* R1 (`docs/design/polish-pass.md`): chrome floats *over* content, not
+       around it — translucent and blurred like a sheet of glass laid on
+       top of the scrolling pane, rather than an opaque slab with a relief
+       shadow separating it from what's beneath. No shadow, no border: the
+       blur alone is what reads as "above" the content now. */
+    background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    backdrop-filter: blur(18px) saturate(1.3);
+    box-shadow: none;
     transition: transform var(--dur-fast) var(--ease-out);
   }
 
   .global-search {
-    height: 38px;
+    height: 36px;
     padding-left: 13px;
   }
 
@@ -603,37 +616,8 @@
     display: none;
   }
 
-  /* The header floats over the routed content now (`position: fixed`
-     above) rather than pushing it down as a flex sibling, so `.app-viewport`
-     reserves the same space itself instead — required so retracting the
-     header can be a pure `transform`, not a reflow, the only way it stays
-     smooth every frame of a fast scroll. Transitions in step with the
-     header's/dock's own `transform` below (same duration, same easing) —
-     see the `[data-chrome-hidden="true"]` override further down for why. */
-  .app-viewport {
-    padding-top: calc(54px + env(safe-area-inset-top));
-    padding-bottom: calc(var(--dock-height) + var(--dock-gutter) * 2 + env(safe-area-inset-bottom));
-    transition: padding var(--dur-fast) var(--ease-out);
-  }
-
   .app-shell[data-chrome-hidden="true"] .app-header {
     transform: translateY(-100%);
-  }
-
-  /* The reported "gray bars" (user's own words): `.app-viewport`'s reserved
-     padding above never used to shrink when the chrome it was reserved for
-     actually retracted — the header/dock slid away via a pure `transform`
-     (deliberately, so retracting stays a smooth 60fps move rather than a
-     reflow), but the space they left behind stayed exactly as reserved,
-     showing as a dead strip of `.app-viewport`'s own ground colour top and
-     bottom. Collapsing the padding to just the safe-area inset in lockstep
-     — same `data-chrome-hidden` gate, same duration/easing as the header's
-     and dock's own transforms — is what lets scrolled content actually
-     reclaim that space rather than merely watching the chrome slide off of
-     a gap that was never given back. */
-  .app-shell[data-chrome-hidden="true"] .app-viewport {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -655,13 +639,17 @@
      one shadow this app gives an element that floats *over* content rather
      than merely sitting in relief above it (`compose.css`, `mail.css`'s own
      panels) — is what makes it read as floating rather than as more chrome
-     bolted to the edge. */
+     bolted to the edge. The `12px` gutter is the same one `--chrome-bottom`
+     above builds its own arithmetic from — a scroller's reserved bottom
+     space and the Dock's own offset from the safe area can never drift out
+     of step, since both are the Dock's own footprint read two different
+     ways. */
   .dock {
     display: flex;
     align-items: stretch;
     position: fixed;
     left: 50%;
-    bottom: calc(var(--dock-gutter) + env(safe-area-inset-bottom));
+    bottom: calc(12px + env(safe-area-inset-bottom));
     z-index: 10;
     gap: 2px;
     padding: 5px;
@@ -677,8 +665,7 @@
      transform stays in the same rule so the two combine into one `matrix`
      rather than a second transform clobbering the first. */
   .app-shell[data-chrome-hidden="true"] .dock {
-    transform: translateX(-50%)
-      translateY(calc(100% + var(--dock-gutter) + env(safe-area-inset-bottom) + 20px));
+    transform: translateX(-50%) translateY(calc(100% + 12px + env(safe-area-inset-bottom) + 20px));
   }
 }
 
@@ -849,18 +836,17 @@
    `overflow: hidden` is what clips that fill to the rounded corners rather
    than every route needing its own radius. `--color-surface-strong` here is
    what makes that raised-card margin read as a *different*, cooler surface
-   than the card sitting on it — deliberate at ≥768px, but with no card
-   inset left to frame at phone width, the same colour only showed as a
-   mismatched grey strip anywhere this padding was still visible (the
-   header's own covered top strip, once retracted; the floating dock's own
-   gutter, always) — the phone override below matches the route's own
-   `--color-bg` fill instead, so that reserved space reads as the page's
-   ground rather than as a second, separate surface. Deliberately placed
-   after this rule (not inside its own `@media (max-width: 767px)` block
-   further up the file) — equal-specificity rules cascade in source order
-   regardless of which one carries a media condition, so an earlier phone
-   override here would have lost to this unconditional declaration instead
-   of winning under 768px. */
+   than the card sitting on it — deliberate at ≥768px, but there is no
+   card-margin at phone width for that colour to frame at all (R1,
+   `docs/design/polish-pass.md`: chrome floats over full-bleed content now,
+   `.app-viewport` reserves nothing of its own on the phone any more) — the
+   phone override below matches the route's own `--color-bg` fill instead,
+   so this pane never shows as a second, separate surface behind the
+   header/Dock's own transparency. Deliberately placed after this rule (not
+   inside its own `@media (max-width: 767px)` block further up the file) —
+   equal-specificity rules cascade in source order regardless of which one
+   carries a media condition, so an earlier phone override here would have
+   lost to this unconditional declaration instead of winning under 768px. */
 .app-viewport {
   flex: 1;
   min-height: 0;
@@ -893,7 +879,12 @@
 }
 
 /* One of the three reserved Apps (#72) — finished chrome around an empty
-   App, not a stub: a mark, a name, one line, and a flat "Not built yet". */
+   App, not a stub: a mark, a name, one line, and a flat "Not built yet".
+   R1: its own phone scroller, padding its top/bottom by the floating
+   chrome's own footprint like every other one (`shell.css`'s own
+   `--chrome-top`/`--chrome-bottom`), even though its centred card never
+   comes close to either edge — the scroller itself still has to clear the
+   header/Dock the same as any other. */
 .app-placeholder {
   height: 100%;
   min-height: 0;
@@ -901,6 +892,10 @@
   display: grid;
   place-items: center;
   padding: 24px;
+  padding-top: calc(24px + var(--chrome-top));
+  padding-bottom: calc(24px + var(--chrome-bottom));
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
   background: var(--color-bg);
 }
 

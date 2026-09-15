@@ -12,8 +12,21 @@
  * read and write through this module, so neither can drift from the other —
  * `useAppearance` is the one place either mounts a subscription, and
  * `writeTheme` is the one place either writes.
+ *
+ * `public/manifest.webmanifest` carries no `theme_color` of its own (R1,
+ * `docs/design/polish-pass.md`'s "Android step 2") — an installed Android
+ * WebAPK paints its status bar from the manifest's `theme_color` once, at
+ * install time, and simply never looks at a later `<meta name="theme-color">`
+ * change again, so a User who picked Appearance after installing kept the
+ * install-time colour there specifically (reported: Android Chrome; Edge on
+ * Windows follows the meta correctly). With no manifest colour to freeze on,
+ * Chrome has nothing to fall back to but this module's own meta, the one
+ * thing that already tracks Appearance/width live. `background_color` (the
+ * splash screen, painted before any script can run at all) stays — this is
+ * only the status bar's own colour, which a script can still reach.
  */
 
+import { phoneBreakpoint } from "@mail/design-tokens";
 import { useCallback, useSyncExternalStore } from "react";
 
 export type Theme = "system" | "light" | "dark";
@@ -38,14 +51,32 @@ export function readTheme(): Theme {
 /**
  * The Hub's own ground in each appearance — `--color-surface-strong` from
  * `@mail/design-tokens`, the colour `router/shell.css`'s `.app-header`
- * paints. Literal hex because `<meta name="theme-color">` cannot read a
- * custom property; `index.html` carries the same two values for the cold
- * load, and both have to move together if the token ever does.
+ * paints at ≥768px. Literal hex because `<meta name="theme-color">` cannot
+ * read a custom property; `index.html` carries the same two values for the
+ * cold load, and both have to move together if the token ever does.
  */
 export const HUB_COLOR: Record<"light" | "dark", string> = {
   light: "#f5f5f8",
   dark: "#08090b",
 };
+
+/**
+ * Below 768px the header is no longer an opaque slab (R1,
+ * `docs/design/polish-pass.md`) — it's a translucent, blurred sheet the
+ * page's own ground shows through (`router/shell.css`'s `.app-header`), so
+ * the browser's own chrome should continue *that* ground, `--color-bg`, not
+ * the header's paint. Literal hex for the same reason `HUB_COLOR` is: a
+ * meta tag can't read a custom property.
+ */
+export const HUB_COLOR_PHONE: Record<"light" | "dark", string> = {
+  light: "#fbfbfc",
+  dark: "#0c0d10",
+};
+
+/** `router/shell.css`'s one phone breakpoint (`@mail/design-tokens#phoneBreakpoint`, `use-phone-width.ts`'s own query) — a meta tag has no CSS to inherit it from, so this module reads the same query directly rather than a second, hand-copied number. `pre-paint.ts`'s literal script can't import the constant (nothing but its own literal string exists yet when it runs), so its own copy is the one place the number is spelled out again. */
+function phoneThemeColorQuery(): MediaQueryList | null {
+  return globalThis.matchMedia?.(`(max-width: ${phoneBreakpoint - 1}px)`) ?? null;
+}
 
 /**
  * The browser's own chrome continues the Hub (CONTEXT.md's Hub entry: "the
@@ -60,6 +91,13 @@ export const HUB_COLOR: Record<"light" | "dark", string> = {
  * single tag `index.html`'s pre-paint script already created (or creates
  * one, for a test/environment that skips that script) rather than assuming
  * it exists.
+ *
+ * R1 (`docs/design/polish-pass.md`): below 768px the ground the chrome
+ * blends into is `HUB_COLOR_PHONE` (`--color-bg`, the translucent header's
+ * own backdrop), not `HUB_COLOR` (`--color-surface-strong`, the opaque
+ * desktop header) — `phoneThemeColorQuery()` resolves width the same way
+ * `hooks/use-phone-width.ts` does, so this can never disagree with the
+ * layout that actually decided which header renders.
  */
 function applyThemeColor(theme: Theme): void {
   const doc = globalThis.document;
@@ -71,7 +109,8 @@ function applyThemeColor(theme: Theme): void {
     doc.head.appendChild(meta);
   }
   const dark = theme === "dark" || (theme === "system" && readSystemDark());
-  meta.setAttribute("content", HUB_COLOR[dark ? "dark" : "light"]);
+  const palette = phoneThemeColorQuery()?.matches ? HUB_COLOR_PHONE : HUB_COLOR;
+  meta.setAttribute("content", palette[dark ? "dark" : "light"]);
 }
 
 /**
@@ -165,14 +204,30 @@ let unsubscribeSystemSync: (() => void) | null = null;
  * preference is still `system` at the moment the OS actually changes, so an
  * explicit `light`/`dark` choice is never overridden.
  *
+ * R1: also re-applies on a width change now — rotating a phone into a
+ * tablet-width landscape, say, or a resizable installed window crossing
+ * 768px — since `applyThemeColor` resolves `HUB_COLOR`/`HUB_COLOR_PHONE` by
+ * width and nothing else re-runs it once mounted. Unconditional (unlike the
+ * dark-scheme listener above, this doesn't check the stored theme first):
+ * a width crossing never conflicts with an explicit `light`/`dark` choice
+ * the way an OS scheme change can, since a User's appearance choice says
+ * nothing about which chrome shape they're viewing it through.
+ *
  * Idempotent by replacing rather than stacking the subscription, so a test
  * can call it again after re-stubbing `matchMedia`.
  */
 export function syncThemeWithSystem(): () => void {
   unsubscribeSystemSync?.();
-  const unsubscribe = subscribeSystemDark(() => {
+  const darkUnsubscribe = subscribeSystemDark(() => {
     if (readTheme() === "system") applyTheme("system");
   });
+  const query = phoneThemeColorQuery();
+  const onWidthChange = () => applyTheme(readTheme());
+  query?.addEventListener("change", onWidthChange);
+  const unsubscribe = () => {
+    darkUnsubscribe();
+    query?.removeEventListener("change", onWidthChange);
+  };
   unsubscribeSystemSync = unsubscribe;
   return unsubscribe;
 }
