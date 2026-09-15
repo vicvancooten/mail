@@ -1,4 +1,4 @@
-import { HUB_COLOR, THEME_KEY } from "./device-theme.js";
+import { HUB_COLOR, HUB_COLOR_PHONE, THEME_KEY } from "./device-theme.js";
 
 /**
  * The literal source of the inline `<script>` `index.html` runs in its
@@ -22,14 +22,19 @@ import { HUB_COLOR, THEME_KEY } from "./device-theme.js";
  *
  * Mirrors `applyTheme`/`applyThemeColor`'s own resolution (`device-theme.ts`)
  * exactly, but can't call them directly: nothing but this literal string
- * exists yet when it runs.
+ * exists yet when it runs. R1 (`docs/design/polish-pass.md`): that now
+ * includes `applyThemeColor`'s own width read — `767` is `router/shell.css`'s
+ * one phone breakpoint (`@mail/design-tokens#phoneBreakpoint`) minus one,
+ * spelled out as a literal here (unlike `device-theme.ts`'s own
+ * `phoneThemeColorQuery`) since this string can't import the constant.
  */
 export const PRE_PAINT_SCRIPT = `(function () {
-  var stored, theme, dark, meta;
+  var stored, theme, dark, phone, meta, palette;
   try {
     stored = localStorage.getItem("${THEME_KEY}");
     theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
     dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    phone = matchMedia("(max-width: 767px)").matches;
     document.documentElement.classList.toggle("light", theme === "light");
     document.documentElement.classList.toggle("dark", theme === "dark");
     meta = document.querySelector('meta[name="theme-color"]');
@@ -38,6 +43,9 @@ export const PRE_PAINT_SCRIPT = `(function () {
       meta.setAttribute("name", "theme-color");
       document.head.appendChild(meta);
     }
-    meta.setAttribute("content", dark ? "${HUB_COLOR.dark}" : "${HUB_COLOR.light}");
+    palette = phone
+      ? (dark ? "${HUB_COLOR_PHONE.dark}" : "${HUB_COLOR_PHONE.light}")
+      : (dark ? "${HUB_COLOR.dark}" : "${HUB_COLOR.light}");
+    meta.setAttribute("content", palette);
   } catch (_e) {}
 })();`;

@@ -27,6 +27,12 @@
   background: var(--color-bg);
 }
 
+/* R1 (`docs/design/polish-pass.md`): also the phone section-list screen's
+   own scroller (`SettingsLayout.tsx`, no `.settings-page-header` above it
+   there), so it takes both insets itself — `0px` at ≥768px
+   (`shell.css`'s own `--chrome-top`/`--chrome-bottom`), where this sits
+   beside `.settings-content` under the normal in-flow desktop header
+   instead. */
 .settings-nav {
   flex: 0 0 auto;
   width: 200px;
@@ -34,10 +40,14 @@
   flex-direction: column;
   gap: 2px;
   padding: 16px 10px;
+  padding-top: calc(16px + var(--chrome-top));
+  padding-bottom: calc(16px + var(--chrome-bottom));
   overflow-y: auto;
   min-height: 0;
   border-right: var(--hairline) solid var(--color-border);
   background: var(--color-surface);
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 .settings-nav-item {
@@ -66,10 +76,16 @@
   color: var(--color-accent);
 }
 
+/* R1: the pane each sub-route scrolls in (this file's own doc comment
+   above) — on phone this sits below `.settings-page-header`, which takes
+   the top inset itself (`.reading-header`'s/`.calendar-toolbar`'s own
+   pattern), so only the bottom belongs here. */
 .settings-content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-bottom: var(--chrome-bottom);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 /* Phone width (#135, `hooks/use-phone-width.ts`'s 768px, the app's one
@@ -88,8 +104,12 @@
   border-right: none;
 }
 
+/* R1: the phone detail screen's own fixed header row (only ever rendered
+   on phone, `SettingsLayout.tsx`) — takes the top inset instead of
+   `.settings-content` below it. */
 .settings-page-header {
   flex: 0 0 auto;
+  padding-top: var(--chrome-top);
   border-bottom: var(--hairline) solid var(--color-border);
   background: var(--color-surface);
 }

@@ -6,6 +6,7 @@ import { stubMatchMedia } from "../test-support/match-media.js";
 import {
   applyTheme,
   HUB_COLOR,
+  HUB_COLOR_PHONE,
   readTheme,
   syncThemeWithSystem,
   writeTheme,
@@ -20,10 +21,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * `<meta name="theme-color">` the browser's own chrome reads (#287). The
  * second is the one a media query cannot get right on its own — see
  * `applyThemeColor`'s doc comment.
+ *
+ * R1 (`docs/design/polish-pass.md`): that resolution is width-aware now
+ * too, `HUB_COLOR` at ≥768px and `HUB_COLOR_PHONE` below it — every stub
+ * below that isn't explicitly testing the phone pair pins `(max-width:
+ * 767px)` to `false` (desktop), the same "OS scheme defaults to light
+ * unless a test says otherwise" posture the existing dark-scheme stubs
+ * already took, so a test written before this ticket keeps meaning what it
+ * always meant.
  */
 
 const LIGHT = HUB_COLOR.light;
 const DARK = HUB_COLOR.dark;
+const LIGHT_PHONE = HUB_COLOR_PHONE.light;
+const DARK_PHONE = HUB_COLOR_PHONE.dark;
+const PHONE_QUERY = "(max-width: 767px)";
 
 function themeColorMetas(): string[] {
   return [...document.querySelectorAll('meta[name="theme-color"]')].map(
@@ -51,7 +63,10 @@ describe("applyTheme", () => {
   });
 
   it("resolves `light` and `dark` to their own ground, regardless of the OS scheme", () => {
-    stubMatchMedia(() => true); // OS says dark throughout; light/dark must ignore it
+    // OS says dark throughout, desktop width throughout; light/dark must
+    // ignore the OS scheme, and this stays desktop width so `LIGHT`/`DARK`
+    // (not the phone pair) are the right expectation below.
+    stubMatchMedia((query) => query !== PHONE_QUERY);
 
     applyTheme("light");
     expect(document.documentElement.classList.contains("light")).toBe(true);
@@ -60,6 +75,16 @@ describe("applyTheme", () => {
     applyTheme("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(themeColorMetas()).toEqual([DARK]);
+  });
+
+  it("resolves to the phone ground below 768px, regardless of appearance", () => {
+    stubMatchMedia((query) => query === PHONE_QUERY);
+
+    applyTheme("light");
+    expect(themeColorMetas()).toEqual([LIGHT_PHONE]);
+
+    applyTheme("dark");
+    expect(themeColorMetas()).toEqual([DARK_PHONE]);
   });
 
   it("resolves `system` against the current OS scheme, one meta either way", () => {
@@ -134,6 +159,29 @@ describe("syncThemeWithSystem (#287)", () => {
     // would ever start showing.
     expect(themeColorMetas()).toEqual([DARK]);
   });
+
+  it("R1: moves the meta to the phone ground on a width change, with no reload", () => {
+    const { setMatches } = stubMatchMedia(() => false);
+    writeTheme("dark");
+    expect(themeColorMetas()).toEqual([DARK]);
+
+    const unsubscribe = syncThemeWithSystem();
+    setMatches(PHONE_QUERY, true);
+
+    expect(themeColorMetas()).toEqual([DARK_PHONE]);
+    unsubscribe();
+  });
+
+  it("R1: a width change re-applies even an explicit light/dark choice — it isn't an OS scheme override", () => {
+    const { setMatches } = stubMatchMedia(() => false);
+    writeTheme("light");
+
+    const unsubscribe = syncThemeWithSystem();
+    setMatches(PHONE_QUERY, true);
+
+    expect(themeColorMetas()).toEqual([LIGHT_PHONE]);
+    unsubscribe();
+  });
 });
 
 describe("the pre-paint script (#287)", () => {
@@ -143,7 +191,15 @@ describe("the pre-paint script (#287)", () => {
     new Function(PRE_PAINT_SCRIPT)();
   }
 
-  it("sets the theme class and the resolved meta from stored `light`/`dark`, with no OS/matchMedia read needed", () => {
+  it("sets the theme class and the resolved meta from stored `light`/`dark`, with no *OS-scheme* read needed", () => {
+    // R1: the script now always reads width (for `HUB_COLOR`/`HUB_COLOR_PHONE`),
+    // even for an explicit `light`/`dark` choice that needs no OS-scheme
+    // read — stubbed explicitly (not left to whatever a previous test's
+    // `matchMedia` mock happens to still be, since nothing here unstubs
+    // between tests) so this test's own desktop-width assumption never
+    // silently rides on test order.
+    stubMatchMedia((query) => query !== PHONE_QUERY);
+
     localStorage.setItem("device.theme", "light");
     runPrePaint();
     expect(document.documentElement.classList.contains("light")).toBe(true);
@@ -178,22 +234,39 @@ describe("the pre-paint script (#287)", () => {
     expect(themeColorMetas()).toEqual([LIGHT]);
   });
 
+  it("R1: resolves the phone ground below 768px, for either appearance", () => {
+    stubMatchMedia((query) => query === PHONE_QUERY);
+    localStorage.setItem("device.theme", "light");
+
+    runPrePaint();
+    expect(themeColorMetas()).toEqual([LIGHT_PHONE]);
+
+    document.head.innerHTML = "";
+    localStorage.setItem("device.theme", "dark");
+    runPrePaint();
+    expect(themeColorMetas()).toEqual([DARK_PHONE]);
+  });
+
   it("never throws, even with no localStorage/matchMedia in the document at all", () => {
     expect(() => runPrePaint()).not.toThrow();
   });
 });
 
 describe("cold-load fallbacks (#137, #287)", () => {
-  // `manifest.webmanifest`'s `theme_color` and `index.html`'s inline
-  // pre-paint script only ever paint before `main.tsx` runs — the manifest
-  // at install/splash time, the script before first paint. Both are meant
-  // to stay pinned to `HUB_COLOR`/`PRE_PAINT_SCRIPT`, never drift into a
+  // `index.html`'s inline pre-paint script is the one thing that still
+  // paints before `main.tsx` runs (the manifest's own `theme_color` is gone
+  // — R1's Android step 2, this module's own doc comment on why), so this
+  // is meant to stay pinned to `PRE_PAINT_SCRIPT`, never drift into a
   // second source of truth.
-  it("keeps manifest.webmanifest's theme_color pinned to the light HUB_COLOR", () => {
+  it("keeps manifest.webmanifest free of theme_color, so an installed Android WebAPK follows the page's own meta instead", () => {
     const manifest = JSON.parse(
       readFileSync(resolve(HERE, "../../public/manifest.webmanifest"), "utf8"),
-    ) as { theme_color: string };
-    expect(manifest.theme_color).toBe(HUB_COLOR.light);
+    ) as Record<string, unknown>;
+    expect(manifest.theme_color).toBeUndefined();
+    // `background_color` (the splash screen, painted before any script can
+    // run at all) is unaffected — only `theme_color` (the status bar, which
+    // the meta tag can update after the fact) is the problem this retires.
+    expect(manifest.background_color).toBe(HUB_COLOR_PHONE.light);
   });
 
   it("keeps index.html's inline script pinned to PRE_PAINT_SCRIPT", () => {

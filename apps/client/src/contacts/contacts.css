@@ -5,13 +5,21 @@
  * widened by the banner/avatar hero and the phone breakpoint.
  */
 
+/* R1 (`docs/design/polish-pass.md`): its own phone scroller — shared by
+   `ContactsGrid.tsx` and `ContactsRecentlyDeleted.tsx` alike, both mount
+   this same class — `0px` at ≥768px (`shell.css`'s own
+   `--chrome-top`/`--chrome-bottom`). */
 .contacts-grid-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 20px 24px 32px;
+  padding-top: calc(20px + var(--chrome-top));
+  padding-bottom: calc(32px + var(--chrome-bottom));
   overflow-y: auto;
   height: 100%;
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 /* ---------- the Contacts / People you've mailed tabs (#218) ---------- */

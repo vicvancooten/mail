@@ -13,6 +13,8 @@
   min-height: 0;
 }
 
+/* R1 (`docs/design/polish-pass.md`): its own phone scroller — `0px` at
+   ≥768px (`shell.css`'s own `--chrome-top`/`--chrome-bottom`). */
 .tasks-split-list {
   width: clamp(240px, 26%, 320px);
   min-width: 200px;
@@ -20,6 +22,10 @@
   height: 100%;
   min-height: 0;
   overflow-y: auto;
+  padding-top: var(--chrome-top);
+  padding-bottom: var(--chrome-bottom);
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
   border-right: 1px solid var(--color-border);
 }
 
@@ -167,13 +173,19 @@
 
 /* ---------------------------------------------------------------------- */
 
+/* R1: its own phone scroller — no fixed header row of its own
+   (`.tasks-main-header` scrolls with the rest), so both insets land here. */
 .tasks-main {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   padding: 14px 20px 20px;
+  padding-top: calc(14px + var(--chrome-top));
+  padding-bottom: calc(20px + var(--chrome-bottom));
   overflow-y: auto;
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 .tasks-main-header {
@@ -830,13 +842,18 @@
 
 /* ---------- Recently Deleted (#257) ---------- */
 
+/* R1: its own phone scroller, `.tasks-main`'s own reservation. */
 .tasks-recently-deleted {
   display: flex;
   flex-direction: column;
   gap: 16px;
   height: 100%;
   padding: 14px 20px 20px;
+  padding-top: calc(14px + var(--chrome-top));
+  padding-bottom: calc(20px + var(--chrome-bottom));
   overflow-y: auto;
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 .tasks-recently-deleted-header {
