@@ -77,10 +77,12 @@ jobs:
       contents: read
       packages: write
     outputs:
-      # Only a push to main or a version tag publishes (never a PR, so
-      # forked PRs never need registry credentials). ADR-0009 / poc-scope:
-      # GHCR is the release target, `:edge` on main plus an immutable
-      # `:sha-<short>` always, version tags additionally on a `v*.*.*` push.
+      # A push to main or a version tag publishes the release tags (`:edge`,
+      # `:sha-<short>`, semver). A pull_request also publishes, but only a
+      # `:pr-<number>` tag (below) so a reviewer can `docker pull` and try
+      # the PR's build before merge — gated to same-repo PRs, since a
+      # forked PR's GITHUB_TOKEN can't write to GHCR. ADR-0009 / poc-scope:
+      # GHCR is the release target.
       published: ${{ steps.gate.outputs.published }}
       sha_tag: sha-${{ steps.short-sha.outputs.value }}
     steps:
@@ -90,11 +92,14 @@ jobs:
         run: echo "value=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - id: gate
-        run: echo "published=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+        run: |
+          same_repo_pr="${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}"
+          echo "published=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+          echo "publish_pr_tag=$same_repo_pr" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
-      - if: steps.gate.outputs.published == 'true'
+      - if: steps.gate.outputs.published == 'true' || steps.gate.outputs.publish_pr_tag == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -110,11 +115,12 @@ jobs:
             type=sha,format=short,prefix=sha-
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=pr
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ steps.gate.outputs.published == 'true' }}
+          push: ${{ steps.gate.outputs.published == 'true' || steps.gate.outputs.publish_pr_tag == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

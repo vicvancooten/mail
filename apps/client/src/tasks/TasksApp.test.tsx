@@ -375,7 +375,7 @@ describe("TasksApp (#252, #321)", () => {
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByRole("button", { name: "Today" })).toBeDefined();
 
-      fireEvent.click(within(dialog).getByRole("button", { name: "Groceries" }));
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Groceries" }));
 
       expect(onSelectTaskList).toHaveBeenCalledWith("list-1");
       await waitFor(() => {
