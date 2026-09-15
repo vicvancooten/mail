@@ -12,6 +12,7 @@ import {
 } from "../store/index.js";
 import { TaskQuickAdd } from "./TaskQuickAdd.js";
 import { TaskRow } from "./TaskRow.js";
+import { TasksCompletedGroup } from "./TasksCompletedGroup.js";
 import { dateOnlyToWireDueDate, localDateInputValue } from "./task-due.js";
 
 /** `TaskListView.tsx`'s own animate-out window, reused verbatim so completing a Task from Today looks and behaves exactly the same. */
@@ -32,6 +33,11 @@ export function TaskTodayView() {
   const taskLists = useTaskLists();
   const [completingIds, setCompletingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  // No `useTaskCompletedOpen` Device Preference here — that's keyed per
+  // List (`TaskListView.tsx`'s own doc comment), and Today isn't one; a
+  // plain `useState` matches the old `<details>`'s own always-starts-closed
+  // behavior.
+  const [completedOpen, setCompletedOpen] = useState(false);
 
   const defaultList = (taskLists ?? []).find((list) => list.isDefault) ?? null;
 
@@ -75,7 +81,7 @@ export function TaskTodayView() {
       <div className="tasks-main-header">
         <h2 className="tasks-main-title">Today</h2>
       </div>
-      <TaskQuickAdd onAdd={addTask} />
+      <TaskQuickAdd onAdd={addTask} registerFocus />
       {all.length === 0 ? (
         <p className="tasks-main-empty">Nothing due today.</p>
       ) : (
@@ -98,25 +104,26 @@ export function TaskTodayView() {
         </ul>
       )}
       {completed.length > 0 ? (
-        <details className="tasks-completed-expander">
-          <summary>{completed.length} completed</summary>
-          <ul className="task-list">
-            {completed.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                expanded={task.id === expandedTaskId}
-                onToggleComplete={() => toggleComplete(task)}
-                onToggleExpand={() =>
-                  setExpandedTaskId((current) => (current === task.id ? null : task.id))
-                }
-                onCollapse={() =>
-                  setExpandedTaskId((current) => (current === task.id ? null : current))
-                }
-              />
-            ))}
-          </ul>
-        </details>
+        <TasksCompletedGroup
+          count={completed.length}
+          open={completedOpen}
+          onToggle={setCompletedOpen}
+        >
+          {completed.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              expanded={task.id === expandedTaskId}
+              onToggleComplete={() => toggleComplete(task)}
+              onToggleExpand={() =>
+                setExpandedTaskId((current) => (current === task.id ? null : task.id))
+              }
+              onCollapse={() =>
+                setExpandedTaskId((current) => (current === task.id ? null : current))
+              }
+            />
+          ))}
+        </TasksCompletedGroup>
       ) : null}
     </section>
   );

@@ -6,6 +6,7 @@ import type { ActionContext } from "../mail/actions/types.js";
 import { rootRoute } from "../router/routes.js";
 import { useCalendars } from "../store/calendars.js";
 import { createNote, newNoteId } from "../store/notes.js";
+import { focusTasksQuickAdd } from "../tasks/tasks-focus-registry.js";
 import { APPS_BY_KEY, type AppDef } from "./apps.js";
 
 /** What `usePrimaryAction` hands back to a caller — the label/icon pair a
@@ -53,12 +54,13 @@ function appDefFor(key: string): AppDef | undefined {
  *    (`elementAnchorRect`), defaulted to a one-hour Event starting next on
  *    the hour on the User's own default Calendar (`defaultCalendarId`) —
  *    there is no clicked grid cell here to read a time or a Calendar from.
- *  - **Tasks**: navigates to `/tasks?view=today` — `TaskTodayView.tsx`'s own
- *    quick add, the one existing "create a Task with no List picked first"
- *    entry point. TODO(#322): once the Tasks main pane's focus registry
- *    lands, this should focus the current view's quick-add row instead of
- *    navigating (the spec's own "Resolved details" → "Primary action
- *    placement" section) — that registry is #322's job, not this ticket's.
+ *  - **Tasks**: focuses the quick-add row already on screen
+ *    (`tasks/tasks-focus-registry.ts#focusTasksQuickAdd`, #322) — a List's
+ *    own or Today's own, whichever is mounted. Only when neither is (the
+ *    Tasks App isn't the one on screen) does this fall back to navigating
+ *    to `/tasks?view=today`, same as before #322: that mounts
+ *    `TaskTodayView.tsx`, which registers its own quick-add on mount, so
+ *    the *next* press focuses it instead of navigating again.
  *  - **Notes**: mints an id, writes the empty row (`createNote`, the same
  *    way `createNoteFromThreadLink` already does), then opens
  *    `/notes/$noteId` — the existing Note dialog renders any real `noteId`
@@ -99,10 +101,7 @@ export function usePrimaryAction(
           return;
         }
         case "tasks":
-          // TODO(#322): focus the current view's quick-add (Today when none
-          // selected) instead of navigating, once the Tasks main pane wires
-          // up the focus registry the spec describes. Until then this
-          // matches the Dock's pre-#319 behavior.
+          if (focusTasksQuickAdd()) return;
           void navigate({ to: "/tasks", search: { view: "today" } });
           return;
         case "notes": {

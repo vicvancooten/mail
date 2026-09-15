@@ -709,14 +709,19 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Tasks");
 
+      // `/tasks` with no `view` already lands on Today (#321) — its own
+      // quick add mounts and registers itself with the primary-action focus
+      // registry (`tasks-focus-registry.ts`, #322) straight away.
+      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
+      const quickAdd = screen.getByLabelText("Add a task");
+
       const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
       await user.click(within(dock).getByRole("button", { name: "New Task" }));
 
-      // `TaskTodayView.tsx`'s own quick add — the one existing entry point
-      // that already creates a Task with no List of its own selected first.
-      await waitFor(() => expect(location.search).toContain("view=today"));
-      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
-      expect(screen.getByLabelText("Add a task")).toBeDefined();
+      // #322: the primary action focuses the quick-add already on screen
+      // rather than navigating — Today is already showing, so there is
+      // nothing left to navigate to.
+      expect(document.activeElement).toBe(quickAdd);
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
