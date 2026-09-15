@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Dexie from "dexie";
 import { toast } from "sonner";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Toaster } from "../components/ui/sonner.js";
 import { resetUndoToastsForTest } from "../mail/undo-toast.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
@@ -45,7 +45,7 @@ afterEach(async () => {
 function renderUpcomingView() {
   return render(
     <>
-      <TaskUpcomingView onBack={vi.fn()} />
+      <TaskUpcomingView />
       <Toaster />
     </>,
   );

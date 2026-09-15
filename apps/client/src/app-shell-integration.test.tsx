@@ -665,7 +665,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("the Tasks Dock's Lists control navigates to /tasks with no List or view selected, until #321 ships the rail as a phone Sheet", async () => {
+  it("the Tasks Dock's Lists control opens the phone Lists Sheet without touching the URL (#321)", async () => {
     await applyTaskListDelta(
       delta({ created: [makeTaskList("list-1", "u1", { name: "Groceries", isDefault: true })] }),
       { replace: false },
@@ -674,7 +674,7 @@ describe("the app shell over a routed tree (#71)", () => {
     const user = userEvent.setup();
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
-    history.replaceState(null, "", "/tasks?list=list-1&view=upcoming");
+    history.replaceState(null, "", "/tasks?list=list-1");
 
     try {
       render(<App />);
@@ -683,11 +683,15 @@ describe("the app shell over a routed tree (#71)", () => {
       const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
       await user.click(within(dock).getByRole("button", { name: "Lists" }));
 
-      await waitFor(() => {
-        expect(location.pathname).toBe("/tasks");
-        expect(location.search).not.toContain("list=");
-        expect(location.search).not.toContain("view=");
-      });
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByRole("button", { name: "Groceries" })).toBeDefined();
+      // Opening the Sheet is a pure display toggle — the List already on the
+      // URL stays put until the User actually picks a row in it.
+      expect(location.pathname).toBe("/tasks");
+      expect(location.search).toContain("list=list-1");
+
+      await user.click(within(dialog).getByRole("button", { name: "Groceries" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -1949,7 +1953,7 @@ describe("Tasks: the sidebar, a List's rows and quick add (#252)", () => {
     expect(await screen.findByDisplayValue("Buy milk")).toBeDefined();
   });
 
-  it("Phone: the sidebar is the first screen; tapping a List pushes its Tasks, and back returns", async () => {
+  it("Phone: /tasks with nothing selected lands on Today; the Lists Sheet (not a second pane) is how a List gets picked (#321)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -1962,23 +1966,28 @@ describe("Tasks: the sidebar, a List's rows and quick add (#252)", () => {
       stubFetch();
       history.replaceState(null, "", "/tasks");
 
+      const user = userEvent.setup();
       render(<App />);
-      const groceriesRow = await screen.findByRole("button", { name: "Groceries" });
-      // Only the sidebar is reachable — no List is open yet.
-      expect(screen.queryByRole("heading", { name: "Groceries" })).toBeNull();
+      // The rail never shows on phone at all — Today is the one screen,
+      // reached with no List picked and no Sheet opened first (#321's own
+      // "renders Today on every width" landing state).
+      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Groceries" })).toBeNull();
 
-      fireEvent.click(groceriesRow);
+      const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
+      await user.click(within(dock).getByRole("button", { name: "Lists" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Groceries" }));
 
       expect(await screen.findByRole("heading", { name: "Groceries" })).toBeDefined();
       await waitFor(() => {
         expect(location.pathname).toBe("/tasks");
         expect(location.search).toBe("?list=list-1");
       });
-
-      fireEvent.click(screen.getByRole("button", { name: "Back to Task Lists" }));
-
-      await waitFor(() => expect(location.pathname).toBe("/tasks"));
-      expect(screen.queryByRole("heading", { name: "Groceries" })).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // No back control of its own any more — the Lists tile is the one way
+      // back to the rail on phone, exactly as intended (#321).
+      expect(screen.queryByRole("button", { name: "Back to Task Lists" })).toBeNull();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
       window.dispatchEvent(new Event("resize"));
@@ -2032,7 +2041,8 @@ describe("Tasks: soft delete and Recently Deleted (#257)", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Tasks" });
 
-    expect(screen.queryByRole("button", { name: 'Delete "Tasks"' })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: 'More actions for "Tasks"' }));
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
   });
 
   it("deleting a Task List takes its Tasks with it; Recently Deleted lists one entry with the Task count, and Restore brings back the List and every Task", async () => {
@@ -2055,7 +2065,8 @@ describe("Tasks: soft delete and Recently Deleted (#257)", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Errands" });
 
-    fireEvent.click(screen.getByRole("button", { name: 'Delete "Errands"' }));
+    fireEvent.click(screen.getByRole("button", { name: 'More actions for "Errands"' }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Errands" })).toBeNull();
     });
@@ -2089,7 +2100,8 @@ describe("Tasks: soft delete and Recently Deleted (#257)", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "Errands" });
-    fireEvent.click(screen.getByRole("button", { name: 'Delete "Errands"' }));
+    fireEvent.click(screen.getByRole("button", { name: 'More actions for "Errands"' }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Errands" })).toBeNull();
     });

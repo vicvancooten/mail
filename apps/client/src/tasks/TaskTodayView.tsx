@@ -1,5 +1,4 @@
 import type { Task } from "@mail/shared";
-import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
 import { announceUndoableAction } from "../mail/undo-toast.js";
 import {
@@ -28,7 +27,7 @@ const COMPLETE_ANIMATION_MS = 260;
  * rather than shared: the two views read a different query but behave
  * identically once they have their own Tasks in hand.
  */
-export function TaskTodayView({ onBack }: { onBack: () => void }) {
+export function TaskTodayView() {
   const tasks = useTodayTasks();
   const taskLists = useTaskLists();
   const [completingIds, setCompletingIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -74,14 +73,6 @@ export function TaskTodayView({ onBack }: { onBack: () => void }) {
   return (
     <section className="tasks-main" aria-label="Today">
       <div className="tasks-main-header">
-        <button
-          type="button"
-          className="btn-ghost btn-icon tasks-back"
-          aria-label="Back to Task Lists"
-          onClick={onBack}
-        >
-          <ChevronLeft size={18} />
-        </button>
         <h2 className="tasks-main-title">Today</h2>
       </div>
       <TaskQuickAdd onAdd={addTask} />
