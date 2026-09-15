@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-04T00:00:00.000Z",
+  "generatedAt": "2026-09-15T00:00:00.000Z",
   "title": "Design System: The Instrument",
   "extensions": {
-    "scope": "Covers the client app (apps/client): the Mail surface, the chrome/shell, Settings, the Screener, and the App Switcher. The repo-facing marks (apps/client/public/{favicon.svg,icon-192.png,icon-512.png,icon-maskable-192.png,icon-maskable-512.png,apple-touch-icon.png,manifest.webmanifest} and docs/brand/{wicket-social-card.png,social-card.source.html}) still carry the postmark mark (src/brand/Mark.tsx) — the one drawn signature glyph that survived the rebuild, not a superseded asset. The sync backend has no UI.",
+    "scope": "Covers the client app (apps/client): the Mail surface, the chrome/shell, Settings, the Screener, the App Switcher, and \u2014 as of the completed polish pass (#314-#323, docs/design/polish-pass.md) \u2014 Contacts, Calendar, Tasks and Notes' shared control vocabulary, scale, and phone chrome. The repo-facing marks (apps/client/public/{favicon.svg,icon-192.png,icon-512.png,icon-maskable-192.png,icon-maskable-512.png,apple-touch-icon.png,manifest.webmanifest} and docs/brand/{wicket-social-card.png,social-card.source.html}) still carry the postmark mark (src/brand/Mark.tsx) \u2014 the one drawn signature glyph that survived the rebuild, not a superseded asset. manifest.webmanifest no longer carries theme_color at all (polish pass ticket 4, R1's Android step 2) \u2014 only background_color remains. The sync backend has no UI.",
     "themes": {
       "light": "Bare :root is the light set (near-white ground), so nothing depends on a media query having matched.",
       "dark": "@media (prefers-color-scheme: dark) :root:not(.light) and :root.dark carry the near-black ground. An explicit .light or .dark class always beats the OS.",
@@ -39,12 +39,13 @@
       "browserSurfaces": {
         "themeColorLight": "#f5f5f8",
         "themeColorDark": "#08090b",
-        "manifestThemeColor": "#1A1611",
-        "manifestBackgroundColor": "#1A1611",
-        "note": "index.html's <meta name=theme-color> pair (light/dark) is on-system (surface-strong in each theme). apps/client/public/manifest.webmanifest still carries the retired Wicket frame value (#1A1611) — a stale repo-facing asset the ticket did not ask this pass to touch, not a second canon.",
-        "selection": "accent ground (color-mix with accent-soft), ink text — src/index.css ::selection",
+        "note": "index.html's <meta name=theme-color> pair is width- and appearance-aware: --color-surface-strong at >=768px (opaque desktop header), --color-bg below it (the phone header is translucent/blurred over that ground, R1). manifest.webmanifest carries no theme_color at all as of the polish pass (an installed Android WebAPK froze its status bar on the manifest value at install time and never re-read the meta); background_color (#fbfbfc) remains for the cold-load splash.",
+        "selection": "accent ground (color-mix with accent-soft), ink text \u2014 src/index.css ::selection",
         "scrollbar": "thin, thumb var(--color-border) on transparent track",
-        "caret": "accent"
+        "caret": "accent",
+        "manifestBackgroundColor": "#fbfbfc",
+        "themeColorPhoneLight": "#fbfbfc",
+        "themeColorPhoneDark": "#0c0d10"
       }
     },
     "colorMeta": {
@@ -53,71 +54,161 @@
         "displayName": "Near-White Ground",
         "canonical": "#fbfbfc",
         "cssVar": "--color-bg",
-        "tonalRamp": ["#21212c", "#39394c", "#51516c", "#69698c", "#8a8aa8", "#aaaac0", "#cdcdda", "#f0f0f4"]
+        "tonalRamp": [
+          "#21212c",
+          "#39394c",
+          "#51516c",
+          "#69698c",
+          "#8a8aa8",
+          "#aaaac0",
+          "#cdcdda",
+          "#f0f0f4"
+        ]
       },
       "surface": {
         "role": "neutral",
         "displayName": "Surface",
         "canonical": "#ffffff",
         "cssVar": "--color-surface",
-        "tonalRamp": ["#262626", "#424242", "#5e5e5e", "#7a7a7a", "#999999", "#b5b5b5", "#d4d4d4", "#f2f2f2"]
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5e5e5e",
+          "#7a7a7a",
+          "#999999",
+          "#b5b5b5",
+          "#d4d4d4",
+          "#f2f2f2"
+        ]
       },
       "surface-strong": {
         "role": "neutral",
         "displayName": "Surface Strong",
         "canonical": "#f5f5f8",
         "cssVar": "--color-surface-strong",
-        "tonalRamp": ["#20202d", "#37374e", "#4e4e6f", "#656590", "#8787ab", "#a8a8c2", "#ccccdb", "#f0f0f4"]
+        "tonalRamp": [
+          "#20202d",
+          "#37374e",
+          "#4e4e6f",
+          "#656590",
+          "#8787ab",
+          "#a8a8c2",
+          "#ccccdb",
+          "#f0f0f4"
+        ]
       },
       "hover": {
         "role": "neutral",
         "displayName": "Hover",
         "canonical": "#f1f1f4",
         "cssVar": "--color-hover",
-        "tonalRamp": ["#22222b", "#3a3a4a", "#53536a", "#6c6c89", "#8d8da5", "#acacbe", "#ceced9", "#f1f1f4"]
+        "tonalRamp": [
+          "#22222b",
+          "#3a3a4a",
+          "#53536a",
+          "#6c6c89",
+          "#8d8da5",
+          "#acacbe",
+          "#ceced9",
+          "#f1f1f4"
+        ]
       },
       "field": {
         "role": "neutral",
         "displayName": "Field",
         "canonical": "#f0f0f3",
         "cssVar": "--color-field",
-        "tonalRamp": ["#22222a", "#3b3b4a", "#545469", "#6d6d88", "#8e8ea4", "#adadbd", "#cfcfd8", "#f1f1f4"]
+        "tonalRamp": [
+          "#22222a",
+          "#3b3b4a",
+          "#545469",
+          "#6d6d88",
+          "#8e8ea4",
+          "#adadbd",
+          "#cfcfd8",
+          "#f1f1f4"
+        ]
       },
       "field-strong": {
         "role": "neutral",
         "displayName": "Field Strong",
         "canonical": "#e7e7ec",
         "cssVar": "--color-field-strong",
-        "tonalRamp": ["#22222b", "#3b3b4a", "#535369", "#6c6c89", "#8d8da5", "#acacbe", "#cfcfd9", "#f1f1f4"]
+        "tonalRamp": [
+          "#22222b",
+          "#3b3b4a",
+          "#535369",
+          "#6c6c89",
+          "#8d8da5",
+          "#acacbe",
+          "#cfcfd9",
+          "#f1f1f4"
+        ]
       },
       "ink": {
         "role": "neutral",
         "displayName": "Ink",
         "canonical": "#14151a",
         "cssVar": "--color-ink",
-        "tonalRamp": ["#21232b", "#3a3d4b", "#52566b", "#6a708a", "#8c90a6", "#abafbf", "#ced0d9", "#f1f1f4"]
+        "tonalRamp": [
+          "#21232b",
+          "#3a3d4b",
+          "#52566b",
+          "#6a708a",
+          "#8c90a6",
+          "#abafbf",
+          "#ced0d9",
+          "#f1f1f4"
+        ]
       },
       "ink-muted": {
         "role": "neutral",
         "displayName": "Ink Muted",
         "canonical": "#5a5d6b",
         "cssVar": "--color-ink-muted",
-        "tonalRamp": ["#23242a", "#3d3f48", "#565966", "#707485", "#9093a2", "#afb1bb", "#d0d1d7", "#f1f2f3"]
+        "tonalRamp": [
+          "#23242a",
+          "#3d3f48",
+          "#565966",
+          "#707485",
+          "#9093a2",
+          "#afb1bb",
+          "#d0d1d7",
+          "#f1f2f3"
+        ]
       },
       "ink-faint": {
         "role": "neutral",
         "displayName": "Ink Faint",
         "canonical": "#93969f",
         "cssVar": "--color-ink-faint",
-        "tonalRamp": ["#242529", "#3e4046", "#595c64", "#737782", "#93969f", "#b1b3b9", "#d1d2d6", "#f2f2f3"]
+        "tonalRamp": [
+          "#242529",
+          "#3e4046",
+          "#595c64",
+          "#737782",
+          "#93969f",
+          "#b1b3b9",
+          "#d1d2d6",
+          "#f2f2f3"
+        ]
       },
       "border": {
         "role": "neutral",
         "displayName": "Border",
         "canonical": "#e3e4ea",
         "cssVar": "--color-border",
-        "note": "The one hairline that still exists — dividing rows in bordered-list contexts (Settings, Screener cards); never boxes in a Mail row.",
-        "tonalRamp": ["#21222c", "#393c4c", "#51556c", "#696e8c", "#8a8fa8", "#aaaec0", "#cdcfda", "#f0f1f4"]
+        "note": "The one hairline that still exists \u2014 dividing rows in bordered-list contexts (Settings, Screener cards); never boxes in a Mail row.",
+        "tonalRamp": [
+          "#21222c",
+          "#393c4c",
+          "#51556c",
+          "#696e8c",
+          "#8a8fa8",
+          "#aaaec0",
+          "#cdcfda",
+          "#f0f1f4"
+        ]
       },
       "accent": {
         "role": "primary",
@@ -125,36 +216,81 @@
         "canonical": "#4338ca",
         "cssVar": "--color-accent",
         "note": "The one accent that means primary/current/focus, everywhere. Lifts to #8b80ff in dark.",
-        "tonalRamp": ["#13103c", "#221c69", "#302895", "#3e33c1", "#675ed4", "#918ae0", "#bebbed", "#ecebfa"]
+        "tonalRamp": [
+          "#13103c",
+          "#221c69",
+          "#302895",
+          "#3e33c1",
+          "#675ed4",
+          "#918ae0",
+          "#bebbed",
+          "#ecebfa"
+        ]
       },
       "accent-soft": {
         "role": "primary",
         "displayName": "Accent Soft",
         "canonical": "#eeecfc",
         "cssVar": "--color-accent-soft",
-        "note": "Rank at rest — a selected thread row, the current nav tab, the App Switcher badge. Tint, never inversion.",
-        "tonalRamp": ["#110a42", "#1e1273", "#2b1aa3", "#3821d3", "#614fe3", "#8d7feb", "#bcb4f3", "#ebe9fc"]
+        "note": "Rank at rest \u2014 a selected thread row, the current nav tab, the App Switcher badge. Tint, never inversion.",
+        "tonalRamp": [
+          "#110a42",
+          "#1e1273",
+          "#2b1aa3",
+          "#3821d3",
+          "#614fe3",
+          "#8d7feb",
+          "#bcb4f3",
+          "#ebe9fc"
+        ]
       },
       "danger": {
         "role": "tertiary",
         "displayName": "Danger",
         "canonical": "#c8402f",
         "cssVar": "--color-danger",
-        "tonalRamp": ["#3e140f", "#6b2219", "#993124", "#c63f2f", "#d8685a", "#e39187", "#efbfb9", "#faecea"]
+        "tonalRamp": [
+          "#3e140f",
+          "#6b2219",
+          "#993124",
+          "#c63f2f",
+          "#d8685a",
+          "#e39187",
+          "#efbfb9",
+          "#faecea"
+        ]
       },
       "warn": {
         "role": "tertiary",
         "displayName": "Warn",
         "canonical": "#b3790a",
         "cssVar": "--color-warn",
-        "tonalRamp": ["#483104", "#7e5507", "#b3790a", "#e89d0d", "#f4b63e", "#f7ca73", "#fae0ad", "#fef6e7"]
+        "tonalRamp": [
+          "#483104",
+          "#7e5507",
+          "#b3790a",
+          "#e89d0d",
+          "#f4b63e",
+          "#f7ca73",
+          "#fae0ad",
+          "#fef6e7"
+        ]
       },
       "success": {
         "role": "tertiary",
         "displayName": "Success",
         "canonical": "#1a8f5c",
         "cssVar": "--color-success",
-        "tonalRamp": ["#0c412a", "#147048", "#1da067", "#26cf85", "#52e0a2", "#82e8bc", "#b6f2d7", "#e9fbf3"]
+        "tonalRamp": [
+          "#0c412a",
+          "#147048",
+          "#1da067",
+          "#26cf85",
+          "#52e0a2",
+          "#82e8bc",
+          "#b6f2d7",
+          "#e9fbf3"
+        ]
       },
       "tile-a": {
         "role": "neutral",
@@ -162,7 +298,16 @@
         "canonical": "#e4e1fb",
         "cssVar": "--tile-a-bg",
         "note": "Ink pair #3730a3. Deterministic off the correspondent's address (mail/Avatar.tsx), not decorative choice.",
-        "tonalRamp": ["#100943", "#1b1075", "#2716a6", "#321dd8", "#5d4be7", "#8a7cee", "#bab3f5", "#ebe8fc"]
+        "tonalRamp": [
+          "#100943",
+          "#1b1075",
+          "#2716a6",
+          "#321dd8",
+          "#5d4be7",
+          "#8a7cee",
+          "#bab3f5",
+          "#ebe8fc"
+        ]
       },
       "tile-b": {
         "role": "neutral",
@@ -170,7 +315,16 @@
         "canonical": "#d9f2ec",
         "cssVar": "--tile-b-bg",
         "note": "Ink pair #0f6656.",
-        "tonalRamp": ["#143930", "#226353", "#308d76", "#3eb69a", "#67cbb3", "#91d9c8", "#bee9df", "#ecf9f6"]
+        "tonalRamp": [
+          "#143930",
+          "#226353",
+          "#308d76",
+          "#3eb69a",
+          "#67cbb3",
+          "#91d9c8",
+          "#bee9df",
+          "#ecf9f6"
+        ]
       },
       "tile-c": {
         "role": "neutral",
@@ -178,7 +332,16 @@
         "canonical": "#fdeccb",
         "cssVar": "--tile-c-bg",
         "note": "Ink pair #8a5a06.",
-        "tonalRamp": ["#4a3203", "#805605", "#b67a07", "#ec9f09", "#f7b73b", "#facb71", "#fce0ac", "#fef6e6"]
+        "tonalRamp": [
+          "#4a3203",
+          "#805605",
+          "#b67a07",
+          "#ec9f09",
+          "#f7b73b",
+          "#facb71",
+          "#fce0ac",
+          "#fef6e6"
+        ]
       },
       "tile-d": {
         "role": "neutral",
@@ -186,21 +349,39 @@
         "canonical": "#fbe0ea",
         "cssVar": "--tile-d-bg",
         "note": "Ink pair #9d174d.",
-        "tonalRamp": ["#44091f", "#750f35", "#a7164b", "#d91c62", "#e84a85", "#ee7ca6", "#f5b2cb", "#fce8f0"]
+        "tonalRamp": [
+          "#44091f",
+          "#750f35",
+          "#a7164b",
+          "#d91c62",
+          "#e84a85",
+          "#ee7ca6",
+          "#f5b2cb",
+          "#fce8f0"
+        ]
       },
       "tile-e": {
         "role": "neutral",
         "displayName": "Avatar Tile E (Slate Blue)",
         "canonical": "#e2e8f4",
         "cssVar": "--tile-e-bg",
-        "note": "Ink pair #33415c. A closed set of five, not a hue wheel — a scanned list wants variety without noise.",
-        "tonalRamp": ["#152137", "#243860", "#345089", "#4368b1", "#6b8ac7", "#94aad6", "#c0cde7", "#edf0f8"]
+        "note": "Ink pair #33415c. A closed set of five, not a hue wheel \u2014 a scanned list wants variety without noise.",
+        "tonalRamp": [
+          "#152137",
+          "#243860",
+          "#345089",
+          "#4368b1",
+          "#6b8ac7",
+          "#94aad6",
+          "#c0cde7",
+          "#edf0f8"
+        ]
       }
     },
     "typographyMeta": {
       "heading": {
         "displayName": "Heading",
-        "purpose": "The open Thread's subject — the loudest text in the app, and the only place 21px appears. text-wrap: balance."
+        "purpose": "The open Thread's subject \u2014 the loudest text in the app, and the only place 21px appears. text-wrap: balance."
       },
       "body": {
         "displayName": "Body",
@@ -212,29 +393,40 @@
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Section labels, group-header names, the Command Palette's section captions. Sentence case, small, quiet — never uppercase, never letterspaced."
+        "purpose": "Section labels, group-header names, the Command Palette's section captions. Sentence case, small, quiet \u2014 never uppercase, never letterspaced."
       },
       "machine": {
         "displayName": "Machine",
-        "purpose": "Timestamps, group counts, byte sizes, key caps. Martian Mono, tabular figures."
+        "purpose": "Timestamps, group counts, byte sizes, key caps. Inter tabular figures \u2014 Martian Mono retired entirely by the polish pass (decision A)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "A pane header \u2014 Tasks, Contacts, Notes, Calendar, Settings page headers. Added by the polish pass's R4 pane-title tier so five Apps stop picking their own size."
       }
     },
     "fonts": {
-      "delivery": "Self-hosted from the app's own origin (Inter Variable, Martian Mono Variable) — a client whose promise is that you own your server has no business fetching fonts from a CDN on cold start.",
+      "delivery": "Self-hosted from the app's own origin (Inter Variable only) \u2014 a client whose promise is that you own your server has no business fetching fonts from a CDN on cold start.",
       "sans": "\"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif",
-      "mono": "\"Martian Mono Variable\", ui-monospace, \"SFMono-Regular\", Menlo, monospace"
+      "mono": "ui-monospace, SFMono-Regular, Menlo, monospace",
+      "note": "Martian Mono Variable is retired entirely (polish pass decision A, packages/design-tokens/src/typography.ts). `mono` is now a plain system stack kept for exactly one genuinely code-like run: the compose send-failure banner's verbatim SMTP rejection text. Every machine value and every email address moved to Inter."
     },
     "shadows": [
       {
         "name": "overlay",
         "value": "0 16px 40px -12px rgb(20 21 26 / 0.20), 0 4px 14px -4px rgb(20 21 26 / 0.12)",
         "darkValue": "0 22px 50px -14px rgb(0 0 0 / 0.6), 0 6px 16px -4px rgb(0 0 0 / 0.45)",
-        "purpose": "The only shadow in the system (--shadow-overlay). The Command Palette, the Shortcut Sheet, the composer, popovers, toasts — anything that genuinely floats above the ground."
+        "purpose": "The only shadow in the system (--shadow-overlay). The Command Palette, the Shortcut Sheet, the composer, popovers, toasts \u2014 anything that genuinely floats above the ground. Also the phone Dock's own floating glass pill (polish pass)."
       },
       {
         "name": "header",
         "value": "inset 0 1px 0 rgb(255 255 255 / .5), inset 0 -1px 2px rgb(20 21 26 / .045), 0 1px 2px rgb(20 21 26 / .03)",
-        "purpose": "--shadow-header: the global header's separation from the ground. An inset relief, not a drop shadow — the header never floats above anything, it sits at the top of the same ground, so it does not take --shadow-overlay."
+        "purpose": "--shadow-header: the global header's separation from the ground. An inset relief, not a drop shadow \u2014 the header never floats above anything, it sits at the top of the same ground, so it does not take --shadow-overlay."
+      },
+      {
+        "name": "card",
+        "value": "0 1px 2px rgb(20 21 26 / 0.05), 0 6px 20px -10px rgb(20 21 26 / 0.16)",
+        "darkValue": "0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -12px rgb(0 0 0 / 0.5)",
+        "purpose": "--shadow-card: a page-resident element raised in place rather than floating over everything \u2014 the App's own raised card on the Hub (.app-card, >=768px), and the Segmented thumb's own small lift off its track."
       }
     ],
     "motion": [
@@ -251,7 +443,7 @@
       {
         "name": "ease-pop",
         "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
-        "purpose": "Icon/badge pop moments — the App Switcher badge, nav icon transform."
+        "purpose": "Icon/badge pop moments \u2014 the App Switcher badge, nav icon transform."
       },
       {
         "name": "dur-press",
@@ -267,18 +459,33 @@
         "name": "reduced-motion-floor",
         "value": "1ms",
         "purpose": "prefers-reduced-motion: reduce clamps every animation and transition in the app."
+      },
+      {
+        "name": "dur-leave",
+        "value": "260ms",
+        "purpose": "A row, card, or group departing after an action (up to 45ms per-row stagger, capped at 8); a bottom Sheet's own rise from the edge (polish pass R5)."
+      },
+      {
+        "name": "pane-enter",
+        "value": "translateX(24px) + opacity 0 -> 1, 190ms, ease-out",
+        "purpose": "Polish pass R5: the phone list-to-detail transition (Mail's split pane, Tasks, Contacts) plays this on mount, replacing a hard display:none swap."
+      },
+      {
+        "name": "segmented-thumb",
+        "value": "transform, 190ms, ease-out",
+        "purpose": "Polish pass R5: the Segmented control's sliding current-option thumb, driven by --seg-index/--seg-count."
       }
     ],
     "breakpoints": [
       {
         "name": "phone",
-        "value": "700px",
-        "note": "The list/detail split collapses to one pane at a time (both stay mounted, one hidden); the header's row of view controls goes icon-only."
+        "value": "768px",
+        "note": "The one phone breakpoint the whole Client reads (polish pass ticket, @mail/design-tokens#phoneBreakpoint) \u2014 collapses two pre-existing numbers (700px and a second shadcn-derived 768px hook) into one. List/detail split, folder rail, Dock vs. desktop header/App Switcher, and theme-color resolution all key off this single value now."
       },
       {
         "name": "compact-header",
         "value": "640px",
-        "note": "The global header shrinks to 54px and the search entry's ⌘K hint text gives way so it doesn't crowd the field. There is no bottom tab bar at any width — the header keeps its shape."
+        "note": "The global header shrinks and the search entry's \u2318K hint text gives way so it doesn't crowd the field."
       },
       {
         "name": "wide",
@@ -288,16 +495,26 @@
       {
         "name": "row-fold",
         "value": "520px (container query on .thread-list)",
-        "note": "The row folds to a two-line grid. Container, not media: the same list is narrow inside the split and wide in List view at one viewport."
+        "note": "The row folds to a two-line grid. Container, not media."
       }
     ],
     "taper": {
-      "rowHeights": { "1": 54, "2": 46, "3": 38, "4": 32 },
-      "headerHeights": { "1": 52, "2": 50, "3": 48, "4": 46 },
+      "rowHeights": {
+        "1": 54,
+        "2": 46,
+        "3": 38,
+        "4": 32
+      },
+      "headerHeights": {
+        "1": 52,
+        "2": 50,
+        "3": 48,
+        "4": 46
+      },
       "groupHeaderLead": 26,
       "compactRowDelta": -6,
       "compactHeaderDelta": -8,
-      "note": "mail/taper.ts: rank expressed as scale, not just position. Row/header heights taper from T1 (Pinned/Today, loudest) to T4 (Older/Undated, quietest); header heights are 26/24/22/20 plus the 26px group-header lead baked in as padding, since a virtualized item can't carry a margin the virtualizer never measured. compact shifts every tier by a fixed delta rather than flattening the taper to one size. Shared contract with VirtualizedThreadList's estimateSize — the ROW_HEIGHT/HEADER_HEIGHT values live once, in code, not duplicated into mail.css."
+      "note": "mail/taper.ts: rank expressed as scale, not just position. Row/header heights taper from T1 (Pinned/Today, loudest) to T4 (Older/Undated, quietest); header heights are 26/24/22/20 plus the 26px group-header lead baked in as padding, since a virtualized item can't carry a margin the virtualizer never measured. compact shifts every tier by a fixed delta rather than flattening the taper to one size. Shared contract with VirtualizedThreadList's estimateSize \u2014 the ROW_HEIGHT/HEADER_HEIGHT values live once, in code, not duplicated into mail.css."
     },
     "copy": {
       "source": "CONTEXT.md is binding for UI copy.",
@@ -315,23 +532,54 @@
     ],
     "notCanonized": [
       "The App Switcher's reserved-App badge ('SOON') carries light tracking (0.03em) at 10px. DESIGN.md records this as a single deliberate, narrowly-scoped exception for a status chip, not as a general allowance to bring tracked caption type back into the system.",
+      "Several form-section captions in Calendar, Contacts, and Notes (contact-dialog.css, note-editor.css, etc.) still carry text-transform: uppercase. This predates the polish pass and was outside its R1-R5 scope (which targeted buttons/tabs/filters/scale/hairlines specifically) \u2014 DESIGN.md records it under Superseded vocabulary as an unfinished migration, not as a confirmed second voice a new screen should imitate.",
       "The shadcn primitives under src/components/ui/ ship Lucide hairline glyphs consistent with the current icon language; they are installed but adopted by no screen yet, so they are not asserted here as a confirmed pattern."
-    ]
+    ],
+    "scale": {
+      "space": {
+        "1": "4px",
+        "2": "8px",
+        "3": "12px",
+        "4": "16px",
+        "5": "20px",
+        "6": "24px",
+        "7": "32px"
+      },
+      "text": {
+        "label": "11.5px",
+        "secondary": "13px",
+        "body": "14px",
+        "title": "17px",
+        "heading": "21px"
+      },
+      "controlHeight": {
+        "sm": "28px",
+        "md": "32px",
+        "primary": "38px",
+        "touch": "44px"
+      },
+      "note": "R4 (docs/design/polish-pass.md, packages/design-tokens/src/scale.ts): the whole sizing vocabulary of apps/client CSS outside mail/taper.ts, which predates and defines rank-by-scale rather than consuming this ladder. Before this pass, apps/client CSS used 14 distinct font sizes and 13 distinct paddings."
+    },
+    "chrome": {
+      "chromeTopPhone": "calc(52px + env(safe-area-inset-top))",
+      "chromeBottomPhone": "calc(52px + 12px + env(safe-area-inset-bottom))",
+      "note": "R1 (polish pass): chrome floats over content on phone rather than framing it. .app-shell declares --chrome-top/--chrome-bottom (both 0px at >=768px); every phone scroller pads itself by these instead of the header/Dock reserving space for themselves. Replaces the pre-pass opaque phone header slab and the reserved-but-empty ground beneath the old dock (the 'gray bar' defect)."
+    }
   },
   "components": [
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The primary action: solid accent fill, accent-foreground text. Compose, Send, Approve. The only place solid accent-as-ground appears.",
+      "description": "The one solid-accent action per App (R3): Compose, New contact, New event, New task, New note, Send, Approve. controls.css's .btn-primary. Rendered by both the desktop header's <PrimaryAction> and the phone Dock's trailing tile via apps/primary-action.ts#usePrimaryAction.",
       "html": "<button class=\"ds-btn-primary\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M22 6.5 12 13 2 6.5\"/><path d=\"M2 6.5h20v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z\"/></svg>Compose</button>",
-      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 20px; border: none; border-radius: 999px; background: #4338ca; color: #ffffff; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 14px; font-weight: 400; cursor: pointer; transition: background 120ms linear, transform 120ms linear; } .ds-btn-primary:hover { background: color-mix(in oklab, #4338ca 88%, black); } .ds-btn-primary:focus-visible { outline: 2px solid #4338ca; outline-offset: 1px; } .ds-btn-primary:active { transform: scale(0.97); }"
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 18px; border: none; border-radius: 999px; background: #4338ca; color: #ffffff; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 14px; font-weight: 400; cursor: pointer; transition: background 120ms linear, transform 120ms linear; } .ds-btn-primary:hover { background: color-mix(in oklab, #4338ca 88%, black); } .ds-btn-primary:focus-visible { outline: 2px solid #4338ca; outline-offset: 1px; } .ds-btn-primary:active { transform: scale(0.97); }"
     },
     {
       "name": "Ghost Button",
       "kind": "button",
       "refersTo": "button-ghost",
-      "description": "The default control voice: transparent at rest, hover fill, soft-tint-when-current. No ink color at rest.",
+      "description": "controls.css's .btn-ghost: the default control voice everywhere \u2014 transparent at rest, hover fill, soft-tint-when-current. No ink color at rest. .btn-ghost--sm is the 28px rung; .btn-icon makes it a square icon button.",
       "html": "<button class=\"ds-btn-ghost\">Archive</button><button class=\"ds-btn-ghost ds-btn-ghost-current\">Inbox</button>",
       "css": ".ds-btn-ghost { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; color: #5a5d6b; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 14px; cursor: pointer; transition: background 120ms linear, color 120ms linear; } .ds-btn-ghost:hover { background: #f1f1f4; color: #14151a; } .ds-btn-ghost:focus-visible { outline: 2px solid #4338ca; outline-offset: 1px; } .ds-btn-ghost:active { transform: scale(0.97); } .ds-btn-ghost-current { background: #eeecfc; color: #4338ca; }"
     },
@@ -363,24 +611,24 @@
       "name": "The Thread Row",
       "kind": "custom",
       "refersTo": "row-thread",
-      "description": "Signature component: a borderless, rounded row on the page ground. Sender (max 40%, ink-muted), subject (flex, ink-faint), right-aligned tabular-mono time, and a Done control revealed on hover/focus/selection rather than inserted. Hover takes color-hover; selection takes accent-soft (a tint, never an inversion). Unread bumps the sender to full ink + weight 600.",
+      "description": "Signature component: a borderless, rounded row on the page ground. Sender (max 40%, ink-muted), subject (flex, ink-faint), right-aligned tabular time (Inter, not mono), and a Done control revealed on hover/focus/selection rather than inserted. Hover takes color-hover; selection takes accent-soft (a tint, never an inversion). Unread bumps the sender to full ink + weight 600.",
       "html": "<div class=\"ds-row\"><span class=\"ds-row-sender\">Marion Keller</span><span class=\"ds-row-subject\">Quarterly filing is ready for review</span><time class=\"ds-row-time\">09:14</time><button class=\"ds-row-done\" aria-label=\"Done\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"m4 12 5 5 11-11\"/></svg></button></div>",
-      "css": ".ds-row { position: relative; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px; border: none; border-radius: 11px; background: transparent; color: #14151a; cursor: pointer; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 14px; transition: background 190ms cubic-bezier(0.22,0.8,0.32,1); } .ds-row:hover { background: #f1f1f4; } .ds-row:hover .ds-row-done, .ds-row:focus-within .ds-row-done { opacity: 1; } .ds-row-sender { max-width: 40%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a5d6b; } .ds-row-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #93969f; } .ds-row-time { flex-shrink: 0; color: #93969f; font-family: \"Martian Mono Variable\", ui-monospace, monospace; font-size: 11px; font-variant-numeric: tabular-nums; } .ds-row-done { position: absolute; right: 8px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 8px; background: transparent; color: #5a5d6b; opacity: 0; cursor: pointer; transition: opacity 190ms cubic-bezier(0.22,0.8,0.32,1), background 120ms linear; } .ds-row-done:hover { background: #e7e7ec; } .ds-row-selected { background: #eeecfc; }"
+      "css": ".ds-row { position: relative; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px; border: none; border-radius: 11px; background: transparent; color: #14151a; cursor: pointer; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 14px; transition: background 190ms cubic-bezier(0.22,0.8,0.32,1); } .ds-row:hover { background: #f1f1f4; } .ds-row:hover .ds-row-done, .ds-row:focus-within .ds-row-done { opacity: 1; } .ds-row-sender { max-width: 40%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a5d6b; } .ds-row-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #93969f; } .ds-row-time { flex-shrink: 0; color: #93969f; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 11.5px; font-variant-numeric: tabular-nums; } .ds-row-done { position: absolute; right: 8px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 8px; background: transparent; color: #5a5d6b; opacity: 0; cursor: pointer; transition: opacity 190ms cubic-bezier(0.22,0.8,0.32,1), background 120ms linear; } .ds-row-done:hover { background: #e7e7ec; } .ds-row-selected { background: #eeecfc; }"
     },
     {
       "name": "The Command Palette",
       "kind": "custom",
       "refersTo": "panel-floating",
-      "description": "Signature component: a centered overlay (16px radius, --shadow-overlay, max 560px wide) behind a blurred scrim, opened by ⌘K. One text field, then sectioned rows each carrying a keycap. The active row takes accent-soft. Section captions are the Label tier — sentence case, never uppercase.",
-      "html": "<div class=\"ds-palette\"><input class=\"ds-palette-input\" placeholder=\"Search or jump to…\" /><div class=\"ds-palette-section\">Commands</div><div class=\"ds-palette-row ds-palette-row-active\"><span>Compose</span><kbd class=\"ds-keycap\">C</kbd></div><div class=\"ds-palette-row\"><span>Archive</span><kbd class=\"ds-keycap\">E</kbd></div></div>",
-      "css": ".ds-palette { width: min(560px, calc(100vw - 32px)); border-radius: 16px; background: #ffffff; box-shadow: 0 16px 40px -12px rgb(20 21 26 / 0.20), 0 4px 14px -4px rgb(20 21 26 / 0.12); padding: 8px; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; animation: ds-palette-in 190ms cubic-bezier(0.16,1,0.3,1); } .ds-palette-input { width: 100%; box-sizing: border-box; height: 44px; padding: 0 14px; margin-bottom: 6px; border: none; border-radius: 8px; background: #f0f0f3; color: #14151a; font-size: 15px; caret-color: #4338ca; } .ds-palette-section { padding: 6px 10px 4px; color: #5a5d6b; font-size: 11.5px; font-weight: 600; letter-spacing: normal; text-transform: none; } .ds-palette-row { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 8px; color: #14151a; font-size: 14px; cursor: pointer; } .ds-palette-row:hover { background: #f1f1f4; } .ds-palette-row-active { background: #eeecfc; color: #4338ca; } .ds-keycap { padding: 2px 6px; border-radius: 6px; background: #f0f0f3; color: #5a5d6b; font-family: \"Martian Mono Variable\", ui-monospace, monospace; font-size: 11px; } @keyframes ds-palette-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }"
+      "description": "Signature component: a centered overlay (16px radius, --shadow-overlay, max 560px wide) behind a blurred scrim, opened by \u2318K. One text field, then sectioned rows each carrying a keycap. The active row takes accent-soft. Section captions are the Label tier \u2014 sentence case, never uppercase.",
+      "html": "<div class=\"ds-palette\"><input class=\"ds-palette-input\" placeholder=\"Search or jump to\u2026\" /><div class=\"ds-palette-section\">Commands</div><div class=\"ds-palette-row ds-palette-row-active\"><span>Compose</span><kbd class=\"ds-keycap\">C</kbd></div><div class=\"ds-palette-row\"><span>Archive</span><kbd class=\"ds-keycap\">E</kbd></div></div>",
+      "css": ".ds-palette { width: min(560px, calc(100vw - 32px)); border-radius: 16px; background: #ffffff; box-shadow: 0 16px 40px -12px rgb(20 21 26 / 0.20), 0 4px 14px -4px rgb(20 21 26 / 0.12); padding: 8px; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; animation: ds-palette-in 190ms cubic-bezier(0.16,1,0.3,1); } .ds-palette-input { width: 100%; box-sizing: border-box; height: 44px; padding: 0 14px; margin-bottom: 6px; border: none; border-radius: 8px; background: #f0f0f3; color: #14151a; font-size: 15px; caret-color: #4338ca; } .ds-palette-section { padding: 6px 10px 4px; color: #5a5d6b; font-size: 11.5px; font-weight: 600; letter-spacing: normal; text-transform: none; } .ds-palette-row { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; border-radius: 8px; color: #14151a; font-size: 14px; cursor: pointer; } .ds-palette-row:hover { background: #f1f1f4; } .ds-palette-row-active { background: #eeecfc; color: #4338ca; } .ds-keycap { padding: 2px 6px; border-radius: 6px; background: #f0f0f3; color: #5a5d6b; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 11.5px; font-weight: 600; } @keyframes ds-palette-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }"
     },
     {
       "name": "The Screener Card",
       "kind": "card",
       "refersTo": "custom",
       "description": "The calm panel: each Unscreened Sender is a plain surface card on the page ground (selected: accent-soft) with sender identity, a peek line, and three actions. No drenched color, no struck ink, no per-verdict color coding beyond the buttons.",
-      "html": "<div class=\"ds-screener-card\"><div class=\"ds-screener-name\">Northbound Freight</div><div class=\"ds-screener-peek\">no-reply@nbfreight.example — Route change for the north bench</div><div class=\"ds-screener-actions\"><button class=\"ds-btn-primary\">Approve</button><button class=\"ds-btn-ghost\">Deny</button></div></div>",
+      "html": "<div class=\"ds-screener-card\"><div class=\"ds-screener-name\">Northbound Freight</div><div class=\"ds-screener-peek\">no-reply@nbfreight.example \u2014 Route change for the north bench</div><div class=\"ds-screener-actions\"><button class=\"ds-btn-primary\">Approve</button><button class=\"ds-btn-ghost\">Deny</button></div></div>",
       "css": ".ds-screener-card { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 16px; background: #ffffff; } .ds-screener-name { font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 14px; font-weight: 600; color: #14151a; } .ds-screener-peek { font-size: 13px; color: #93969f; } .ds-screener-actions { display: flex; gap: 8px; margin-top: 6px; }"
     },
     {
@@ -388,7 +636,7 @@
       "kind": "card",
       "refersTo": "toast",
       "description": "Surface ground, panel radius, --shadow-overlay, entering with an 8px rise + fade over 150ms.",
-      "html": "<div class=\"ds-toast\"><span>Archive failed — the Thread is back in Inbox.</span><button class=\"ds-toast-btn\">Retry</button></div>",
+      "html": "<div class=\"ds-toast\"><span>Archive failed \u2014 the Thread is back in Inbox.</span><button class=\"ds-toast-btn\">Retry</button></div>",
       "css": ".ds-toast { display: inline-flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 16px; background: #ffffff; color: #14151a; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 13px; box-shadow: 0 16px 40px -12px rgb(20 21 26 / 0.20), 0 4px 14px -4px rgb(20 21 26 / 0.12); animation: ds-toast-enter 150ms cubic-bezier(0.16,1,0.3,1); } .ds-toast-btn { padding: 4px 10px; border: none; border-radius: 999px; background: #eeecfc; color: #4338ca; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; } .ds-toast-btn:hover { background: color-mix(in oklab, #eeecfc 80%, #4338ca 20%); } .ds-toast-btn:focus-visible { outline: 2px solid #4338ca; outline-offset: 1px; } @keyframes ds-toast-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }"
     },
     {
@@ -398,18 +646,44 @@
       "description": "The one drawn signature glyph that survived into The Instrument: a circular date-stamp mark broken at the lower left, with trailing bars. Appears as a solid mark on the pre-auth card and as a stroked cut inside the App Switcher's hub mark, on the same 24 grid as every Lucide icon.",
       "html": "<span class=\"ds-postmark\"><svg viewBox=\"0 0 128 128\" width=\"26\" height=\"26\" aria-hidden=\"true\"><circle cx=\"44\" cy=\"64\" r=\"32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8.5\" stroke-dasharray=\"161 40\" transform=\"rotate(171 44 64)\"/><rect x=\"72\" y=\"47.75\" width=\"48\" height=\"8.5\" rx=\"1\" fill=\"currentColor\"/><rect x=\"72\" y=\"59.75\" width=\"48\" height=\"8.5\" rx=\"1\" fill=\"currentColor\"/><rect x=\"72\" y=\"71.75\" width=\"48\" height=\"8.5\" rx=\"1\" fill=\"currentColor\"/></svg></span>",
       "css": ".ds-postmark { display: inline-flex; align-items: center; color: #4338ca; }"
+    },
+    {
+      "name": "Segmented",
+      "kind": "custom",
+      "refersTo": "segmented-track",
+      "description": "R2: pick one of several views. A role=radiogroup of ghost text options in a field-colored track; the current option's surface-colored thumb slides under it. One implementation (components/Segmented.tsx) shared by Calendar's view switcher, Contacts' tab strip, and Tasks' List/Board switch \u2014 three hand-rolled pills before the polish pass.",
+      "html": "<div class=\"ds-segmented\" role=\"radiogroup\" aria-label=\"View\" style=\"--seg-index:0;--seg-count:2\"><button role=\"radio\" aria-checked=\"true\" class=\"ds-segmented-option\">List</button><button role=\"radio\" aria-checked=\"false\" class=\"ds-segmented-option\">Board</button></div>",
+      "css": ".ds-segmented { position: relative; display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 3px; border-radius: 8px; background: #f0f0f3; } .ds-segmented::before { content: ''; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--seg-count, 1)); border-radius: 5px; background: #ffffff; box-shadow: 0 1px 2px rgb(20 21 26 / 0.05), 0 6px 20px -10px rgb(20 21 26 / 0.16); transform: translateX(calc(var(--seg-index, 0) * 100%)); transition: transform 190ms cubic-bezier(0.16,1,0.3,1); } .ds-segmented-option { position: relative; z-index: 1; flex: 1; display: inline-flex; align-items: center; justify-content: center; height: 100%; padding: 0 12px; border: none; border-radius: 5px; background: transparent; color: #5a5d6b; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 13px; font-weight: 550; cursor: pointer; } .ds-segmented-option[aria-checked=\"true\"] { color: #14151a; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip-tag",
+      "description": "R2: a filter, tag, or facet. controls.css's .chip \u2014 24px, field fill, muted ink, Label typography. Selected state is accent-soft + accent ink. Replaces bespoke filter-pill markup previously duplicated per App.",
+      "html": "<button type=\"button\" class=\"ds-chip\" aria-pressed=\"false\">Unread</button><button type=\"button\" class=\"ds-chip ds-chip-selected\" aria-pressed=\"true\">Starred</button>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border: none; border-radius: 6px; background: #f0f0f3; color: #5a5d6b; font-family: \"Inter Variable\", \"Helvetica Neue\", Arial, sans-serif; font-size: 11.5px; font-weight: 600; cursor: pointer; } .ds-chip:hover { color: #14151a; } .ds-chip-selected { background: #eeecfc; color: #4338ca; }"
+    },
+    {
+      "name": "The Phone Dock",
+      "kind": "nav",
+      "refersTo": "dock-pill",
+      "description": "Signature, phone-only, redesigned by the polish pass (R1/R3): a floating blurred-glass pill at the bottom edge, [switcher][navControl?][primaryAction], icon-only, no captions, no chevron. Registry-driven (apps.ts#AppDef.primaryAction/navControl), handler shared with the desktop header via apps/primary-action.ts#usePrimaryAction.",
+      "html": "<nav class=\"ds-dock\" aria-label=\"switch app, Folders, and Compose\"><button class=\"ds-dock-item\" aria-label=\"Switch app\"><span class=\"ds-dock-switcher-tile\">M</span></button><button class=\"ds-dock-item\" aria-label=\"Folders\">F</button><button class=\"ds-dock-item\" aria-label=\"Compose\">+</button></nav>",
+      "css": ".ds-dock { display: flex; align-items: stretch; gap: 2px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, #ffffff 72%, transparent); backdrop-filter: blur(20px) saturate(1.4); box-shadow: 0 16px 40px -12px rgb(20 21 26 / 0.20), 0 4px 14px -4px rgb(20 21 26 / 0.12), inset 0 0 0 0.5px color-mix(in srgb, #14151a 8%, transparent); } .ds-dock-item { flex: none; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: none; border-radius: 999px; background: transparent; color: #5a5d6b; cursor: pointer; } .ds-dock-item:hover { color: #14151a; } .ds-dock-item:active { color: #4338ca; transform: scale(0.9); } .ds-dock-switcher-tile { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: #eeecfc; color: #4338ca; font-size: 12px; font-weight: 600; }"
     }
   ],
   "narrative": {
     "northStar": "The Instrument",
-    "overview": "The Instrument is a near-white (or near-black) ground with exactly one electric accent (#4338ca light / #8b80ff dark) doing every job that matters: primary actions, focus, selection, current-state. Nothing else in the palette is decorative — three ink strengths carry all text, three semantic signals (danger/warn/success) carry all state, and five tinted \"tile\" pairs give correspondent initials just enough variety to scan without noise. There is no second accent and no per-feature color.\n\nRegions are separated by ground and gap, never by joinery. A list row, a menu item, a settings compartment — none of them sit inside a hairline box or a bordered plate. The one shadow in the system (--shadow-overlay) is reserved for things that genuinely float above the ground: the Command Palette, popovers, the composer, toasts. Everything else is flat, and rank between things at rest is expressed by a soft accent tint, not by inverting to solid ink and not by a colored badge bolted onto the side of a row.\n\nThis replaces an older system (\"Wicket / The Sorting Office\" — institutional stock, hairline joinery, struck ink, uppercase letterspaced \"plates\" for every label) which is fully retired from the Mail surface, the chrome, and the App Switcher. Two corners (pre-auth screens, Settings) still speak in its retired typographic voice and are recorded as an unfinished migration, not as house style.",
+    "overview": "The Instrument is a near-white (or near-black) ground with exactly one electric accent (#4338ca light / #8b80ff dark) doing every job that matters: primary actions, focus, selection, current-state. Nothing else in the palette is decorative \u2014 three ink strengths carry all text, three semantic signals (danger/warn/success) carry all state, and five tinted \"tile\" pairs give correspondent initials just enough variety to scan without noise. There is no second accent and no per-feature color.\n\nRegions are separated by ground and gap, never by joinery. A list row, a menu item, a settings compartment \u2014 none of them sit inside a hairline box or a bordered plate. The one shadow in the system reserved for floating things (--shadow-overlay) covers the Command Palette, popovers, the composer, toasts, and now the phone Dock's own glass pill; a second, shallower token (--shadow-card) covers a page-resident raised element (the App's own card, the Segmented thumb). Rank between things at rest is expressed by a soft accent tint, not by inverting to solid ink and not by a colored badge bolted onto the side of a row.\n\nA completed polish pass (#314-#323, docs/design/polish-pass.md) took the same world further without changing the palette, the accent, ground-and-gap, the taper, the Hub, or the App Switcher: chrome now floats over content on phone instead of framing it (translucent blurred header and Dock, every scroller reserving its own clearance instead); one shared control vocabulary (.btn-primary/.btn-ghost/Segmented/.chip) replaced four Apps' four separate button dialects; one type-and-space scale replaced fourteen ad hoc font sizes and thirteen ad hoc paddings; Martian Mono is retired entirely, with every machine value now set in Inter with tabular figures; and Tasks was brought into Mail's own idiom (its rail, its List/Board Segmented switch, its quick-add ghost row, its ground-and-gap board columns).\n\nThis replaces an older system (\"Wicket / The Sorting Office\" \u2014 institutional stock, hairline joinery, struck ink, uppercase letterspaced \"plates\" for every label) which is fully retired from the Mail surface, the chrome, and the App Switcher. A handful of form-section captions in Calendar, Contacts, and Notes still speak in its retired uppercase voice and are recorded as an unfinished migration outside the polish pass's own scope, not as house style.",
     "keyCharacteristics": [
       "One electric accent, everywhere rank or action needs marking; nothing else is decorative.",
       "Ground and gap, not joinery: no hairline box around a control, no plate behind a row.",
-      "Rank is a soft accent tint (--color-accent-soft) at rest, --color-hover under the pointer — nothing inverts to solid ink.",
-      "Corners come from one ladder: control → row → panel → pill, never an ad hoc radius.",
-      "Actions live in reserved whitespace, revealed on hover/focus rather than inserted, so arming a control never reflows its neighbors.",
-      "Type carries rank by size and weight. Labels are sentence case, small, and quiet — never uppercase, never letterspaced.",
+      "Rank is a soft accent tint (--color-accent-soft) at rest, --color-hover under the pointer \u2014 nothing inverts to solid ink.",
+      "Corners come from one ladder: control \u2192 row \u2192 panel \u2192 pill, never an ad hoc radius.",
+      "One control vocabulary everywhere: .btn-primary, .btn-ghost, Segmented, .chip \u2014 no hairline-bordered button outside Settings.",
+      "One scale: type 11.5/13/14/17/21, space 4/8/12/16/20/24/32, control heights 28/32/38/44.",
+      "Chrome floats on phone \u2014 translucent, blurred, never a slab; every scroller reserves its own clearance instead.",
+      "Type carries rank by size and weight. Labels are sentence case, small, and quiet \u2014 never uppercase, never letterspaced.",
       "The document itself never scrolls: the shell owns the viewport, every routed pane scrolls on its own."
     ],
     "rules": [
@@ -420,49 +694,67 @@
       },
       {
         "name": "The Tint-Not-Invert Rule",
-        "body": "Rank at rest is {colors.accent-soft} with accent ink, never {colors.ink} as a solid ground. The old system's \"the selected row takes the ink and turns inside out\" is retired everywhere the rebuild has touched.",
+        "body": "Rank at rest is {colors.accent-soft} with accent ink, never {colors.ink} as a solid ground.",
         "section": "colors"
       },
       {
         "name": "The Sentence-Case Rule",
-        "body": "Every label, heading, and caption in the rebuilt system is sentence case. text-transform: uppercase plus 0.10em+ tracking was the old system's signature \"Label\" voice and does not belong here.",
+        "body": "Every label, heading, and caption in the rebuilt system is sentence case. text-transform: uppercase plus 0.10em+ tracking was the old system's signature voice and does not belong here.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Voice, One Face Rule",
+        "body": "Exactly one sans face (Inter) for every measured and every written value. A second imported face for machine values was tried and retired (Martian Mono); only a system ui-monospace stack remains, reserved for one genuinely code-like run.",
         "section": "typography"
       },
       {
         "name": "The Bounded Pane Rule",
-        "body": ".app-shell is 100dvh + overflow: hidden; every routed pane is its own height: 100%; min-height: 0 scroller. No exceptions — this is how the phone layout bugs stay fixed.",
+        "body": ".app-shell is 100dvh + overflow: hidden; every routed pane is its own height: 100%; min-height: 0 scroller. No exceptions.",
         "section": "layout"
       },
       {
         "name": "The Ground-and-Gap Rule",
-        "body": "Regions separate by background-color change and whitespace, not by a hairline box or a card. A control that needs a boundary gets {rounded.md} and {colors.field}, not a 1px border around a {colors.surface} box.",
+        "body": "Regions separate by background-color change and whitespace, not by a hairline box or a card. Settings is the named exception.",
         "section": "layout"
       },
       {
-        "name": "The One Float Rule",
-        "body": "If it's part of the frame at rest, it has no shadow. If it floats over the frame (Palette, popover, composer, toast), it takes --shadow-overlay — the same value, never a softer or harder variant.",
+        "name": "The Chrome-Floats Rule",
+        "body": "On phone, the header and the Dock are translucent, blurred, and sit on top of the scrolling pane, never around it. Every scroller pads itself by --chrome-top/--chrome-bottom instead of the chrome reserving space for itself.",
+        "section": "layout"
+      },
+      {
+        "name": "The Float vs. Rest vs. Frame Rule",
+        "body": "If it's part of the frame at rest, it has no shadow. If it's raised in place on the page, it takes --shadow-card. If it floats over the frame, it takes --shadow-overlay.",
         "section": "elevation"
       }
     ],
     "dos": [
       "Do reach for {colors.accent}/{colors.accent-soft} for anything primary or \"current.\" It is the only color that carries that meaning.",
-      "Do separate regions by background-color step and whitespace, not by a hairline box.",
-      "Do use the radius ladder (sm → md → row → panel → pill) — never an ad hoc value, never a Tailwind utility above md expecting anything but the same mapped corner.",
+      "Do separate regions by background-color step and whitespace, not by a hairline box; keep the hairline exception to Settings.",
+      "Do use the radius ladder (sm \u2192 md \u2192 row \u2192 panel \u2192 pill) \u2014 never an ad hoc value.",
+      "Do use the shared control vocabulary (.btn-primary, .btn-ghost, Segmented, .chip) for any new button, tab strip, or filter.",
+      "Do snap every new font size, padding, and control height to the shared space/text/controlHeight ladders \u2014 mail/taper.ts is the one named exception.",
       "Do keep every label, caption, and heading in sentence case.",
-      "Do set every machine-measured value (time, byte size, count, key cap) in Martian Mono with tabular figures.",
+      "Do set every machine-measured value in Inter with tabular figures \u2014 no separate mono face outside the compose SMTP rejection text.",
       "Do give an action reserved whitespace and reveal it on hover/focus/selection rather than inserting it and reflowing neighbors.",
-      "Do keep .app-shell at 100dvh + overflow: hidden and give every new routed screen its own height: 100%; min-height: 0 scroller — this is what keeps the phone layout bugs fixed.",
+      "Do keep .app-shell at 100dvh + overflow: hidden and give every new routed screen its own height: 100%; min-height: 0 scroller.",
+      "Do pad a new phone-visible scroller by --chrome-top/--chrome-bottom \u2014 chrome floats, it never reserves space for itself.",
+      "Do give a new App exactly one primaryAction and, only if needed, one navControl, resolved through apps/primary-action.ts.",
       "Do use CONTEXT.md's vocabulary verbatim in UI copy: Thread not conversation, Mail Account not mailbox, Screener not quarantine, Verdict as Unscreened/Approved/Blocked.",
       "Do self-host faces from the app's own origin."
     ],
     "donts": [
-      "Don't invert a selected/current element to solid ink. Rank is a soft tint, never an inversion, anywhere the rebuild has touched.",
-      "Don't set a label, heading, or caption in uppercase with letterspacing — that is the old system's signature voice and does not belong in The Instrument.",
-      "Don't put a border around a Mail-surface row or panel to separate it from its neighbor; change its background instead.",
-      "Don't give a control an ink color at rest. Ghost is the default voice: transparent → hover fill → soft-tint-when-current.",
-      "Don't animate a list's arrival, stagger rows, or transition height.",
+      "Don't invert a selected/current element to solid ink. Rank is a soft tint, never an inversion.",
+      "Don't set a label, heading, or caption in uppercase with letterspacing \u2014 that is the old system's signature voice.",
+      "Don't put a border around a Mail-surface row, panel, toolbar, tab strip, or Sheet edge to separate it from its neighbor.",
+      "Don't give a control an ink color at rest. Ghost is the default voice: transparent \u2192 hover fill \u2192 soft-tint-when-current.",
+      "Don't hand-roll a second button/tab/filter shape outside .btn-primary/.btn-ghost/Segmented/.chip.",
+      "Don't pick an off-ladder font size, padding, or control height. mail/taper.ts is the one named exception.",
+      "Don't animate a list's or Stream's arrival, or stagger cards/rows in.",
+      "Don't reach for a second mono/imported face for a machine value \u2014 Martian Mono is retired.",
+      "Don't let a phone chrome element reserve layout space for itself, and don't let a new phone scroller skip its own --chrome-top/--chrome-bottom padding.",
       "Don't fetch a correspondent's image or a font from a CDN.",
-      "Don't restyle a message body — it is third-party HTML in a sandboxed iframe and the design system stops at that boundary."
+      "Don't restyle a message body \u2014 it is third-party HTML in a sandboxed iframe and the design system stops at that boundary."
     ]
   }
 }
