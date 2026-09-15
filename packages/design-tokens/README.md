@@ -31,3 +31,19 @@ outright — so wiring a toggle to `documentElement.classList` is a drop-in.
   declared as `--split-minimum` in the generated `tokens.css` for CSS
   authors — the fallback is a component swap, not a Split-internal layout
   rule, so no media query currently needs the custom property itself.
+
+## Scale (`scale.ts`, R4)
+
+The one scale (`docs/design/polish-pass.md`): any other font size, padding
+or control height is a defect unless `mail/taper.ts` owns it (the comp's own
+row/header geometry, which predates and defines the scale rather than
+consuming it).
+
+- **Space** — `space[1]`…`space[7]`, declared as `--space-1`…`--space-7`:
+  `4px, 8px, 12px, 16px, 20px, 24px, 32px`.
+- **Text** — `text.label`/`.secondary`/`.body`/`.title`/`.heading`, declared
+  as `--text-label`/`--text-secondary`/`--text-body`/`--text-title`/
+  `--text-heading`: `11.5px, 13px, 14px, 17px, 21px`.
+- **Control height** — `controlHeight.sm`/`.md`/`.primary`/`.touch`,
+  declared as `--control-sm`/`--control-md`/`--control-primary`/
+  `--control-touch`: `28px, 32px, 38px, 44px`.

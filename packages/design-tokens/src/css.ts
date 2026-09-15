@@ -9,6 +9,7 @@ import {
   lightColors,
 } from "./colors.js";
 import { darkShadow, hairline, lightShadow, radii, type ShadowTheme } from "./geometry.js";
+import { controlHeight, space, text } from "./scale.js";
 import { fonts } from "./typography.js";
 
 const colorVarName: Record<keyof ColorTheme, string> = {
@@ -51,10 +52,43 @@ function shadowDeclarations(theme: ShadowTheme, indent: string): string {
   return `${indent}--shadow-overlay: ${theme.overlay};\n${indent}--shadow-header: ${theme.header};\n${indent}--shadow-header-flush: ${theme.headerFlush};\n${indent}--shadow-card: ${theme.card};`;
 }
 
+const spaceKeys = [1, 2, 3, 4, 5, 6, 7] as const satisfies readonly (keyof typeof space)[];
+
+function spaceDeclarations(indent: string): string {
+  return spaceKeys.map((key) => `${indent}--space-${key}: ${space[key]};`).join("\n");
+}
+
+const textVarName: Record<keyof typeof text, string> = {
+  label: "--text-label",
+  secondary: "--text-secondary",
+  body: "--text-body",
+  title: "--text-title",
+  heading: "--text-heading",
+};
+
+function textDeclarations(indent: string): string {
+  return (Object.keys(textVarName) as (keyof typeof text)[])
+    .map((key) => `${indent}${textVarName[key]}: ${text[key]};`)
+    .join("\n");
+}
+
+const controlHeightVarName: Record<keyof typeof controlHeight, string> = {
+  sm: "--control-sm",
+  md: "--control-md",
+  primary: "--control-primary",
+  touch: "--control-touch",
+};
+
+function controlHeightDeclarations(indent: string): string {
+  return (Object.keys(controlHeightVarName) as (keyof typeof controlHeight)[])
+    .map((key) => `${indent}${controlHeightVarName[key]}: ${controlHeight[key]};`)
+    .join("\n");
+}
+
 /**
  * Emits the CSS that Tailwind's `@theme` consumes: colour tokens declared
- * once per theme, type/geometry/shadow tokens declared once since they do
- * not change between light and dark. Selector strategy matches the rest of
+ * once per theme, type/geometry/shadow/scale tokens declared once since they
+ * do not change between light and dark. Selector strategy matches the rest of
  * the Client's theming — an OS preference wins by default, guarded against
  * an explicit `.light`, and an explicit `.dark` wins outright — so wiring a
  * toggle to `documentElement.classList` is a drop-in, not a rewrite.
@@ -86,6 +120,12 @@ ${tileDeclarations(lightAvatarTiles, "  ")}
      rule, so no media query in the Client currently reads this number. */
   --split-minimum: ${splitMinimum}px;
 ${shadowDeclarations(lightShadow, "  ")}
+
+${spaceDeclarations("  ")}
+
+${textDeclarations("  ")}
+
+${controlHeightDeclarations("  ")}
 }
 
 @media (prefers-color-scheme: dark) {
