@@ -669,8 +669,7 @@
 }
 
 .composer-from {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 13px;
   color: var(--color-ink-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -865,15 +864,13 @@
 }
 
 .send-failure-detail {
-  font-family: var(--font-mono);
   font-size: 11px;
 }
 
-/* Attachment sizes and the budget bar are measurement: machine face. */
+/* Attachment sizes and the budget bar are measurement: tabular figures. */
 .attachment-row-size,
 .attachment-row-progress,
 .attachments-budget-error {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
@@ -889,7 +886,6 @@
 
 .attachment-row-error {
   color: var(--color-danger);
-  font-family: var(--font-mono);
   font-size: 11px;
 }
 

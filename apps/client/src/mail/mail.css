@@ -27,8 +27,9 @@
       one never reflows anything beside it. Armed is real component state
       (`data-armed`), never a bare `:hover`.
    5. Type carries rank by size and weight, not by uppercase letterspaced
-      plates. The one machine-face exception is measurement — timestamps,
-      counts, sizes — set in `--font-mono` with tabular figures.
+      plates. Measurement — timestamps, counts, sizes — stays in Inter with
+      tabular figures rather than switching face; only the compose SMTP
+      rejection text (verbatim, code) keeps a system mono.
 
    Row and header geometry is load-bearing, but not declared here (#75):
    every taper tier's row/header height lives once in `taper.ts` and arrives
@@ -514,7 +515,6 @@
 
 .group-header-count {
   margin-left: 7px;
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.86em;
   font-weight: 500;
@@ -1026,7 +1026,6 @@
   align-items: center;
   justify-content: flex-end;
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   transition: opacity var(--dur-fast) var(--ease);
 }
@@ -1100,7 +1099,6 @@
   align-items: center;
   justify-content: flex-end;
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   transition: opacity var(--dur-fast) var(--ease);
 }
@@ -1802,7 +1800,6 @@
 .reading-time {
   margin-left: auto;
   flex: none;
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--color-ink-faint);
@@ -1908,8 +1905,8 @@
 }
 
 .sender-contact-card-address {
-  font-size: 12px;
-  color: var(--color-ink-faint);
+  font-size: 13px;
+  color: var(--color-ink-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1942,7 +1939,6 @@
 .sender-contact-card-thread-time {
   margin-left: auto;
   flex: none;
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--color-ink-faint);
@@ -2143,7 +2139,6 @@
 
 .message-item-date {
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
@@ -2191,7 +2186,6 @@
 .message-item-summary-date {
   flex: none;
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
@@ -2347,7 +2341,6 @@
 
 .attachment-size {
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 10.5px;
 }
@@ -2648,10 +2641,10 @@ button.search-chip-toggle.on {
 }
 
 /* The Index Watermark states its own partial coverage rather than silently
-   returning too few results — so it is set in the machine face. */
+   returning too few results — so it carries tabular figures like any other
+   machine value. */
 .search-watermark {
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   margin: 0;
@@ -2824,7 +2817,6 @@ button.search-chip-toggle.on {
 }
 
 .screener-count {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--color-ink-faint);
@@ -2966,16 +2958,14 @@ button.search-chip-toggle.on {
 }
 
 .screener-row-address {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-ink-faint);
+  font-size: 13px;
+  color: var(--color-ink-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .screener-row-count {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--color-ink-faint);
@@ -3224,9 +3214,8 @@ button.search-chip-toggle.on {
 }
 
 .screener-view-address {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-ink-faint);
+  font-size: 13px;
+  color: var(--color-ink-muted);
 }
 
 .screener-view-threads {
@@ -3347,7 +3336,6 @@ button.search-chip-toggle.on {
 }
 
 .gatekeeper-cutoff {
-  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-ink-faint);
 }
@@ -3652,9 +3640,8 @@ button.search-chip-toggle.on {
   border-radius: var(--radius-sm);
   background: var(--color-field);
   color: var(--color-ink-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 /* ============================================================================
@@ -3930,7 +3917,6 @@ button.search-chip-toggle.on {
 .command-palette-watermark {
   margin: 6px 10px 2px;
   color: var(--color-ink-faint);
-  font-family: var(--font-mono);
   font-size: 11px;
 }
 
