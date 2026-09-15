@@ -690,7 +690,12 @@
    or tinted "current" state none of these tiles actually has (each opens a
    transient sheet or panel, never a place you "are"). */
 .dock-item {
-  flex: 1;
+  /* Content-based, not an equal-share `flex: 1` (#345): a one-word ghost
+     caption ("Folders"/"Compose") never needs to grow, and giving it equal
+     weight against the switcher tile below is exactly what used to starve
+     the switcher's own variable-length App name of room — see
+     `.dock-switcher`'s own comment. */
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -743,13 +748,25 @@
    thing you press to open something, not a caption naming what the Dock
    currently shows. */
 .dock-switcher {
-  flex: 1;
+  /* Content-based basis and real growth priority (#345, fixes the current
+     App's name reading as a single illegible letter) — this is the one
+     Dock tile whose label varies (App names run "Mail" to "Contacts"), so
+     unlike `.dock-item`'s own fixed-width captions either side, it's the
+     one tile that should actually claim any free width the pill has. A
+     bare `flex: 1` shared equally with two `.dock-item`s (each protected by
+     their own `min-width`, this tile's `min-width: 0` giving it none of its
+     own) meant *this* tile, not either of theirs, absorbed the whole
+     squeeze whenever the pill's own shrink-to-fit sizing ran short — flex-
+     basis `auto` seeds that sizing from the label's own real content width
+     instead of a shared, content-blind `0%`, and `min-width` gives it a
+     floor even at the shortest App name. */
+  flex: 1 1 auto;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 0;
+  min-width: 72px;
   height: var(--dock-height);
   padding: 0 10px;
   border: 1px solid var(--color-border);
