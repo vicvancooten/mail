@@ -48,11 +48,15 @@ export interface AppDef {
    */
   observesAccountScope: boolean;
   /**
-   * This App's two most-used controls, in the phone Dock (#298) — at most
-   * two, in the order the Dock renders them either side of the switcher
-   * tile. Mail names its two (Folders, Compose); an App that hasn't named
-   * any yet renders none, the same "reserved but not fully built out"
-   * posture `available: false` already gives a whole App above.
+   * This App's most-used controls, in the phone Dock (#298) — at most two,
+   * in the order the Dock renders them either side of the switcher tile.
+   * Mail names two (Folders, Compose); Contacts, Calendar, Tasks and Notes
+   * each name one (`create`, #345) — a single-element array lands in the
+   * switcher's leading side (`router/Dock.tsx`'s own `[before, after] =
+   * controls` destructuring), which is fine with nothing on the other side
+   * to read as inconsistent against. An App that hasn't named any yet
+   * renders none, the same "reserved but not fully built out" posture
+   * `available: false` already gives a whole App above.
    */
   dockControls: readonly AppDockControl[];
 }
@@ -81,9 +85,13 @@ export const APPS: readonly AppDef[] = [
     description: "Everyone you've written to, gathered in one address book.",
     available: true,
     observesAccountScope: true,
-    // No Dock controls named yet — a future ticket's own worked example,
-    // not this one's.
-    dockControls: [],
+    // "create" (#345): the shared key Calendar/Tasks/Notes below all reuse
+    // too — conceptually one action ("start creating") the same way
+    // `folders`/`compose` are already shared keys naming a Mail-specific
+    // behaviour behind a generic label. `router/Dock.tsx`'s own doc comment
+    // on its App-keyed handler table is where each App's own "create" key
+    // actually resolves to that App's real creation entry point.
+    dockControls: [{ key: "create", label: "New", icon: Plus }],
   },
   {
     key: "calendar",
@@ -94,7 +102,7 @@ export const APPS: readonly AppDef[] = [
     // first built-out screen (Notes' own #193 precedent above).
     available: true,
     observesAccountScope: true,
-    dockControls: [],
+    dockControls: [{ key: "create", label: "New", icon: Plus }],
   },
   {
     key: "tasks",
@@ -105,7 +113,7 @@ export const APPS: readonly AppDef[] = [
     // quick add, `notes`'s own "first built-out screen" precedent.
     available: true,
     observesAccountScope: false,
-    dockControls: [],
+    dockControls: [{ key: "create", label: "New", icon: Plus }],
   },
   {
     key: "notes",
@@ -116,7 +124,7 @@ export const APPS: readonly AppDef[] = [
     // first built-out screen.
     available: true,
     observesAccountScope: false,
-    dockControls: [],
+    dockControls: [{ key: "create", label: "New", icon: Plus }],
   },
 ];
 
