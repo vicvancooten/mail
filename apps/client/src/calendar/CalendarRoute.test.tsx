@@ -715,6 +715,81 @@ describe("Rescheduling a Task from the Calendar (#261)", () => {
     await user.click(chipTitle);
     expect(await screen.findByText("Errands")).not.toBeNull();
   });
+
+  /**
+   * Drag-to-create on the timed grid: `DayTimeGrid.tsx`'s own pointer-down/
+   * move/up handlers on `.calendar-hour-row`, `calendar-event-drag.test.ts`'s
+   * own pure `resolveCreateDragRange` wired to a real gesture. jsdom lays
+   * nothing out, so the day column's own `getBoundingClientRect` is stubbed
+   * to a 1px-per-minute rect — the same trick every one of this grid's own
+   * `top`/`height` percentages already rests on, just inverted so a fake
+   * `clientY` reads back as literal minutes past midnight instead of having
+   * to reverse-engineer one from a real layout no test environment here has.
+   */
+  it("dragging on the timed grid creates an Event spanning exactly the dragged range, not the fixed default duration", async () => {
+    await seedOneCalendarAndEvent();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Team Standup");
+
+    const column = document.querySelector(".calendar-time-grid-column") as HTMLElement;
+    vi.spyOn(column, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 100,
+      bottom: 1440,
+      width: 100,
+      height: 1440,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    } as DOMRect);
+
+    const row = screen.getAllByRole("button", { name: /^Create event at/ })[0] as HTMLElement;
+    // 9:10 down to 10:40 — snaps to 9:15–10:45, a 90-minute range no plain
+    // click's own fixed `DEFAULT_NEW_EVENT_DURATION_MS` (60 minutes) could
+    // ever produce, proving this really is the drag's own exact range.
+    fireEvent.pointerDown(row, { pointerId: 7, button: 0, clientX: 10, clientY: 9 * 60 + 10 });
+    fireEvent.pointerMove(row, { pointerId: 7, clientX: 10, clientY: 10 * 60 + 40 });
+    fireEvent.pointerUp(row, { pointerId: 7, clientX: 10, clientY: 10 * 60 + 40 });
+
+    await user.type(await screen.findByPlaceholderText("Title"), "Deep Work");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("Title")).toBeNull());
+
+    const saved = await localCache().seriesCache.toArray();
+    const created = saved.find((series) => series.title === "Deep Work");
+    expect(created?.durationMs).toBe(90 * 60 * 1000);
+    // Local, not UTC: `openCreatePanelForRange` builds the start from the
+    // day's own local wall-clock minutes the same way `openCreatePanelForDay`
+    // already does, so reading it back the same way is what actually proves
+    // "9:15", independent of whichever timezone this suite happens to run in.
+    const start = new Date(created?.dtstart ?? "");
+    expect(start.getHours()).toBe(9);
+    expect(start.getMinutes()).toBe(15);
+  });
+
+  it("a plain click on the timed grid (no drag) still creates the fixed-duration default event", async () => {
+    await seedOneCalendarAndEvent();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Team Standup");
+
+    await clickToCreate(
+      () => screen.getAllByRole("button", { name: /^Create event at/ })[0] as HTMLElement,
+    );
+    await user.type(screen.getByPlaceholderText("Title"), "Quick Sync");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByPlaceholderText("Title")).toBeNull());
+
+    const saved = await localCache().seriesCache.toArray();
+    const created = saved.find((series) => series.title === "Quick Sync");
+    expect(created?.durationMs).toBe(60 * 60 * 1000);
+  });
 });
 
 const READ_ONLY_CAPABILITIES = {

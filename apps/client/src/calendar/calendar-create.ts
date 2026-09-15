@@ -56,3 +56,37 @@ export function openCreatePanelForDay(
     anchorRect,
   });
 }
+
+/**
+ * Opens the create popover for a specific start/end range within one day —
+ * the timed grid's drag-to-create gesture (`DayTimeGrid.tsx`'s own
+ * create-drag pointer handlers), `openCreatePanelForDay`'s sibling for an
+ * exact range instead of a whole day. `startMinutes`/`endMinutes` are
+ * minutes past midnight in `day`'s own civil calendar — already snapped to
+ * the quarter hour and already resolved into a real, non-degenerate range by
+ * `calendar-event-drag.ts#resolveCreateDragRange`, so this function only
+ * ever turns that range into the same `start`/`end` ISO pair
+ * `openCreatePanelForDay` already builds for a whole day. Seeded
+ * `allDay: false` since a dragged range is always timed — there is no
+ * "drag to create an all-day Event" gesture, the same way the plain
+ * click-to-create hour row this drag sits on top of never was one either.
+ */
+export function openCreatePanelForRange(
+  day: CivilDate,
+  startMinutes: number,
+  endMinutes: number,
+  calendarById: ReadonlyMap<string, Calendar>,
+  anchorRect: PanelAnchorRect,
+): void {
+  const calendarId = defaultCalendarId(calendarById);
+  if (!calendarId) return;
+  const start = new Date(day.year, day.month - 1, day.day, 0, startMinutes, 0, 0);
+  const end = new Date(day.year, day.month - 1, day.day, 0, endMinutes, 0, 0);
+  openCreatePanel({
+    calendarId,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    allDay: false,
+    anchorRect,
+  });
+}
