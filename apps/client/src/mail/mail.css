@@ -3454,7 +3454,24 @@ button.search-chip-toggle.on {
      phone's tighter side padding — no more wrapping the action row onto
      its own line under a subject that isn't here any more. */
   .reading-header {
-    padding: 8px 16px;
+    padding: 6px 12px;
+  }
+
+  /* The bar's own three groups (Reply, Mail, Integrations, #289) at their
+     desktop 32px/1px-gap sizing read as a wide, heavy strip across a
+     390px-wide phone — most of the complaint was never the bar's position
+     (it's already pinned to the top of the pane, not floating mid-screen,
+     the way `.reading-header`'s own `flex: none` first-child placement in
+     `ThreadDetailPane.tsx`'s column already guarantees), just its footprint.
+     A phone-only tighter icon size closes that gap without touching the
+     desktop bar this same markup renders there. */
+  .reading-actions button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .reading-actions-gap {
+    width: 8px;
   }
 
   .reading-heading {
