@@ -66,15 +66,7 @@ export function TaskRow({
       {expanded ? (
         <>
           <div className="task-row-summary">
-            <input
-              type="checkbox"
-              checked={task.completed}
-              aria-label={
-                task.completed ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`
-              }
-              className="task-row-check"
-              onChange={onToggleComplete}
-            />
+            <TaskRowCheck checked={task.completed} title={task.title} onChange={onToggleComplete} />
             <button
               type="button"
               className="task-row-collapse"
@@ -89,15 +81,7 @@ export function TaskRow({
         </>
       ) : (
         <>
-          <input
-            type="checkbox"
-            checked={task.completed}
-            aria-label={
-              task.completed ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`
-            }
-            className="task-row-check"
-            onChange={onToggleComplete}
-          />
+          <TaskRowCheck checked={task.completed} title={task.title} onChange={onToggleComplete} />
           <button
             type="button"
             className="task-row-title"
@@ -113,6 +97,47 @@ export function TaskRow({
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * The row's checkbox (#252) plus its own decorative checkmark (R5, "the
+ * check draws" — `docs/design/polish-pass.md#Motion`): a real
+ * `<input type="checkbox">` stays the interactive, focusable control (the
+ * same a11y call `TaskRow`'s own former doc comment made, over a
+ * `role="checkbox"` button), `appearance: none`-d so `tasks.css` paints its
+ * box; a sibling `aria-hidden` SVG carries a single `stroke-dasharray`
+ * checkmark path that draws via `stroke-dashoffset` while `.task-row--
+ * completing` is on the row — `TaskRow`'s own parent's animate-out window,
+ * so the check finishes drawing well inside the row's 260ms leave.
+ */
+function TaskRowCheck({
+  checked,
+  title,
+  onChange,
+}: {
+  checked: boolean;
+  title: string;
+  onChange: () => void;
+}) {
+  return (
+    <span className="task-row-check-wrap">
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-label={checked ? `Mark "${title}" not done` : `Mark "${title}" done`}
+        className="task-row-check"
+        onChange={onChange}
+      />
+      <svg
+        className="task-row-check-glyph"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d="M3.5 8.5L6.5 11.5L12.5 4.5" pathLength="1" />
+      </svg>
+    </span>
   );
 }
 
