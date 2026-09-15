@@ -123,5 +123,12 @@ export default defineConfig({
     // to finish instead of flaking.
     testTimeout: 10_000,
     hookTimeout: 20_000,
+    // CI runners occasionally starve a `findByRole`/`waitFor` past even the
+    // doubled timeouts above despite the worker cap (shared-runner noise,
+    // not this suite's own logic — see the flakes this was added for: PR
+    // review of #325). One retry absorbs that without masking a real
+    // regression, which reproduces on every attempt. Local runs stay at 0
+    // retries so a genuine failure there fails fast.
+    retry: process.env.CI ? 1 : 0,
   },
 });
