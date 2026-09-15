@@ -7,6 +7,7 @@ import { openCalendarSlideOver } from "../calendar/calendar-slide-over.js";
 import type { ActionContext } from "../mail/actions/types.js";
 import { useCalendars } from "../store/calendars.js";
 import { createNote, newNoteId } from "../store/notes.js";
+import { openTasksListsSheet } from "../tasks/tasks-lists-sheet.js";
 import { rootRoute } from "./routes.js";
 
 /**
@@ -50,14 +51,12 @@ function joinNaturally(parts: readonly string[]): string {
  *    popover, since the Dock has no component ancestry in common with
  *    `CalendarRoute`'s own toolbar button that opens the identical
  *    slide-over.
- *  - **Tasks (Lists)**: navigates to `/tasks` with both `list` and `view`
- *    cleared — the rail has no phone Sheet of its own yet (`#321` builds
- *    it, the spec's own "Tasks" section under "Resolved details"); until
- *    then this just lands on whatever `/tasks` with no selection already
- *    shows (`TasksRoute.tsx`'s own "Today on every width" landing state).
+ *  - **Tasks (Lists)**: `openTasksListsSheet()` (`tasks/tasks-lists-sheet.ts`,
+ *    #321) — the same module-level opener shape the Calendars tile already
+ *    uses, since the Dock has no component ancestry in common with wherever
+ *    the Sheet actually mounts (`TasksApp.tsx`).
  */
 function useNavControlAction(currentKey: string | undefined, ctx: ActionContext): () => void {
-  const navigate = rootRoute.useNavigate();
   return useCallback(() => {
     switch (currentKey) {
       case "mail":
@@ -67,15 +66,12 @@ function useNavControlAction(currentKey: string | undefined, ctx: ActionContext)
         openCalendarSlideOver();
         return;
       case "tasks":
-        // TODO(#321): once the Tasks rail ships as a phone Sheet, open that
-        // Sheet here instead of navigating — the Folders/Calendars pattern
-        // this tile can't yet follow because the Sheet doesn't exist.
-        void navigate({ to: "/tasks", search: { list: undefined, view: undefined } });
+        openTasksListsSheet();
         return;
       default:
         return;
     }
-  }, [currentKey, ctx, navigate]);
+  }, [currentKey, ctx]);
 }
 
 /**

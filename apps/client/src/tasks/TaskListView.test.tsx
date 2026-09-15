@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { toast } from "sonner";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Toaster } from "../components/ui/sonner.js";
 import { resetUndoToastsForTest } from "../mail/undo-toast.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
@@ -53,7 +53,7 @@ afterEach(async () => {
 function renderTaskListView(props: Partial<Parameters<typeof TaskListView>[0]> = {}) {
   return render(
     <>
-      <TaskListView taskList={LIST} onBack={vi.fn()} {...props} />
+      <TaskListView taskList={LIST} {...props} />
       <Toaster />
     </>,
   );
@@ -83,15 +83,6 @@ function makeDataTransfer() {
 }
 
 describe("TaskListView (#252)", () => {
-  it("the back control calls onBack", async () => {
-    const onBack = vi.fn();
-    renderTaskListView({ onBack });
-
-    fireEvent.click(screen.getByRole("button", { name: "Back to Task Lists" }));
-
-    expect(onBack).toHaveBeenCalledTimes(1);
-  });
-
   it("renders every live Task grouped under one implicit group when the List has no Sections yet", async () => {
     await applyTaskDelta(
       delta({

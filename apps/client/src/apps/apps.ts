@@ -117,10 +117,10 @@ export const APPS: readonly AppDef[] = [
     // quick add, `notes`'s own "first built-out screen" precedent.
     available: true,
     observesAccountScope: false,
-    // Lists navigates to `/tasks` with no List/view selected until #321
-    // ships the rail as a phone Sheet (`router/Dock.tsx`'s own comment on
-    // the tile's handler) — `PanelLeft` matches Mail's Folders/Calendar's
-    // Calendars rather than inventing a third glyph for "open a rail".
+    // Lists opens the rail as a phone Sheet (#321, `tasks/tasks-lists-sheet.ts`'s
+    // module-level opener, `router/Dock.tsx`'s own comment on the tile's
+    // handler) — `PanelLeft` matches Mail's Folders/Calendar's Calendars
+    // rather than inventing a third glyph for "open a rail".
     navControl: { key: "lists", label: "Lists", icon: PanelLeft },
     primaryAction: { key: "create", label: "New task", icon: Plus },
   },
