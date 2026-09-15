@@ -79,18 +79,18 @@
 .contacts-search {
   flex: 1 1 200px;
   min-width: 160px;
-  border: var(--hairline) solid var(--color-border);
+  border: none;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
+  background: var(--color-field);
   color: var(--color-ink);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-secondary);
   padding: var(--space-2) var(--space-4);
 }
 
 .contacts-search:focus {
   outline: none;
-  border-color: var(--color-accent);
+  background: var(--color-field-strong);
 }
 
 .contacts-recently-deleted-link {
@@ -325,9 +325,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  border: var(--hairline) solid var(--color-border);
+  border: none;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
+  background: var(--color-field);
   color: var(--color-ink-muted);
   font-family: inherit;
   font-size: var(--text-secondary);
@@ -335,8 +335,7 @@
   cursor: pointer;
   transition:
     background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease),
-    border-color var(--dur-press) var(--ease);
+    color var(--dur-press) var(--ease);
 }
 
 .contacts-duplicates-filter:hover {
@@ -346,7 +345,6 @@
 
 .contacts-duplicates-filter.selected {
   background: var(--color-accent-soft);
-  border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: 600;
 }
@@ -404,9 +402,9 @@
 
 .contact-import-target select,
 .contact-copy-move-target select {
-  border: var(--hairline) solid var(--color-border);
+  border: none;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
+  background: var(--color-field);
   color: var(--color-ink);
   font: inherit;
   font-weight: 400;
