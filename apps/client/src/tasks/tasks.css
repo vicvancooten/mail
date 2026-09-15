@@ -225,20 +225,11 @@
 }
 
 /* Back exists only where the sidebar is not already on screen — the narrow
-   breakpoint below brings it back, `mail.css#.reading-back`'s own shape. */
+   breakpoint below brings it back, `mail.css#.reading-back`'s own shape.
+   Shape and colour are `.btn-ghost.btn-icon` now (`controls.css`, R2); this
+   is only the show/hide. */
 .tasks-back {
   display: none;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  color: var(--color-ink-muted);
-}
-
-.tasks-back:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
 }
 
 .tasks-quick-add {
@@ -272,42 +263,13 @@
   font-size: 13px;
 }
 
-/* "See all results" (#262): the query as a read-only chip, `mail.css#.search-chip`'s
-   own shape duplicated under a `tasks-` prefix rather than imported — this
-   file's own "no dependency on `mail.css` ever having loaded" reasoning. */
+/* "See all results" (#262): the query as a read-only chip — `.chip`/
+   `.chip-remove` now (`controls.css`, R2), one shared shape rather than a
+   `tasks-` prefixed duplicate of `mail.css`'s own. */
 .tasks-search-chip-row {
   display: flex;
   align-items: center;
   margin-bottom: 12px;
-}
-
-.tasks-search-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 10px;
-  border-radius: 999px;
-  background: var(--color-field);
-  color: var(--color-ink);
-  font-size: 12.5px;
-}
-
-.tasks-search-chip-remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--color-ink-faint);
-  cursor: pointer;
-}
-
-.tasks-search-chip-remove:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
 }
 
 .tasks-groups {

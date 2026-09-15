@@ -1,0 +1,241 @@
+/* Control vocabulary (R2, `docs/design/polish-pass.md`): shape names the
+   category, and there is exactly one shape per category. Pill
+   (`--radius-pill`) is reserved for the one primary action, the search
+   entry, and the dock — nothing else uses it. Every other control is a
+   ghost `--radius-md` button; a filter/tag/facet is a `--radius-sm` chip on
+   `--color-field`; picking one of several views is a `Segmented` track. No
+   hairline-bordered button anywhere — Settings is the only place a
+   hairline still reads as structure. Sizes come straight off the control
+   height ladder (`@mail/design-tokens`'s `--control-*`) except the chip's
+   24px, which the ladder has no rung for and R2 names as a literal. */
+
+/* ---------------------------------------------------------------------- */
+/* .btn-primary — the one solid-accent action per App (R3)                 */
+/* ---------------------------------------------------------------------- */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-primary);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    filter var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* ---------------------------------------------------------------------- */
+/* .btn-ghost — the default control: toolbar buttons, back buttons, tabs   */
+/* ---------------------------------------------------------------------- */
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-md);
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+
+.btn-ghost:hover {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+/* The current/selected reading — a filter chip's own "on" state reused for
+   a toggleable ghost button (a filter, a pressed toolbar action). `.current`
+   covers a call site that names "the current thing" rather than a strict
+   on/off toggle (a tab, a view). */
+.btn-ghost[aria-pressed="true"],
+.btn-ghost.current {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* The smaller rung — an inline icon action beside denser content. */
+.btn-ghost--sm {
+  height: var(--control-sm);
+  padding: 0 8px;
+}
+
+/* A square icon-only button: no visible label, so every call site must
+   still carry `aria-label` — the icon alone is never an accessible name. */
+.btn-ghost.btn-icon {
+  width: var(--control-md);
+  padding: 0;
+}
+
+.btn-ghost--sm.btn-icon {
+  width: var(--control-sm);
+}
+
+/* ---------------------------------------------------------------------- */
+/* .segmented — pick one of several views/tabs (R2)                        */
+/* ---------------------------------------------------------------------- */
+
+.segmented {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--control-md);
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+}
+
+/* The sliding thumb: one element, positioned by `--seg-index`/`--seg-count`
+   set inline by `Segmented.tsx` rather than measured in JS — every option
+   is equal width, so a plain `translateX(index * 100%)` of a
+   `100% / count`-wide box lands on the current option with no layout read.
+   `prefers-reduced-motion` already clamps every transition in the app
+   (`index.css`); nothing here needs its own escape hatch. */
+.segmented::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--seg-count, 1));
+  border-radius: calc(var(--radius-md) - 3px);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  transform: translateX(calc(var(--seg-index, 0) * 100%));
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.segmented-option {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 12px;
+  border: none;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-press) var(--ease);
+}
+
+.segmented-option:hover {
+  color: var(--color-ink);
+}
+
+.segmented-option[aria-checked="true"] {
+  color: var(--color-ink);
+}
+
+/* ---------------------------------------------------------------------- */
+/* .chip — a filter, a tag, a facet (R2)                                   */
+/* ---------------------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-field);
+  color: var(--color-ink-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-press) var(--ease),
+    color var(--dur-press) var(--ease);
+}
+
+.chip:hover {
+  color: var(--color-ink);
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* A chip that names a fact rather than a control (a Label on a Mail row) —
+   same shape, no pointer affordance. */
+span.chip {
+  cursor: default;
+}
+
+/* The small X inside a removable chip — Lucide `X` at the app's shared 1.6
+   stroke (`index.css`'s `.lucide` rule), never a bespoke glyph. */
+.chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0 -4px 0 0;
+  cursor: pointer;
+  transition: color var(--dur-press) var(--ease);
+}
+
+.chip-remove:hover {
+  color: var(--color-ink);
+}

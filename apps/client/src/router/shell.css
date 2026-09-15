@@ -519,26 +519,8 @@
 
 /* ---------- header-right ---------- */
 
-.header-icon-btn {
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-
-.header-icon-btn:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
+/* The appearance toggle is a plain `.btn-ghost.btn-icon` now
+   (`controls.css`, R2) — nothing header-specific left to declare. */
 
 .avatar-menu-trigger {
   appearance: none;

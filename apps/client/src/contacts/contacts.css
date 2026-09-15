@@ -22,30 +22,9 @@
   scroll-padding-bottom: var(--chrome-bottom);
 }
 
-/* ---------- the Contacts / People you've mailed tabs (#218) ---------- */
-
-.contacts-app-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: var(--hairline) solid var(--color-border);
-}
-
-.contacts-app-tab {
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: none;
-  padding: 6px 4px;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--color-ink-faint);
-  cursor: pointer;
-}
-
-.contacts-app-tab.active {
-  color: var(--color-ink);
-  border-bottom-color: var(--color-accent);
-}
+/* The Contacts / People you've mailed tabs (#218) are `Segmented` now
+   (`components/Segmented.tsx`, R2) — `controls.css#.segmented` owns their
+   whole shape, hairline underline gone. */
 
 /* ---------- "People you've mailed" rows ---------- */
 
@@ -157,36 +136,8 @@
   padding: 0;
 }
 
-.address-book-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 12.5px;
-  padding: 5px 12px;
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease),
-    border-color var(--dur-press) var(--ease);
-}
-
-.address-book-chip:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.address-book-chip.selected {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
+/* The Address Book chip itself is `.chip` now (`controls.css`, R2) — only
+   the Origin label riding inside it is this App's own. */
 .address-book-chip-origin {
   font-size: 10.5px;
   color: var(--color-ink-faint);

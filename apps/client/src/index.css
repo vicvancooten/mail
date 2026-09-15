@@ -14,6 +14,11 @@
    `.light`, explicit `.dark`). */
 @import "@mail/design-tokens/css";
 
+/* The control vocabulary (R2, `docs/design/polish-pass.md`): `.btn-primary`,
+   `.btn-ghost`, `.segmented`, `.chip` — the whole button/tab/chip grammar,
+   consumed by every App rather than each hand-rolling its own. */
+@import "./controls.css";
+
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================================

@@ -47,11 +47,11 @@ export function TasksSearchResults({
   return (
     <section className="tasks-main" aria-label="Task search results">
       <div className="tasks-search-chip-row">
-        <span className="tasks-search-chip">
+        <span className="chip">
           {query}
           <button
             type="button"
-            className="tasks-search-chip-remove"
+            className="chip-remove"
             aria-label="Clear search"
             onClick={onClearQuery}
           >
