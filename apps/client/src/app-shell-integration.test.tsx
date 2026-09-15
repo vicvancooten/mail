@@ -5,6 +5,7 @@ import Dexie from "dexie";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { closeCalendarSlideOver } from "./calendar/calendar-slide-over.js";
 import { resetActiveMailHost } from "./mail/actions/active-mail-host.js";
 import { resetSurfaceHandles } from "./mail/actions/surface-handles.js";
 import { writeAccountScope, writeViewMode } from "./mail/device-preferences.js";
@@ -151,6 +152,10 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   localCache().close();
   resetUndoToastsForTest();
+  // `calendar-slide-over.ts`'s own open state lives outside React, the
+  // Dock's own Calendars tile test above opens it — `CalendarRoute.test.tsx`'s
+  // own `closeCalendarSlideOver()` reset, applied here too.
+  closeCalendarSlideOver();
   // Sonner's own toast store lives outside React (`mail/MailSection.test.tsx`'s
   // own doc comment) — a toast one test raised but never dismissed (its own
   // timer not yet due) would otherwise bleed into the next test's assertions,
@@ -466,7 +471,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("at phone width, the header sheds to search and avatar and the Dock carries the App Switcher tile plus Mail's two declared controls (#155, #298)", async () => {
+  it("at phone width, the header sheds to search and avatar and the Dock carries the App Switcher tile plus Mail's declared controls (#155, #298, #318)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -488,19 +493,18 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
       expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
 
-      // The Dock itself: Folders and Compose either side of the switcher
-      // tile — Mail's own two declared controls (`apps/apps.ts#AppDef.dockControls`)
-      // — the switcher tile captioned with the current App's name, "Mail"
-      // (its accessible name stays "Switch app" either way, the same one
-      // the header's own skin carries) — scoped to the Dock itself, since
-      // jsdom (unlike a real browser) never hides the desktop folder rail's
-      // own same-named Compose pill for a width it can't apply `mail.css`'s
-      // CSS against.
+      // The Dock itself: the switcher tile leading, then Mail's own
+      // `navControl` (Folders) and `primaryAction` (Compose,
+      // `apps/apps.ts#AppDef`) — three icon-only tiles, no caption text
+      // anywhere in the pill (#318, decision B) — scoped to the Dock
+      // itself, since jsdom (unlike a real browser) never hides the desktop
+      // folder rail's own same-named Compose pill for a width it can't
+      // apply `mail.css`'s CSS against.
       const dock = screen.getByRole("navigation", {
-        name: "Folders, switch app, and Compose",
+        name: "switch app, Folders, and Compose",
       });
       expect(within(dock).getByRole("button", { name: "Folders" })).toBeDefined();
-      expect(within(dock).getByText("Mail")).toBeDefined();
+      expect(within(dock).queryByText("Mail")).toBeNull();
       expect(within(dock).getByRole("button", { name: "Compose" })).toBeDefined();
 
       // Folders opens the same Sheet the desktop rail's entries live in.
@@ -534,14 +538,14 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByRole("button", { name: "Switch app" });
 
-      // Contacts declares one Dock control now (`apps/apps.ts#APPS`'s own
-      // `contacts` entry, its own "create") — the Dock renders that one
-      // tile plus the switcher, neither of Mail's own Folders/Compose.
+      // Contacts declares no `navControl` (`apps/apps.ts#APPS`'s own
+      // `contacts` entry) — the Dock renders just its `primaryAction` tile
+      // plus the switcher, neither of Mail's own Folders/Compose.
       await user.click(screen.getByRole("button", { name: "Switch app" }));
       await user.click(screen.getByRole("link", { name: /Contacts/ }));
       await screen.findByLabelText("Contacts");
 
-      const dock = screen.getByRole("navigation", { name: "New Contact and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app and New Contact" });
       expect(within(dock).queryByRole("button", { name: "Folders" })).toBeNull();
       expect(within(dock).queryByRole("button", { name: "Compose" })).toBeNull();
       expect(within(dock).getByRole("button", { name: "New Contact" })).toBeDefined();
@@ -565,7 +569,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Contacts");
 
-      const dock = screen.getByRole("navigation", { name: "New Contact and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app and New Contact" });
       await user.click(within(dock).getByRole("button", { name: "New Contact" }));
 
       // The exact same screen `ContactsGrid.tsx`'s own "New contact" link
@@ -593,7 +597,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Calendar");
 
-      const dock = screen.getByRole("navigation", { name: "New Event and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app, Calendars, and New Event" });
       await user.click(within(dock).getByRole("button", { name: "New Event" }));
 
       // `EventEditorPopover.tsx`'s own create-mode fields — the exact same
@@ -601,6 +605,33 @@ describe("the app shell over a routed tree (#71)", () => {
       // creation UI.
       expect(await screen.findByPlaceholderText("Title")).toBeDefined();
       expect(screen.getByRole("group", { name: "Event or Task" })).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Calendar Dock's Calendars control opens the same slide-over the toolbar's own 'Show Calendars' button does (#318)", async () => {
+    await applyCalendarDelta(delta({ created: [makeCalendar("cal-1", "u1")] }), {
+      replace: false,
+    });
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/calendar");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Calendar");
+
+      const dock = screen.getByRole("navigation", { name: "switch app, Calendars, and New Event" });
+      await user.click(within(dock).getByRole("button", { name: "Calendars" }));
+
+      // `calendar-slide-over.ts`'s own module-level opener — the identical
+      // slide-over `CalendarRoute.tsx`'s toolbar button opens
+      // (`CalendarRoute.test.tsx`'s own "Show Calendars" tests), listing
+      // the seeded default Calendar.
+      expect(await screen.findByLabelText("Personal")).toBeDefined();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -621,7 +652,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Tasks");
 
-      const dock = screen.getByRole("navigation", { name: "New Task and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
       await user.click(within(dock).getByRole("button", { name: "New Task" }));
 
       // `TaskTodayView.tsx`'s own quick add — the one existing entry point
@@ -629,6 +660,34 @@ describe("the app shell over a routed tree (#71)", () => {
       await waitFor(() => expect(location.search).toContain("view=today"));
       expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
       expect(screen.getByLabelText("Add a task")).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Tasks Dock's Lists control navigates to /tasks with no List or view selected, until #321 ships the rail as a phone Sheet", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", "u1", { name: "Groceries", isDefault: true })] }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/tasks?list=list-1&view=upcoming");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Tasks");
+
+      const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
+      await user.click(within(dock).getByRole("button", { name: "Lists" }));
+
+      await waitFor(() => {
+        expect(location.pathname).toBe("/tasks");
+        expect(location.search).not.toContain("list=");
+        expect(location.search).not.toContain("view=");
+      });
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -645,7 +704,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Notes");
 
-      const dock = screen.getByRole("navigation", { name: "New Note and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app and New Note" });
       await user.click(within(dock).getByRole("button", { name: "New Note" }));
 
       // A real Note now exists and its own dialog is open — the exact same

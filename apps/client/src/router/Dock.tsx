@@ -3,41 +3,20 @@ import { PhoneSwitcher } from "../apps/AppSwitcher.js";
 import { APPS_BY_KEY, type AppDockControl, appForPath, appIconFor } from "../apps/apps.js";
 import { defaultCalendarId } from "../calendar/calendar-create.js";
 import { elementAnchorRect, openCreatePanel } from "../calendar/calendar-event-panel.js";
+import { openCalendarSlideOver } from "../calendar/calendar-slide-over.js";
 import type { ActionContext } from "../mail/actions/types.js";
 import { useCalendars } from "../store/calendars.js";
 import { createNote, newNoteId } from "../store/notes.js";
 import { rootRoute } from "./routes.js";
 
 /**
- * A Dock control's own `key` (`apps.ts#AppDockControl`) mapped to the
- * `ActionContext` callback it actually runs — behavior the Apps registry
- * itself stays free of (`apps.ts`'s own doc comment on `AppDockControl`),
- * the same split `apps/apps.ts#APP_ICONS` already keeps between "what an
- * App names" and "what actually runs it". Adding a new control an App wants
- * to declare is one entry here plus one in that App's own `dockControls`,
- * never a change to the Dock itself.
- *
- * Only Folders and Compose live here — `"create"` (`useCreateAction`
- * below) deliberately doesn't, even though it's the same "control key →
- * handler" idea. `ActionContext` is what every Mail-family surface
- * (`MailSection`, `stream/StreamStack`) publishes for whichever Thread List
- * or reading pane is actually mounted (`mail/actions/active-mail-host.ts`);
- * Contacts, Calendar, Tasks and Notes are not Mail-family surfaces and
- * publish no `ActionContext` at all, so a table shaped `(ctx) => void` has
- * nothing to call on their own routes.
- */
-const DOCK_ACTIONS: Record<string, (ctx: ActionContext) => void> = {
-  folders: (ctx) => ctx.onOpenFolders(),
-  compose: (ctx) => ctx.onCompose(),
-};
-
-/**
  * A fuller spoken name for a control than its short visual caption — the
  * Dock's own `aria-label`s read "New Contact"/"New Event" rather than a bare
  * "New" repeated across four different Apps with nothing to tell them apart
  * out of visual context (`control.label` stays the short caption the tile
- * itself renders; this is only ever what's spoken). Folders/Compose already
- * read fine as their own plain `label`.
+ * used to render before #318 removed every caption; this is only ever what's
+ * spoken now). Folders/Compose/Calendars/Lists already read fine as their
+ * own plain `label`.
  */
 function controlAccessibleLabel(control: AppDockControl, appName: string | undefined): string {
   if (control.key !== "create" || !appName) return control.label;
@@ -50,7 +29,7 @@ function controlAccessibleLabel(control: AppDockControl, appName: string | undef
   return `New ${noun[appName] ?? appName}`;
 }
 
-/** `["Folders", "switch app", "Compose"]` → `"Folders, switch app, and Compose"` — the Dock's own accessible name, built from whichever controls the current App actually declares rather than a string hardcoded to Mail's own two. */
+/** `["switch app", "Folders", "Compose"]` → `"switch app, Folders, and Compose"` — the Dock's own accessible name, built from whichever controls the current App actually declares rather than a string hardcoded to Mail's own two. */
 function joinNaturally(parts: readonly string[]): string {
   if (parts.length <= 1) return parts.join("");
   if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
@@ -58,23 +37,59 @@ function joinNaturally(parts: readonly string[]): string {
 }
 
 /**
- * The `"create"` control's own handler, resolved by the *App's* own
- * `key` rather than the control's — `"create"` is one shared control key
- * across Contacts/Calendar/Tasks/Notes (`apps.ts#AppDockControl`'s own doc
- * comment: the same "share a key when the action is conceptually identical"
- * `folders`/`compose` already establish), but what it actually runs is
- * different per App, so the App picks the handler, not the control.
+ * The `navControl` tile's own handler, keyed by the current App rather than
+ * by the control's own `key` — unlike `primaryAction` below, none of these
+ * three (Folders, Calendars, Lists) share a generic key the way `"create"`
+ * does, since each opens a genuinely different kind of surface (a Sheet, a
+ * module-level slide-over, a bare navigation):
+ *  - **Mail (Folders)**: `ctx.onOpenFolders()` — the same `ActionContext`
+ *    callback the desktop folder rail's own Sheet trigger already calls.
+ *  - **Calendar (Calendars)**: `openCalendarSlideOver()`
+ *    (`calendar-slide-over.ts`) — a module-level opener, the same shape
+ *    `calendar-event-panel.ts` already uses for the create/edit/task
+ *    popover, since the Dock has no component ancestry in common with
+ *    `CalendarRoute`'s own toolbar button that opens the identical
+ *    slide-over.
+ *  - **Tasks (Lists)**: navigates to `/tasks` with both `list` and `view`
+ *    cleared — the rail has no phone Sheet of its own yet (`#321` builds
+ *    it, the spec's own "Tasks" section under "Resolved details"); until
+ *    then this just lands on whatever `/tasks` with no selection already
+ *    shows (`TasksRoute.tsx`'s own "Today on every width" landing state).
+ */
+function useNavControlAction(currentKey: string | undefined, ctx: ActionContext): () => void {
+  const navigate = rootRoute.useNavigate();
+  return useCallback(() => {
+    switch (currentKey) {
+      case "mail":
+        ctx.onOpenFolders();
+        return;
+      case "calendar":
+        openCalendarSlideOver();
+        return;
+      case "tasks":
+        // TODO(#321): once the Tasks rail ships as a phone Sheet, open that
+        // Sheet here instead of navigating — the Folders/Calendars pattern
+        // this tile can't yet follow because the Sheet doesn't exist.
+        void navigate({ to: "/tasks", search: { list: undefined, view: undefined } });
+        return;
+      default:
+        return;
+    }
+  }, [currentKey, ctx, navigate]);
+}
+
+/**
+ * The `primaryAction` tile's own handler, keyed by the current App — merges
+ * what used to be two separate tables (`DOCK_ACTIONS`'s own `compose` entry,
+ * reading `ctx.onCompose()`, and this same `useCreateAction`'s own
+ * Contacts/Calendar/Tasks/Notes switch) into one, now that Mail's primary
+ * action is Compose rather than a Folders/Compose pair either side of the
+ * switcher tile (R3, `docs/design/polish-pass.md`): every App names exactly
+ * one primary action, so one App-keyed handler covers all five rather than
+ * splitting Mail's out into a control-keyed table of its own.
  *
- * The Dock only ever shows one of these Apps' own `dockControls` while that
- * App is genuinely current (`appForPath` on the live `pathname` — unlike
- * Folders/Compose, nothing here falls back to Mail's own controls the way
- * `Dock`'s own `controls` lookup does), so unlike `fallbackCtx`
- * (`RootLayout.tsx`) there is no "pressed from Settings" case to cover: a
- * User can only ever see Contacts' own "New Contact" tile while already on
- * `/contacts`.
- *
- * Each case reuses that App's own existing creation entry point rather than
- * inventing a second one:
+ * Each non-Mail case reuses that App's own existing creation entry point
+ * rather than inventing a second one:
  *  - **Contacts**: `/contacts/new` — the grid's own "New contact" `Link`
  *    (`ContactsGrid.tsx`), `NewContactRoute.tsx`'s own screen.
  *  - **Calendar**: `openCreatePanel` — the same module-level panel state
@@ -104,13 +119,19 @@ function joinNaturally(parts: readonly string[]): string {
  *    `noteId` directly, with no separate "create mode" to gate behind a
  *    dedicated route the way `ContactDialog`'s `contactId: null` needs.
  */
-function useCreateAction(currentKey: string | undefined) {
+function usePrimaryAction(
+  currentKey: string | undefined,
+  ctx: ActionContext,
+): (event: React.MouseEvent<HTMLButtonElement>) => void {
   const navigate = rootRoute.useNavigate();
   const calendars = useCalendars() ?? [];
 
   return useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       switch (currentKey) {
+        case "mail":
+          ctx.onCompose();
+          return;
         case "contacts":
           void navigate({ to: "/contacts/new" });
           return;
@@ -145,19 +166,21 @@ function useCreateAction(currentKey: string | undefined) {
           return;
       }
     },
-    [currentKey, navigate, calendars],
+    [currentKey, ctx, navigate, calendars],
   );
 }
 
 /**
- * The phone Dock (#298, replacing #155's own bottom bar): a floating pill
- * at the foot of the screen rather than a bar framing it — `shell.css`'s
- * `.dock` — holding the App Switcher tile (`PhoneSwitcher`'s own
- * `variant="dock"` skin) plus whichever of the current App's own
- * `dockControls` (`apps/apps.ts#AppDef.dockControls`) it declares, at most
- * two either side of the switcher tile. An App with fewer than two — or
- * none, `apps.ts`'s own placeholder Apps today — simply renders fewer
- * tiles; there is no empty slot standing in for a control nobody declared.
+ * The phone Dock (#298, replaced with a blurred glass pill in #318): a
+ * floating pill at the foot of the screen holding, in order, the App
+ * Switcher tile, the current App's `navControl` if it declares one, and its
+ * `primaryAction` (`apps/apps.ts#AppDef`) — `[switcher][nav?][primary]`,
+ * never more than three tiles (R3, decision B, `docs/design/polish-pass.md`).
+ * Contacts and Notes name no `navControl`, so their Dock is a two-tile pill.
+ *
+ * Every tile is icon-only with an `aria-label` — no caption text survives
+ * inside the pill (#318's own acceptance box), unlike the ghost
+ * icon-over-caption tiles this replaces.
  *
  * Global chrome, mounted once by `RootLayout.tsx` right beside the header
  * (both retract together on scroll, `RootLayout.tsx`'s own
@@ -165,18 +188,6 @@ function useCreateAction(currentKey: string | undefined) {
  * phone breakpoint (#273), keeping it phone-only the same "both render, CSS
  * decides" way `Sidebar.tsx`'s own `DesktopRail`/`MobileSheet` pair already
  * does, rather than a JS width check that could disagree with the CSS.
- *
- * A Folders/Compose control's `run` is read from `ctx` — whichever
- * Mail-family surface is mounted (`MailSection`, `stream/StreamStack`), or
- * the Hub's own fallback — the same `ActionContext` the Command Palette
- * already reads from `RootLayout`, so both work from Settings or a
- * placeholder App too: the Hub's fallback navigates to Mail first there
- * rather than doing nothing (`onOpenFolders`, `onCompose`), the same shape
- * `onOpenStream` already uses for the Palette. A `"create"` control's `run`
- * is `useCreateAction` above instead — Contacts/Calendar/Tasks/Notes publish
- * no `ActionContext` for it to read. The App Switcher needs neither — it's
- * `PhoneSwitcher` itself (`apps/AppSwitcher.tsx`), reused directly rather
- * than re-implemented.
  */
 export function Dock({ pathname, ctx }: { pathname: string; ctx: ActionContext }) {
   const current = appForPath(pathname);
@@ -188,28 +199,20 @@ export function Dock({ pathname, ctx }: { pathname: string; ctx: ActionContext }
   // `accountScopeFacetForApp` (`apps.ts`) already take for a pathname with
   // no matching App, and what keeps Folders/Compose reachable from Settings
   // (`fallbackCtx`'s own "navigate to Mail first" shape, `RootLayout.tsx`).
-  const controls = current?.dockControls ?? APPS_BY_KEY.mail.dockControls;
-  const [before, after] = controls;
-  const runCreate = useCreateAction(current?.key);
+  const app = current ?? APPS_BY_KEY.mail;
+  const runNavControl = useNavControlAction(current?.key ?? "mail", ctx);
+  const runPrimaryAction = usePrimaryAction(current?.key ?? "mail", ctx);
 
   const navLabel = joinNaturally(
     [
-      before ? controlAccessibleLabel(before, current?.name) : undefined,
       "switch app",
-      after ? controlAccessibleLabel(after, current?.name) : undefined,
+      app.navControl ? controlAccessibleLabel(app.navControl, app.name) : undefined,
+      controlAccessibleLabel(app.primaryAction, app.name),
     ].filter((label): label is string => Boolean(label)),
   );
 
   return (
     <nav className="dock" aria-label={navLabel}>
-      {before && (
-        <DockControlButton
-          control={before}
-          ctx={ctx}
-          appName={current?.name}
-          onCreate={runCreate}
-        />
-      )}
       <PhoneSwitcher
         current={current}
         CurrentIcon={CurrentIcon}
@@ -217,26 +220,24 @@ export function Dock({ pathname, ctx }: { pathname: string; ctx: ActionContext }
         setOpen={setSwitcherOpen}
         variant="dock"
       />
-      {after && (
-        <DockControlButton control={after} ctx={ctx} appName={current?.name} onCreate={runCreate} />
+      {app.navControl && (
+        <DockTile control={app.navControl} appName={app.name} onClick={runNavControl} />
       )}
+      <DockTile control={app.primaryAction} appName={app.name} onClick={runPrimaryAction} />
     </nav>
   );
 }
 
-function DockControlButton({
+function DockTile({
   control,
-  ctx,
   appName,
-  onCreate,
+  onClick,
 }: {
   control: AppDockControl;
-  ctx: ActionContext;
   appName: string | undefined;
-  onCreate: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const Icon = control.icon;
-  const run = DOCK_ACTIONS[control.key];
   // Compose keeps the one bit of personality the old bottom bar gave it — a
   // quarter turn of the plus on press — everything else about it is the
   // same ghost `dock-item` voice every other tile shares.
@@ -246,10 +247,9 @@ function DockControlButton({
       type="button"
       className={className}
       aria-label={controlAccessibleLabel(control, appName)}
-      onClick={control.key === "create" ? onCreate : () => run?.(ctx)}
+      onClick={onClick}
     >
       <Icon size={20} />
-      <span aria-hidden="true">{control.label}</span>
     </button>
   );
 }

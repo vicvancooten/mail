@@ -29,4 +29,27 @@ describe("apps.ts (#187)", () => {
     expect(APPS_BY_KEY.tasks.observesAccountScope).toBe(false);
     expect(APPS_BY_KEY.notes.observesAccountScope).toBe(false);
   });
+
+  /**
+   * The Dock's own registry (#318, decision B): every App names exactly one
+   * `primaryAction`; only Mail, Calendar and Tasks also name a `navControl`
+   * — the Dock renders `[switcher][navControl?][primaryAction]`
+   * (`router/Dock.tsx`), so Mail/Calendar/Tasks show three tiles and
+   * Contacts/Notes show two.
+   */
+  it("every App names exactly one primaryAction", () => {
+    expect(APPS_BY_KEY.mail.primaryAction.label).toBe("Compose");
+    expect(APPS_BY_KEY.contacts.primaryAction.label).toBe("New contact");
+    expect(APPS_BY_KEY.calendar.primaryAction.label).toBe("New event");
+    expect(APPS_BY_KEY.tasks.primaryAction.label).toBe("New task");
+    expect(APPS_BY_KEY.notes.primaryAction.label).toBe("New note");
+  });
+
+  it("only Mail, Calendar and Tasks name a navControl; Contacts and Notes name none", () => {
+    expect(APPS_BY_KEY.mail.navControl?.label).toBe("Folders");
+    expect(APPS_BY_KEY.calendar.navControl?.label).toBe("Calendars");
+    expect(APPS_BY_KEY.tasks.navControl?.label).toBe("Lists");
+    expect(APPS_BY_KEY.contacts.navControl).toBeUndefined();
+    expect(APPS_BY_KEY.notes.navControl).toBeUndefined();
+  });
 });

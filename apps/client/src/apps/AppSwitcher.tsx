@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Sheet,
@@ -113,19 +113,18 @@ function AppTabs({
  * full name (five, since #187): a sheet has the vertical room a 60px header
  * never does, so there's no "out of room" question here to answer.
  *
- * The phone Dock (`router/Dock.tsx`, #298) renders this directly rather
- * than going through `AppSwitcher`'s own `useIsPhoneWidth` branch — the Dock
- * is already CSS-gated to that same 768px phone breakpoint (#273 unified
- * the two this app used to carry), so a second JS check here would just be
- * a chance for the two to disagree. `variant="dock"` swaps the header's
- * icon-plus-chevron trigger for one styled to read as its own control
- * rather than as a caption sitting between the Dock's other two tiles
- * (#298's own acceptance box: "the switcher tile reads as tappable/a
- * control, not a label") — a filled tile behind the current App's icon plus
- * an upward chevron (the Sheet it opens rises from the foot of the screen,
- * `ChevronDown`'s own mirror), rather than bare icon-over-caption text
- * identical in weight to Folders/Compose beside it. The Sheet itself, and
- * everything in it, is unchanged either way.
+ * The phone Dock (`router/Dock.tsx`, #298, restyled in #318) renders this
+ * directly rather than going through `AppSwitcher`'s own `useIsPhoneWidth`
+ * branch — the Dock is already CSS-gated to that same 768px phone
+ * breakpoint (#273 unified the two this app used to carry), so a second JS
+ * check here would just be a chance for the two to disagree. `variant="dock"`
+ * swaps the header's icon-plus-chevron trigger for the leading Dock tile
+ * (decision B, `docs/design/polish-pass.md`): the current App's icon alone
+ * on a 28px accent-soft square, no chevron, no App name — icon-only like
+ * every other Dock tile now, distinguished from the nav/primary tiles
+ * beside it only by that filled square (`.dock-switcher-tile`, `shell.css`)
+ * rather than by a caption or a chevron. The Sheet itself, and everything
+ * in it, is unchanged either way.
  */
 export function PhoneSwitcher({
   current,
@@ -145,17 +144,15 @@ export function PhoneSwitcher({
       {variant === "dock" ? (
         <button
           type="button"
-          className="dock-switcher"
+          className="dock-item dock-switcher"
           aria-label="Switch app"
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => setOpen(true)}
         >
-          <span className="app-tile">
-            <CurrentIcon size={15} />
+          <span className="dock-switcher-tile">
+            <CurrentIcon size={16} />
           </span>
-          <span>{current?.name ?? "Apps"}</span>
-          <ChevronUp size={13} className="dock-switcher-chev" />
         </button>
       ) : (
         <button

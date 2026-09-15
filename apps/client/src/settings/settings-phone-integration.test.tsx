@@ -165,7 +165,7 @@ describe("Settings at phone width (#135)", () => {
     // Home mark itself stays at the top bar's leading edge on phone too
     // (#286), unlike the switcher instance the Dock picks up instead.
     expect(
-      screen.getByRole("navigation", { name: "Folders, switch app, and Compose" }),
+      screen.getByRole("navigation", { name: "switch app, Folders, and Compose" }),
     ).toBeDefined();
     expect(screen.getByLabelText("Wicket home")).toBeDefined();
   });
