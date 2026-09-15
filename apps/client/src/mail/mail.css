@@ -3407,6 +3407,14 @@
     display: none;
   }
 
+  /* R5: the reading pane pushes in from the trailing edge the moment it
+     gains a selection (`shell.css#pane-enter`) — going back (losing
+     `.has-selection`) is the same hard `display: none` above, no reverse
+     animation on the list reappearing. */
+  .split-view.has-selection .split-pane {
+    animation: pane-enter var(--dur-fast) var(--ease-out);
+  }
+
   .split-pane .reading-back {
     display: flex;
   }

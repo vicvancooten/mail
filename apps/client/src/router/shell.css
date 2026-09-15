@@ -947,3 +947,66 @@
   font-size: 10px;
   letter-spacing: 0.04em;
 }
+
+/* ============================================================================
+   MOTION (R5, `docs/design/polish-pass.md#Motion`) — the keyframes shared
+   across Apps: a bottom Sheet's rise/fall and its scrim's fade
+   (`components/ui/sheet.tsx`, every `side="bottom"` Sheet: Folders, the App
+   Switcher, VirtualizedThreadList's group-overflow sheet, Add-to-Tasks),
+   and a phone detail pane's push-in when a List/detail split gains
+   `.has-selection` (Mail's `.split-view`, Tasks' `.tasks-split-view`).
+   `prefers-reduced-motion` (`index.css`) clamps every one of these to 1ms —
+   they're plain `animation`s, nothing bypasses that rule.
+   ========================================================================= */
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheet-fall {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sheet-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Phone detail push (R5): the pane that becomes visible when a List/detail
+   split gains `.has-selection` slides in from the trailing edge instead of
+   the hard `display: none` swap just snapping into place. Going back (losing
+   `.has-selection`) stays instant — only the pane that *arrives* animates,
+   never the list reappearing underneath it. */
+@keyframes pane-enter {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
