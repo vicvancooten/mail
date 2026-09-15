@@ -690,7 +690,7 @@
    or tinted "current" state none of these tiles actually has (each opens a
    transient sheet or panel, never a place you "are"). */
 .dock-item {
-  /* Content-based, not an equal-share `flex: 1` (#345): a one-word ghost
+  /* Content-based, not an equal-share `flex: 1`: a one-word ghost
      caption ("Folders"/"Compose") never needs to grow, and giving it equal
      weight against the switcher tile below is exactly what used to starve
      the switcher's own variable-length App name of room — see
@@ -748,7 +748,7 @@
    thing you press to open something, not a caption naming what the Dock
    currently shows. */
 .dock-switcher {
-  /* Content-based basis and real growth priority (#345, fixes the current
+  /* Content-based basis and real growth priority (fixes the current
      App's name reading as a single illegible letter) — this is the one
      Dock tile whose label varies (App names run "Mail" to "Contacts"), so
      unlike `.dock-item`'s own fixed-width captions either side, it's the

@@ -17,7 +17,7 @@ import { rootRoute } from "./routes.js";
  * to declare is one entry here plus one in that App's own `dockControls`,
  * never a change to the Dock itself.
  *
- * Only Folders and Compose live here — `"create"` (#345, `useCreateAction`
+ * Only Folders and Compose live here — `"create"` (`useCreateAction`
  * below) deliberately doesn't, even though it's the same "control key →
  * handler" idea. `ActionContext` is what every Mail-family surface
  * (`MailSection`, `stream/StreamStack`) publishes for whichever Thread List
@@ -58,7 +58,7 @@ function joinNaturally(parts: readonly string[]): string {
 }
 
 /**
- * The `"create"` control's own handler (#345), resolved by the *App's* own
+ * The `"create"` control's own handler, resolved by the *App's* own
  * `key` rather than the control's — `"create"` is one shared control key
  * across Contacts/Calendar/Tasks/Notes (`apps.ts#AppDockControl`'s own doc
  * comment: the same "share a key when the action is conceptually identical"

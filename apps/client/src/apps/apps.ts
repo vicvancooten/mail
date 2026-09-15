@@ -51,7 +51,7 @@ export interface AppDef {
    * This App's most-used controls, in the phone Dock (#298) — at most two,
    * in the order the Dock renders them either side of the switcher tile.
    * Mail names two (Folders, Compose); Contacts, Calendar, Tasks and Notes
-   * each name one (`create`, #345) — a single-element array lands in the
+   * each name one (`create`) — a single-element array lands in the
    * switcher's leading side (`router/Dock.tsx`'s own `[before, after] =
    * controls` destructuring), which is fine with nothing on the other side
    * to read as inconsistent against. An App that hasn't named any yet
@@ -85,7 +85,7 @@ export const APPS: readonly AppDef[] = [
     description: "Everyone you've written to, gathered in one address book.",
     available: true,
     observesAccountScope: true,
-    // "create" (#345): the shared key Calendar/Tasks/Notes below all reuse
+    // "create": the shared key Calendar/Tasks/Notes below all reuse
     // too — conceptually one action ("start creating") the same way
     // `folders`/`compose` are already shared keys naming a Mail-specific
     // behaviour behind a generic label. `router/Dock.tsx`'s own doc comment

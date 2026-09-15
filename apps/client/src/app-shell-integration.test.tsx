@@ -521,7 +521,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("at phone width, an App with fewer declared Dock controls shows fewer tiles (#298, #345)", async () => {
+  it("at phone width, an App with fewer declared Dock controls shows fewer tiles (#298)", async () => {
     await applyAddressBookDelta(delta({ created: [makeAddressBook("book-1")] }), {
       replace: false,
     });
@@ -535,7 +535,7 @@ describe("the app shell over a routed tree (#71)", () => {
       await screen.findByRole("button", { name: "Switch app" });
 
       // Contacts declares one Dock control now (`apps/apps.ts#APPS`'s own
-      // `contacts` entry, #345's own "create") — the Dock renders that one
+      // `contacts` entry, its own "create") — the Dock renders that one
       // tile plus the switcher, neither of Mail's own Folders/Compose.
       await user.click(screen.getByRole("button", { name: "Switch app" }));
       await user.click(screen.getByRole("link", { name: /Contacts/ }));
@@ -551,7 +551,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("the Contacts Dock's create control opens the grid's own /contacts/new screen (#345)", async () => {
+  it("the Contacts Dock's create control opens the grid's own /contacts/new screen", async () => {
     await applyAddressBookDelta(delta({ created: [makeAddressBook("book-1")] }), {
       replace: false,
     });
@@ -579,7 +579,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("the Calendar Dock's create control opens the same create popover a grid click does, defaulted onto the User's default Calendar (#345)", async () => {
+  it("the Calendar Dock's create control opens the same create popover a grid click does, defaulted onto the User's default Calendar", async () => {
     await applyCalendarDelta(delta({ created: [makeCalendar("cal-1", "u1")] }), {
       replace: false,
     });
@@ -606,7 +606,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("the Tasks Dock's create control opens Today, whose own quick add already creates straight into the default List with no List picked first (#345)", async () => {
+  it("the Tasks Dock's create control opens Today, whose own quick add already creates straight into the default List with no List picked first", async () => {
     await applyTaskListDelta(
       delta({ created: [makeTaskList("list-1", "u1", { name: "Tasks", isDefault: true })] }),
       { replace: false },
@@ -634,7 +634,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("the Notes Dock's create control mints a Note and opens straight into its own dialog, Notes' own gap since there is no dedicated /notes/new screen yet (#345)", async () => {
+  it("the Notes Dock's create control mints a Note and opens straight into its own dialog, Notes' own gap since there is no dedicated /notes/new screen yet", async () => {
     stubFetch();
     const user = userEvent.setup();
     const originalWidth = window.innerWidth;
