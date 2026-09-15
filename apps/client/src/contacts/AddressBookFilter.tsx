@@ -31,7 +31,7 @@ export function AddressBookFilter({
           <button
             key={book.id}
             type="button"
-            className={`address-book-chip${selected ? " selected" : ""}`}
+            className="chip"
             aria-pressed={selected}
             onClick={() => onToggle(book.id)}
           >

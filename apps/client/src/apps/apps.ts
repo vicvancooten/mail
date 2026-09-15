@@ -3,15 +3,15 @@ import type { LucideIcon } from "lucide-react";
 import { Calendar, ListChecks, Mail, NotebookText, PanelLeft, Plus, Users } from "lucide-react";
 
 /**
- * One of an App's own Dock controls (#298) — the Dock's floating pill holds
- * the App Switcher tile plus whichever of these an App declares, at most
- * two (the phone Dock's whole width budget beside the switcher tile). Purely
- * a display declaration — `key` is what `router/Dock.tsx` maps to an actual
- * handler (an `ActionContext` callback today; nothing here reaches into
- * Mail's own action vocabulary, the same "Apps registry stays behavior-free"
- * split `APP_ICONS` already keeps for the App Switcher). An App with fewer
- * than two — or none — simply lists fewer; the Dock renders exactly as many
- * tiles as `dockControls` names, no placeholder slots.
+ * One control the phone Dock (`router/Dock.tsx`) can render as a tile — the
+ * primary action every App names exactly one of (`AppDef.primaryAction`,
+ * R3 `docs/design/polish-pass.md`) or the optional secondary nav control
+ * some Apps also name (`AppDef.navControl`). Purely a display declaration —
+ * `key` is what `router/Dock.tsx` maps to an actual handler (an
+ * `ActionContext` callback for Mail's Folders/Compose, a per-App creation
+ * entry point for everyone else's primary action, a module-level opener for
+ * Calendar's Calendars), the same "Apps registry stays behavior-free" split
+ * `APP_ICONS` already keeps for the App Switcher.
  */
 export interface AppDockControl {
   /** What `router/Dock.tsx`'s own lookup maps to a runnable handler — never read as display text itself. */
@@ -48,17 +48,20 @@ export interface AppDef {
    */
   observesAccountScope: boolean;
   /**
-   * This App's most-used controls, in the phone Dock (#298) — at most two,
-   * in the order the Dock renders them either side of the switcher tile.
-   * Mail names two (Folders, Compose); Contacts, Calendar, Tasks and Notes
-   * each name one (`create`) — a single-element array lands in the
-   * switcher's leading side (`router/Dock.tsx`'s own `[before, after] =
-   * controls` destructuring), which is fine with nothing on the other side
-   * to read as inconsistent against. An App that hasn't named any yet
-   * renders none, the same "reserved but not fully built out" posture
-   * `available: false` already gives a whole App above.
+   * The App's one primary action (R3 `docs/design/polish-pass.md`) — the
+   * solid accent pill in the desktop header and the phone Dock's trailing
+   * tile (`router/Dock.tsx` renders `[switcher][navControl?][primaryAction]`).
+   * Every App names exactly one: Compose (Mail), New contact (Contacts),
+   * New event (Calendar), New task (Tasks), New note (Notes).
    */
-  dockControls: readonly AppDockControl[];
+  primaryAction: AppDockControl;
+  /**
+   * A second Dock tile some Apps declare, ahead of `primaryAction` — Mail's
+   * Folders, Calendar's Calendars, Tasks' Lists. Contacts and Notes name
+   * none, so their Dock is a two-tile pill (switcher, primary action)
+   * rather than three.
+   */
+  navControl?: AppDockControl;
 }
 
 export const APPS: readonly AppDef[] = [
@@ -69,14 +72,11 @@ export const APPS: readonly AppDef[] = [
     description: "Read, triage and send your mail.",
     available: true,
     observesAccountScope: true,
-    // The phone Dock's own two (#298, the ticket's own worked example):
-    // Folders opens the same Sheet the desktop folder rail lives in,
+    // Folders opens the same Sheet the desktop folder rail lives in;
     // Compose starts a new draft — the pair `router/Dock.tsx` (née
     // `BottomBar.tsx`) used to hardcode, now declared here instead.
-    dockControls: [
-      { key: "folders", label: "Folders", icon: PanelLeft },
-      { key: "compose", label: "Compose", icon: Plus },
-    ],
+    navControl: { key: "folders", label: "Folders", icon: PanelLeft },
+    primaryAction: { key: "compose", label: "Compose", icon: Plus },
   },
   {
     key: "contacts",
@@ -87,11 +87,11 @@ export const APPS: readonly AppDef[] = [
     observesAccountScope: true,
     // "create": the shared key Calendar/Tasks/Notes below all reuse
     // too — conceptually one action ("start creating") the same way
-    // `folders`/`compose` are already shared keys naming a Mail-specific
-    // behaviour behind a generic label. `router/Dock.tsx`'s own doc comment
-    // on its App-keyed handler table is where each App's own "create" key
+    // `folders` is already a shared key naming a Mail-specific behaviour
+    // behind a generic label. `router/Dock.tsx`'s own doc comment on its
+    // App-keyed handler resolution is where each App's own "create" key
     // actually resolves to that App's real creation entry point.
-    dockControls: [{ key: "create", label: "New", icon: Plus }],
+    primaryAction: { key: "create", label: "New contact", icon: Plus },
   },
   {
     key: "calendar",
@@ -102,7 +102,11 @@ export const APPS: readonly AppDef[] = [
     // first built-out screen (Notes' own #193 precedent above).
     available: true,
     observesAccountScope: true,
-    dockControls: [{ key: "create", label: "New", icon: Plus }],
+    // Calendars opens the existing slide-over (`calendar-slide-over.ts`'s
+    // module-level opener, `CalendarRoute.tsx`'s own toolbar button reuses
+    // the same one).
+    navControl: { key: "calendars", label: "Calendars", icon: PanelLeft },
+    primaryAction: { key: "create", label: "New event", icon: Plus },
   },
   {
     key: "tasks",
@@ -113,7 +117,12 @@ export const APPS: readonly AppDef[] = [
     // quick add, `notes`'s own "first built-out screen" precedent.
     available: true,
     observesAccountScope: false,
-    dockControls: [{ key: "create", label: "New", icon: Plus }],
+    // Lists opens the rail as a phone Sheet (#321, `tasks/tasks-lists-sheet.ts`'s
+    // module-level opener, `router/Dock.tsx`'s own comment on the tile's
+    // handler) — `PanelLeft` matches Mail's Folders/Calendar's Calendars
+    // rather than inventing a third glyph for "open a rail".
+    navControl: { key: "lists", label: "Lists", icon: PanelLeft },
+    primaryAction: { key: "create", label: "New task", icon: Plus },
   },
   {
     key: "notes",
@@ -124,7 +133,7 @@ export const APPS: readonly AppDef[] = [
     // first built-out screen.
     available: true,
     observesAccountScope: false,
-    dockControls: [{ key: "create", label: "New", icon: Plus }],
+    primaryAction: { key: "create", label: "New note", icon: Plus },
   },
 ];
 

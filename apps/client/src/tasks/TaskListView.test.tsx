@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { toast } from "sonner";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Toaster } from "../components/ui/sonner.js";
 import { resetUndoToastsForTest } from "../mail/undo-toast.js";
 import { localCache, openLocalCache } from "../store/local-cache.js";
@@ -53,7 +53,7 @@ afterEach(async () => {
 function renderTaskListView(props: Partial<Parameters<typeof TaskListView>[0]> = {}) {
   return render(
     <>
-      <TaskListView taskList={LIST} onBack={vi.fn()} {...props} />
+      <TaskListView taskList={LIST} {...props} />
       <Toaster />
     </>,
   );
@@ -83,15 +83,6 @@ function makeDataTransfer() {
 }
 
 describe("TaskListView (#252)", () => {
-  it("the back control calls onBack", async () => {
-    const onBack = vi.fn();
-    renderTaskListView({ onBack });
-
-    fireEvent.click(screen.getByRole("button", { name: "Back to Task Lists" }));
-
-    expect(onBack).toHaveBeenCalledTimes(1);
-  });
-
   it("renders every live Task grouped under one implicit group when the List has no Sections yet", async () => {
     await applyTaskDelta(
       delta({
@@ -194,13 +185,14 @@ describe("TaskListView (#252)", () => {
     renderTaskListView();
 
     await screen.findByText("2 completed");
-    const expander = screen.getByText("2 completed").closest("details") as HTMLDetailsElement;
+    const header = screen.getByText("2 completed").closest("button") as HTMLButtonElement;
     // Collapsed by default — the User opens it deliberately.
-    expect(expander.open).toBe(false);
+    expect(header.getAttribute("aria-expanded")).toBe("false");
 
-    fireEvent.click(screen.getByText("2 completed"));
-    expect(expander.open).toBe(true);
-    const completedNames = within(expander)
+    fireEvent.click(header);
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    const list = header.nextElementSibling as HTMLElement;
+    const completedNames = within(list)
       .getAllByRole("checkbox")
       .map((box) => box.getAttribute("aria-label"));
     expect(completedNames).toEqual(['Mark "Second done" not done', 'Mark "First done" not done']);
@@ -529,13 +521,16 @@ describe("Board mode and swimlanes (#256)", () => {
     ],
   });
 
+  // The header's `Segmented` (#322, R2) — a `role="radiogroup"` of
+  // `role="radio"` options, `Segmented.tsx`'s own shape, replacing the old
+  // `<select>` this test used to drive with `fireEvent.change`.
   function switchToBoard() {
-    fireEvent.change(screen.getByLabelText("View as"), { target: { value: "board" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Board" }));
   }
 
-  it("the header select switches to Board mode, rendering the List's Sections as columns plus a fixed Done column, and the choice persists across a remount", async () => {
+  it("the header Segmented switches to Board mode, rendering the List's Sections as columns plus a fixed Done column, and the choice persists across a remount", async () => {
     const { unmount } = renderTaskListView({ taskList: LIST_WITH_SECTIONS });
-    expect((screen.getByLabelText("View as") as HTMLSelectElement).value).toBe("list");
+    expect(screen.getByRole("radio", { name: "List" }).getAttribute("aria-checked")).toBe("true");
 
     switchToBoard();
 
@@ -546,7 +541,7 @@ describe("Board mode and swimlanes (#256)", () => {
     unmount();
     renderTaskListView({ taskList: LIST_WITH_SECTIONS });
     expect(await screen.findByRole("region", { name: "Backlog column" })).toBeDefined();
-    expect((screen.getByLabelText("View as") as HTMLSelectElement).value).toBe("board");
+    expect(screen.getByRole("radio", { name: "Board" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("dragging a card between columns changes its Section", async () => {

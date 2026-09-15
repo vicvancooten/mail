@@ -44,12 +44,6 @@ export function TasksIndexRoute() {
     },
     [navigate],
   );
-  const onBack = useCallback(() => {
-    void navigate({
-      to: "/tasks",
-      search: (prev: TasksSearch) => ({ ...prev, list: undefined, view: undefined }),
-    });
-  }, [navigate]);
   const onOpenRecentlyDeleted = useCallback(() => {
     void navigate({ to: "/tasks/recently-deleted" });
   }, [navigate]);
@@ -71,7 +65,6 @@ export function TasksIndexRoute() {
       onSelectTaskList={onSelectTaskList}
       selectedView={asTaskView(search.view)}
       onSelectView={onSelectView}
-      onBack={onBack}
       onOpenRecentlyDeleted={onOpenRecentlyDeleted}
       query={search.q ?? null}
       onClearQuery={onClearQuery}
@@ -107,9 +100,6 @@ export function TasksTaskRoute() {
     },
     [navigate],
   );
-  const onBack = useCallback(() => {
-    void navigate({ to: "/tasks" });
-  }, [navigate]);
   const onOpenRecentlyDeleted = useCallback(() => {
     void navigate({ to: "/tasks/recently-deleted" });
   }, [navigate]);
@@ -120,7 +110,6 @@ export function TasksTaskRoute() {
       onSelectTaskList={onSelectTaskList}
       selectedView={null}
       onSelectView={onSelectView}
-      onBack={onBack}
       onOpenRecentlyDeleted={onOpenRecentlyDeleted}
       initialExpandedTaskId={taskId}
     />

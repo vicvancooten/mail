@@ -18,22 +18,23 @@
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
-  /* The phone Dock's own content height (#155, #298), excluding its own
-     bottom margin and safe-area padding — one value the Dock itself and
-     `.app-viewport`'s reserved bottom padding both read, so they can never
-     drift out of step. Trimmed from an earlier 56px: close to a native
-     bottom bar's own ~49pt content height rather than sitting visibly
-     larger than one, since a floating pill this size was reading as though
-     it claimed the middle of the screen rather than sitting calmly at its
-     foot (still a full 48px tap target, comfortably above the ~44px
-     minimum). */
-  --dock-height: 48px;
-  /* Gap between the Dock's floating pill and the screen's bottom safe area
-     — what actually makes it read as floating rather than framing: the
-     page's own ground colour shows all the way round it. Trimmed alongside
-     `--dock-height` above, for the same reason: less of the screen given to
-     the pill's own isolation, not just to the pill itself. */
-  --dock-gutter: 10px;
+  /* Chrome floats over content now (R1, `docs/design/polish-pass.md`); it
+     never reserves space for itself any more (`.app-viewport` below has
+     none of its own), so every phone scroller has to reserve that space for
+     itself instead, by padding its own top/bottom by exactly the floating
+     header's/dock's own footprint — one pair of variables every one of
+     them reads, so they can never compute that footprint differently from
+     each other or from the chrome itself. `0px` at ≥768px, where the header
+     is a normal-flow flex sibling and there is no Dock at all. */
+  --chrome-top: 0px;
+  --chrome-bottom: 0px;
+}
+
+@media (max-width: 767px) {
+  .app-shell {
+    --chrome-top: calc(52px + env(safe-area-inset-top));
+    --chrome-bottom: calc(52px + 12px + env(safe-area-inset-bottom));
+  }
 }
 
 /* ---------- the global header ---------- */
@@ -65,7 +66,7 @@
 .header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -75,7 +76,7 @@
 .home-link {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   padding: 4px 8px 4px 4px;
   border-radius: 999px;
   color: inherit;
@@ -90,7 +91,7 @@
 
 .wordmark {
   font-weight: 650;
-  font-size: 14.5px;
+  font-size: var(--text-body);
   letter-spacing: -0.01em;
   color: var(--color-ink);
   white-space: nowrap;
@@ -178,8 +179,8 @@
 .switcher-compact-btn {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 5px 10px 5px 5px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1);
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -268,12 +269,12 @@
 .tab-pill {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   height: 34px;
   padding: 0 13px;
   border-radius: 999px;
   color: var(--color-ink-muted);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-decoration: none;
   white-space: nowrap;
   transition:
@@ -295,7 +296,7 @@
    (`apps/apps.ts`) — SOON says what it is without taking it away. */
 .tab-pill .tp-soon {
   font-weight: 700;
-  font-size: 10px;
+  font-size: var(--text-label);
   letter-spacing: 0.03em;
   color: var(--color-ink-faint);
 }
@@ -348,9 +349,9 @@
   max-width: 560px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   height: 44px;
-  padding: 0 10px 0 17px;
+  padding: 0 var(--space-3) 0 var(--space-4);
   border: none;
   border-radius: 999px;
   background: var(--color-field-strong);
@@ -373,7 +374,7 @@
 
 .global-search span {
   flex: 1;
-  font-size: 14.5px;
+  font-size: var(--text-body);
   text-align: left;
   color: var(--color-ink-muted);
 }
@@ -384,7 +385,7 @@
   color: var(--color-ink-faint);
   background: var(--color-surface);
   border-radius: var(--radius-sm);
-  padding: 2px 7px;
+  padding: 2px var(--space-2);
 }
 
 /* ---------- Account Scope (#73, moved into the Hub in #96) ---------- */
@@ -425,7 +426,7 @@
 .account-scope-avatars .mail-avatar {
   width: 24px;
   height: 24px;
-  font-size: 9px;
+  font-size: var(--text-label);
   box-shadow: 0 0 0 2px var(--color-surface-strong);
 }
 
@@ -444,7 +445,7 @@
 .account-scope-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   border: none;
@@ -509,31 +510,13 @@
 
 /* ---------- header-right ---------- */
 
-.header-icon-btn {
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-ink-muted);
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease);
-}
-
-.header-icon-btn:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
+/* The appearance toggle is a plain `.btn-ghost.btn-icon` now
+   (`controls.css`, R2) — nothing header-specific left to declare. */
 
 .avatar-menu-trigger {
   appearance: none;
   cursor: pointer;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   padding: 0;
   border: none;
   background: transparent;
@@ -576,22 +559,25 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 54px;
+    height: 52px;
     gap: 8px;
-    padding: 0 10px;
-    padding-left: calc(10px + env(safe-area-inset-left));
-    padding-right: calc(10px + env(safe-area-inset-right));
-    /* `--shadow-header-flush` (#286): the desktop recipe's top inset
-       highlight reads as a hairline right where the header's top edge
-       meets the safe-area inset (the OS status bar) — dropped here, kept
-       everywhere else, since the bottom shade/drop it keeps still separates
-       the floating header from content scrolling beneath it. */
-    box-shadow: var(--shadow-header-flush);
+    padding: 0 var(--space-3);
+    padding-left: calc(var(--space-3) + env(safe-area-inset-left));
+    padding-right: calc(var(--space-3) + env(safe-area-inset-right));
+    /* R1 (`docs/design/polish-pass.md`): chrome floats *over* content, not
+       around it — translucent and blurred like a sheet of glass laid on
+       top of the scrolling pane, rather than an opaque slab with a relief
+       shadow separating it from what's beneath. No shadow, no border: the
+       blur alone is what reads as "above" the content now. */
+    background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    backdrop-filter: blur(18px) saturate(1.3);
+    box-shadow: none;
     transition: transform var(--dur-fast) var(--ease-out);
   }
 
   .global-search {
-    height: 38px;
+    height: 36px;
     padding-left: 13px;
   }
 
@@ -603,41 +589,12 @@
     display: none;
   }
 
-  /* The header floats over the routed content now (`position: fixed`
-     above) rather than pushing it down as a flex sibling, so `.app-viewport`
-     reserves the same space itself instead — required so retracting the
-     header can be a pure `transform`, not a reflow, the only way it stays
-     smooth every frame of a fast scroll. Transitions in step with the
-     header's/dock's own `transform` below (same duration, same easing) —
-     see the `[data-chrome-hidden="true"]` override further down for why. */
-  .app-viewport {
-    padding-top: calc(54px + env(safe-area-inset-top));
-    padding-bottom: calc(var(--dock-height) + var(--dock-gutter) * 2 + env(safe-area-inset-bottom));
-    transition: padding var(--dur-fast) var(--ease-out);
-  }
-
   .app-shell[data-chrome-hidden="true"] .app-header {
     transform: translateY(-100%);
   }
-
-  /* The reported "gray bars" (user's own words): `.app-viewport`'s reserved
-     padding above never used to shrink when the chrome it was reserved for
-     actually retracted — the header/dock slid away via a pure `transform`
-     (deliberately, so retracting stays a smooth 60fps move rather than a
-     reflow), but the space they left behind stayed exactly as reserved,
-     showing as a dead strip of `.app-viewport`'s own ground colour top and
-     bottom. Collapsing the padding to just the safe-area inset in lockstep
-     — same `data-chrome-hidden` gate, same duration/easing as the header's
-     and dock's own transforms — is what lets scrolled content actually
-     reclaim that space rather than merely watching the chrome slide off of
-     a gap that was never given back. */
-  .app-shell[data-chrome-hidden="true"] .app-viewport {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
 }
 
-/* ---------- the phone Dock (#155, replaced with a floating pill in #298) ---------- */
+/* ---------- the phone Dock (#155, floating pill since #298, blurred glass and icon-only since #318) ---------- */
 
 /* Hidden by default — `RootLayout.tsx` only ever mounts `<Dock>` on phone
    (`isPhoneChrome`) so this rule rarely does any work, but it's a harmless
@@ -647,27 +604,35 @@
 }
 
 @media (max-width: 767px) {
-  /* A floating pill, not a bar framing the screen (#298's own acceptance
-     box): centred with a gutter on every side rather than pinned edge to
-     edge, so the page's one phone ground colour (`.app-viewport`'s own
-     `--color-bg` fill, full-bleed at this width) shows all the way round
-     it instead of being framed by a painted band. `--shadow-overlay` — the
-     one shadow this app gives an element that floats *over* content rather
-     than merely sitting in relief above it (`compose.css`, `mail.css`'s own
-     panels) — is what makes it read as floating rather than as more chrome
-     bolted to the edge. */
+  /* A floating pill, not a bar framing the screen: centred with a gutter on
+     every side rather than pinned edge to edge, so the page's one phone
+     ground colour (`.app-viewport`'s own `--color-bg` fill, full-bleed at
+     this width) shows all the way round it instead of being framed by a
+     painted band. A blurred glass surface rather than a solid one (R1's own
+     "chrome floats over content" now applied to the Dock, not just the
+     header, `docs/design/polish-pass.md`'s "Dock" section) — translucent
+     `--color-surface` tinted by whatever scrolls beneath it, `blur(20px)
+     saturate(1.4)` the same recipe the header's own translucent background
+     uses, and a 0.5px inset ring (`color-mix` over `--color-ink`) standing
+     in for a hairline border this app otherwise reserves for Settings —
+     `--shadow-overlay` alone read as flat on a light blurred surface with no
+     edge of its own. */
   .dock {
     display: flex;
     align-items: stretch;
     position: fixed;
     left: 50%;
-    bottom: calc(var(--dock-gutter) + env(safe-area-inset-bottom));
+    bottom: calc(12px + env(safe-area-inset-bottom));
     z-index: 10;
     gap: 2px;
-    padding: 5px;
-    border-radius: 999px;
-    background: var(--color-surface-strong);
-    box-shadow: var(--shadow-overlay);
+    padding: 4px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    backdrop-filter: blur(20px) saturate(1.4);
+    box-shadow:
+      var(--shadow-overlay),
+      inset 0 0 0 0.5px color-mix(in srgb, var(--color-ink) 8%, transparent);
     transform: translateX(-50%);
     transition: transform var(--dur-fast) var(--ease-out);
   }
@@ -677,40 +642,31 @@
      transform stays in the same rule so the two combine into one `matrix`
      rather than a second transform clobbering the first. */
   .app-shell[data-chrome-hidden="true"] .dock {
-    transform: translateX(-50%)
-      translateY(calc(100% + var(--dock-gutter) + env(safe-area-inset-bottom) + 20px));
+    transform: translateX(-50%) translateY(calc(100% + 12px + env(safe-area-inset-bottom) + 20px));
   }
 }
 
-/* One shared voice for every tile — a declared control (Folders, Compose,
-   `apps/apps.ts#AppDef.dockControls`) or the switcher — an icon over a
-   caption, evenly spaced, transparent until pressed. Ghost is this app's
-   default control voice everywhere else too; a persistent pill read is
-   earned by even spacing and a full-height hit target, not by an inverted
-   or tinted "current" state none of these tiles actually has (each opens a
-   transient sheet or panel, never a place you "are"). */
+/* One shared voice for every tile — the switcher or a declared control
+   (`apps/apps.ts#AppDef.primaryAction`/`navControl`) — icon-only, no
+   caption (#318 drops the caption `span`s the ghost icon-over-caption tiles
+   used to carry), transparent until pressed. Ghost is this app's default
+   control voice everywhere else too; a square touch target at the control
+   height ladder's own touch rung (`--control-touch`, `@mail/design-tokens`)
+   is what earns the tile its footprint, not a filled or bordered rest
+   state — each tile opens a transient sheet, panel or screen, never a place
+   you "are". */
 .dock-item {
-  /* Content-based, not an equal-share `flex: 1`: a one-word ghost
-     caption ("Folders"/"Compose") never needs to grow, and giving it equal
-     weight against the switcher tile below is exactly what used to starve
-     the switcher's own variable-length App name of room — see
-     `.dock-switcher`'s own comment. */
-  flex: 0 1 auto;
+  flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-width: 52px;
-  height: var(--dock-height);
-  padding: 0 8px;
+  width: var(--control-touch);
+  height: var(--control-touch);
+  padding: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 10.5px;
-  font-weight: 600;
   cursor: pointer;
   transition:
     color var(--dur-press) var(--ease),
@@ -723,15 +679,15 @@
 
 .dock-item:active {
   color: var(--color-accent);
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 
 /* Compose is the one filled action everywhere else in the app
-   (`.compose-btn`'s own accent pill) — here it stays ghost like its
-   siblings (a solid disc this small reads as a FAB bolted onto a Dock, the
-   phone-app cliché the brief rules out), but keeps a little of that same
-   personality: the plus turns a quarter turn on press, not just a colour
-   change. */
+   (`.btn-primary`'s own accent pill, the desktop header's primary action) —
+   here it stays ghost like its siblings (a solid disc this small reads as a
+   FAB bolted onto a Dock, the phone-app cliché the brief rules out), but
+   keeps a little of that same personality: the plus turns a quarter turn on
+   press, not just a colour change. */
 .dock-compose svg {
   transition: transform var(--dur-fast) var(--ease-pop);
 }
@@ -740,70 +696,21 @@
   transform: rotate(90deg);
 }
 
-/* The switcher tile (#298's own acceptance box: "reads as tappable/a
-   control, not a label") — a filled `.app-tile` behind the current App's
-   icon plus an upward chevron, rather than bare icon-over-caption text at
-   the same visual weight as the ghost tiles either side of it. A subtle
-   fill and border give it its own footprint in the pill so it reads as the
-   thing you press to open something, not a caption naming what the Dock
-   currently shows. */
-.dock-switcher {
-  /* Content-based basis and real growth priority (fixes the current
-     App's name reading as a single illegible letter) — this is the one
-     Dock tile whose label varies (App names run "Mail" to "Contacts"), so
-     unlike `.dock-item`'s own fixed-width captions either side, it's the
-     one tile that should actually claim any free width the pill has. A
-     bare `flex: 1` shared equally with two `.dock-item`s (each protected by
-     their own `min-width`, this tile's `min-width: 0` giving it none of its
-     own) meant *this* tile, not either of theirs, absorbed the whole
-     squeeze whenever the pill's own shrink-to-fit sizing ran short — flex-
-     basis `auto` seeds that sizing from the label's own real content width
-     instead of a shared, content-blind `0%`, and `min-width` gives it a
-     floor even at the shortest App name. */
-  flex: 1 1 auto;
+/* The switcher tile (decision B, `docs/design/polish-pass.md`): the current
+   App's icon alone on a 28px accent-soft square — no chevron, no App name,
+   distinguished from the nav/primary tiles beside it only by that filled
+   square, never by a caption. The outer `.dock-item` still owns the 44×44
+   touch target and press state every other tile shares; this square is
+   purely the current-App indicator sitting inside it. */
+.dock-switcher-tile {
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-width: 72px;
-  height: var(--dock-height);
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    transform var(--dur-press) var(--ease-out);
-}
-
-.dock-switcher span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dock-switcher:hover {
-  background: var(--color-field);
-}
-
-.dock-switcher:active {
-  transform: scale(0.96);
-}
-
-.dock-switcher .app-tile {
-  width: 20px;
-  height: 20px;
-}
-
-.dock-switcher-chev {
-  color: var(--color-ink-faint);
-  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
 /* The phone App Switcher's own Sheet (#136): a bottom sheet, not the
@@ -812,7 +719,7 @@
    media query above — `AppSwitcher.tsx` itself decides sheet vs inline, so
    these rules apply at whatever width the sheet renders. */
 .switcher-sheet {
-  padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+  padding: 8px var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
 }
 
 .switcher-sheet .tabs-row {
@@ -824,8 +731,8 @@
 
 .switcher-sheet .tab-pill {
   height: 46px;
-  padding: 0 14px;
-  font-size: 15px;
+  padding: 0 var(--space-4);
+  font-size: var(--text-body);
 }
 
 .switcher-sheet .tab-pill span:not(.tp-soon) {
@@ -849,18 +756,17 @@
    `overflow: hidden` is what clips that fill to the rounded corners rather
    than every route needing its own radius. `--color-surface-strong` here is
    what makes that raised-card margin read as a *different*, cooler surface
-   than the card sitting on it — deliberate at ≥768px, but with no card
-   inset left to frame at phone width, the same colour only showed as a
-   mismatched grey strip anywhere this padding was still visible (the
-   header's own covered top strip, once retracted; the floating dock's own
-   gutter, always) — the phone override below matches the route's own
-   `--color-bg` fill instead, so that reserved space reads as the page's
-   ground rather than as a second, separate surface. Deliberately placed
-   after this rule (not inside its own `@media (max-width: 767px)` block
-   further up the file) — equal-specificity rules cascade in source order
-   regardless of which one carries a media condition, so an earlier phone
-   override here would have lost to this unconditional declaration instead
-   of winning under 768px. */
+   than the card sitting on it — deliberate at ≥768px, but there is no
+   card-margin at phone width for that colour to frame at all (R1,
+   `docs/design/polish-pass.md`: chrome floats over full-bleed content now,
+   `.app-viewport` reserves nothing of its own on the phone any more) — the
+   phone override below matches the route's own `--color-bg` fill instead,
+   so this pane never shows as a second, separate surface behind the
+   header/Dock's own transparency. Deliberately placed after this rule (not
+   inside its own `@media (max-width: 767px)` block further up the file) —
+   equal-specificity rules cascade in source order regardless of which one
+   carries a media condition, so an earlier phone override here would have
+   lost to this unconditional declaration instead of winning under 768px. */
 .app-viewport {
   flex: 1;
   min-height: 0;
@@ -893,7 +799,12 @@
 }
 
 /* One of the three reserved Apps (#72) — finished chrome around an empty
-   App, not a stub: a mark, a name, one line, and a flat "Not built yet". */
+   App, not a stub: a mark, a name, one line, and a flat "Not built yet".
+   R1: its own phone scroller, padding its top/bottom by the floating
+   chrome's own footprint like every other one (`shell.css`'s own
+   `--chrome-top`/`--chrome-bottom`), even though its centred card never
+   comes close to either edge — the scroller itself still has to clear the
+   header/Dock the same as any other. */
 .app-placeholder {
   height: 100%;
   min-height: 0;
@@ -901,6 +812,10 @@
   display: grid;
   place-items: center;
   padding: 24px;
+  padding-top: calc(24px + var(--chrome-top));
+  padding-bottom: calc(24px + var(--chrome-bottom));
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
   background: var(--color-bg);
 }
 
@@ -926,9 +841,9 @@
 }
 
 .app-placeholder-card h2 {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   font-weight: 650;
-  font-size: 16px;
+  font-size: var(--text-title);
   letter-spacing: -0.01em;
   color: var(--color-ink);
 }
@@ -936,12 +851,12 @@
 .app-placeholder-card p {
   margin: 0;
   color: var(--color-ink-faint);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   line-height: 1.55;
 }
 
 .app-placeholder-status {
-  margin-top: 14px;
+  margin-top: var(--space-4);
   font-weight: 600;
   font-size: 11.5px;
   color: var(--color-ink-faint);
@@ -962,11 +877,74 @@
 }
 
 .avatar-menu-role {
-  padding: 1px 7px;
+  padding: 1px var(--space-2);
   border-radius: 999px;
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-weight: 600;
-  font-size: 10px;
+  font-size: var(--text-label);
   letter-spacing: 0.04em;
+}
+
+/* ============================================================================
+   MOTION (R5, `docs/design/polish-pass.md#Motion`) — the keyframes shared
+   across Apps: a bottom Sheet's rise/fall and its scrim's fade
+   (`components/ui/sheet.tsx`, every `side="bottom"` Sheet: Folders, the App
+   Switcher, VirtualizedThreadList's group-overflow sheet, Add-to-Tasks),
+   and a phone detail pane's push-in when a List/detail split gains
+   `.has-selection` (Mail's `.split-view`, Tasks' `.tasks-split-view`).
+   `prefers-reduced-motion` (`index.css`) clamps every one of these to 1ms —
+   they're plain `animation`s, nothing bypasses that rule.
+   ========================================================================= */
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheet-fall {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sheet-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Phone detail push (R5): the pane that becomes visible when a List/detail
+   split gains `.has-selection` slides in from the trailing edge instead of
+   the hard `display: none` swap just snapping into place. Going back (losing
+   `.has-selection`) stays instant — only the pane that *arrives* animates,
+   never the list reappearing underneath it. */
+@keyframes pane-enter {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }

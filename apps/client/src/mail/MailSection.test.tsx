@@ -1821,30 +1821,16 @@ describe("MailSection", () => {
     );
   });
 
-  /**
-   * "One composer at a time" (compose-spec §Composer surface & keys): a
-   * second Compose click while a composer is already open must not swap
-   * `composeId` out from under it — that would unmount the live `Composer`
-   * with no synchronous flush of whatever's still sitting in its autosave
-   * debounce.
-   */
-  it("does not drop unsaved typing when Compose is clicked again while a composer is already open", async () => {
-    await seedCachedMail();
-    stubFetch(never);
-    renderMail();
-
-    const composeButton = await screen.findByRole("button", { name: "Compose" });
-    fireEvent.click(composeButton);
-
-    const subject = await screen.findByPlaceholderText("Subject");
-    fireEvent.change(subject, { target: { value: "Do not lose this" } });
-
-    fireEvent.click(composeButton);
-
-    const stillOpen = await screen.findByPlaceholderText("Subject");
-    expect(stillOpen).toBe(subject); // the same input — the composer was never unmounted
-    expect((stillOpen as HTMLInputElement).value).toBe("Do not lose this");
-  });
+  // "One composer at a time" (compose-spec §Composer surface & keys — a
+  // second Compose click while a composer is already open must not swap
+  // `composeId` out from under it) used to live here, clicking the rail's
+  // own `.compose-btn` twice. #319 removed that button — Compose is the
+  // desktop header's own `<PrimaryAction>` now, which isn't part of this
+  // component's own tree (`MailSection` mounts below `RootLayout.tsx`'s
+  // header, never above or beside it), so the regression test moved with
+  // it to `app-shell-integration.test.tsx` ("the desktop header's primary
+  // action composes, and a second click doesn't drop unsaved typing"),
+  // which renders the real `<App />` tree the button actually lives in.
 });
 
 describe("MailSection — the group header cluster (#66, #67, #77)", () => {

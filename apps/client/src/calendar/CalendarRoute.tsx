@@ -1,6 +1,6 @@
 import { Outlet } from "@tanstack/react-router";
-import { PanelLeft } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
+import { useMemo } from "react";
 import { useHiddenCalendarIds, useShowTasksOnGrid } from "../mail/device-preferences.js";
 import { deriveCalendarScope, useAccountScope } from "../mail/useAccountScope.js";
 import { calendarRoute } from "../router/routes.js";
@@ -21,6 +21,11 @@ import {
   today,
 } from "./calendar-dates.js";
 import { bucketEventsByDay } from "./calendar-occurrences.js";
+import {
+  openCalendarSlideOver,
+  setCalendarSlideOverOpen,
+  useCalendarSlideOverOpen,
+} from "./calendar-slide-over.js";
 import { bucketTasksByDay } from "./calendar-task-occurrences.js";
 import {
   type CalendarView,
@@ -116,7 +121,11 @@ export function CalendarRoute() {
   const range = useMemo(() => civilDateRangeToIso(days), [days]);
   const { events, outsideWindow, window: eventWindow } = useEventsForRange(range.start, range.end);
   const [hiddenCalendarIds, toggleCalendarVisibility] = useHiddenCalendarIds();
-  const [slideOverOpen, setSlideOverOpen] = useState(false);
+  // Module-level state (`calendar-slide-over.ts`) rather than local
+  // `useState` — the phone Dock's own Calendars tile (`router/Dock.tsx`)
+  // opens this same slide-over with no component ancestry in common with
+  // this toolbar button to lift a setter through.
+  const slideOverOpen = useCalendarSlideOverOpen();
 
   // Account Scope (#300): read independently here, the same
   // `useConnectedAccounts`/`useAccountScope` pair `MailSection.tsx` reads
@@ -168,31 +177,31 @@ export function CalendarRoute() {
         <div className="calendar-toolbar-left">
           <button
             type="button"
-            className="calendar-icon-btn"
+            className="btn-ghost btn-icon"
             aria-label="Show Calendars"
-            onClick={() => setSlideOverOpen(true)}
+            onClick={() => openCalendarSlideOver()}
           >
             <PanelLeft size={16} />
           </button>
-          <button type="button" className="calendar-today-btn" onClick={() => goTo(view, today())}>
+          <button type="button" className="btn-ghost" onClick={() => goTo(view, today())}>
             Today
           </button>
           <div className="calendar-nav-arrows">
             <button
               type="button"
-              className="calendar-icon-btn"
+              className="btn-ghost btn-icon"
               aria-label="Previous"
               onClick={() => goTo(view, stepDate(view, date, -1))}
             >
-              ‹
+              <ChevronLeft size={16} />
             </button>
             <button
               type="button"
-              className="calendar-icon-btn"
+              className="btn-ghost btn-icon"
               aria-label="Next"
               onClick={() => goTo(view, stepDate(view, date, 1))}
             >
-              ›
+              <ChevronRight size={16} />
             </button>
           </div>
           <h2 className="calendar-heading">
@@ -245,7 +254,7 @@ export function CalendarRoute() {
       </div>
       <CalendarSlideOver
         open={slideOverOpen}
-        onOpenChange={setSlideOverOpen}
+        onOpenChange={setCalendarSlideOverOpen}
         calendars={calendars}
         connectedAccounts={connectedAccounts ?? []}
         hiddenCalendarIds={hiddenCalendarIds}

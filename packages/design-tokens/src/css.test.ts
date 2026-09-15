@@ -14,7 +14,7 @@ describe("buildTokensCss", () => {
   it("declares the type, geometry and shadow tokens on :root", () => {
     const root = css.slice(css.indexOf(":root {"), css.indexOf("@media"));
     expect(root).toContain('--font-sans: "Inter Variable"');
-    expect(root).toContain('--font-mono: "Martian Mono Variable"');
+    expect(root).toContain("--font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;");
     expect(root).toContain("--radius-sm: 6px;");
     expect(root).toContain("--radius-md: 8px;");
     expect(root).toContain("--radius-row: 11px;");
@@ -27,6 +27,34 @@ describe("buildTokensCss", () => {
     expect(root).toContain("--shadow-header:");
     expect(root).toContain("--shadow-header-flush:");
     expect(root).toContain("--shadow-card:");
+  });
+
+  it("declares the space ladder on :root", () => {
+    const root = css.slice(css.indexOf(":root {"), css.indexOf("@media"));
+    expect(root).toContain("--space-1: 4px;");
+    expect(root).toContain("--space-2: 8px;");
+    expect(root).toContain("--space-3: 12px;");
+    expect(root).toContain("--space-4: 16px;");
+    expect(root).toContain("--space-5: 20px;");
+    expect(root).toContain("--space-6: 24px;");
+    expect(root).toContain("--space-7: 32px;");
+  });
+
+  it("declares the text ladder on :root", () => {
+    const root = css.slice(css.indexOf(":root {"), css.indexOf("@media"));
+    expect(root).toContain("--text-label: 11.5px;");
+    expect(root).toContain("--text-secondary: 13px;");
+    expect(root).toContain("--text-body: 14px;");
+    expect(root).toContain("--text-title: 17px;");
+    expect(root).toContain("--text-heading: 21px;");
+  });
+
+  it("declares the control height ladder on :root", () => {
+    const root = css.slice(css.indexOf(":root {"), css.indexOf("@media"));
+    expect(root).toContain("--control-sm: 28px;");
+    expect(root).toContain("--control-md: 32px;");
+    expect(root).toContain("--control-primary: 38px;");
+    expect(root).toContain("--control-touch: 44px;");
   });
 
   it("overrides colours for an OS dark preference, guarded against an explicit .light", () => {
@@ -59,9 +87,12 @@ describe("buildTokensCss", () => {
     expect(darkClassBlock).toContain("--tile-e-ink: #a9b8d6;");
   });
 
-  it("does not repeat the type, geometry or shadow tokens in a theme override", () => {
+  it("does not repeat the type, geometry, shadow or scale tokens in a theme override", () => {
     const overrides = css.slice(css.indexOf("@media"));
     expect(overrides).not.toContain("--font-sans");
     expect(overrides).not.toContain("--radius-sm");
+    expect(overrides).not.toContain("--space-1");
+    expect(overrides).not.toContain("--text-body");
+    expect(overrides).not.toContain("--control-md");
   });
 });

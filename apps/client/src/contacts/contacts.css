@@ -5,39 +5,26 @@
  * widened by the banner/avatar hero and the phone breakpoint.
  */
 
+/* R1 (`docs/design/polish-pass.md`): its own phone scroller — shared by
+   `ContactsGrid.tsx` and `ContactsRecentlyDeleted.tsx` alike, both mount
+   this same class — `0px` at ≥768px (`shell.css`'s own
+   `--chrome-top`/`--chrome-bottom`). */
 .contacts-grid-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 20px 24px 32px;
+  padding-top: calc(20px + var(--chrome-top));
+  padding-bottom: calc(32px + var(--chrome-bottom));
   overflow-y: auto;
   height: 100%;
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
-/* ---------- the Contacts / People you've mailed tabs (#218) ---------- */
-
-.contacts-app-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: var(--hairline) solid var(--color-border);
-}
-
-.contacts-app-tab {
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: none;
-  padding: 6px 4px;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--color-ink-faint);
-  cursor: pointer;
-}
-
-.contacts-app-tab.active {
-  color: var(--color-ink);
-  border-bottom-color: var(--color-accent);
-}
+/* The Contacts / People you've mailed tabs (#218) are `Segmented` now
+   (`components/Segmented.tsx`, R2) — `controls.css#.segmented` owns their
+   whole shape, hairline underline gone. */
 
 /* ---------- "People you've mailed" rows ---------- */
 
@@ -56,7 +43,7 @@
   justify-content: space-between;
   gap: 12px;
   border-bottom: var(--hairline) solid var(--color-border);
-  padding: 10px 4px;
+  padding: var(--space-3) 4px;
 }
 
 .mailed-person-identity {
@@ -66,7 +53,7 @@
 }
 
 .mailed-person-name {
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--color-ink);
   white-space: nowrap;
@@ -75,7 +62,7 @@
 }
 
 .mailed-person-address {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -86,51 +73,33 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .contacts-search {
   flex: 1 1 200px;
   min-width: 160px;
-  border: var(--hairline) solid var(--color-border);
+  border: none;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
+  background: var(--color-field);
   color: var(--color-ink);
   font-family: inherit;
-  font-size: 13px;
-  padding: 6px 14px;
+  font-size: var(--text-secondary);
+  padding: var(--space-2) var(--space-4);
 }
 
 .contacts-search:focus {
   outline: none;
-  border-color: var(--color-accent);
-}
-
-.contacts-new-link {
-  flex: none;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-decoration: none;
-  padding: 6px 14px;
-  white-space: nowrap;
-  transition: background var(--dur-press) var(--ease);
-}
-
-.contacts-new-link:hover {
-  background: var(--color-hover);
+  background: var(--color-field-strong);
 }
 
 .contacts-recently-deleted-link {
   flex: none;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
   text-decoration: none;
   white-space: nowrap;
-  padding: 5px 0;
+  padding: var(--space-1) 0;
 }
 
 .contacts-recently-deleted-link:hover {
@@ -143,44 +112,16 @@
 .address-book-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   border: none;
   margin: 0;
   padding: 0;
 }
 
-.address-book-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 12.5px;
-  padding: 5px 12px;
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease),
-    border-color var(--dur-press) var(--ease);
-}
-
-.address-book-chip:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.address-book-chip.selected {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
+/* The Address Book chip itself is `.chip` now (`controls.css`, R2) — only
+   the Origin label riding inside it is this App's own. */
 .address-book-chip-origin {
-  font-size: 10.5px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -190,7 +131,7 @@
   margin: 0;
   padding: 32px 0;
   color: var(--color-ink-faint);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-align: center;
 }
 
@@ -246,7 +187,7 @@
   right: 8px;
   background: rgb(0 0 0 / 35%);
   color: #fff;
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -267,7 +208,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: var(--text-title);
   font-weight: 700;
 }
 
@@ -281,13 +222,13 @@
 }
 
 .contact-card-body {
-  padding: 20px 14px 14px;
+  padding: 20px var(--space-4) var(--space-4);
   min-height: 56px;
 }
 
 .contact-card-name {
   margin: 0 0 2px;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--color-ink);
   white-space: nowrap;
@@ -297,7 +238,7 @@
 
 .contact-card-organization {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -321,8 +262,20 @@
   gap: 12px;
 }
 
+/* The screen's own title, not a grid group's caption (R4 pane title tier:
+   `.contacts-grid-heading` styles the grid's "Company"-style captions, so
+   this overrides it here rather than giving Recently Deleted a bespoke
+   class for the same one heading). */
+.contacts-recently-deleted-header .contacts-grid-heading {
+  font-size: var(--text-title);
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--color-ink);
+}
+
 .contacts-recently-deleted-back {
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
   text-decoration: none;
 }
@@ -334,7 +287,7 @@
 
 .contacts-grid-heading {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -350,14 +303,14 @@
 
 .contact-card-restore {
   align-self: flex-start;
-  margin: 0 14px 14px;
+  margin: 0 var(--space-4) var(--space-4);
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-3);
   cursor: pointer;
 }
 
@@ -371,19 +324,18 @@
 .contacts-duplicates-filter {
   display: flex;
   align-items: center;
-  gap: 6px;
-  border: var(--hairline) solid var(--color-border);
+  gap: var(--space-2);
+  border: none;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
+  background: var(--color-field);
   color: var(--color-ink-muted);
   font-family: inherit;
-  font-size: 12.5px;
-  padding: 5px 12px;
+  font-size: var(--text-secondary);
+  padding: var(--space-1) 12px;
   cursor: pointer;
   transition:
     background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease),
-    border-color var(--dur-press) var(--ease);
+    color var(--dur-press) var(--ease);
 }
 
 .contacts-duplicates-filter:hover {
@@ -393,7 +345,6 @@
 
 .contacts-duplicates-filter.selected {
   background: var(--color-accent-soft);
-  border-color: var(--color-accent);
   color: var(--color-accent);
   font-weight: 600;
 }
@@ -410,15 +361,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 
 .contact-card-chip {
   border-radius: var(--radius-pill);
-  font-size: 10.5px;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.02em;
-  padding: 2px 7px;
+  padding: 2px var(--space-2);
   background: var(--color-hover);
   color: var(--color-ink-muted);
 }
@@ -443,25 +394,25 @@
 .contact-copy-move-target {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 12.5px;
+  gap: var(--space-2);
+  font-size: var(--text-secondary);
   font-weight: 600;
   color: var(--color-ink-faint);
 }
 
 .contact-import-target select,
 .contact-copy-move-target select {
-  border: var(--hairline) solid var(--color-border);
+  border: none;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
+  background: var(--color-field);
   color: var(--color-ink);
   font: inherit;
   font-weight: 400;
-  padding: 6px 12px;
+  padding: var(--space-2) 12px;
 }
 
 .contact-import-error {
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-warn);
 }
 
@@ -469,11 +420,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
 }
 
 .contact-copy-move-drops ul {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-5);
 }

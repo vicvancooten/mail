@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/AuthContext.js";
@@ -11,6 +11,7 @@ import { resetSyncStatus } from "../sync/sync-loop.js";
 import { delta, makeTask, makeTaskList } from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
 import { TasksApp } from "./TasksApp.js";
+import { closeTasksListsSheet, openTasksListsSheet } from "./tasks-lists-sheet.js";
 
 /**
  * `TasksApp` takes no router dependency of its own (`selectedTaskListId`/
@@ -70,6 +71,10 @@ afterEach(async () => {
   localCache().close();
   setSessionUserId(null);
   resetUndoToastsForTest();
+  // The Lists Sheet's own open state lives outside React (`tasks-lists-sheet.ts`'s
+  // own doc comment) — left open, one test's `openTasksListsSheet()` would
+  // bleed into the next file's own first render.
+  closeTasksListsSheet();
   for (const nm of names.splice(0)) await Dexie.delete(nm);
 });
 
@@ -80,7 +85,6 @@ function renderTasksApp(props: Partial<Parameters<typeof TasksApp>[0]> = {}) {
         selectedTaskListId={null}
         onSelectTaskList={vi.fn()}
         onSelectView={vi.fn()}
-        onBack={vi.fn()}
         onOpenRecentlyDeleted={vi.fn()}
         {...props}
       />
@@ -88,12 +92,19 @@ function renderTasksApp(props: Partial<Parameters<typeof TasksApp>[0]> = {}) {
   );
 }
 
-describe("TasksApp (#252)", () => {
-  it("renders no Task Lists as an empty sidebar and a 'pick a list' main column", async () => {
+/** Opens a Task List row's own `…` menu — the same `ContextMenu` a right-click reaches (`TasksSidebar.tsx`'s own doc comment on why the button dispatches a synthetic `contextmenu` rather than opening a second menu of its own). */
+function openRowMenu(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: `More actions for "${name}"` }));
+}
+
+describe("TasksApp (#252, #321)", () => {
+  it("lands on Today when neither a List nor a view is selected — the 'Pick a Task List.' empty state is gone", async () => {
     renderTasksApp();
 
     expect(await screen.findByRole("navigation", { name: "Task Lists" })).toBeDefined();
-    expect(screen.getByText("Pick a Task List.")).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Today" }).className).toContain("current");
+    expect(screen.queryByText("Pick a Task List.")).toBeNull();
   });
 
   it("creates a Task List from the sidebar and hands its id to onSelectTaskList", async () => {
@@ -113,7 +124,7 @@ describe("TasksApp (#252)", () => {
     expect(onSelectTaskList).toHaveBeenCalledTimes(1);
   });
 
-  it("renames a Task List in place from the sidebar", async () => {
+  it("renames a Task List in place from the row's context menu", async () => {
     await applyTaskListDelta(
       delta({ created: [makeTaskList("list-1", USER, { name: "Old name", order: 0 })] }),
       { replace: false },
@@ -122,7 +133,8 @@ describe("TasksApp (#252)", () => {
     renderTasksApp();
     await screen.findByText("Old name");
 
-    fireEvent.click(screen.getByRole("button", { name: 'Rename "Old name"' }));
+    openRowMenu("Old name");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
     const input = screen.getByLabelText('Rename "Old name"');
     fireEvent.change(input, { target: { value: "New name" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -214,7 +226,7 @@ describe("TasksApp (#252)", () => {
   });
 
   describe("deleting a Task List (#257)", () => {
-    it("offers no delete control for the default List", async () => {
+    it("offers no delete control for the default List, but still offers Rename", async () => {
       await applyTaskListDelta(
         delta({
           created: [makeTaskList("list-1", USER, { name: "Tasks", order: 0, isDefault: true })],
@@ -225,7 +237,9 @@ describe("TasksApp (#252)", () => {
       renderTasksApp();
       await screen.findByText("Tasks");
 
-      expect(screen.queryByRole("button", { name: 'Delete "Tasks"' })).toBeNull();
+      openRowMenu("Tasks");
+      expect(await screen.findByRole("menuitem", { name: "Rename" })).toBeDefined();
+      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
     });
 
     it("soft-deletes the List, cascades onto its own live Tasks, and drops it from the sidebar", async () => {
@@ -247,7 +261,8 @@ describe("TasksApp (#252)", () => {
       renderTasksApp();
       await screen.findByText("Groceries");
 
-      fireEvent.click(screen.getByRole("button", { name: 'Delete "Groceries"' }));
+      openRowMenu("Groceries");
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
       await waitFor(async () => {
         expect((await readTaskList("list-1"))?.deletedAt).not.toBeNull();
@@ -265,7 +280,8 @@ describe("TasksApp (#252)", () => {
       renderTasksApp();
       await screen.findByText("Groceries");
 
-      fireEvent.click(screen.getByRole("button", { name: 'Delete "Groceries"' }));
+      openRowMenu("Groceries");
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
       await waitFor(async () => {
         const deleted = await readDeletedTaskLists();
@@ -342,6 +358,29 @@ describe("TasksApp (#252)", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
       expect(onClearQuery).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("phone Lists Sheet (#321)", () => {
+    it("opens from the module-level store, lists Views and Lists, and closes once a row is picked", async () => {
+      await applyTaskListDelta(
+        delta({ created: [makeTaskList("list-1", USER, { name: "Groceries", order: 0 })] }),
+        { replace: false },
+      );
+      const onSelectTaskList = vi.fn();
+      renderTasksApp({ onSelectTaskList });
+      await screen.findByRole("navigation", { name: "Task Lists" });
+
+      openTasksListsSheet();
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByRole("button", { name: "Today" })).toBeDefined();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Groceries" }));
+
+      expect(onSelectTaskList).toHaveBeenCalledWith("list-1");
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
     });
   });
 });

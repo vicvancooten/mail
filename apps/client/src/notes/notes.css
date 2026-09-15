@@ -6,13 +6,21 @@
  * reads.
  */
 
+/* R1 (`docs/design/polish-pass.md`): its own phone scroller — shared by
+   `NotesGrid.tsx` and `NotesRecentlyDeleted.tsx` alike, both mount this
+   same class — `0px` at ≥768px (`shell.css`'s own
+   `--chrome-top`/`--chrome-bottom`). */
 .notes-grid-section {
   display: flex;
   flex-direction: column;
   gap: 20px;
   padding: 20px 24px 32px;
+  padding-top: calc(20px + var(--chrome-top));
+  padding-bottom: calc(32px + var(--chrome-bottom));
   overflow-y: auto;
   height: 100%;
+  scroll-padding-top: var(--chrome-top);
+  scroll-padding-bottom: var(--chrome-bottom);
 }
 
 .notes-grid-toolbar {
@@ -24,11 +32,11 @@
 
 .notes-recently-deleted-link {
   flex: none;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
   text-decoration: none;
   white-space: nowrap;
-  padding: 5px 0;
+  padding: var(--space-1) 0;
 }
 
 .notes-recently-deleted-link:hover {
@@ -39,7 +47,7 @@
 .notes-label-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   /* A `<fieldset>` for its native grouping semantics (biome's own
      `useSemanticElements` steers `role="group"` here) — none of its default
      chrome (border, inset padding) belongs in a filter row. */
@@ -48,50 +56,25 @@
   padding: 0;
 }
 
-.notes-label-chip {
-  border: var(--hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 12.5px;
-  padding: 5px 12px;
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    color var(--dur-press) var(--ease),
-    border-color var(--dur-press) var(--ease);
-}
-
-.notes-label-chip:hover {
-  background: var(--color-hover);
-  color: var(--color-ink);
-}
-
-.notes-label-chip.selected {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  font-weight: 600;
-}
+/* The Label chip itself is `.chip` now (`controls.css`, R2). */
 
 .notes-grid-empty {
   margin: 0;
   padding: 32px 0;
   color: var(--color-ink-faint);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-align: center;
 }
 
 .notes-grid-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .notes-grid-heading {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -101,7 +84,7 @@
 .notes-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 /* ---------- the card ---------- */
@@ -123,15 +106,15 @@
 
 .note-card-link {
   display: block;
-  padding: 12px 14px 8px;
+  padding: 12px var(--space-4) 8px;
   color: inherit;
   text-decoration: none;
   min-height: 96px;
 }
 
 .note-card-title {
-  margin: 0 0 6px;
-  font-size: 13.5px;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--color-ink);
   white-space: nowrap;
@@ -146,7 +129,7 @@
   max-height: 110px;
   overflow: hidden;
   pointer-events: none;
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-muted);
   -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
   mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
@@ -225,7 +208,7 @@
   flex-wrap: wrap;
   gap: 4px;
   margin: 0;
-  padding: 0 14px 12px;
+  padding: 0 var(--space-4) 12px;
 }
 
 .note-card-label-badge {
@@ -234,7 +217,7 @@
   color: var(--color-accent);
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 7px;
+  padding: 2px var(--space-2);
 }
 
 /* ---------- the dialog ---------- */
@@ -311,8 +294,20 @@
   gap: 12px;
 }
 
+/* The screen's own title, not a grid group's caption (R4 pane title tier:
+   `.notes-grid-heading` styles the grid's Pinned/Others captions, so this
+   overrides it here rather than giving Recently Deleted a bespoke class
+   for the same one heading). */
+.notes-recently-deleted-header .notes-grid-heading {
+  font-size: var(--text-title);
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--color-ink);
+}
+
 .notes-recently-deleted-back {
-  font-size: 12.5px;
+  font-size: var(--text-secondary);
   color: var(--color-ink-faint);
   text-decoration: none;
 }
@@ -336,14 +331,14 @@
 
 .note-card-restore {
   align-self: flex-start;
-  margin: 0 14px 12px;
+  margin: 0 var(--space-4) 12px;
   border: var(--hairline) solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-3);
   cursor: pointer;
 }
 
@@ -364,7 +359,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px var(--space-3);
   border-radius: var(--radius-md);
   border: var(--hairline) solid var(--color-border);
   background: var(--color-field);
@@ -404,7 +399,7 @@
   flex-direction: column;
   gap: 2px;
   text-align: left;
-  padding: 8px 10px;
+  padding: 8px var(--space-3);
   border: none;
   border-radius: var(--radius-md);
   background: none;
@@ -421,6 +416,6 @@
 }
 
 .thread-link-picker-meta {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-muted);
 }

@@ -61,18 +61,18 @@ function ChipRow({
       </button>
 
       {accounts.length > 1 && account ? (
-        <span className="search-chip search-chip-account">{account.emailAddress}</span>
+        <span className="chip search-chip-account">{account.emailAddress}</span>
       ) : null}
 
       <span
-        className={`search-chip search-chip-scope${state.seedLive ? " seeded" : ""}`}
+        className={`chip search-chip-scope${state.seedLive ? " seeded" : ""}`}
         title={hint ?? undefined}
       >
         {scopeLabel}
         {state.effectiveFolder || state.effectiveLabel ? (
           <button
             type="button"
-            className="search-chip-remove"
+            className="chip-remove"
             title="Search all mail"
             onClick={() => {
               if (state.seedLive) state.popSeed();
@@ -87,18 +87,19 @@ function ChipRow({
 
       <button
         type="button"
-        className={`search-chip search-chip-toggle${trashJunkOn ? " on" : ""}`}
+        className="chip"
+        aria-pressed={trashJunkOn}
         onClick={state.toggleTrashJunk}
       >
         Trash & Junk
       </button>
 
       {state.parsed.from ? (
-        <span className="search-chip">
+        <span className="chip">
           From: {state.parsed.from}
           <button
             type="button"
-            className="search-chip-remove"
+            className="chip-remove"
             onClick={() => state.setOperator("from", null)}
           >
             <X size={11} />
@@ -106,11 +107,11 @@ function ChipRow({
         </span>
       ) : null}
       {state.parsed.to ? (
-        <span className="search-chip">
+        <span className="chip">
           To: {state.parsed.to}
           <button
             type="button"
-            className="search-chip-remove"
+            className="chip-remove"
             onClick={() => state.setOperator("to", null)}
           >
             <X size={11} />
@@ -118,11 +119,11 @@ function ChipRow({
         </span>
       ) : null}
       {state.parsed.hasAttachment ? (
-        <span className="search-chip">
+        <span className="chip">
           Has attachment
           <button
             type="button"
-            className="search-chip-remove"
+            className="chip-remove"
             onClick={() => state.setOperator("has", null)}
           >
             <X size={11} />
@@ -130,11 +131,11 @@ function ChipRow({
         </span>
       ) : null}
       {state.parsed.after ? (
-        <span className="search-chip">
+        <span className="chip">
           After: {state.parsed.after}
           <button
             type="button"
-            className="search-chip-remove"
+            className="chip-remove"
             onClick={() => state.setOperator("after", null)}
           >
             <X size={11} />
@@ -142,11 +143,11 @@ function ChipRow({
         </span>
       ) : null}
       {state.parsed.before ? (
-        <span className="search-chip">
+        <span className="chip">
           Before: {state.parsed.before}
           <button
             type="button"
-            className="search-chip-remove"
+            className="chip-remove"
             onClick={() => state.setOperator("before", null)}
           >
             <X size={11} />

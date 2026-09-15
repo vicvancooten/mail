@@ -5,6 +5,7 @@ import Dexie from "dexie";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
+import { closeCalendarSlideOver } from "./calendar/calendar-slide-over.js";
 import { resetActiveMailHost } from "./mail/actions/active-mail-host.js";
 import { resetSurfaceHandles } from "./mail/actions/surface-handles.js";
 import { writeAccountScope, writeViewMode } from "./mail/device-preferences.js";
@@ -151,6 +152,10 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   localCache().close();
   resetUndoToastsForTest();
+  // `calendar-slide-over.ts`'s own open state lives outside React, the
+  // Dock's own Calendars tile test above opens it — `CalendarRoute.test.tsx`'s
+  // own `closeCalendarSlideOver()` reset, applied here too.
+  closeCalendarSlideOver();
   // Sonner's own toast store lives outside React (`mail/MailSection.test.tsx`'s
   // own doc comment) — a toast one test raised but never dismissed (its own
   // timer not yet due) would otherwise bleed into the next test's assertions,
@@ -372,6 +377,63 @@ describe("the app shell over a routed tree (#71)", () => {
     expect(location.pathname).toBe("/settings/general");
   });
 
+  /**
+   * The desktop header's `<PrimaryAction>` (#319, R3 `docs/design/polish-pass.md`):
+   * a `.btn-primary` before Account Scope, sharing `apps/primary-action.ts#usePrimaryAction`
+   * with the phone Dock's own trailing tile. The rail's own `.compose-btn` is
+   * gone (`mail/Sidebar.tsx`) — this is the one solid-accent Compose left at
+   * desktop width, and it must survive being clicked twice in a row without
+   * dropping whatever's mid-autosave in the open Composer (the regression
+   * `MailSection.test.tsx` used to cover against the now-removed rail
+   * button).
+   */
+  it("the desktop header's primary action composes, and a second click doesn't drop unsaved typing", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    const composeButton = screen.getByRole("button", { name: "Compose" });
+    await user.click(composeButton);
+
+    const subject = await screen.findByPlaceholderText("Subject");
+    await user.type(subject, "Do not lose this");
+
+    await user.click(composeButton);
+
+    const stillOpen = await screen.findByPlaceholderText("Subject");
+    expect(stillOpen).toBe(subject); // the same input — the composer was never unmounted
+    expect((stillOpen as HTMLInputElement).value).toBe("Do not lose this");
+  });
+
+  /**
+   * `RootLayout.tsx`'s own `fallbackCtx` ("navigate to Mail first") is what
+   * every Dock tile already fell back to from Settings or a placeholder App
+   * (#155, unchanged by this ticket) — the header's `<PrimaryAction>` reads
+   * the identical `activeCtx`, so its own Compose button still renders (it
+   * reads `usePrimaryAction`'s Mail-fallback icon/label, `appKey` being
+   * `undefined` on `/settings`) and, clicked, lands on `/mail` exactly the
+   * way `fallbackCtx.onCompose` always has (#319's own acceptance box).
+   */
+  it("Compose from the header still renders and works from Settings (fallbackCtx)", async () => {
+    await seedOneThread();
+    stubFetch();
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByText("Routed thread");
+
+    await user.click(screen.getByRole("button", { name: /Account menu for/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "General" });
+
+    await user.click(screen.getByRole("button", { name: "Compose" }));
+
+    expect(location.pathname).toBe("/mail");
+  });
+
   it("the App Switcher names all five Apps as reachable links, none marked SOON (#72, #86, #187, #193, #211, #231, #252)", async () => {
     await seedOneThread();
     stubFetch();
@@ -466,7 +528,7 @@ describe("the app shell over a routed tree (#71)", () => {
     }
   });
 
-  it("at phone width, the header sheds to search and avatar and the Dock carries the App Switcher tile plus Mail's two declared controls (#155, #298)", async () => {
+  it("at phone width, the header sheds to search and avatar and the Dock carries the App Switcher tile plus Mail's declared controls (#155, #298, #318)", async () => {
     await seedOneThread();
     stubFetch();
     const user = userEvent.setup();
@@ -488,19 +550,18 @@ describe("the app shell over a routed tree (#71)", () => {
       expect(screen.queryByLabelText("Toggle appearance")).toBeNull();
       expect(screen.getByRole("button", { name: "Switch app" })).toBeDefined();
 
-      // The Dock itself: Folders and Compose either side of the switcher
-      // tile — Mail's own two declared controls (`apps/apps.ts#AppDef.dockControls`)
-      // — the switcher tile captioned with the current App's name, "Mail"
-      // (its accessible name stays "Switch app" either way, the same one
-      // the header's own skin carries) — scoped to the Dock itself, since
-      // jsdom (unlike a real browser) never hides the desktop folder rail's
-      // own same-named Compose pill for a width it can't apply `mail.css`'s
-      // CSS against.
+      // The Dock itself: the switcher tile leading, then Mail's own
+      // `navControl` (Folders) and `primaryAction` (Compose,
+      // `apps/apps.ts#AppDef`) — three icon-only tiles, no caption text
+      // anywhere in the pill (#318, decision B) — scoped to the Dock
+      // itself, since jsdom (unlike a real browser) never hides the desktop
+      // folder rail's own same-named Compose pill for a width it can't
+      // apply `mail.css`'s CSS against.
       const dock = screen.getByRole("navigation", {
-        name: "Folders, switch app, and Compose",
+        name: "switch app, Folders, and Compose",
       });
       expect(within(dock).getByRole("button", { name: "Folders" })).toBeDefined();
-      expect(within(dock).getByText("Mail")).toBeDefined();
+      expect(within(dock).queryByText("Mail")).toBeNull();
       expect(within(dock).getByRole("button", { name: "Compose" })).toBeDefined();
 
       // Folders opens the same Sheet the desktop rail's entries live in.
@@ -534,14 +595,14 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByRole("button", { name: "Switch app" });
 
-      // Contacts declares one Dock control now (`apps/apps.ts#APPS`'s own
-      // `contacts` entry, its own "create") — the Dock renders that one
-      // tile plus the switcher, neither of Mail's own Folders/Compose.
+      // Contacts declares no `navControl` (`apps/apps.ts#APPS`'s own
+      // `contacts` entry) — the Dock renders just its `primaryAction` tile
+      // plus the switcher, neither of Mail's own Folders/Compose.
       await user.click(screen.getByRole("button", { name: "Switch app" }));
       await user.click(screen.getByRole("link", { name: /Contacts/ }));
       await screen.findByLabelText("Contacts");
 
-      const dock = screen.getByRole("navigation", { name: "New Contact and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app and New Contact" });
       expect(within(dock).queryByRole("button", { name: "Folders" })).toBeNull();
       expect(within(dock).queryByRole("button", { name: "Compose" })).toBeNull();
       expect(within(dock).getByRole("button", { name: "New Contact" })).toBeDefined();
@@ -565,7 +626,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Contacts");
 
-      const dock = screen.getByRole("navigation", { name: "New Contact and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app and New Contact" });
       await user.click(within(dock).getByRole("button", { name: "New Contact" }));
 
       // The exact same screen `ContactsGrid.tsx`'s own "New contact" link
@@ -593,7 +654,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Calendar");
 
-      const dock = screen.getByRole("navigation", { name: "New Event and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app, Calendars, and New Event" });
       await user.click(within(dock).getByRole("button", { name: "New Event" }));
 
       // `EventEditorPopover.tsx`'s own create-mode fields — the exact same
@@ -601,6 +662,33 @@ describe("the app shell over a routed tree (#71)", () => {
       // creation UI.
       expect(await screen.findByPlaceholderText("Title")).toBeDefined();
       expect(screen.getByRole("group", { name: "Event or Task" })).toBeDefined();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Calendar Dock's Calendars control opens the same slide-over the toolbar's own 'Show Calendars' button does (#318)", async () => {
+    await applyCalendarDelta(delta({ created: [makeCalendar("cal-1", "u1")] }), {
+      replace: false,
+    });
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/calendar");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Calendar");
+
+      const dock = screen.getByRole("navigation", { name: "switch app, Calendars, and New Event" });
+      await user.click(within(dock).getByRole("button", { name: "Calendars" }));
+
+      // `calendar-slide-over.ts`'s own module-level opener — the identical
+      // slide-over `CalendarRoute.tsx`'s toolbar button opens
+      // (`CalendarRoute.test.tsx`'s own "Show Calendars" tests), listing
+      // the seeded default Calendar.
+      expect(await screen.findByLabelText("Personal")).toBeDefined();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -621,14 +709,51 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Tasks");
 
-      const dock = screen.getByRole("navigation", { name: "New Task and switch app" });
+      // `/tasks` with no `view` already lands on Today (#321) — its own
+      // quick add mounts and registers itself with the primary-action focus
+      // registry (`tasks-focus-registry.ts`, #322) straight away.
+      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
+      const quickAdd = screen.getByLabelText("Add a task");
+
+      const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
       await user.click(within(dock).getByRole("button", { name: "New Task" }));
 
-      // `TaskTodayView.tsx`'s own quick add — the one existing entry point
-      // that already creates a Task with no List of its own selected first.
-      await waitFor(() => expect(location.search).toContain("view=today"));
-      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
-      expect(screen.getByLabelText("Add a task")).toBeDefined();
+      // #322: the primary action focuses the quick-add already on screen
+      // rather than navigating — Today is already showing, so there is
+      // nothing left to navigate to.
+      expect(document.activeElement).toBe(quickAdd);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
+  it("the Tasks Dock's Lists control opens the phone Lists Sheet without touching the URL (#321)", async () => {
+    await applyTaskListDelta(
+      delta({ created: [makeTaskList("list-1", "u1", { name: "Groceries", isDefault: true })] }),
+      { replace: false },
+    );
+    stubFetch();
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    history.replaceState(null, "", "/tasks?list=list-1");
+
+    try {
+      render(<App />);
+      await screen.findByLabelText("Tasks");
+
+      const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
+      await user.click(within(dock).getByRole("button", { name: "Lists" }));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByRole("button", { name: "Groceries" })).toBeDefined();
+      // Opening the Sheet is a pure display toggle — the List already on the
+      // URL stays put until the User actually picks a row in it.
+      expect(location.pathname).toBe("/tasks");
+      expect(location.search).toContain("list=list-1");
+
+      await user.click(within(dialog).getByRole("button", { name: "Groceries" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     }
@@ -645,7 +770,7 @@ describe("the app shell over a routed tree (#71)", () => {
       render(<App />);
       await screen.findByLabelText("Notes");
 
-      const dock = screen.getByRole("navigation", { name: "New Note and switch app" });
+      const dock = screen.getByRole("navigation", { name: "switch app and New Note" });
       await user.click(within(dock).getByRole("button", { name: "New Note" }));
 
       // A real Note now exists and its own dialog is open — the exact same
@@ -1890,7 +2015,7 @@ describe("Tasks: the sidebar, a List's rows and quick add (#252)", () => {
     expect(await screen.findByDisplayValue("Buy milk")).toBeDefined();
   });
 
-  it("Phone: the sidebar is the first screen; tapping a List pushes its Tasks, and back returns", async () => {
+  it("Phone: /tasks with nothing selected lands on Today; the Lists Sheet (not a second pane) is how a List gets picked (#321)", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
     window.dispatchEvent(new Event("resize"));
@@ -1903,23 +2028,28 @@ describe("Tasks: the sidebar, a List's rows and quick add (#252)", () => {
       stubFetch();
       history.replaceState(null, "", "/tasks");
 
+      const user = userEvent.setup();
       render(<App />);
-      const groceriesRow = await screen.findByRole("button", { name: "Groceries" });
-      // Only the sidebar is reachable — no List is open yet.
-      expect(screen.queryByRole("heading", { name: "Groceries" })).toBeNull();
+      // The rail never shows on phone at all — Today is the one screen,
+      // reached with no List picked and no Sheet opened first (#321's own
+      // "renders Today on every width" landing state).
+      expect(await screen.findByRole("heading", { name: "Today" })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Groceries" })).toBeNull();
 
-      fireEvent.click(groceriesRow);
+      const dock = screen.getByRole("navigation", { name: "switch app, Lists, and New Task" });
+      await user.click(within(dock).getByRole("button", { name: "Lists" }));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Groceries" }));
 
       expect(await screen.findByRole("heading", { name: "Groceries" })).toBeDefined();
       await waitFor(() => {
         expect(location.pathname).toBe("/tasks");
         expect(location.search).toBe("?list=list-1");
       });
-
-      fireEvent.click(screen.getByRole("button", { name: "Back to Task Lists" }));
-
-      await waitFor(() => expect(location.pathname).toBe("/tasks"));
-      expect(screen.queryByRole("heading", { name: "Groceries" })).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // No back control of its own any more — the Lists tile is the one way
+      // back to the rail on phone, exactly as intended (#321).
+      expect(screen.queryByRole("button", { name: "Back to Task Lists" })).toBeNull();
     } finally {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
       window.dispatchEvent(new Event("resize"));
@@ -1973,7 +2103,8 @@ describe("Tasks: soft delete and Recently Deleted (#257)", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Tasks" });
 
-    expect(screen.queryByRole("button", { name: 'Delete "Tasks"' })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: 'More actions for "Tasks"' }));
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
   });
 
   it("deleting a Task List takes its Tasks with it; Recently Deleted lists one entry with the Task count, and Restore brings back the List and every Task", async () => {
@@ -1996,7 +2127,8 @@ describe("Tasks: soft delete and Recently Deleted (#257)", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Errands" });
 
-    fireEvent.click(screen.getByRole("button", { name: 'Delete "Errands"' }));
+    fireEvent.click(screen.getByRole("button", { name: 'More actions for "Errands"' }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Errands" })).toBeNull();
     });
@@ -2030,7 +2162,8 @@ describe("Tasks: soft delete and Recently Deleted (#257)", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "Errands" });
-    fireEvent.click(screen.getByRole("button", { name: 'Delete "Errands"' }));
+    fireEvent.click(screen.getByRole("button", { name: 'More actions for "Errands"' }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Errands" })).toBeNull();
     });

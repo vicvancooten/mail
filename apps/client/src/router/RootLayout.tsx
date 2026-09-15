@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppSwitcher } from "../apps/AppSwitcher.js";
 import { accountScopeFacetForApp, appForPath } from "../apps/apps.js";
 import { HomeLink } from "../apps/HomeLink.js";
+import { usePrimaryAction } from "../apps/primary-action.js";
 import { CalendarReminderToast } from "../calendar/CalendarReminderToast.js";
 import { CalendarRollbackToast } from "../calendar/CalendarRollbackToast.js";
 import { Toaster } from "../components/ui/sonner.js";
@@ -13,7 +14,7 @@ import { useIsPhoneWidth } from "../hooks/use-phone-width.js";
 import { AccountScope } from "../mail/AccountScope.js";
 import { isTyping } from "../mail/actions/ActionsProvider.js";
 import { useActiveMailHost } from "../mail/actions/active-mail-host.js";
-import { noopActionContext } from "../mail/actions/types.js";
+import { type ActionContext, noopActionContext } from "../mail/actions/types.js";
 import { CommandPalette } from "../mail/command-palette/CommandPalette.js";
 import { PaletteHostProvider, usePaletteHost } from "../mail/command-palette/PaletteHostContext.js";
 import { deriveMailAccountScope, useAccountScope } from "../mail/useAccountScope.js";
@@ -111,6 +112,31 @@ import "./shell.css";
  * `/settings` starts the sync loop exactly as reliably as navigating to
  * `/mail` used to, and navigating between Apps never restarts it.
  */
+/**
+ * The one solid-accent action in the desktop header (R3, decision C,
+ * `docs/design/polish-pass.md`) — the same `usePrimaryAction` hook the
+ * phone Dock's trailing tile (`router/Dock.tsx`) calls, so the two surfaces
+ * can never name a different action for the same App. Desktop-only
+ * (`RootLayoutChrome`'s own `!isPhoneChrome` gate below): on phone the
+ * Dock's tile already carries it, and rendering both would be a second
+ * solid-accent element on screen at once (R3's own "nothing else on screen
+ * is solid accent"). `appKey`/`ctx` are `currentApp?.key`/`activeCtx` —
+ * `undefined` on Settings or a placeholder App falls back to Mail inside
+ * the hook itself, `activeCtx` in that case being `fallbackCtx`'s own
+ * "navigate to Mail first" `onCompose`.
+ */
+function PrimaryAction({ appKey, ctx }: { appKey: string | undefined; ctx: ActionContext }) {
+  const primary = usePrimaryAction(appKey, ctx);
+  if (!primary) return null;
+  const Icon = primary.icon;
+  return (
+    <button type="button" className="btn-primary" onClick={primary.onClick}>
+      <Icon size={16} />
+      {primary.label}
+    </button>
+  );
+}
+
 export function RootLayout() {
   useLocalCacheSync();
   const mailAccounts = useMailAccounts() ?? [];
@@ -350,6 +376,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             </button>
           </div>
           <div className="header-right">
+            {!isPhoneChrome && <PrimaryAction appKey={currentApp?.key} ctx={activeCtx} />}
             {(currentApp?.observesAccountScope ?? true) ? (
               <AccountScope
                 accounts={connectedAccounts}
@@ -361,7 +388,7 @@ function RootLayoutChrome({ mailAccounts }: { mailAccounts: MailAccount[] }) {
             {!isPhoneChrome && (
               <button
                 type="button"
-                className="header-icon-btn"
+                className="btn-ghost btn-icon"
                 title="Toggle appearance"
                 aria-label="Toggle appearance"
                 onClick={toggleAppearance}
