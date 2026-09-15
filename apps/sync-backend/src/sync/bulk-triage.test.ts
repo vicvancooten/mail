@@ -139,7 +139,7 @@ describe("selectTargetThreadIds", () => {
     expect(ids).not.toContain(atUntil);
   });
 
-  it("until: null reaches every Thread up to right now — the open-ended \"Today\" shape, no ceiling at all", async () => {
+  it('until: null reaches every Thread up to right now — the open-ended "Today" shape, no ceiling at all', async () => {
     // `group-target.ts#groupDateRange`'s own test documents the intent this
     // proves at the query layer: "Today is open-ended: no upper bound, so a
     // Thread arriving after the request still lands in it." A Thread whose
