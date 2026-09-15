@@ -69,8 +69,8 @@ typography:
     letterSpacing: "normal"
     fontVariation: "none — sentence case, never uppercase"
   machine:
-    fontFamily: "Martian Mono Variable, ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "11px"
+    fontFamily: "Inter Variable, Helvetica Neue, Arial, sans-serif"
+    fontSize: "11.5px"
     fontWeight: 500
     fontFeature: "tabular-nums"
 rounded:
@@ -260,9 +260,12 @@ inside out" is retired everywhere the rebuild has touched.
 **Body/Display Font:** Inter Variable (with Helvetica Neue, Arial, sans-serif), self-hosted
 from the app's own origin — a client whose promise is that you own your server has no
 business fetching fonts from a CDN on cold start.
-**Machine Font:** Martian Mono Variable (with ui-monospace, SFMono-Regular, Menlo, monospace),
-reserved for anything a machine measured: timestamps, byte sizes, counts, group counts.
-Tabular figures are on for `time` and `.tabular`.
+**Machine Font:** Inter Variable, the same face as the rest of the UI — a second, imported mono
+face (Martian Mono, retired in the polish pass) read as an unrelated voice beside it. Anything a
+machine measured — timestamps, byte sizes, counts, group counts — stays in Inter with tabular
+figures on for `time` and `.tabular`. The one exception is the compose send-failure banner's
+verbatim SMTP rejection text, which is code, not measurement, and keeps a system `ui-monospace`
+stack.
 
 ### Hierarchy
 - **Heading** (650, 21px, -0.017em, `text-wrap: balance`): the open Thread's subject —
@@ -271,7 +274,8 @@ Tabular figures are on for `time` and `.tabular`.
 - **Secondary** (400, 13px): meta lines, the reading pane's correspondent line, snippets.
 - **Label** (600, 11–11.5px, sentence case): section labels, group-header names, the command
   palette's section captions. Small and quiet, never uppercase and never letterspaced.
-- **Machine** (Martian Mono, 10–11px, tabular): timestamps, group counts, byte sizes, key caps.
+- **Machine** (Inter, 11–13px, tabular): timestamps, group counts, byte sizes, key caps. Email
+  addresses ride the Secondary tier (13px, ink-muted) rather than the machine tier.
 
 ### Named Rules
 **The Sentence-Case Rule.** Every label, heading, and caption in the rebuilt system is
@@ -712,8 +716,8 @@ Instrument build rather than a durable principle.
 - **Do** use the radius ladder (`sm` → `md` → `row` → `panel` → `pill`) — never an ad hoc
   value, never a Tailwind utility above `md` expecting anything but the same mapped corner.
 - **Do** keep every label, caption, and heading in sentence case.
-- **Do** set every machine-measured value (time, byte size, count, key cap) in Martian Mono
-  with tabular figures.
+- **Do** set every machine-measured value (time, byte size, count, key cap) in Inter with
+  tabular figures — no separate mono face outside the compose SMTP rejection text.
 - **Do** give an action reserved whitespace and reveal — or, on a header element only, grow
   — it on hover/focus/selection rather than inserting it and reflowing neighbors.
 - **Do** keep `.app-shell` at `100dvh` + `overflow: hidden` and give every new routed screen

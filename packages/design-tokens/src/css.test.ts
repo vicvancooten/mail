@@ -14,7 +14,7 @@ describe("buildTokensCss", () => {
   it("declares the type, geometry and shadow tokens on :root", () => {
     const root = css.slice(css.indexOf(":root {"), css.indexOf("@media"));
     expect(root).toContain('--font-sans: "Inter Variable"');
-    expect(root).toContain('--font-mono: "Martian Mono Variable"');
+    expect(root).toContain("--font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;");
     expect(root).toContain("--radius-sm: 6px;");
     expect(root).toContain("--radius-md: 8px;");
     expect(root).toContain("--radius-row: 11px;");

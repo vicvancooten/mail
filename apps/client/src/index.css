@@ -2,11 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* The two faces, self-hosted from our own origin. A client whose promise is
+/* The one face, self-hosted from our own origin. A client whose promise is
    that you own your server has no business fetching fonts from Google on
-   every cold start. */
+   every cold start. Machine values ride Inter's tabular figures rather than
+   a second, imported mono face (polish pass, decision A). */
 @import "@fontsource-variable/inter/standard.css";
-@import "@fontsource-variable/martian-mono/standard.css";
 
 /* The Instrument's tokens: colour, type and geometry, declared once in
    @mail/design-tokens and consumed here — never hand-duplicated. See that
