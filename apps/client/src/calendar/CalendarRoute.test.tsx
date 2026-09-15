@@ -27,6 +27,7 @@ import {
 } from "../test-support/mail-fixtures.js";
 import { jsonResponse } from "../test-support/mock-fetch.js";
 import { closeEventPanel } from "./calendar-event-panel.js";
+import { closeCalendarSlideOver } from "./calendar-slide-over.js";
 
 /**
  * The Calendar App's grid, over the real router (#231) — the same "whole
@@ -146,6 +147,8 @@ afterEach(async () => {
   // React" reset this block already does for Undo toasts and Sonner's own
   // toast store, just below.
   closeEventPanel();
+  // `calendar-slide-over.ts`'s own open state, same reasoning.
+  closeCalendarSlideOver();
   // Sonner's own toast store lives outside React (`mail/MailSection.test.tsx`'s
   // own doc comment) — a toast this file raised but never dismissed would
   // otherwise bleed into the next test's own render.

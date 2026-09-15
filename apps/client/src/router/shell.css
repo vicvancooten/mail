@@ -18,15 +18,6 @@
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
-  /* The phone Dock's own content height (#155, #298), excluding its own
-     bottom margin and safe-area padding — one value the Dock itself and
-     `--chrome-bottom` below both read, so they can never drift out of step.
-     Trimmed from an earlier 56px: close to a native bottom bar's own ~49pt
-     content height rather than sitting visibly larger than one, since a
-     floating pill this size was reading as though it claimed the middle of
-     the screen rather than sitting calmly at its foot (still a full 48px
-     tap target, comfortably above the ~44px minimum). */
-  --dock-height: 48px;
   /* Chrome floats over content now (R1, `docs/design/polish-pass.md`); it
      never reserves space for itself any more (`.app-viewport` below has
      none of its own), so every phone scroller has to reserve that space for
@@ -603,7 +594,7 @@
   }
 }
 
-/* ---------- the phone Dock (#155, replaced with a floating pill in #298) ---------- */
+/* ---------- the phone Dock (#155, floating pill since #298, blurred glass and icon-only since #318) ---------- */
 
 /* Hidden by default — `RootLayout.tsx` only ever mounts `<Dock>` on phone
    (`isPhoneChrome`) so this rule rarely does any work, but it's a harmless
@@ -613,19 +604,19 @@
 }
 
 @media (max-width: 767px) {
-  /* A floating pill, not a bar framing the screen (#298's own acceptance
-     box): centred with a gutter on every side rather than pinned edge to
-     edge, so the page's one phone ground colour (`.app-viewport`'s own
-     `--color-bg` fill, full-bleed at this width) shows all the way round
-     it instead of being framed by a painted band. `--shadow-overlay` — the
-     one shadow this app gives an element that floats *over* content rather
-     than merely sitting in relief above it (`compose.css`, `mail.css`'s own
-     panels) — is what makes it read as floating rather than as more chrome
-     bolted to the edge. The `12px` gutter is the same one `--chrome-bottom`
-     above builds its own arithmetic from — a scroller's reserved bottom
-     space and the Dock's own offset from the safe area can never drift out
-     of step, since both are the Dock's own footprint read two different
-     ways. */
+  /* A floating pill, not a bar framing the screen: centred with a gutter on
+     every side rather than pinned edge to edge, so the page's one phone
+     ground colour (`.app-viewport`'s own `--color-bg` fill, full-bleed at
+     this width) shows all the way round it instead of being framed by a
+     painted band. A blurred glass surface rather than a solid one (R1's own
+     "chrome floats over content" now applied to the Dock, not just the
+     header, `docs/design/polish-pass.md`'s "Dock" section) — translucent
+     `--color-surface` tinted by whatever scrolls beneath it, `blur(20px)
+     saturate(1.4)` the same recipe the header's own translucent background
+     uses, and a 0.5px inset ring (`color-mix` over `--color-ink`) standing
+     in for a hairline border this app otherwise reserves for Settings —
+     `--shadow-overlay` alone read as flat on a light blurred surface with no
+     edge of its own. */
   .dock {
     display: flex;
     align-items: stretch;
@@ -634,10 +625,14 @@
     bottom: calc(12px + env(safe-area-inset-bottom));
     z-index: 10;
     gap: 2px;
-    padding: 5px;
-    border-radius: 999px;
-    background: var(--color-surface-strong);
-    box-shadow: var(--shadow-overlay);
+    padding: 4px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    backdrop-filter: blur(20px) saturate(1.4);
+    box-shadow:
+      var(--shadow-overlay),
+      inset 0 0 0 0.5px color-mix(in srgb, var(--color-ink) 8%, transparent);
     transform: translateX(-50%);
     transition: transform var(--dur-fast) var(--ease-out);
   }
@@ -651,35 +646,27 @@
   }
 }
 
-/* One shared voice for every tile — a declared control (Folders, Compose,
-   `apps/apps.ts#AppDef.dockControls`) or the switcher — an icon over a
-   caption, evenly spaced, transparent until pressed. Ghost is this app's
-   default control voice everywhere else too; a persistent pill read is
-   earned by even spacing and a full-height hit target, not by an inverted
-   or tinted "current" state none of these tiles actually has (each opens a
-   transient sheet or panel, never a place you "are"). */
+/* One shared voice for every tile — the switcher or a declared control
+   (`apps/apps.ts#AppDef.primaryAction`/`navControl`) — icon-only, no
+   caption (#318 drops the caption `span`s the ghost icon-over-caption tiles
+   used to carry), transparent until pressed. Ghost is this app's default
+   control voice everywhere else too; a square touch target at the control
+   height ladder's own touch rung (`--control-touch`, `@mail/design-tokens`)
+   is what earns the tile its footprint, not a filled or bordered rest
+   state — each tile opens a transient sheet, panel or screen, never a place
+   you "are". */
 .dock-item {
-  /* Content-based, not an equal-share `flex: 1`: a one-word ghost
-     caption ("Folders"/"Compose") never needs to grow, and giving it equal
-     weight against the switcher tile below is exactly what used to starve
-     the switcher's own variable-length App name of room — see
-     `.dock-switcher`'s own comment. */
-  flex: 0 1 auto;
+  flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-width: 52px;
-  height: var(--dock-height);
-  padding: 0 8px;
+  width: var(--control-touch);
+  height: var(--control-touch);
+  padding: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-ink-muted);
-  font-family: inherit;
-  font-size: 10.5px;
-  font-weight: 600;
   cursor: pointer;
   transition:
     color var(--dur-press) var(--ease),
@@ -692,15 +679,15 @@
 
 .dock-item:active {
   color: var(--color-accent);
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 
 /* Compose is the one filled action everywhere else in the app
-   (`.compose-btn`'s own accent pill) — here it stays ghost like its
-   siblings (a solid disc this small reads as a FAB bolted onto a Dock, the
-   phone-app cliché the brief rules out), but keeps a little of that same
-   personality: the plus turns a quarter turn on press, not just a colour
-   change. */
+   (`.btn-primary`'s own accent pill, the desktop header's primary action) —
+   here it stays ghost like its siblings (a solid disc this small reads as a
+   FAB bolted onto a Dock, the phone-app cliché the brief rules out), but
+   keeps a little of that same personality: the plus turns a quarter turn on
+   press, not just a colour change. */
 .dock-compose svg {
   transition: transform var(--dur-fast) var(--ease-pop);
 }
@@ -709,70 +696,21 @@
   transform: rotate(90deg);
 }
 
-/* The switcher tile (#298's own acceptance box: "reads as tappable/a
-   control, not a label") — a filled `.app-tile` behind the current App's
-   icon plus an upward chevron, rather than bare icon-over-caption text at
-   the same visual weight as the ghost tiles either side of it. A subtle
-   fill and border give it its own footprint in the pill so it reads as the
-   thing you press to open something, not a caption naming what the Dock
-   currently shows. */
-.dock-switcher {
-  /* Content-based basis and real growth priority (fixes the current
-     App's name reading as a single illegible letter) — this is the one
-     Dock tile whose label varies (App names run "Mail" to "Contacts"), so
-     unlike `.dock-item`'s own fixed-width captions either side, it's the
-     one tile that should actually claim any free width the pill has. A
-     bare `flex: 1` shared equally with two `.dock-item`s (each protected by
-     their own `min-width`, this tile's `min-width: 0` giving it none of its
-     own) meant *this* tile, not either of theirs, absorbed the whole
-     squeeze whenever the pill's own shrink-to-fit sizing ran short — flex-
-     basis `auto` seeds that sizing from the label's own real content width
-     instead of a shared, content-blind `0%`, and `min-width` gives it a
-     floor even at the shortest App name. */
-  flex: 1 1 auto;
+/* The switcher tile (decision B, `docs/design/polish-pass.md`): the current
+   App's icon alone on a 28px accent-soft square — no chevron, no App name,
+   distinguished from the nav/primary tiles beside it only by that filled
+   square, never by a caption. The outer `.dock-item` still owns the 44×44
+   touch target and press state every other tile shares; this square is
+   purely the current-App indicator sitting inside it. */
+.dock-switcher-tile {
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-width: 72px;
-  height: var(--dock-height);
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--dur-press) var(--ease),
-    transform var(--dur-press) var(--ease-out);
-}
-
-.dock-switcher span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dock-switcher:hover {
-  background: var(--color-field);
-}
-
-.dock-switcher:active {
-  transform: scale(0.96);
-}
-
-.dock-switcher .app-tile {
-  width: 20px;
-  height: 20px;
-}
-
-.dock-switcher-chev {
-  color: var(--color-ink-faint);
-  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
 /* The phone App Switcher's own Sheet (#136): a bottom sheet, not the
