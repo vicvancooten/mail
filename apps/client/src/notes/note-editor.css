@@ -95,7 +95,7 @@
   gap: 4px;
   height: 28px;
   min-width: 28px;
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   background: none;
   border: none;
   border-radius: var(--radius-md);
@@ -168,12 +168,12 @@
   border: var(--hairline) solid var(--color-border);
 }
 .note-suggestion-empty {
-  padding: 8px 10px;
+  padding: 8px var(--space-3);
   font-size: 13px;
   color: var(--color-ink-faint);
 }
 .note-suggestion-label {
-  padding: 6px 10px 2px;
+  padding: var(--space-2) var(--space-3) 2px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -184,7 +184,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -205,7 +205,7 @@
   color: var(--color-ink);
 }
 .note-suggestion-item-subtext {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-faint);
 }
 .note-suggestion-item-badge {
@@ -214,7 +214,7 @@
   color: var(--color-ink-faint);
 }
 .note-suggestion-loader {
-  padding: 8px 10px;
+  padding: 8px var(--space-3);
   font-size: 13px;
   color: var(--color-ink-faint);
 }
@@ -234,7 +234,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--color-ink);
@@ -251,7 +251,7 @@
   background: var(--color-border);
 }
 .note-menu-label {
-  padding: 4px 10px;
+  padding: 4px var(--space-3);
   font-size: 11px;
   font-weight: 600;
   color: var(--color-ink-faint);
@@ -274,7 +274,7 @@
 
 .note-popover {
   min-width: 260px;
-  padding: 10px;
+  padding: var(--space-3);
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   box-shadow: var(--shadow-overlay);
@@ -289,7 +289,7 @@
 .note-form-field {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   padding: 0 8px;
   height: 32px;
   border-radius: var(--radius-md);
@@ -313,7 +313,7 @@
   font-size: 11px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .note-tooltip-shortcut {
   color: var(--color-ink-faint);
@@ -334,7 +334,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px var(--space-3);
   border-radius: var(--radius-md);
   border: var(--hairline) solid var(--color-border);
   background: var(--color-field);
@@ -362,7 +362,7 @@
   white-space: nowrap;
 }
 .thread-link-meta {
-  font-size: 12px;
+  font-size: var(--text-label);
   color: var(--color-ink-muted);
   overflow: hidden;
   text-overflow: ellipsis;
