@@ -33,7 +33,7 @@
     "ical.js": "^2.2.1",
     "imapflow": "^1.7.6",
     "luxon": "^3.7.2",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.0.9",
     "otplib": "^13.5.0",
     "postgres": "^3.4.9",
     "rrule": "^2.8.1",
