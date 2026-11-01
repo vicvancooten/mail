@@ -18,7 +18,7 @@
     "imapflow": "^1.0.191",
     "minisearch": "^7.2.0",
     "postgres": "^3.4.9",
-    "zod": "^4.5.4"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
